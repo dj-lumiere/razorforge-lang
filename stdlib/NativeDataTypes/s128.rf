@@ -1,0 +1,247 @@
+# RazorForge s128 (signed 128-bit integer) native type implementation
+# Maps directly to LLVM i128 type for extended precision integers
+
+# Core s128 type definition - maps to LLVM i128
+struct s128 {
+    public value: LlvmNativeI128
+}
+
+# Constants for s128 limits (LLVM constant values)
+preset S128_MIN: s128 = -170_141_183_460_469_231_731_687_303_715_884_105_728_s128
+preset S128_MAX: s128 = 170_141_183_460_469_231_731_687_303_715_884_105_727_s128
+preset S128_ZERO: s128 = 0_s128
+preset S128_ONE: s128 = 1_s128
+
+# Basic arithmetic operations (LLVM intrinsics: add, sub, mul, sdiv, srem)
+
+# Addition with overflow checking
+recipe s128.add(my: s128, other: s128) -> s128 {
+    return llvm_intrinsic("llvm.sadd.with.overflow.i128", my, other)
+}
+
+# Subtraction with overflow checking
+recipe s128.sub(my: s128, other: s128) -> s128 {
+    return llvm_intrinsic("llvm.ssub.with.overflow.i128", my, other)
+}
+
+# Multiplication with overflow checking
+recipe s128.mul(my: s128, other: s128) -> s128 {
+    return llvm_intrinsic("llvm.smul.with.overflow.i128", my, other)
+}
+
+# Division (signed) - maps to LLVM sdiv
+recipe s128.floordiv(my: s128, other: s128) -> s128 {
+    when (other) {
+        0 => throw panic("Division by zero"),
+        _ => return llvm_intrinsic("sdiv", my, other)
+    }
+}
+
+# Remainder (signed) - maps to LLVM srem
+recipe s128.rem(my: s128, other: s128) -> s128 {
+    when (other) {
+        0 => throw panic("Division by zero"),
+        _ => return llvm_intrinsic("srem", my, other)
+    }
+}
+
+# Bitwise operations (direct LLVM mapping)
+recipe s128.and(my: s128, other: s128) -> s128 {
+    return llvm_intrinsic("and", my, other)
+}
+
+recipe s128.or(my: s128, other: s128) -> s128 {
+    return llvm_intrinsic("or", my, other)
+}
+
+recipe s128.xor(my: s128, other: s128) -> s128 {
+    return llvm_intrinsic("xor", my, other)
+}
+
+recipe s128.not(my: s128) -> s128 {
+    return llvm_intrinsic("xor", my, -1)
+}
+
+# Bit shifting operations
+recipe s128.shl(my: s128, bits: s128) -> s128 {
+    return llvm_intrinsic("shl", my, bits)
+}
+
+recipe s128.shr(my: s128, bits: s128) -> s128 {
+    return llvm_intrinsic("ashr", my, bits)  # Arithmetic right shift for signed
+}
+
+# Comparison operations (LLVM icmp)
+recipe s128.eq(my: s128, other: s128) -> bool {
+    return llvm_intrinsic("icmp eq", my, other)
+}
+
+recipe s128.ne(my: s128, other: s128) -> bool {
+    return llvm_intrinsic("icmp ne", my, other)
+}
+
+recipe s128.lt(my: s128, other: s128) -> bool {
+    return llvm_intrinsic("icmp slt", my, other)  # Signed less than
+}
+
+recipe s128.le(my: s128, other: s128) -> bool {
+    return llvm_intrinsic("icmp sle", my, other)  # Signed less equal
+}
+
+recipe s128.gt(my: s128, other: s128) -> bool {
+    return llvm_intrinsic("icmp sgt", my, other)  # Signed greater than
+}
+
+recipe s128.ge(my: s128, other: s128) -> bool {
+    return llvm_intrinsic("icmp sge", my, other)  # Signed greater equal
+}
+
+# Advanced math operations using LLVM intrinsics
+recipe s128.abs(my: s128) -> s128 {
+    when (my) {
+        >= 0 => return my,
+        _ => return -my
+    }
+}
+
+recipe s128.min(my: s128, other: s128) -> s128 {
+    return if my <= other then my else other
+}
+
+recipe s128.max(my: s128, other: s128) -> s128 {
+    return if my >= other then my else other
+}
+
+# Bit manipulation utilities
+recipe s128.count_leading_zeros(my: s128) -> s128 {
+    return llvm_intrinsic("llvm.ctlz.i128", my, false)
+}
+
+recipe s128.count_trailing_zeros(my: s128) -> s128 {
+    return llvm_intrinsic("llvm.cttz.i128", my, false)
+}
+
+recipe s128.count_ones(my: s128) -> s128 {
+    return llvm_intrinsic("llvm.ctpop.i128", my)
+}
+
+# Byte swapping for endianness conversion
+recipe s128.swap_bytes(my: s128) -> s128 {
+    return llvm_intrinsic("llvm.bswap.i128", my)
+}
+
+# Type conversions to other native types (using constructor syntax)
+recipe u128(from_s128: s128) -> u128 {
+    return llvm_intrinsic("bitcast", from_s128)  # Direct bit reinterpretation
+}
+
+recipe s64(from_s128: s128) -> s64 {
+    return llvm_intrinsic("trunc", from_s128)    # Truncate to 64-bit
+}
+
+recipe s32(from_s128: s128) -> s32 {
+    return llvm_intrinsic("trunc", from_s128)    # Truncate to 32-bit
+}
+
+recipe s16(from_s128: s128) -> s16 {
+    return llvm_intrinsic("trunc", from_s128)    # Truncate to 16-bit
+}
+
+recipe s8(from_s128: s128) -> s8 {
+    return llvm_intrinsic("trunc", from_s128)    # Truncate to 8-bit
+}
+
+recipe f64(from_s128: s128) -> f64 {
+    return llvm_intrinsic("sitofp", from_s128)   # Signed int to double (with precision loss)
+}
+
+recipe f32(from_s128: s128) -> f32 {
+    return llvm_intrinsic("sitofp", from_s128)   # Signed int to float (with precision loss)
+}
+
+recipe bool(from_s128: s128) -> bool {
+    return from_s128 != 0
+}
+
+# High-precision arithmetic utilities
+recipe s128.multiply_with_carry(my: s128, other: s128) -> (s128, s128) {
+    # Returns (low, high) parts of 128x128 -> 256 bit multiplication
+    let result_256 = llvm_intrinsic("llvm.umul.with.overflow.i128", my, other)
+    return (result_256.low, result_256.high)
+}
+
+recipe s128.divide_with_remainder(my: s128, other: s128) -> (s128, s128) {
+    when (other) {
+        0 => throw panic("Division by zero"),
+        _ => {
+            let quotient = my / other
+            let remainder = my % other
+            return (quotient, remainder)
+        }
+    }
+}
+
+# Parsing and formatting using constructor syntax
+recipe s128(from_text: Text) -> s128 {
+    # Parse Text to s128 using LLVM constant folding when possible
+    return 0  # Placeholder
+}
+
+recipe Text(from_s128: s128) -> Text {
+    # Convert s128 to Text representation
+    return ""  # Placeholder
+}
+
+# Cryptographic and high-precision math utilities
+recipe s128.gcd(my: s128, other: s128) -> s128 {
+    # Greatest common divisor using Euclidean algorithm
+    recipe gcd_helper(a: s128, b: s128) -> s128 {
+        when (b) {
+            0 => return a,
+            _ => return gcd_helper(b, a % b)
+        }
+    }
+
+    return gcd_helper(my.abs(), other.abs())
+}
+
+recipe s128.lcm(my: s128, other: s128) -> s128 {
+    # Least common multiple
+    return (my * other).abs() / my.gcd(other)
+}
+
+recipe s128.mod_pow(base: s128, exponent: s128, modulus: s128) -> s128 {
+    # Modular exponentiation for cryptographic operations
+    when (modulus) {
+        1 => return 0,
+        _ => {
+            var result: s128 = 1
+            var base_mod = base % modulus
+            var exp = exponent
+
+            while exp > 0 {
+                when (exp % 2) {
+                    1 => result = (result * base_mod) % modulus,
+                    _ => pass
+                }
+                exp = exp >> 1
+                base_mod = (base_mod * base_mod) % modulus
+            }
+
+            return result
+        }
+    }
+}
+
+/*
+LLVM IR Mapping:
+- RazorForge s128 -> LLVM i128 -> __int128_t (GCC/Clang)
+- Range: �2^127 (about �1.7 � 10^38)
+- 128-bit storage for extended precision arithmetic
+- Used for cryptography, financial calculations, and UUID storage
+- May use software emulation on platforms without native 128-bit support
+
+Note: Not all platforms have native 128-bit integer support.
+On platforms without hardware support, LLVM will generate
+library calls for complex operations.
+*/

@@ -1,0 +1,232 @@
+# RazorForge u32 (unsigned 32-bit integer) native type implementation
+# Maps directly to LLVM i32 type for unsigned operations
+
+# Core u32 type definition - maps to LLVM i32
+struct u32 {
+    public value: LlvmNativeI32
+}
+
+# Constants for u32 limits (LLVM constant values)
+preset U32_MIN: u32 = 0_u32
+preset U32_MAX: u32 = 4294967295_u32
+preset U32_ZERO: u32 = 0_u32
+preset U32_ONE: u32 = 1_u32
+
+# Basic arithmetic operations (LLVM intrinsics: add, sub, mul, udiv, urem)
+
+# Addition with overflow checking
+recipe u32.add(my: u32, other: u32) -> u32 {
+    return llvm_intrinsic("llvm.uadd.with.overflow.i32", my, other)
+}
+
+# Subtraction with overflow checking
+recipe u32.sub(my: u32, other: u32) -> u32 {
+    return llvm_intrinsic("llvm.usub.with.overflow.i32", my, other)
+}
+
+# Multiplication with overflow checking
+recipe u32.mul(my: u32, other: u32) -> u32 {
+    return llvm_intrinsic("llvm.umul.with.overflow.i32", my, other)
+}
+
+# Division (unsigned) - maps to LLVM udiv
+recipe u32.floordiv(my: u32, other: u32) -> u32 {
+    when (other) {
+        0 => throw panic("Division by zero"),
+        _ => return llvm_intrinsic("udiv", my, other)
+    }
+}
+
+# Remainder (unsigned) - maps to LLVM urem
+recipe u32.rem(my: u32, other: u32) -> u32 {
+    when (other) {
+        0 => throw panic("Division by zero"),
+        _ => return llvm_intrinsic("urem", my, other)
+    }
+}
+
+# Bitwise operations (direct LLVM mapping)
+recipe u32.and(my: u32, other: u32) -> u32 {
+    return llvm_intrinsic("and", my, other)
+}
+
+recipe u32.or(my: u32, other: u32) -> u32 {
+    return llvm_intrinsic("or", my, other)
+}
+
+recipe u32.xor(my: u32, other: u32) -> u32 {
+    return llvm_intrinsic("xor", my, other)
+}
+
+recipe u32.not(my: u32) -> u32 {
+    return llvm_intrinsic("xor", my, 4294967295)
+}
+
+# Bit shifting operations
+recipe u32.shl(my: u32, bits: u32) -> u32 {
+    return llvm_intrinsic("shl", my, bits)
+}
+
+recipe u32.shr(my: u32, bits: u32) -> u32 {
+    return llvm_intrinsic("lshr", my, bits)  # Logical right shift for unsigned
+}
+
+# Comparison operations (LLVM icmp)
+recipe u32.eq(my: u32, other: u32) -> bool {
+    return llvm_intrinsic("icmp eq", my, other)
+}
+
+recipe u32.ne(my: u32, other: u32) -> bool {
+    return llvm_intrinsic("icmp ne", my, other)
+}
+
+recipe u32.lt(my: u32, other: u32) -> bool {
+    return llvm_intrinsic("icmp ult", my, other)  # Unsigned less than
+}
+
+recipe u32.le(my: u32, other: u32) -> bool {
+    return llvm_intrinsic("icmp ule", my, other)  # Unsigned less equal
+}
+
+recipe u32.gt(my: u32, other: u32) -> bool {
+    return llvm_intrinsic("icmp ugt", my, other)  # Unsigned greater than
+}
+
+recipe u32.ge(my: u32, other: u32) -> bool {
+    return llvm_intrinsic("icmp uge", my, other)  # Unsigned greater equal
+}
+
+# Math operations
+recipe u32.min(my: u32, other: u32) -> u32 {
+    return if my <= other then my else other
+}
+
+recipe u32.max(my: u32, other: u32) -> u32 {
+    return if my >= other then my else other
+}
+
+# Bit manipulation utilities
+recipe u32.count_leading_zeros(my: u32) -> u32 {
+    return llvm_intrinsic("llvm.ctlz.i32", my, false)
+}
+
+recipe u32.count_trailing_zeros(my: u32) -> u32 {
+    return llvm_intrinsic("llvm.cttz.i32", my, false)
+}
+
+recipe u32.count_ones(my: u32) -> u32 {
+    return llvm_intrinsic("llvm.ctpop.i32", my)
+}
+
+# Byte swapping for endianness conversion
+recipe u32.byte_swap(my: u32) -> u32 {
+    return llvm_intrinsic("llvm.bswap.i32", my)
+}
+
+# Type conversions to other native types (using constructor syntax)
+recipe u8(from_u32: u32) -> u8 {
+    return llvm_intrinsic("trunc", from_u32)      # Truncate to 8-bit
+}
+
+recipe u16(from_u32: u32) -> u16 {
+    return llvm_intrinsic("trunc", from_u32)      # Truncate to 16-bit
+}
+
+recipe s8(from_u32: u32) -> s8 {
+    return llvm_intrinsic("trunc", from_u32)      # Truncate to signed 8-bit
+}
+
+recipe s16(from_u32: u32) -> s16 {
+    return llvm_intrinsic("trunc", from_u32)      # Truncate to signed 16-bit
+}
+
+recipe s32(from_u32: u32) -> s32 {
+    return llvm_intrinsic("bitcast", from_u32)    # Direct bit reinterpretation
+}
+
+recipe u64(from_u32: u32) -> u64 {
+    return llvm_intrinsic("zext", from_u32)       # Zero-extend to 64-bit
+}
+
+recipe u128(from_u32: u32) -> u128 {
+    return llvm_intrinsic("zext", from_u32)       # Zero-extend to 128-bit
+}
+
+recipe s64(from_u32: u32) -> s64 {
+    return llvm_intrinsic("zext", from_u32)       # Zero-extend to signed 64-bit
+}
+
+recipe s128(from_u32: u32) -> s128 {
+    return llvm_intrinsic("zext", from_u32)       # Zero-extend to signed 128-bit
+}
+
+recipe f32(from_u32: u32) -> f32 {
+    return llvm_intrinsic("uitofp", from_u32)     # Unsigned int to float
+}
+
+recipe f64(from_u32: u32) -> f64 {
+    return llvm_intrinsic("uitofp", from_u32)     # Unsigned int to double
+}
+
+recipe f128(from_u32: u32) -> f128 {
+    return llvm_intrinsic("uitofp", from_u32)     # Unsigned int to quad
+}
+
+recipe bool(from_u32: u32) -> bool {
+    return from_u32 != 0
+}
+
+# Parsing and formatting using constructor syntax
+recipe u32(from_text: Text) -> u32 {
+    # Parse Text to u32 using LLVM constant folding when possible
+    return 0  # Placeholder
+}
+
+recipe Text(from_u32: u32) -> Text {
+    # Convert u32 to Text representation
+    return ""  # Placeholder
+}
+
+# Utility functions for bit operations
+recipe u32.is_power_of_two(my: u32) -> bool {
+    return my != 0 and (my & (my - 1)) == 0
+}
+
+recipe u32.next_power_of_two(my: u32) -> u32 {
+    when (my) {
+        0 => return 1,
+        1 => return 1,
+        _ => {
+            var power: u32 = 1
+            while power < my {
+                power = power << 1
+            }
+            return power
+        }
+    }
+}
+
+# Saturating arithmetic (clamps to min/max instead of wrapping)
+recipe u32.saturating_add(my: u32, other: u32) -> u32 {
+    let result = my + other
+    return if result < my then U32_MAX else result  # Overflow check
+}
+
+recipe u32.saturating_sub(my: u32, other: u32) -> u32 {
+    return if my >= other then my - other else U32_ZERO
+}
+
+recipe u32.saturating_mul(my: u32, other: u32) -> u32 {
+    let result = my * other
+    return if other != 0 and result / other != my then U32_MAX else result
+}
+
+/*
+LLVM IR Mapping:
+- RazorForge u32 -> LLVM i32 -> C uint32_t
+- Range: 0 to 4294967295
+- Unsigned operations use ult, uge, udiv, urem, lshr
+- Common for array indices, memory sizes, and hash values
+- Zero-extension used for conversions to larger types
+- Byte swapping available for endianness conversion
+*/

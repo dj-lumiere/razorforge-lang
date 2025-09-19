@@ -1,0 +1,3 @@
+struct d32 {
+    private value: cu32
+}

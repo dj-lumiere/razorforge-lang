@@ -1,0 +1,79 @@
+struct Shared<T> {
+    private controller_address: sysuint
+    private data_address: sysuint
+}
+
+recipe T.share!() -> Shared<T> {
+    danger! {
+        # Allocate control block
+        let controller = RefCountController()
+        controller.increase_strong_count!()
+
+        # Create Shared struct
+        return Shared<T>(
+            controller_address: address_of(controller),
+            data_address: address_of(my)
+        )
+    }
+}
+
+recipe Shared<T>.Shared<T>(controller_address: sysuint, data_address: sysuint) {
+    my.controller_address = controller_address
+    my.data_address = data_address
+    return my
+}
+
+recipe Shared<T>.share!() -> Shared<T> {
+    danger! {
+        var controller = read_as<RefCountController>(controller_address)
+        controller.increase_strong_count!()
+    }
+    return my
+}
+
+recipe Shared<T>.release!() {
+    danger! {
+        var controller = read_as<RefCountController>(controller_address)
+        controller.decrease_strong_count!()
+
+        when (controller.strong_count() == 0) {
+            true => {
+                # Deallocate the data
+                invalidate!(data_address)
+
+                # Check if we should also deallocate the controller
+                when (controller.weak_count() == 0) {
+                    true => invalidate!(controller_address),
+                    false => pass  # Keep controller alive for weak references
+                }
+            },
+            false => pass  # Still has strong references
+        }
+    }
+}
+
+recipe Shared<T>.get(my: Shared<T>) -> T {
+    danger! {
+        return read_as<T>(data_address)
+    }
+}
+
+recipe Shared<T>.set(my: Shared<T>, new_data: T) {
+    danger! {
+        write_to_address<T>(data_address, new_data)
+    }
+}
+
+recipe Shared<T>.strong_count(my: Shared<T>) -> s32 {
+    danger! {
+        var controller = read_as<RefCountController>(controller_address)
+        return controller.strong_count()
+    }
+}
+
+recipe Shared<T>.weak_count(my: Shared<T>) -> s32 {
+    danger! {
+        var controller = read_as<RefCountController>(controller_address)
+        return controller.weak_count()
+    }
+}

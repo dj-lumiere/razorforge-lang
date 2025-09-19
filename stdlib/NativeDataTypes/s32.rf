@@ -1,0 +1,241 @@
+# RazorForge s32 (signed 32-bit integer) native type implementation
+# Maps directly to LLVM i32 type and native machine integers
+
+# Core s32 type definition - maps to LLVM i32
+struct s32 {
+    public value: LlvmNativeI32
+}
+
+# Constants for s32 limits (LLVM constant values)
+preset S32_MIN: s32 = -2_147_483_648_s32
+preset S32_MAX: s32 = 2_147_483_647_s32
+preset S32_ZERO: s32 = 0_s32
+preset S32_ONE: s32 = 1_s32
+
+# Basic arithmetic operations (LLVM intrinsics: add, sub, mul, sdiv, srem)
+
+# Addition with overflow checking
+recipe s32.add(my: s32, other: s32) -> s32 {
+    return llvm_intrinsic("llvm.sadd.with.overflow.i32", my, other)
+}
+
+# Subtraction with overflow checking
+recipe s32.sub(my: s32, other: s32) -> s32 {
+    return llvm_intrinsic("llvm.ssub.with.overflow.i32", my, other)
+}
+
+# Multiplication with overflow checking
+recipe s32.mul(my: s32, other: s32) -> s32 {
+    return llvm_intrinsic("llvm.smul.with.overflow.i32", my, other)
+}
+
+# Division (signed) - maps to LLVM sdiv
+recipe s32.floordiv(my: s32, other: s32) -> s32 {
+    when (other) {
+        0 => throw panic("Division by zero"),
+        _ => return llvm_intrinsic("sdiv", my, other)
+    }
+}
+
+# Remainder (signed) - maps to LLVM srem
+recipe s32.rem(my: s32, other: s32) -> s32 {
+    when (other) {
+        0 => throw panic("Division by zero"),
+        _ => return llvm_intrinsic("srem", my, other)
+    }
+}
+
+# Bitwise operations (direct LLVM mapping)
+recipe s32.and(my: s32, other: s32) -> s32 {
+    return llvm_intrinsic("and", my, other)
+}
+
+recipe s32.or(my: s32, other: s32) -> s32 {
+    return llvm_intrinsic("or", my, other)
+}
+
+recipe s32.xor(my: s32, other: s32) -> s32 {
+    return llvm_intrinsic("xor", my, other)
+}
+
+recipe s32.not(my: s32) -> s32 {
+    return llvm_intrinsic("xor", my, -1)
+}
+
+# Bit shifting operations
+recipe s32.shl(my: s32, bits: s32) -> s32 {
+    return llvm_intrinsic("shl", my, bits)
+}
+
+recipe s32.shr(my: s32, bits: s32) -> s32 {
+    return llvm_intrinsic("ashr", my, bits)  # Arithmetic right shift for signed
+}
+
+# Comparison operations (LLVM icmp)
+recipe s32.eq(my: s32, other: s32) -> bool {
+    return llvm_intrinsic("icmp eq", my, other)
+}
+
+recipe s32.ne(my: s32, other: s32) -> bool {
+    return llvm_intrinsic("icmp ne", my, other)
+}
+
+recipe s32.lt(my: s32, other: s32) -> bool {
+    return llvm_intrinsic("icmp slt", my, other)  # Signed less than
+}
+
+recipe s32.le(my: s32, other: s32) -> bool {
+    return llvm_intrinsic("icmp sle", my, other)  # Signed less equal
+}
+
+recipe s32.gt(my: s32, other: s32) -> bool {
+    return llvm_intrinsic("icmp sgt", my, other)  # Signed greater than
+}
+
+recipe s32.ge(my: s32, other: s32) -> bool {
+    return llvm_intrinsic("icmp sge", my, other)  # Signed greater equal
+}
+
+# Advanced math operations using LLVM intrinsics
+recipe s32.abs(my: s32) -> s32 {
+    when (my) {
+        >= 0 => return my,
+        _ => return -my
+    }
+}
+
+recipe s32.min(my: s32, other: s32) -> s32 {
+    return if my <= other then my else other
+}
+
+recipe s32.max(my: s32, other: s32) -> s32 {
+    return if my >= other then my else other
+}
+
+# Bit manipulation utilities
+recipe s32.count_leading_zeros(my: s32) -> s32 {
+    return llvm_intrinsic("llvm.ctlz.i32", my, false)
+}
+
+recipe s32.count_trailing_zeros(my: s32) -> s32 {
+    return llvm_intrinsic("llvm.cttz.i32", my, false)
+}
+
+recipe s32.count_ones(my: s32) -> s32 {
+    return llvm_intrinsic("llvm.ctpop.i32", my)
+}
+
+# Byte swapping for endianness conversion
+recipe s32.swap_bytes(my: s32) -> s32 {
+    return llvm_intrinsic("llvm.bswap.i32", my)
+}
+
+# Type conversions to other native types (using constructor syntax)
+recipe u32(from_s32: s32) -> u32 {
+    return llvm_intrinsic("bitcast", from_s32)  # Direct bit reinterpretation
+}
+
+recipe f64(from_s32: s32) -> f64 {
+    return llvm_intrinsic("sitofp", from_s32)   # Signed int to double
+}
+
+recipe s64(from_s32: s32) -> s64 {
+    return llvm_intrinsic("sext", from_s32)     # Sign-extend to 64-bit
+}
+
+recipe bool(from_s32: s32) -> bool {
+    return from_s32 != 0
+}
+
+# Parsing and formatting using constructor syntax
+recipe s32(from_text: Text) -> s32 {
+    # Parse Text to s32 using LLVM constant folding when possible
+    # Implementation would use text parsing logic
+    0  # Placeholder
+}
+
+recipe Text(from_s32: s32) -> Text {
+    # Convert s32 to Text representation
+    # Implementation would use formatting logic
+    ""  # Placeholder
+}
+
+# SIMD operations for vectorized s32 processing
+recipe s32_vec_add(a: slice<s32>, b: slice<s32>) -> slice<s32> {
+    let result = new_slice<s32>(a.length())
+
+    # This loop will be auto-vectorized by LLVM using SSE/AVX
+    for i in 0..a.length() {
+        result[i] = a[i] + b[i]
+    }
+
+    result
+}
+
+# Example usage demonstrating LLVM optimizations
+recipe fibonacci_s32(n: s32) -> s32 {
+    # Tail recursion optimization by LLVM
+    recipe fib_helper(n: s32, a: s32, b: s32) -> s32 {
+        when (n) {
+            0 => a,
+            _ => fib_helper(n - 1, b, a + b)
+        }
+    }
+
+    fib_helper(n, 0, 1)
+}
+
+# Hash function using s32 for high performance
+recipe s32_hash(value: s32) -> s32 {
+    # FNV-1a hash algorithm optimized by LLVM (32-bit version)
+    let hash: s32 = 2166136261  # FNV offset basis for 32-bit
+    let prime: s32 = 16777619   # FNV prime for 32-bit
+
+    let bytes = value.to_bytes()
+    for byte in bytes {
+        hash = hash.xor(byte as s32)
+        hash = hash.mul(prime)
+    }
+
+    return hash
+}
+
+
+/*
+LLVM IR Generation Examples:
+
+RazorForge Code:
+let a: s32 = 42;
+let b: s32 = 13;
+let result: s32 = a + b;
+
+Generated LLVM IR:
+%a = alloca i32
+%b = alloca i32
+%result = alloca i32
+store i32 42, i32* %a
+store i32 13, i32* %b
+%1 = load i32, i32* %a
+%2 = load i32, i32* %b
+%3 = add nsw i32 %1, %2
+store i32 %3, i32* %result
+
+Optimized LLVM IR (after constant folding):
+%result = alloca i32
+store i32 55, i32* %result
+
+LLVM Intrinsics Used:
+- Arithmetic: add, sub, mul, sdiv, srem
+- Bitwise: and, or, xor, shl, ashr
+- Comparison: icmp (eq, ne, slt, sle, sgt, sge)
+- Memory: load, store, alloca
+- Atomic: atomic.load, atomic.store, atomic.rmw.*
+- Math: ctlz, cttz, ctpop, bswap
+- Conversion: trunc, sext, bitcast, sitofp
+
+Target Architecture Mapping:
+- x86_64: Maps to native 64-bit registers (RAX, RBX, etc.)
+- ARM64: Maps to native 64-bit registers (X0, X1, etc.)
+- RISC-V: Maps to XLEN=64 registers
+- WebAssembly: Maps to i32 type with 64-bit operations
+*/

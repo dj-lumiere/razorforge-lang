@@ -1,0 +1,241 @@
+# RazorForge s64 (signed 64-bit integer) native type implementation
+# Maps directly to LLVM i64 type and native machine integers
+
+# Core s64 type definition - maps to LLVM i64
+struct s64 {
+    public value: LlvmNativeI64
+}
+
+# Constants for s64 limits (LLVM constant values)
+preset S64_MIN: s64 = -9_223_372_036_854_775_808_s64
+preset S64_MAX: s64 = 9_223_372_036_854_775_807_s64
+preset S64_ZERO: s64 = 0_s64
+preset S64_ONE: s64 = 1_s64
+
+# Basic arithmetic operations (LLVM intrinsics: add, sub, mul, sdiv, srem)
+
+# Addition with overflow checking
+recipe s64.add(my: s64, other: s64) -> s64 {
+    return llvm_intrinsic("llvm.sadd.with.overflow.i64", my, other)
+}
+
+# Subtraction with overflow checking
+recipe s64.sub(my: s64, other: s64) -> s64 {
+    return llvm_intrinsic("llvm.ssub.with.overflow.i64", my, other)
+}
+
+# Multiplication with overflow checking
+recipe s64.mul(my: s64, other: s64) -> s64 {
+    return llvm_intrinsic("llvm.smul.with.overflow.i64", my, other)
+}
+
+# Division (signed) - maps to LLVM sdiv
+recipe s64.floordiv(my: s64, other: s64) -> s64 {
+    when (other) {
+        0 => throw panic("Division by zero"),
+        _ => return llvm_intrinsic("sdiv", my, other)
+    }
+}
+
+# Remainder (signed) - maps to LLVM srem
+recipe s64.rem(my: s64, other: s64) -> s64 {
+    when (other) {
+        0 => throw panic("Division by zero"),
+        _ => return llvm_intrinsic("srem", my, other)
+    }
+}
+
+# Bitwise operations (direct LLVM mapping)
+recipe s64.and(my: s64, other: s64) -> s64 {
+    return llvm_intrinsic("and", my, other)
+}
+
+recipe s64.or(my: s64, other: s64) -> s64 {
+    return llvm_intrinsic("or", my, other)
+}
+
+recipe s64.xor(my: s64, other: s64) -> s64 {
+    return llvm_intrinsic("xor", my, other)
+}
+
+recipe s64.not(my: s64) -> s64 {
+    return llvm_intrinsic("xor", my, -1)
+}
+
+# Bit shifting operations
+recipe s64.shl(my: s64, bits: s64) -> s64 {
+    return llvm_intrinsic("shl", my, bits)
+}
+
+recipe s64.shr(my: s64, bits: s64) -> s64 {
+    return llvm_intrinsic("ashr", my, bits)  # Arithmetic right shift for signed
+}
+
+# Comparison operations (LLVM icmp)
+recipe s64.eq(my: s64, other: s64) -> bool {
+    return llvm_intrinsic("icmp eq", my, other)
+}
+
+recipe s64.ne(my: s64, other: s64) -> bool {
+    return llvm_intrinsic("icmp ne", my, other)
+}
+
+recipe s64.lt(my: s64, other: s64) -> bool {
+    return llvm_intrinsic("icmp slt", my, other)  # Signed less than
+}
+
+recipe s64.le(my: s64, other: s64) -> bool {
+    return llvm_intrinsic("icmp sle", my, other)  # Signed less equal
+}
+
+recipe s64.gt(my: s64, other: s64) -> bool {
+    return llvm_intrinsic("icmp sgt", my, other)  # Signed greater than
+}
+
+recipe s64.ge(my: s64, other: s64) -> bool {
+    return llvm_intrinsic("icmp sge", my, other)  # Signed greater equal
+}
+
+# Advanced math operations using LLVM intrinsics
+recipe s64.abs(my: s64) -> s64 {
+    when (my) {
+        >= 0 => return my,
+        _ => return -my
+    }
+}
+
+recipe s64.min(my: s64, other: s64) -> s64 {
+    return if my <= other then my else other
+}
+
+recipe s64.max(my: s64, other: s64) -> s64 {
+    return if my >= other then my else other
+}
+
+# Bit manipulation utilities
+recipe s64.count_leading_zeros(my: s64) -> s64 {
+    return llvm_intrinsic("llvm.ctlz.i64", my, false)
+}
+
+recipe s64.count_trailing_zeros(my: s64) -> s64 {
+    return llvm_intrinsic("llvm.cttz.i64", my, false)
+}
+
+recipe s64.count_ones(my: s64) -> s64 {
+    return llvm_intrinsic("llvm.ctpop.i64", my)
+}
+
+# Byte swapping for endianness conversion
+recipe s64.swap_bytes(my: s64) -> s64 {
+    return llvm_intrinsic("llvm.bswap.i64", my)
+}
+
+# Type conversions to other native types (using constructor syntax)
+recipe u64(from_s64: s64) -> u64 {
+    return llvm_intrinsic("bitcast", from_s64)  # Direct bit reinterpretation
+}
+
+recipe f64(from_s64: s64) -> f64 {
+    return llvm_intrinsic("sitofp", from_s64)   # Signed int to double
+}
+
+recipe s32(from_s64: s64) -> s32 {
+    return llvm_intrinsic("trunc", from_s64)    # Truncate to 32-bit
+}
+
+recipe bool(from_s64: s64) -> bool {
+    return from_s64 != 0
+}
+
+# Parsing and formatting using constructor syntax
+recipe s64(from_text: Text) -> s64 {
+    # Parse Text to s64 using LLVM constant folding when possible
+    # Implementation would use text parsing logic
+    0  # Placeholder
+}
+
+recipe Text(from_s64: s64) -> Text {
+    # Convert s64 to Text representation
+    # Implementation would use formatting logic
+    ""  # Placeholder
+}
+
+# SIMD operations for vectorized s64 processing
+recipe s64_vec_add(a: slice<s64>, b: slice<s64>) -> slice<s64> {
+    let result = new_slice<s64>(a.length())
+
+    # This loop will be auto-vectorized by LLVM using SSE/AVX
+    for i in 0..a.length() {
+        result[i] = a[i] + b[i]
+    }
+
+    result
+}
+
+# Example usage demonstrating LLVM optimizations
+recipe fibonacci_s64(n: s64) -> s64 {
+    # Tail recursion optimization by LLVM
+    recipe fib_helper(n: s64, a: s64, b: s64) -> s64 {
+        when (n) {
+            0 => a,
+            _ => fib_helper(n - 1, b, a + b)
+        }
+    }
+
+    fib_helper(n, 0, 1)
+}
+
+# Hash function using s64 for high performance
+recipe s64_hash(value: s64) -> s64 {
+    # FNV-1a hash algorithm optimized by LLVM
+    let hash: s64 = 14695981039346656037  # FNV offset basis
+    let prime: s64 = 1099511628211        # FNV prime
+
+    let bytes = value.to_bytes()
+    for byte in bytes {
+        hash = hash.xor(byte as s64)
+        hash = hash.mul(prime)
+    }
+
+    return hash
+}
+
+
+/*
+LLVM IR Generation Examples:
+
+RazorForge Code:
+let a: s64 = 42;
+let b: s64 = 13;
+let result: s64 = a + b;
+
+Generated LLVM IR:
+%a = alloca i64
+%b = alloca i64
+%result = alloca i64
+store i64 42, i64* %a
+store i64 13, i64* %b
+%1 = load i64, i64* %a
+%2 = load i64, i64* %b
+%3 = add nsw i64 %1, %2
+store i64 %3, i64* %result
+
+Optimized LLVM IR (after constant folding):
+%result = alloca i64
+store i64 55, i64* %result
+
+LLVM Intrinsics Used:
+- Arithmetic: add, sub, mul, sdiv, srem
+- Bitwise: and, or, xor, shl, ashr
+- Comparison: icmp (eq, ne, slt, sle, sgt, sge)
+- Memory: load, store, alloca
+- Atomic: atomic.load, atomic.store, atomic.rmw.*
+- Math: ctlz, cttz, ctpop, bswap
+- Conversion: trunc, sext, bitcast, sitofp
+
+Target Architecture Mapping:
+- x86_64: Maps to native 64-bit registers (RAX, RBX, etc.)
+- ARM64: Maps to native 64-bit registers (X0, X1, etc.)
+- RISC-V: Maps to XLEN=64 registers
+- WebAssembly: Maps to i64 type with 64-bit operations
+*/

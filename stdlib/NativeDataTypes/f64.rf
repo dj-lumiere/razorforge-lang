@@ -1,0 +1,341 @@
+# RazorForge f64 (double precision floating point) native type implementation
+# Maps directly to LLVM double type and IEEE 754 double precision format
+
+# Core f64 type definition - maps to LLVM double
+struct f64 {
+    public value: LlvmNativeDouble
+}
+
+# IEEE 754 double precision constants
+preset F64_EPSILON: f64 = 2.220446049250313e-16
+preset F64_MIN: f64 = 2.2250738585072014e-308
+preset F64_MAX: f64 = 1.7976931348623157e+308
+preset F64_MIN_POSITIVE: f64 = 2.2250738585072014e-308
+preset F64_INFINITY: f64 = 1.0 / 0.0
+preset F64_NEG_INFINITY: f64 = -1.0 / 0.0
+preset F64_NAN: f64 = 0.0 / 0.0
+
+# Mathematical constants
+preset F64_PI: f64 = 3.141592653589793
+preset F64_E: f64 = 2.718281828459045
+preset F64_SQRT_2: f64 = 1.4142135623730951
+preset F64_LN_2: f64 = 0.6931471805599453
+preset F64_LN_10: f64 = 2.302585092994046
+
+# Basic arithmetic operations (LLVM floating point intrinsics)
+
+# Addition - maps to LLVM fadd
+recipe f64.add(my: f64, other: f64) -> f64 {
+    llvm_intrinsic("fadd", my, other)
+}
+
+# Subtraction - maps to LLVM fsub
+recipe f64.sub(my: f64, other: f64) -> f64 {
+    llvm_intrinsic("fsub", my, other)
+}
+
+# Multiplication - maps to LLVM fmul
+recipe f64.mul(my: f64, other: f64) -> f64 {
+    llvm_intrinsic("fmul", my, other)
+}
+
+# Division - maps to LLVM fdiv
+recipe f64.div(my: f64, other: f64) -> f64 {
+    llvm_intrinsic("fdiv", my, other)
+}
+
+# Remainder - maps to LLVM frem
+recipe f64.rem(my: f64, other: f64) -> f64 {
+    llvm_intrinsic("frem", my, other)
+}
+
+# Comparison operations (LLVM fcmp)
+recipe f64.eq(my: f64, other: f64) -> bool {
+    llvm_intrinsic("fcmp oeq", my, other)  # Ordered equal
+}
+
+recipe f64.ne(my: f64, other: f64) -> bool {
+    llvm_intrinsic("fcmp one", my, other)  # Ordered not equal
+}
+
+recipe f64.lt(my: f64, other: f64) -> bool {
+    llvm_intrinsic("fcmp olt", my, other)  # Ordered less than
+}
+
+recipe f64.le(my: f64, other: f64) -> bool {
+    llvm_intrinsic("fcmp ole", my, other)  # Ordered less equal
+}
+
+recipe f64.gt(my: f64, other: f64) -> bool {
+    llvm_intrinsic("fcmp ogt", my, other)  # Ordered greater than
+}
+
+recipe f64.ge(my: f64, other: f64) -> bool {
+    llvm_intrinsic("fcmp oge", my, other)  # Ordered greater equal
+}
+
+# NaN-aware comparisons
+recipe f64.is_nan(my: f64) -> bool {
+    llvm_intrinsic("fcmp uno", my, my)   # Unordered (NaN check)
+}
+
+recipe f64.is_finite(my: f64) -> bool {
+    !my.is_nan() && !my.is_infinite()
+}
+
+recipe f64.is_infinite(my: f64) -> bool {
+    my == F64_INFINITY || my == F64_NEG_INFINITY
+}
+
+# Mathematical functions using LLVM intrinsics
+recipe f64.abs(my: f64) -> f64 {
+    llvm_intrinsic("llvm.fabs.f64", my)
+}
+
+recipe f64.sqrt(my: f64) -> f64 {
+    llvm_intrinsic("llvm.sqrt.f64", my)
+}
+
+recipe f64.sin(my: f64) -> f64 {
+    llvm_intrinsic("llvm.sin.f64", my)
+}
+
+recipe f64.cos(my: f64) -> f64 {
+    llvm_intrinsic("llvm.cos.f64", my)
+}
+
+recipe f64.tan(my: f64) -> f64 {
+    my.sin() / my.cos()
+}
+
+recipe f64.pow(my: f64, exponent: f64) -> f64 {
+    llvm_intrinsic("llvm.pow.f64", my, exponent)
+}
+
+recipe f64.exp(my: f64) -> f64 {
+    llvm_intrinsic("llvm.exp.f64", my)
+}
+
+recipe f64.exp2(my: f64) -> f64 {
+    llvm_intrinsic("llvm.exp2.f64", my)
+}
+
+recipe f64.ln(my: f64) -> f64 {
+    llvm_intrinsic("llvm.log.f64", my)
+}
+
+recipe f64.log2(my: f64) -> f64 {
+    llvm_intrinsic("llvm.log2.f64", my)
+}
+
+recipe f64.log10(my: f64) -> f64 {
+    llvm_intrinsic("llvm.log10.f64", my)
+}
+
+# Rounding and truncation
+recipe f64.floor(my: f64) -> f64 {
+    llvm_intrinsic("llvm.floor.f64", my)
+}
+
+recipe f64.ceil(my: f64) -> f64 {
+    llvm_intrinsic("llvm.ceil.f64", my)
+}
+
+recipe f64.round(my: f64) -> f64 {
+    llvm_intrinsic("llvm.round.f64", my)
+}
+
+recipe f64.trunc(my: f64) -> f64 {
+    llvm_intrinsic("llvm.trunc.f64", my)
+}
+
+# Min/Max with proper NaN handling
+recipe f64.min(my: f64, other: f64) -> f64 {
+    llvm_intrinsic("llvm.minnum.f64", my, other)
+}
+
+recipe f64.max(my: f64, other: f64) -> f64 {
+    llvm_intrinsic("llvm.maxnum.f64", my, other)
+}
+
+# Fused multiply-add for better precision
+recipe f64.fma(my: f64, mul: f64, add: f64) -> f64 {
+    llvm_intrinsic("llvm.fma.f64", my, mul, add)
+}
+
+# IEEE 754 bit manipulation
+recipe f64.as_bits(my: f64) -> s64 {
+    llvm_intrinsic("bitcast", my)  # Reinterpret as s64
+}
+
+recipe f64(from_bits: BitArray<64>) -> f64 {
+    llvm_intrinsic("bitcast", from_bits)  # Reinterpret BitArray<64> as f64
+}
+
+# Extract IEEE 754 components
+recipe f64.extract_sign(my: f64) -> bool {
+    let bits = my.as_bits()
+    (bits >> 63) != 0
+}
+
+recipe f64.extract_exponent(my: f64) -> s64 {
+    let bits = my.as_bits()
+    (bits >> 52) & 0x7FF
+}
+
+recipe f64.extract_mantissa(my: f64) -> s64 {
+    let bits = my.as_bits()
+    bits & 0x000FFFFFFFFFFFFF
+}
+
+# Type conversions (using constructor syntax)
+recipe s64(from_f64: f64) -> s64 {
+    llvm_intrinsic("fptosi", from_f64)   # Float to signed int
+}
+
+recipe u64(from_f64: f64) -> u64 {
+    llvm_intrinsic("fptoui", from_f64)   # Float to unsigned int
+}
+
+recipe f32(from_f64: f64) -> f32 {
+    llvm_intrinsic("fptrunc", from_f64)  # Truncate to single precision
+}
+
+recipe bool(from_f64: f64) -> bool {
+    from_f64 != 0.0
+}
+
+# Memory operations
+recipe f64.load_from_memory(ptr: *const f64) -> f64 {
+    danger {
+        llvm_intrinsic("load", ptr)
+    }
+}
+
+recipe f64.store_to_memory(my: f64, ptr: *mut f64) {
+    danger {
+        llvm_intrinsic("store", my, ptr)
+    }
+}
+
+# Atomic operations (limited support for double)
+recipe f64.atomic_load(ptr: *const atomic<f64>) -> f64 {
+    let bits = llvm_intrinsic("llvm.atomic.load.i64", ptr as *const atomic<s64>)
+    f64(from_bits: BitArray<64>(from_s64: bits))
+}
+
+recipe f64.atomic_store(my: f64, ptr: *mut atomic<f64>) {
+    let bits = my.as_bits()
+    llvm_intrinsic("llvm.atomic.store.i64", bits, ptr as *mut atomic<s64>)
+}
+
+# Parsing and formatting using constructor syntax
+recipe f64(from_text: Text) -> f64 {
+    # Parse Text to f64 using LLVM constant folding when possible
+    0.0  # Placeholder
+}
+
+recipe Text(from_f64: f64, precision: s64) -> Text {
+    # Convert f64 to Text representation with specified precision
+    ""  # Placeholder
+}
+
+# SIMD operations for vectorized f64 processing
+recipe f64_vec_add(a: slice<f64>, b: slice<f64>) -> slice<f64> {
+    let result = new_slice<f64>(a.length())
+
+    # This loop will be auto-vectorized by LLVM using SSE2/AVX
+    for i in 0..a.length() {
+        result[i] = a[i] + b[i]
+    }
+
+    result
+}
+
+recipe f64_vec_dot_product(a: slice<f64>, b: slice<f64>) -> f64 {
+    let sum: f64 = 0.0
+    let length = min(a.length(), b.length())
+
+    # LLVM will vectorize this with horizontal add reductions
+    for i in 0..length {
+        sum += a[i] * b[i]
+    }
+
+    sum
+}
+
+# High-performance mathematical operations
+recipe fast_inverse_sqrt(value: f64) -> f64 {
+    # Fast inverse square root using bit manipulation
+    let bits = value.as_bits()
+    let magic: s64 = 0x5FE6EC85E7DE30DA  # Magic constant for f64
+    let guess = f64::from_bits(magic - (bits >> 1))
+
+    # Newton-Raphson refinement
+    let half_value = value * 0.5
+    guess * (1.5 - half_value * guess * guess)
+}
+
+recipe lerp(a: f64, b: f64, t: f64) -> f64 {
+    # Linear interpolation with fused multiply-add
+    a.fma(1.0 - t, b * t)
+}
+
+# Numerical computation helpers
+recipe approx_equal(a: f64, b: f64, epsilon: f64) -> bool {
+    (a - b).abs() <= epsilon
+}
+
+recipe next_power_of_two(value: f64) -> f64 {
+    when (value <= 1.0) {
+        1.0,
+        _ => 2.0.pow(value.ln() / F64_LN_2).ceil()
+    }
+}
+
+/*
+LLVM IR Generation Examples:
+
+RazorForge Code:
+    let a: f64 = 3.14159;
+    let b: f64 = 2.71828;
+    let result: f64 = a * b + 1.0;
+
+Generated LLVM IR:
+    %a = alloca double
+    %b = alloca double
+    %result = alloca double
+    store double 3.14159, double* %a
+    store double 2.71828, double* %b
+    %1 = load double, double* %a
+    %2 = load double, double* %b
+    %3 = fmul double %1, %2
+    %4 = fadd double %3, 1.0
+    store double %4, double* %result
+
+Optimized LLVM IR (with fused multiply-add):
+    %result = alloca double
+    %1 = call double @llvm.fma.f64(double 3.14159, double 2.71828, double 1.0)
+    store double %1, double* %result
+
+LLVM Intrinsics Used:
+- Arithmetic: fadd, fsub, fmul, fdiv, frem
+- Comparison: fcmp (oeq, one, olt, ole, ogt, oge, uno)
+- Math: fabs, sqrt, sin, cos, pow, exp, log, etc.
+- Rounding: floor, ceil, round, trunc
+- Memory: load, store, alloca
+- Conversion: fptosi, fptoui, fptrunc, fpext, bitcast
+- SIMD: vector operations for packed doubles
+
+IEEE 754 Double Precision Format:
+- Sign bit: 1 bit (bit 63)
+- Exponent: 11 bits (bits 62-52, biased by 1023)
+- Mantissa: 52 bits (bits 51-0, with implicit leading 1)
+- Total: 64 bits
+
+Target Architecture Mapping:
+- x86_64: Uses SSE2 XMM registers, AVX YMM/ZMM for SIMD
+- ARM64: Uses NEON FPU registers, SVE for SIMD
+- RISC-V: Uses F/D extension registers
+- WebAssembly: Native f64 type with IEEE 754 compliance
+*/

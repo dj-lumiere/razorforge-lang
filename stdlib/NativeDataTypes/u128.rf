@@ -1,0 +1,250 @@
+# RazorForge u128 (unsigned 128-bit integer) native type implementation
+# Maps directly to LLVM i128 type for unsigned operations
+
+# Core u128 type definition - maps to LLVM i128
+struct u128 {
+    public value: LlvmNativeI128
+}
+
+# Constants for u128 limits (LLVM constant values)
+preset U128_MIN: u128 = 0_u128
+preset U128_MAX: u128 = 340282366920938463463374607431768211455_u128
+preset U128_ZERO: u128 = 0_u128
+preset U128_ONE: u128 = 1_u128
+
+# Basic arithmetic operations (LLVM intrinsics: add, sub, mul, udiv, urem)
+
+# Addition with overflow checking
+recipe u128.add(my: u128, other: u128) -> u128 {
+    return llvm_intrinsic("llvm.uadd.with.overflow.i128", my, other)
+}
+
+# Subtraction with overflow checking
+recipe u128.sub(my: u128, other: u128) -> u128 {
+    return llvm_intrinsic("llvm.usub.with.overflow.i128", my, other)
+}
+
+# Multiplication with overflow checking
+recipe u128.mul(my: u128, other: u128) -> u128 {
+    return llvm_intrinsic("llvm.umul.with.overflow.i128", my, other)
+}
+
+# Division (unsigned) - maps to LLVM udiv
+recipe u128.floordiv(my: u128, other: u128) -> u128 {
+    when (other) {
+        0 => throw panic("Division by zero"),
+        _ => return llvm_intrinsic("udiv", my, other)
+    }
+}
+
+# Remainder (unsigned) - maps to LLVM urem
+recipe u128.rem(my: u128, other: u128) -> u128 {
+    when (other) {
+        0 => throw panic("Division by zero"),
+        _ => return llvm_intrinsic("urem", my, other)
+    }
+}
+
+# Bitwise operations (direct LLVM mapping)
+recipe u128.and(my: u128, other: u128) -> u128 {
+    return llvm_intrinsic("and", my, other)
+}
+
+recipe u128.or(my: u128, other: u128) -> u128 {
+    return llvm_intrinsic("or", my, other)
+}
+
+recipe u128.xor(my: u128, other: u128) -> u128 {
+    return llvm_intrinsic("xor", my, other)
+}
+
+recipe u128.not(my: u128) -> u128 {
+    return llvm_intrinsic("xor", my, 340282366920938463463374607431768211455)
+}
+
+# Bit shifting operations
+recipe u128.shl(my: u128, bits: u128) -> u128 {
+    return llvm_intrinsic("shl", my, bits)
+}
+
+recipe u128.shr(my: u128, bits: u128) -> u128 {
+    return llvm_intrinsic("lshr", my, bits)  # Logical right shift for unsigned
+}
+
+# Comparison operations (LLVM icmp)
+recipe u128.eq(my: u128, other: u128) -> bool {
+    return llvm_intrinsic("icmp eq", my, other)
+}
+
+recipe u128.ne(my: u128, other: u128) -> bool {
+    return llvm_intrinsic("icmp ne", my, other)
+}
+
+recipe u128.lt(my: u128, other: u128) -> bool {
+    return llvm_intrinsic("icmp ult", my, other)  # Unsigned less than
+}
+
+recipe u128.le(my: u128, other: u128) -> bool {
+    return llvm_intrinsic("icmp ule", my, other)  # Unsigned less equal
+}
+
+recipe u128.gt(my: u128, other: u128) -> bool {
+    return llvm_intrinsic("icmp ugt", my, other)  # Unsigned greater than
+}
+
+recipe u128.ge(my: u128, other: u128) -> bool {
+    return llvm_intrinsic("icmp uge", my, other)  # Unsigned greater equal
+}
+
+# Math operations
+recipe u128.min(my: u128, other: u128) -> u128 {
+    return if my <= other then my else other
+}
+
+recipe u128.max(my: u128, other: u128) -> u128 {
+    return if my >= other then my else other
+}
+
+# Bit manipulation utilities
+recipe u128.count_leading_zeros(my: u128) -> u128 {
+    return llvm_intrinsic("llvm.ctlz.i128", my, false)
+}
+
+recipe u128.count_trailing_zeros(my: u128) -> u128 {
+    return llvm_intrinsic("llvm.cttz.i128", my, false)
+}
+
+recipe u128.count_ones(my: u128) -> u128 {
+    return llvm_intrinsic("llvm.ctpop.i128", my)
+}
+
+# Note: No native byte swapping for i128 in LLVM - would need manual implementation
+# recipe u128.byte_swap(my: u128) -> u128 {
+#     # Manual implementation needed as LLVM doesn't have llvm.bswap.i128
+#     # Would require splitting into 64-bit halves and reassembling
+# }
+
+# Type conversions to other native types (using constructor syntax)
+recipe u8(from_u128: u128) -> u8 {
+    return llvm_intrinsic("trunc", from_u128)      # Truncate to 8-bit
+}
+
+recipe u16(from_u128: u128) -> u16 {
+    return llvm_intrinsic("trunc", from_u128)      # Truncate to 16-bit
+}
+
+recipe u32(from_u128: u128) -> u32 {
+    return llvm_intrinsic("trunc", from_u128)      # Truncate to 32-bit
+}
+
+recipe u64(from_u128: u128) -> u64 {
+    return llvm_intrinsic("trunc", from_u128)      # Truncate to 64-bit
+}
+
+recipe s8(from_u128: u128) -> s8 {
+    return llvm_intrinsic("trunc", from_u128)      # Truncate to signed 8-bit
+}
+
+recipe s16(from_u128: u128) -> s16 {
+    return llvm_intrinsic("trunc", from_u128)      # Truncate to signed 16-bit
+}
+
+recipe s32(from_u128: u128) -> s32 {
+    return llvm_intrinsic("trunc", from_u128)      # Truncate to signed 32-bit
+}
+
+recipe s64(from_u128: u128) -> s64 {
+    return llvm_intrinsic("trunc", from_u128)      # Truncate to signed 64-bit
+}
+
+recipe s128(from_u128: u128) -> s128 {
+    return llvm_intrinsic("bitcast", from_u128)    # Direct bit reinterpretation
+}
+
+recipe f32(from_u128: u128) -> f32 {
+    return llvm_intrinsic("uitofp", from_u128)     # Unsigned int to float
+}
+
+recipe f64(from_u128: u128) -> f64 {
+    return llvm_intrinsic("uitofp", from_u128)     # Unsigned int to double
+}
+
+recipe f128(from_u128: u128) -> f128 {
+    return llvm_intrinsic("uitofp", from_u128)     # Unsigned int to quad
+}
+
+recipe bool(from_u128: u128) -> bool {
+    return from_u128 != 0
+}
+
+# Parsing and formatting using constructor syntax
+recipe u128(from_text: Text) -> u128 {
+    # Parse Text to u128 using LLVM constant folding when possible
+    return 0  # Placeholder
+}
+
+recipe Text(from_u128: u128) -> Text {
+    # Convert u128 to Text representation
+    return ""  # Placeholder
+}
+
+# Utility functions for bit operations
+recipe u128.is_power_of_two(my: u128) -> bool {
+    return my != 0 and (my & (my - 1)) == 0
+}
+
+recipe u128.next_power_of_two(my: u128) -> u128 {
+    when (my) {
+        0 => return 1,
+        1 => return 1,
+        _ => {
+            var power: u128 = 1
+            while power < my {
+                power = power << 1
+            }
+            return power
+        }
+    }
+}
+
+# Saturating arithmetic (clamps to min/max instead of wrapping)
+recipe u128.saturating_add(my: u128, other: u128) -> u128 {
+    let result = my + other
+    return if result < my then U128_MAX else result  # Overflow check
+}
+
+recipe u128.saturating_sub(my: u128, other: u128) -> u128 {
+    return if my >= other then my - other else U128_ZERO
+}
+
+recipe u128.saturating_mul(my: u128, other: u128) -> u128 {
+    let result = my * other
+    return if other != 0 and result / other != my then U128_MAX else result
+}
+
+# High/low 64-bit extraction utilities
+recipe u128.high64(my: u128) -> u64 {
+    return llvm_intrinsic("trunc", llvm_intrinsic("lshr", my, 64))
+}
+
+recipe u128.low64(my: u128) -> u64 {
+    return llvm_intrinsic("trunc", my)
+}
+
+# Combine two u64 values into u128
+recipe u128.from_u64_pair(high: u64, low: u64) -> u128 {
+    let high_128 = llvm_intrinsic("zext", high)
+    let shifted_high = llvm_intrinsic("shl", high_128, 64)
+    let low_128 = llvm_intrinsic("zext", low)
+    return llvm_intrinsic("or", shifted_high, low_128)
+}
+
+/*
+LLVM IR Mapping:
+- RazorForge u128 -> LLVM i128 -> C __uint128_t (GCC extension)
+- Range: 0 to 340282366920938463463374607431768211455 (2^128 - 1)
+- Unsigned operations use ult, uge, udiv, urem, lshr
+- Used for cryptographic operations, UUID storage, and very large integers
+- No native byte swapping - would require manual implementation
+- Includes utilities for high/low 64-bit manipulation
+*/

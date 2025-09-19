@@ -1,0 +1,3 @@
+public struct ThreadShared<T> {
+    private address: sysuint
+}

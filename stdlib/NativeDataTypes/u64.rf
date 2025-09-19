@@ -1,0 +1,232 @@
+# RazorForge u64 (unsigned 64-bit integer) native type implementation
+# Maps directly to LLVM i64 type for unsigned operations
+
+# Core u64 type definition - maps to LLVM i64
+struct u64 {
+    public value: LlvmNativeI64
+}
+
+# Constants for u64 limits (LLVM constant values)
+preset U64_MIN: u64 = 0_u64
+preset U64_MAX: u64 = 18446744073709551615_u64
+preset U64_ZERO: u64 = 0_u64
+preset U64_ONE: u64 = 1_u64
+
+# Basic arithmetic operations (LLVM intrinsics: add, sub, mul, udiv, urem)
+
+# Addition with overflow checking
+recipe u64.add(my: u64, other: u64) -> u64 {
+    return llvm_intrinsic("llvm.uadd.with.overflow.i64", my, other)
+}
+
+# Subtraction with overflow checking
+recipe u64.sub(my: u64, other: u64) -> u64 {
+    return llvm_intrinsic("llvm.usub.with.overflow.i64", my, other)
+}
+
+# Multiplication with overflow checking
+recipe u64.mul(my: u64, other: u64) -> u64 {
+    return llvm_intrinsic("llvm.umul.with.overflow.i64", my, other)
+}
+
+# Division (unsigned) - maps to LLVM udiv
+recipe u64.floordiv(my: u64, other: u64) -> u64 {
+    when (other) {
+        0 => throw panic("Division by zero"),
+        _ => return llvm_intrinsic("udiv", my, other)
+    }
+}
+
+# Remainder (unsigned) - maps to LLVM urem
+recipe u64.rem(my: u64, other: u64) -> u64 {
+    when (other) {
+        0 => throw panic("Division by zero"),
+        _ => return llvm_intrinsic("urem", my, other)
+    }
+}
+
+# Bitwise operations (direct LLVM mapping)
+recipe u64.and(my: u64, other: u64) -> u64 {
+    return llvm_intrinsic("and", my, other)
+}
+
+recipe u64.or(my: u64, other: u64) -> u64 {
+    return llvm_intrinsic("or", my, other)
+}
+
+recipe u64.xor(my: u64, other: u64) -> u64 {
+    return llvm_intrinsic("xor", my, other)
+}
+
+recipe u64.not(my: u64) -> u64 {
+    return llvm_intrinsic("xor", my, 18446744073709551615)
+}
+
+# Bit shifting operations
+recipe u64.shl(my: u64, bits: u64) -> u64 {
+    return llvm_intrinsic("shl", my, bits)
+}
+
+recipe u64.shr(my: u64, bits: u64) -> u64 {
+    return llvm_intrinsic("lshr", my, bits)  # Logical right shift for unsigned
+}
+
+# Comparison operations (LLVM icmp)
+recipe u64.eq(my: u64, other: u64) -> bool {
+    return llvm_intrinsic("icmp eq", my, other)
+}
+
+recipe u64.ne(my: u64, other: u64) -> bool {
+    return llvm_intrinsic("icmp ne", my, other)
+}
+
+recipe u64.lt(my: u64, other: u64) -> bool {
+    return llvm_intrinsic("icmp ult", my, other)  # Unsigned less than
+}
+
+recipe u64.le(my: u64, other: u64) -> bool {
+    return llvm_intrinsic("icmp ule", my, other)  # Unsigned less equal
+}
+
+recipe u64.gt(my: u64, other: u64) -> bool {
+    return llvm_intrinsic("icmp ugt", my, other)  # Unsigned greater than
+}
+
+recipe u64.ge(my: u64, other: u64) -> bool {
+    return llvm_intrinsic("icmp uge", my, other)  # Unsigned greater equal
+}
+
+# Math operations
+recipe u64.min(my: u64, other: u64) -> u64 {
+    return if my <= other then my else other
+}
+
+recipe u64.max(my: u64, other: u64) -> u64 {
+    return if my >= other then my else other
+}
+
+# Bit manipulation utilities
+recipe u64.count_leading_zeros(my: u64) -> u64 {
+    return llvm_intrinsic("llvm.ctlz.i64", my, false)
+}
+
+recipe u64.count_trailing_zeros(my: u64) -> u64 {
+    return llvm_intrinsic("llvm.cttz.i64", my, false)
+}
+
+recipe u64.count_ones(my: u64) -> u64 {
+    return llvm_intrinsic("llvm.ctpop.i64", my)
+}
+
+# Byte swapping for endianness conversion
+recipe u64.byte_swap(my: u64) -> u64 {
+    return llvm_intrinsic("llvm.bswap.i64", my)
+}
+
+# Type conversions to other native types (using constructor syntax)
+recipe u8(from_u64: u64) -> u8 {
+    return llvm_intrinsic("trunc", from_u64)      # Truncate to 8-bit
+}
+
+recipe u16(from_u64: u64) -> u16 {
+    return llvm_intrinsic("trunc", from_u64)      # Truncate to 16-bit
+}
+
+recipe u32(from_u64: u64) -> u32 {
+    return llvm_intrinsic("trunc", from_u64)      # Truncate to 32-bit
+}
+
+recipe s8(from_u64: u64) -> s8 {
+    return llvm_intrinsic("trunc", from_u64)      # Truncate to signed 8-bit
+}
+
+recipe s16(from_u64: u64) -> s16 {
+    return llvm_intrinsic("trunc", from_u64)      # Truncate to signed 16-bit
+}
+
+recipe s32(from_u64: u64) -> s32 {
+    return llvm_intrinsic("trunc", from_u64)      # Truncate to signed 32-bit
+}
+
+recipe s64(from_u64: u64) -> s64 {
+    return llvm_intrinsic("bitcast", from_u64)    # Direct bit reinterpretation
+}
+
+recipe u128(from_u64: u64) -> u128 {
+    return llvm_intrinsic("zext", from_u64)       # Zero-extend to 128-bit
+}
+
+recipe s128(from_u64: u64) -> s128 {
+    return llvm_intrinsic("zext", from_u64)       # Zero-extend to signed 128-bit
+}
+
+recipe f32(from_u64: u64) -> f32 {
+    return llvm_intrinsic("uitofp", from_u64)     # Unsigned int to float
+}
+
+recipe f64(from_u64: u64) -> f64 {
+    return llvm_intrinsic("uitofp", from_u64)     # Unsigned int to double
+}
+
+recipe f128(from_u64: u64) -> f128 {
+    return llvm_intrinsic("uitofp", from_u64)     # Unsigned int to quad
+}
+
+recipe bool(from_u64: u64) -> bool {
+    return from_u64 != 0
+}
+
+# Parsing and formatting using constructor syntax
+recipe u64(from_text: Text) -> u64 {
+    # Parse Text to u64 using LLVM constant folding when possible
+    return 0  # Placeholder
+}
+
+recipe Text(from_u64: u64) -> Text {
+    # Convert u64 to Text representation
+    return ""  # Placeholder
+}
+
+# Utility functions for bit operations
+recipe u64.is_power_of_two(my: u64) -> bool {
+    return my != 0 and (my & (my - 1)) == 0
+}
+
+recipe u64.next_power_of_two(my: u64) -> u64 {
+    when (my) {
+        0 => return 1,
+        1 => return 1,
+        _ => {
+            var power: u64 = 1
+            while power < my {
+                power = power << 1
+            }
+            return power
+        }
+    }
+}
+
+# Saturating arithmetic (clamps to min/max instead of wrapping)
+recipe u64.saturating_add(my: u64, other: u64) -> u64 {
+    let result = my + other
+    return if result < my then U64_MAX else result  # Overflow check
+}
+
+recipe u64.saturating_sub(my: u64, other: u64) -> u64 {
+    return if my >= other then my - other else U64_ZERO
+}
+
+recipe u64.saturating_mul(my: u64, other: u64) -> u64 {
+    let result = my * other
+    return if other != 0 and result / other != my then U64_MAX else result
+}
+
+/*
+LLVM IR Mapping:
+- RazorForge u64 -> LLVM i64 -> C uint64_t
+- Range: 0 to 18446744073709551615
+- Unsigned operations use ult, uge, udiv, urem, lshr
+- Common for large counters, memory addresses, and file sizes
+- Zero-extension used for conversions to larger types
+- Byte swapping available for endianness conversion
+*/

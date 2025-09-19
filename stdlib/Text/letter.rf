@@ -1,0 +1,183 @@
+# RazorForge letter (32-bit Unicode character) implementation
+# Full Unicode support for text processing
+
+struct letter {
+    private value: u32
+}
+
+# Unicode constants
+preset LETTER_NULL: letter = letter(codepoint: 0x0000)
+preset LETTER_MAX_UNICODE: letter = letter(codepoint: 0x10FFFF)
+preset LETTER_REPLACEMENT_CHAR: letter = letter(codepoint: 0xFFFD)
+
+# ASCII common characters
+preset LETTER_SPACE: letter = letter(codepoint: 0x20)
+preset LETTER_NEWLINE: letter = letter(codepoint: 0x0A)
+preset LETTER_TAB: letter = letter(codepoint: 0x09)
+
+# Core character properties
+recipe letter.codepoint(my: letter) -> u32 {
+    return my.value
+}
+
+recipe letter(codepoint: u32) -> letter {
+    return letter { value: codepoint }
+}
+
+recipe letter.is_valid_unicode(my: letter) -> bool {
+    let cp = my.codepoint()
+    return cp <= 0x10FFFF and not (cp >= 0xD800 and cp <= 0xDFFF)
+}
+
+recipe letter.is_ascii(my: letter) -> bool {
+    return my.codepoint() <= 127
+}
+
+# Character classification
+recipe letter.is_alphabetic(my: letter) -> bool {
+    let cp = my.codepoint()
+    return (cp >= 0x41 and cp <= 0x5A) or    # A-Z
+           (cp >= 0x61 and cp <= 0x7A) or    # a-z
+           (cp >= 0xC0 and cp <= 0xFF)       # Extended Latin (simplified)
+}
+
+recipe letter.is_numeric(my: letter) -> bool {
+    let cp = my.codepoint()
+    return cp >= 0x30 and cp <= 0x39  # 0-9
+}
+
+recipe letter.is_alphanumeric(my: letter) -> bool {
+    return my.is_alphabetic() or my.is_numeric()
+}
+
+recipe letter.is_uppercase(my: letter) -> bool {
+    let cp = my.codepoint()
+    return cp >= 0x41 and cp <= 0x5A  # A-Z (ASCII only, simplified)
+}
+
+recipe letter.is_lowercase(my: letter) -> bool {
+    let cp = my.codepoint()
+    return cp >= 0x61 and cp <= 0x7A  # a-z (ASCII only, simplified)
+}
+
+recipe letter.is_whitespace(my: letter) -> bool {
+    let cp = my.codepoint()
+    return cp == 0x20 or    # Space
+           cp == 0x09 or    # Tab
+           cp == 0x0A or    # Line feed
+           cp == 0x0D or    # Carriage return
+           cp == 0x0C       # Form feed
+}
+
+recipe letter.is_control(my: letter) -> bool {
+    let cp = my.codepoint()
+    return (cp <= 0x1F) or cp == 0x7F
+}
+
+# Case conversions (ASCII only, simplified)
+recipe letter.to_uppercase(my: letter) -> letter {
+    when (my.is_lowercase()) {
+        true => return letter(codepoint: my.codepoint() - 32),
+        false => return my
+    }
+}
+
+recipe letter.to_lowercase(my: letter) -> letter {
+    when (my.is_uppercase()) {
+        true => return letter(codepoint: my.codepoint() + 32),
+        false => return my
+    }
+}
+
+# Comparison operations
+recipe letter.eq(my: letter, other: letter) -> bool {
+    return my.codepoint() == other.codepoint()
+}
+
+recipe letter.ne(my: letter, other: letter) -> bool {
+    return my.codepoint() != other.codepoint()
+}
+
+recipe letter.lt(my: letter, other: letter) -> bool {
+    return my.codepoint() < other.codepoint()
+}
+
+recipe letter.le(my: letter, other: letter) -> bool {
+    return my.codepoint() <= other.codepoint()
+}
+
+recipe letter.gt(my: letter, other: letter) -> bool {
+    return my.codepoint() > other.codepoint()
+}
+
+recipe letter.ge(my: letter, other: letter) -> bool {
+    return my.codepoint() >= other.codepoint()
+}
+
+# Type conversions
+recipe letter16(from_letter: letter) -> letter16 {
+    # Truncate to 16-bit (may lose information for high Unicode points)
+    return letter16(codepoint: from_letter.codepoint() as u16)
+}
+
+recipe letter8(from_letter: letter) -> letter8 {
+    # Truncate to 8-bit (ASCII only)
+    return letter8(codepoint: from_letter.codepoint() as u8)
+}
+
+recipe u32(from_letter: letter) -> u32 {
+    return from_letter.codepoint()
+}
+
+recipe s32(from_letter: letter) -> s32 {
+    return from_letter.codepoint() as s32
+}
+
+# Text conversion
+recipe Text(from_letter: letter) -> Text {
+    # Convert single character to Text string
+    # Implementation would encode the Unicode code point to UTF-8
+    return ""  # Placeholder - would encode to UTF-8
+}
+
+recipe letter(from_text: Text) -> letter {
+    # Extract first character from Text string
+    # Implementation would decode UTF-8 to Unicode code point
+    return LETTER_NULL  # Placeholder - would decode from UTF-8
+}
+
+# UTF-16 encoding helpers
+recipe letter.needs_surrogate_pair(my: letter) -> bool {
+    return my.codepoint() > 0xFFFF
+}
+
+recipe letter.to_surrogate_pair(my: letter) -> (letter16, letter16) {
+    when (my.needs_surrogate_pair()) {
+        true => {
+            let cp = my.codepoint() - 0x10000
+            let high = letter16(codepoint: ((cp >> 10) + 0xD800) as u16)
+            let low = letter16(codepoint: ((cp & 0x3FF) + 0xDC00) as u16)
+            return (high, low)
+        },
+        false => {
+            let char16 = letter16(from_letter: my)
+            return (char16, letter16(codepoint: 0))
+        }
+    }
+}
+
+# Utility recipes
+recipe letter.is_digit(my: letter) -> bool {
+    return my.is_numeric()
+}
+
+recipe letter.is_letter(my: letter) -> bool {
+    return my.is_alphabetic()
+}
+
+recipe letter.digit_value(my: letter) -> s32 {
+    when (my.is_numeric()) {
+        true => return (my.codepoint() - 0x30) as s32,
+        false => return -1
+    }
+}
