@@ -54,7 +54,7 @@
         },
         {
           "name": "keyword.other.cake",
-          "match": "\\b(bitter|import|redefine|using|as|pass|with|where)\\b"
+          "match": "\\b(import|define|using|as|pass|with|requires)\\b"
         }
       ]
     },

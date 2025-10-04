@@ -61,7 +61,6 @@ public class CakeTokenizer : BaseTokenizer
         ["using"] = TokenType.Using,
         ["as"] = TokenType.As,
         ["pass"] = TokenType.Pass,
-        ["bitter"] = TokenType.Bitter,
         ["danger"] = TokenType.Danger,
         ["mayhem"] = TokenType.Mayhem,
         ["with"] = TokenType.With,
@@ -79,7 +78,6 @@ public class CakeTokenizer : BaseTokenizer
         ["true"] = TokenType.True,
         ["false"] = TokenType.False,
         ["none"] = TokenType.None,
-        ["bitter"] = TokenType.Bitter,
         ["generate"] = TokenType.Generate,
         ["suspended"] = TokenType.Suspended,
         ["waitfor"] = TokenType.Waitfor,
@@ -151,14 +149,14 @@ public class CakeTokenizer : BaseTokenizer
             // Whitespace (remaining after skip above)
             case ' ' or '\r' or '\t': break;
             case '\n': HandleNewline(); break;
-            
+
             // Literals
             case '#': ScanComment(); break;
             case '"': ScanCakeString(); break;
             case '\'': ScanChar(); break;
             case 'l':
                 if (!TryParseLetterPrefix()) ScanIdentifier(); break;
-            case 'r' or 'f' or 't': 
+            case 'r' or 'f' or 't':
                 if (!TryParseTextPrefix()) ScanIdentifier(); break;
 
             // Delimiters (no braces in Cake - uses indentation)
@@ -167,7 +165,7 @@ public class CakeTokenizer : BaseTokenizer
             case '[': AddToken(TokenType.LeftBracket); break;
             case ']': AddToken(TokenType.RightBracket); break;
             case ',': AddToken(TokenType.Comma); break;
-            
+
             // Multi-character delimiters
             case '.': AddToken(Match('.') ? (Match('.') ? TokenType.DotDotDot : TokenType.DotDot) : TokenType.Dot); break;
             case ':':
@@ -186,14 +184,14 @@ public class CakeTokenizer : BaseTokenizer
             case '*': ScanStarOperator(); break;
             case '/': ScanSlashOperator(); break;
             case '%': ScanPercentOperator(); break;
-            
+
             // Comparison and assignment
-            case '=': 
+            case '=':
                 AddToken(Match('=') ? TokenType.Equal : (Match('>') ? TokenType.FatArrow : TokenType.Assign)); break;
             case '!': AddToken(Match('=') ? TokenType.NotEqual : TokenType.Bang); break;
-            case '<': 
+            case '<':
                 AddToken(Match('=') ? TokenType.LessEqual : (Match('<') ? TokenType.LeftShift : TokenType.Less)); break;
-            case '>': 
+            case '>':
                 AddToken(Match('=') ? TokenType.GreaterEqual : (Match('>') ? TokenType.RightShift : TokenType.Greater)); break;
 
             // Single-character operators
@@ -205,7 +203,7 @@ public class CakeTokenizer : BaseTokenizer
             case '@': AddToken(TokenType.At); break;
 
             // Numbers
-            case '0': 
+            case '0':
                 if (Match('x') || Match('X')) ScanCakePrefixedNumber(isHex: true);
                 else if (Match('b') || Match('B')) ScanCakePrefixedNumber(isHex: false);
                 else ScanCakeNumber();
@@ -388,7 +386,7 @@ public class CakeTokenizer : BaseTokenizer
                 return false;
         }
     }
-    
+
     /// <summary>
     /// Scans a character literal with the specified token type.
     /// </summary>
@@ -405,12 +403,12 @@ public class CakeTokenizer : BaseTokenizer
         {
             Advance();
         }
-        
+
         if (!Match('\''))
         {
             throw new LexerException($"Unterminated character literal at line {Line}");
         }
-        
+
         AddToken(tokenType);
     }
 
@@ -425,25 +423,25 @@ public class CakeTokenizer : BaseTokenizer
         // A colon starts a block if it's followed by whitespace/newline and not more text
         // Look ahead to see if there's significant content after the colon on the same line
         var pos = Position;
-        
+
         // Skip whitespace
         while (pos < Source.Length && (Source[pos] == ' ' || Source[pos] == '\t'))
         {
             pos++;
         }
-        
+
         // If we hit end of file or newline, it's a block starter
         if (pos >= Source.Length || Source[pos] == '\n' || Source[pos] == '\r')
         {
             return true;
         }
-        
+
         // If we hit a comment, it's still a block starter
         if (Source[pos] == '#')
         {
             return true;
         }
-        
+
         // Otherwise, it's likely a type annotation
         return false;
     }
@@ -464,7 +462,7 @@ public class CakeTokenizer : BaseTokenizer
             }
         }
     }
-    
+
     /// <summary>
     /// Overrides base number scanning to use Cake's default Integer and Decimal types
     /// for unsuffixed numbers instead of IntegerLiteral and FloatLiteral.
@@ -529,7 +527,7 @@ public class CakeTokenizer : BaseTokenizer
             AddToken(isFloat ? TokenType.Decimal : TokenType.Integer);
         }
     }
-    
+
     /// <summary>
     /// Overrides prefixed number scanning to use Cake's Integer type for unsuffixed numbers.
     /// </summary>
@@ -552,7 +550,7 @@ public class CakeTokenizer : BaseTokenizer
             var suffixStart = Position;
             while (char.IsLetterOrDigit(Peek()))
                 Advance();
-            
+
             var suffix = Source.Substring(suffixStart, Position - suffixStart);
             if (_numericSuffixToTokenType.TryGetValue(suffix, out var tokenType))
             {

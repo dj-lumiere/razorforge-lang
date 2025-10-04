@@ -88,8 +88,7 @@ The RazorForge color scheme provides semantic highlighting:
 - **External Declarations**: Purple (`#BD93F9`)
 
 ### Cake Colors (Future)
-- **Sweet Keywords**: Pink (`#FF79C6`)
-- **bitter! Zones**: Yellow with dark background
+- **Keywords**: Pink (`#FF79C6`)
 - **LINQ Operations**: Green (`#50FA7B`)
 
 ## Advanced Configuration
