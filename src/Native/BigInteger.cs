@@ -15,25 +15,28 @@ public class BigInteger : IDisposable, IComparable<BigInteger>, IEquatable<BigIn
 
     public BigInteger()
     {
-        LibBfInterop.bf_context_init(ref _context, IntPtr.Zero, IntPtr.Zero);
-        LibBfInterop.bf_init(ref _context, ref _number);
+        LibBfInterop.bf_context_init(ctx: ref _context, realloc_func: nint.Zero,
+            free_func: nint.Zero);
+        LibBfInterop.bf_init(ctx: ref _context, r: ref _number);
     }
 
     public BigInteger(long value) : this()
     {
-        LibBfInterop.bf_set_si(ref _number, value);
+        LibBfInterop.bf_set_si(r: ref _number, a: value);
     }
 
     public BigInteger(ulong value) : this()
     {
-        LibBfInterop.bf_set_ui(ref _number, value);
+        LibBfInterop.bf_set_ui(r: ref _number, a: value);
     }
 
     public BigInteger(string value) : this()
     {
-        if (!TryParse(value, out var temp))
-            throw new FormatException($"Invalid number format: {value}");
-        
+        if (!TryParse(value: value, result: out BigInteger temp))
+        {
+            throw new FormatException(message: $"Invalid number format: {value}");
+        }
+
         _number = temp._number;
         temp._number = default; // Transfer ownership
     }
@@ -41,58 +44,71 @@ public class BigInteger : IDisposable, IComparable<BigInteger>, IEquatable<BigIn
     public static BigInteger operator +(BigInteger a, BigInteger b)
     {
         var result = new BigInteger();
-        LibBfInterop.bf_add(ref result._number, ref a._number, ref b._number, 0, 0);
+        LibBfInterop.bf_add(r: ref result._number, a: ref a._number, b: ref b._number, prec: 0,
+            flags: 0);
         return result;
     }
 
     public static BigInteger operator -(BigInteger a, BigInteger b)
     {
         var result = new BigInteger();
-        LibBfInterop.bf_sub(ref result._number, ref a._number, ref b._number, 0, 0);
+        LibBfInterop.bf_sub(r: ref result._number, a: ref a._number, b: ref b._number, prec: 0,
+            flags: 0);
         return result;
     }
 
     public static BigInteger operator *(BigInteger a, BigInteger b)
     {
         var result = new BigInteger();
-        LibBfInterop.bf_mul(ref result._number, ref a._number, ref b._number, 0, 0);
+        LibBfInterop.bf_mul(r: ref result._number, a: ref a._number, b: ref b._number, prec: 0,
+            flags: 0);
         return result;
     }
 
     public static BigInteger operator /(BigInteger a, BigInteger b)
     {
         var result = new BigInteger();
-        LibBfInterop.bf_div(ref result._number, ref a._number, ref b._number, 0, 0);
+        LibBfInterop.bf_div(r: ref result._number, a: ref a._number, b: ref b._number, prec: 0,
+            flags: 0);
         return result;
     }
 
     public int CompareTo(BigInteger? other)
     {
-        if (other is null) return 1;
-        return LibBfInterop.bf_cmp(ref _number, ref other._number);
+        if (other is null)
+        {
+            return 1;
+        }
+
+        return LibBfInterop.bf_cmp(a: ref _number, b: ref other._number);
     }
 
     public bool Equals(BigInteger? other)
     {
-        return CompareTo(other) == 0;
+        return CompareTo(other: other) == 0;
     }
 
     public override bool Equals(object? obj)
     {
-        return obj is BigInteger other && Equals(other);
+        return obj is BigInteger other && Equals(other: other);
     }
 
     public override int GetHashCode()
     {
-        return ToString().GetHashCode();
+        return ToString()
+           .GetHashCode();
     }
 
     public override string ToString()
     {
-        var strPtr = LibBfInterop.bf_ftoa(IntPtr.Zero, ref _number, 10, 0, 0);
-        if (strPtr == IntPtr.Zero) return "0";
-        
-        var result = Marshal.PtrToStringAnsi(strPtr) ?? "0";
+        nint strPtr = LibBfInterop.bf_ftoa(plen: nint.Zero, a: ref _number, radix: 10, prec: 0,
+            flags: 0);
+        if (strPtr == nint.Zero)
+        {
+            return "0";
+        }
+
+        string result = Marshal.PtrToStringAnsi(ptr: strPtr) ?? "0";
         // Note: In a real implementation, you'd need to free the string returned by bf_ftoa
         return result;
     }
@@ -104,11 +120,12 @@ public class BigInteger : IDisposable, IComparable<BigInteger>, IEquatable<BigIn
             result = new BigInteger();
             // In a real implementation, you'd parse the string and set the bf_number
             // This is a simplified version
-            if (long.TryParse(value, out var longVal))
+            if (long.TryParse(s: value, result: out long longVal))
             {
-                LibBfInterop.bf_set_si(ref result._number, longVal);
+                LibBfInterop.bf_set_si(r: ref result._number, a: longVal);
                 return true;
             }
+
             return false;
         }
         catch
@@ -122,11 +139,12 @@ public class BigInteger : IDisposable, IComparable<BigInteger>, IEquatable<BigIn
     {
         if (!_disposed)
         {
-            LibBfInterop.bf_delete(ref _number);
-            LibBfInterop.bf_context_end(ref _context);
+            LibBfInterop.bf_delete(r: ref _number);
+            LibBfInterop.bf_context_end(ctx: ref _context);
             _disposed = true;
         }
-        GC.SuppressFinalize(this);
+
+        GC.SuppressFinalize(obj: this);
     }
 
     ~BigInteger()

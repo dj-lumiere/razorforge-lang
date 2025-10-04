@@ -34,7 +34,7 @@ public class SymbolTable
         _scopes = new Stack<Dictionary<string, Symbol>>();
         EnterScope(); // Global scope - always present
     }
-    
+
     /// <summary>
     /// Enters a new lexical scope.
     /// Creates a new scope dictionary and pushes it onto the scope stack.
@@ -50,9 +50,9 @@ public class SymbolTable
     /// </remarks>
     public void EnterScope()
     {
-        _scopes.Push(new Dictionary<string, Symbol>());
+        _scopes.Push(item: new Dictionary<string, Symbol>());
     }
-    
+
     /// <summary>
     /// Exits the current lexical scope.
     /// Removes the topmost scope from the stack, but preserves the global scope.
@@ -69,7 +69,7 @@ public class SymbolTable
             _scopes.Pop();
         }
     }
-    
+
     /// <summary>
     /// Attempts to declare a symbol in the current scope.
     /// </summary>
@@ -82,17 +82,17 @@ public class SymbolTable
     /// </remarks>
     public bool TryDeclare(Symbol symbol)
     {
-        var currentScope = _scopes.Peek();
+        Dictionary<string, Symbol> currentScope = _scopes.Peek();
 
-        if (currentScope.ContainsKey(symbol.Name))
+        if (currentScope.ContainsKey(key: symbol.Name))
         {
             return false; // Already declared in current scope
         }
 
-        currentScope[symbol.Name] = symbol;
+        currentScope[key: symbol.Name] = symbol;
         return true;
     }
-    
+
     /// <summary>
     /// Looks up a symbol by name using lexical scoping rules.
     /// Searches from the innermost scope outward until the symbol is found.
@@ -112,13 +112,14 @@ public class SymbolTable
     public Symbol? Lookup(string name)
     {
         // Search from innermost to outermost scope
-        foreach (var scope in _scopes)
+        foreach (Dictionary<string, Symbol> scope in _scopes)
         {
-            if (scope.TryGetValue(name, out var symbol))
+            if (scope.TryGetValue(key: name, value: out Symbol? symbol))
             {
                 return symbol;
             }
         }
+
         return null; // Symbol not found in any scope
     }
 }
@@ -131,50 +132,62 @@ public abstract record Symbol(string Name, TypeInfo? Type, VisibilityModifier Vi
 /// <summary>
 /// Variable symbol
 /// </summary>
-public record VariableSymbol(string Name, TypeInfo? Type, bool IsMutable, VisibilityModifier Visibility) 
-    : Symbol(Name, Type, Visibility);
+public record VariableSymbol(
+    string Name,
+    TypeInfo? Type,
+    bool IsMutable,
+    VisibilityModifier Visibility) : Symbol(Name: Name, Type: Type, Visibility: Visibility);
 
 /// <summary>
 /// Function symbol
 /// </summary>
-public record FunctionSymbol(string Name, List<Parameter> Parameters, TypeInfo? ReturnType, VisibilityModifier Visibility, bool IsUsurping = false, List<string>? GenericParameters = null)
-    : Symbol(Name, ReturnType, Visibility);
+public record FunctionSymbol(
+    string Name,
+    List<Parameter> Parameters,
+    TypeInfo? ReturnType,
+    VisibilityModifier Visibility,
+    bool IsUsurping = false,
+    List<string>? GenericParameters = null)
+    : Symbol(Name: Name, Type: ReturnType, Visibility: Visibility);
 
 /// <summary>
 /// Entity symbol
 /// </summary>
-public record ClassSymbol(string Name, TypeExpression? BaseClass, List<TypeExpression> Interfaces, VisibilityModifier Visibility) 
-    : Symbol(Name, null, Visibility);
+public record ClassSymbol(
+    string Name,
+    TypeExpression? BaseClass,
+    List<TypeExpression> Interfaces,
+    VisibilityModifier Visibility) : Symbol(Name: Name, Type: null, Visibility: Visibility);
 
 /// <summary>
 /// Record symbol
 /// </summary>
-public record StructSymbol(string Name, VisibilityModifier Visibility) 
-    : Symbol(Name, null, Visibility);
+public record StructSymbol(string Name, VisibilityModifier Visibility)
+    : Symbol(Name: Name, Type: null, Visibility: Visibility);
 
 /// <summary>
 /// Option (enum) symbol
 /// </summary>
-public record MenuSymbol(string Name, VisibilityModifier Visibility) 
-    : Symbol(Name, null, Visibility);
+public record MenuSymbol(string Name, VisibilityModifier Visibility)
+    : Symbol(Name: Name, Type: null, Visibility: Visibility);
 
 /// <summary>
 /// Variant symbol
 /// </summary>
-public record VariantSymbol(string Name, VisibilityModifier Visibility) 
-    : Symbol(Name, null, Visibility);
+public record VariantSymbol(string Name, VisibilityModifier Visibility)
+    : Symbol(Name: Name, Type: null, Visibility: Visibility);
 
 /// <summary>
 /// Feature (trait/interface) symbol
 /// </summary>
 public record FeatureSymbol(string Name, VisibilityModifier Visibility)
-    : Symbol(Name, null, Visibility);
+    : Symbol(Name: Name, Type: null, Visibility: Visibility);
 
 /// <summary>
 /// Type symbol for built-in and defined types
 /// </summary>
 public record TypeSymbol(string Name, TypeInfo TypeInfo, VisibilityModifier Visibility)
-    : Symbol(Name, TypeInfo, Visibility);
+    : Symbol(Name: Name, Type: TypeInfo, Visibility: Visibility);
 
 /// <summary>
 /// Type information for symbols, including primitive type classification.
@@ -198,16 +211,20 @@ public record TypeSymbol(string Name, TypeInfo TypeInfo, VisibilityModifier Visi
 public record TypeInfo(string Name, bool IsReference)
 {
     /// <summary>true if this is any numeric type (integer, floating point, or decimal)</summary>
-    public bool IsNumeric => Name.StartsWith("s") || Name.StartsWith("u") || Name.StartsWith("f") || Name.StartsWith("d") || Name == "syssint" || Name == "sysuint";
+    public bool IsNumeric => Name.StartsWith(value: "s") || Name.StartsWith(value: "u") ||
+                             Name.StartsWith(value: "f") || Name.StartsWith(value: "d") ||
+                             Name == "syssint" || Name == "sysuint";
 
     /// <summary>true if this is any integer type (signed or unsigned)</summary>
-    public bool IsInteger => Name.StartsWith("s") || Name.StartsWith("u") || Name == "syssint" || Name == "sysuint";
+    public bool IsInteger => Name.StartsWith(value: "s") || Name.StartsWith(value: "u") ||
+                             Name == "syssint" || Name == "sysuint";
 
     /// <summary>true if this is any floating point type (binary or decimal)</summary>
-    public bool IsFloatingPoint => Name.StartsWith("f") || Name.StartsWith("d");
+    public bool IsFloatingPoint => Name.StartsWith(value: "f") || Name.StartsWith(value: "d");
 
     /// <summary>true if this is a signed numeric type</summary>
-    public bool IsSigned => Name.StartsWith("s") || Name.StartsWith("f") || Name.StartsWith("d") || Name == "syssint";
+    public bool IsSigned => Name.StartsWith(value: "s") || Name.StartsWith(value: "f") ||
+                            Name.StartsWith(value: "d") || Name == "syssint";
 }
 
 /// <summary>

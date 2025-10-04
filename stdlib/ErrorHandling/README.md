@@ -5,6 +5,7 @@
 RazorForge provides **two different approaches** to algebraic data types:
 
 ### ✅ Safe Sum Types (`variant`)
+
 - **Compile-time optimized** and memory-safe
 - **No danger blocks required**
 - Used for `Result<T>` and `Maybe<T>`
@@ -24,6 +25,7 @@ variant Maybe<T> {
 ```
 
 ### ⚠️ Dangerous Reality Benders (`chimera`)
+
 - **Runtime type checking required**
 - **Must be used in `danger!` blocks**
 - Break compile-time safety guarantees
@@ -44,7 +46,8 @@ danger! {
 - **`Result<T>` and `Maybe<T>` are safe `variant` types**
 - They do NOT require `danger!` blocks
 - They are compile-time optimized and memory-safe
-- The Reality-Bender documentation confirms: *"`Result<T>` and `Maybe<T>` are always safe and compile-time optimized—they are NOT chimeras"*
+- The Reality-Bender documentation confirms: *"`Result<T>` and `Maybe<T>` are always safe and compile-time
+  optimized—they are NOT chimeras"*
 
 ## Pattern Matching Syntax
 

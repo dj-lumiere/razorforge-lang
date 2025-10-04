@@ -76,6 +76,7 @@ make compiler           # Build C# compiler only
 ```
 
 **Environment variables for enhanced functionality:**
+
 ```bash
 RUN_TESTS_AFTER_BUILD=true ./build.sh --release
 FORMAT_CODE=true ./build.sh --debug
@@ -85,6 +86,7 @@ CREATE_PACKAGE=true ./build.sh --release
 ### 4. Direct Tool Commands
 
 **dotnet CLI** - For C# development
+
 ```bash
 dotnet build --configuration Release
 dotnet test --configuration Release
@@ -93,6 +95,7 @@ dotnet publish --runtime win-x64     # Create platform builds
 ```
 
 **Scripts** - Individual automation tools
+
 ```bash
 bash scripts/run-tests.sh           # Comprehensive test runner
 bash scripts/format-code.sh         # Multi-language formatter
@@ -102,6 +105,7 @@ bash scripts/package.sh             # Distribution packager
 ## Development Workflows
 
 ### Daily Development
+
 ```bash
 # Setup (once)
 make dev-setup
@@ -113,6 +117,7 @@ make watch              # Continuous building
 ```
 
 ### Testing
+
 ```bash
 # All tests
 make test
@@ -127,6 +132,7 @@ bash scripts/run-tests.sh --coverage
 ```
 
 ### Code Quality
+
 ```bash
 # Format all code
 make format
@@ -140,6 +146,7 @@ make lint
 ```
 
 ### Release Process
+
 ```bash
 # Complete release pipeline
 ./rf-build ci
@@ -158,18 +165,21 @@ bash scripts/package.sh --version 2.0.0 --include-sources
 ## Configuration
 
 ### Build Types
+
 - **Debug** - Development builds with symbols and debugging info
 - **Release** - Optimized production builds
 - **MinSizeRel** - Size-optimized builds
 - **RelWithDebInfo** - Release builds with debugging info
 
 ### Supported Platforms
+
 - **win-x64** - Windows 64-bit
 - **linux-x64** - Linux 64-bit
 - **osx-x64** - macOS Intel
 - **osx-arm64** - macOS Apple Silicon
 
 ### Package Formats
+
 - **zip** - Windows-friendly archives
 - **tar.gz** - Unix-friendly archives
 - **deb** - Debian packages (planned)
@@ -194,17 +204,21 @@ COVERAGE=true                  # Generate coverage reports
 ## IDE Integration
 
 ### Visual Studio Code
+
 ```bash
 make vscode-setup              # Setup VS Code configuration
 ```
 
 ### JetBrains Rider
+
 ```bash
 make rider-setup               # Setup Rider configuration
 ```
 
 ### Command Palette Integration
+
 VS Code tasks are configured for:
+
 - Build (Ctrl+Shift+P → "Tasks: Run Task" → "Build")
 - Test (Ctrl+Shift+P → "Tasks: Run Task" → "Test")
 - Format (Ctrl+Shift+P → "Tasks: Run Task" → "Format")
@@ -212,6 +226,7 @@ VS Code tasks are configured for:
 ## CI/CD Integration
 
 ### GitHub Actions
+
 ```yaml
 - name: Build and Test
   run: ./rf-build ci
@@ -221,6 +236,7 @@ VS Code tasks are configured for:
 ```
 
 ### Other CI Systems
+
 ```bash
 # Full pipeline
 ./rf-build ci
@@ -237,27 +253,32 @@ bash scripts/package.sh
 ### Common Issues
 
 **Build fails with missing tools:**
+
 ```bash
 make info                      # Check tool versions
 make dev-setup                 # Install development tools
 ```
 
 **Tests timeout:**
+
 ```bash
 bash scripts/run-tests.sh --timeout 600    # Increase timeout
 ```
 
 **Formatting issues:**
+
 ```bash
 bash scripts/format-code.sh --verbose      # See detailed output
 ```
 
 **Package creation fails:**
+
 ```bash
 bash scripts/package.sh --platform win-x64 # Try specific platform
 ```
 
 ### Clean Builds
+
 ```bash
 make clean                     # Standard clean
 make deep-clean                # Remove all generated files
@@ -265,6 +286,7 @@ make deep-clean                # Remove all generated files
 ```
 
 ### Getting Help
+
 ```bash
 ./rf-build                     # Show quick commands
 make help                      # Show all Make targets
@@ -276,6 +298,7 @@ bash scripts/package.sh --help       # Packaging options
 ## Advanced Usage
 
 ### Custom Build Configurations
+
 ```bash
 # Development with specific settings
 BUILD_TYPE=Debug JOBS=1 VERBOSE=true make build
@@ -285,6 +308,7 @@ BUILD_TYPE=Release CREATE_PACKAGE=true ./build.sh --release
 ```
 
 ### Parallel Development
+
 ```bash
 # Watch mode for continuous building
 make watch
@@ -297,6 +321,7 @@ make check && echo "Ready for commit!"
 ```
 
 ### Cross-Platform Building
+
 ```bash
 # Build for all platforms
 bash scripts/package.sh

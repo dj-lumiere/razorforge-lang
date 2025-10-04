@@ -11,84 +11,87 @@ public class CakeTokenizer : BaseTokenizer
 {
     /// <summary>Current indentation level (number of spaces from start of line)</summary>
     private int _currentIndentLevel;
+
     /// <summary>Flag indicating that an indent token should be generated on the next line</summary>
     private bool _expectIndent;
+
     /// <summary>Flag tracking whether any non-whitespace tokens have been processed on current line</summary>
     private bool _hasTokenOnLine;
+
     private bool _hasDefinitions;
 
     /// <summary>Dictionary mapping Cake keywords to their corresponding token types</summary>
     private readonly Dictionary<string, TokenType> _keywords = new()
     {
-        ["recipe"] = TokenType.recipe,
-        ["entity"] = TokenType.Entity,
-        ["record"] = TokenType.Record,
-        ["choice"] = TokenType.Choice,
-        ["requires"] = TokenType.Requires,
-        ["chimera"] = TokenType.Chimera,
-        ["variant"] = TokenType.Variant,
-        ["mutant"] = TokenType.Mutant,
-        ["protocol"] = TokenType.Protocol,
-        ["let"] = TokenType.Let,
-        ["var"] = TokenType.Var,
-        ["preset"] = TokenType.Preset,
-        ["common"] = TokenType.TypeWise,
-        ["private"] = TokenType.Private,
-        ["public(family)"] = TokenType.PublicFamily,
-        ["public(module)"] = TokenType.PublicModule,
-        ["public"] = TokenType.Public,
-        ["global"] = TokenType.Global,
-        ["external"] = TokenType.External,
-        ["me"] = TokenType.Self,
-        ["parent"] = TokenType.Super,
-        ["if"] = TokenType.If,
-        ["elif"] = TokenType.Elif,
-        ["else"] = TokenType.Else,
-        ["then"] = TokenType.Then,
-        ["unless"] = TokenType.Unless,
-        ["break"] = TokenType.Break,
-        ["continue"] = TokenType.Continue,
-        ["return"] = TokenType.Return,
-        ["for"] = TokenType.For,
-        ["loop"] = TokenType.Loop,
-        ["while"] = TokenType.While,
-        ["when"] = TokenType.When,
-        ["is"] = TokenType.Is,
-        ["from"] = TokenType.From,
-        ["follows"] = TokenType.Follows,
-        ["import"] = TokenType.Import,
-        ["define"] = TokenType.Define,
-        ["using"] = TokenType.Using,
-        ["as"] = TokenType.As,
-        ["pass"] = TokenType.Pass,
-        ["danger"] = TokenType.Danger,
-        ["mayhem"] = TokenType.Mayhem,
-        ["with"] = TokenType.With,
-        ["where"] = TokenType.Where,
-        ["isnot"] = TokenType.IsNot,
-        ["notfrom"] = TokenType.NotFrom,
-        ["notin"] = TokenType.NotIn,
-        ["notfollows"] = TokenType.NotFollows,
-        ["in"] = TokenType.In,
-        ["to"] = TokenType.To,
-        ["step"] = TokenType.Step,
-        ["and"] = TokenType.And,
-        ["or"] = TokenType.Or,
-        ["not"] = TokenType.Not,
-        ["true"] = TokenType.True,
-        ["false"] = TokenType.False,
-        ["none"] = TokenType.None,
-        ["generate"] = TokenType.Generate,
-        ["suspended"] = TokenType.Suspended,
-        ["waitfor"] = TokenType.Waitfor,
-        ["usurping"] = TokenType.Usurping,
+        [key: "recipe"] = TokenType.recipe,
+        [key: "entity"] = TokenType.Entity,
+        [key: "record"] = TokenType.Record,
+        [key: "choice"] = TokenType.Choice,
+        [key: "requires"] = TokenType.Requires,
+        [key: "chimera"] = TokenType.Chimera,
+        [key: "variant"] = TokenType.Variant,
+        [key: "mutant"] = TokenType.Mutant,
+        [key: "protocol"] = TokenType.Protocol,
+        [key: "let"] = TokenType.Let,
+        [key: "var"] = TokenType.Var,
+        [key: "preset"] = TokenType.Preset,
+        [key: "common"] = TokenType.TypeWise,
+        [key: "private"] = TokenType.Private,
+        [key: "public(family)"] = TokenType.PublicFamily,
+        [key: "public(module)"] = TokenType.PublicModule,
+        [key: "public"] = TokenType.Public,
+        [key: "global"] = TokenType.Global,
+        [key: "external"] = TokenType.External,
+        [key: "me"] = TokenType.Self,
+        [key: "parent"] = TokenType.Super,
+        [key: "if"] = TokenType.If,
+        [key: "elif"] = TokenType.Elif,
+        [key: "else"] = TokenType.Else,
+        [key: "then"] = TokenType.Then,
+        [key: "unless"] = TokenType.Unless,
+        [key: "break"] = TokenType.Break,
+        [key: "continue"] = TokenType.Continue,
+        [key: "return"] = TokenType.Return,
+        [key: "for"] = TokenType.For,
+        [key: "loop"] = TokenType.Loop,
+        [key: "while"] = TokenType.While,
+        [key: "when"] = TokenType.When,
+        [key: "is"] = TokenType.Is,
+        [key: "from"] = TokenType.From,
+        [key: "follows"] = TokenType.Follows,
+        [key: "import"] = TokenType.Import,
+        [key: "define"] = TokenType.Define,
+        [key: "using"] = TokenType.Using,
+        [key: "as"] = TokenType.As,
+        [key: "pass"] = TokenType.Pass,
+        [key: "danger"] = TokenType.Danger,
+        [key: "mayhem"] = TokenType.Mayhem,
+        [key: "with"] = TokenType.With,
+        [key: "where"] = TokenType.Where,
+        [key: "isnot"] = TokenType.IsNot,
+        [key: "notfrom"] = TokenType.NotFrom,
+        [key: "notin"] = TokenType.NotIn,
+        [key: "notfollows"] = TokenType.NotFollows,
+        [key: "in"] = TokenType.In,
+        [key: "to"] = TokenType.To,
+        [key: "step"] = TokenType.Step,
+        [key: "and"] = TokenType.And,
+        [key: "or"] = TokenType.Or,
+        [key: "not"] = TokenType.Not,
+        [key: "true"] = TokenType.True,
+        [key: "false"] = TokenType.False,
+        [key: "none"] = TokenType.None,
+        [key: "generate"] = TokenType.Generate,
+        [key: "suspended"] = TokenType.Suspended,
+        [key: "waitfor"] = TokenType.Waitfor,
+        [key: "usurping"] = TokenType.Usurping
     };
 
     /// <summary>
     /// Initializes a new Cake tokenizer with the source code to tokenize.
     /// </summary>
     /// <param name="source">The Cake source code text</param>
-    public CakeTokenizer(string source) : base(source)
+    public CakeTokenizer(string source) : base(source: source)
     {
     }
 
@@ -98,7 +101,10 @@ public class CakeTokenizer : BaseTokenizer
     /// Returns the Cake-specific keyword mappings.
     /// </summary>
     /// <returns>Dictionary of Cake keywords and their token types</returns>
-    protected override Dictionary<string, TokenType> GetKeywords() => _keywords;
+    protected override Dictionary<string, TokenType> GetKeywords()
+    {
+        return _keywords;
+    }
 
     /// <summary>
     /// Tokenizes the entire Cake source code into a list of tokens.
@@ -117,12 +123,13 @@ public class CakeTokenizer : BaseTokenizer
         }
 
         // Emit remaining dedents at end of file
-        for (var i = 0; i < _currentIndentLevel; i++)
+        for (int i = 0; i < _currentIndentLevel; i++)
         {
-            AddToken(TokenType.Dedent, "");
+            AddToken(type: TokenType.Dedent, text: "");
         }
 
-        Tokens.Add(new Token(TokenType.Eof, "", Line, Column, Position));
+        Tokens.Add(item: new Token(Type: TokenType.Eof, Text: "", Line: Line, Column: Column,
+            Position: Position));
         return Tokens;
     }
 
@@ -135,14 +142,21 @@ public class CakeTokenizer : BaseTokenizer
         if (Column == 1)
         {
             HandleIndentation();
-            if (IsAtEnd()) return;
+            if (IsAtEnd())
+            {
+                return;
+            }
         }
 
         // Skip non-newline whitespace and update token start
-        while (Peek() == ' ' || Peek() == '\t' || Peek() == '\r') Advance();
+        while (Peek() == ' ' || Peek() == '\t' || Peek() == '\r')
+        {
+            Advance();
+        }
+
         TokenStart = Position;
         TokenStartColumn = Column;
-        var c = Advance();
+        char c = Advance();
 
         switch (c)
         {
@@ -155,65 +169,122 @@ public class CakeTokenizer : BaseTokenizer
             case '"': ScanCakeString(); break;
             case '\'': ScanChar(); break;
             case 'l':
-                if (!TryParseLetterPrefix()) ScanIdentifier(); break;
+                if (!TryParseLetterPrefix())
+                {
+                    ScanIdentifier();
+                }
+
+                break;
             case 'r' or 'f' or 't':
-                if (!TryParseTextPrefix()) ScanIdentifier(); break;
+                if (!TryParseTextPrefix())
+                {
+                    ScanIdentifier();
+                }
+
+                break;
 
             // Delimiters (no braces in Cake - uses indentation)
-            case '(': AddToken(TokenType.LeftParen); break;
-            case ')': AddToken(TokenType.RightParen); break;
-            case '[': AddToken(TokenType.LeftBracket); break;
-            case ']': AddToken(TokenType.RightBracket); break;
-            case ',': AddToken(TokenType.Comma); break;
+            case '(': AddToken(type: TokenType.LeftParen); break;
+            case ')': AddToken(type: TokenType.RightParen); break;
+            case '[': AddToken(type: TokenType.LeftBracket); break;
+            case ']': AddToken(type: TokenType.RightBracket); break;
+            case ',': AddToken(type: TokenType.Comma); break;
 
             // Multi-character delimiters
-            case '.': AddToken(Match('.') ? (Match('.') ? TokenType.DotDotDot : TokenType.DotDot) : TokenType.Dot); break;
+            case '.':
+                AddToken(type: Match(expected: '.')
+                    ? Match(expected: '.')
+                        ? TokenType.DotDotDot
+                        : TokenType.DotDot
+                    : TokenType.Dot); break;
             case ':':
-                if (Match(':'))
-                    AddToken(TokenType.DoubleColon);
+                if (Match(expected: ':'))
+                {
+                    AddToken(type: TokenType.DoubleColon);
+                }
                 else
                 {
-                    AddToken(TokenType.Colon);
+                    AddToken(type: TokenType.Colon);
                     _expectIndent = IsBlockStarterColon();
                 }
+
                 break;
 
             // Arithmetic operators
             case '+': ScanPlusOperator(); break;
-            case '-': if (Match('>')) AddToken(TokenType.Arrow); else ScanMinusOperator(); break;
+            case '-':
+                if (Match(expected: '>'))
+                {
+                    AddToken(type: TokenType.Arrow);
+                }
+                else
+                {
+                    ScanMinusOperator();
+                }
+
+                break;
             case '*': ScanStarOperator(); break;
             case '/': ScanSlashOperator(); break;
             case '%': ScanPercentOperator(); break;
 
             // Comparison and assignment
             case '=':
-                AddToken(Match('=') ? TokenType.Equal : (Match('>') ? TokenType.FatArrow : TokenType.Assign)); break;
-            case '!': AddToken(Match('=') ? TokenType.NotEqual : TokenType.Bang); break;
+                AddToken(type: Match(expected: '=') ? TokenType.Equal :
+                    Match(expected: '>') ? TokenType.FatArrow : TokenType.Assign); break;
+            case '!':
+                AddToken(type: Match(expected: '=')
+                    ? TokenType.NotEqual
+                    : TokenType.Bang); break;
             case '<':
-                AddToken(Match('=') ? TokenType.LessEqual : (Match('<') ? TokenType.LeftShift : TokenType.Less)); break;
+                AddToken(type: Match(expected: '=') ? TokenType.LessEqual :
+                    Match(expected: '<') ? TokenType.LeftShift : TokenType.Less); break;
             case '>':
-                AddToken(Match('=') ? TokenType.GreaterEqual : (Match('>') ? TokenType.RightShift : TokenType.Greater)); break;
+                AddToken(type: Match(expected: '=') ? TokenType.GreaterEqual :
+                    Match(expected: '>') ? TokenType.RightShift : TokenType.Greater); break;
 
             // Single-character operators
-            case '&': AddToken(TokenType.Ampersand); break;
-            case '|': AddToken(TokenType.Pipe); break;
-            case '^': AddToken(TokenType.Caret); break;
-            case '~': AddToken(TokenType.Tilde); break;
-            case '?': AddToken(Match(':') ? TokenType.QuestionColon : TokenType.Question); break;
-            case '@': AddToken(TokenType.At); break;
+            case '&': AddToken(type: TokenType.Ampersand); break;
+            case '|': AddToken(type: TokenType.Pipe); break;
+            case '^': AddToken(type: TokenType.Caret); break;
+            case '~': AddToken(type: TokenType.Tilde); break;
+            case '?':
+                AddToken(type: Match(expected: ':')
+                    ? TokenType.QuestionColon
+                    : TokenType.Question); break;
+            case '@': AddToken(type: TokenType.At); break;
 
             // Numbers
             case '0':
-                if (Match('x') || Match('X')) ScanCakePrefixedNumber(isHex: true);
-                else if (Match('b') || Match('B')) ScanCakePrefixedNumber(isHex: false);
-                else ScanCakeNumber();
+                if (Match(expected: 'x') || Match(expected: 'X'))
+                {
+                    ScanCakePrefixedNumber(isHex: true);
+                }
+                else if (Match(expected: 'b') || Match(expected: 'B'))
+                {
+                    ScanCakePrefixedNumber(isHex: false);
+                }
+                else
+                {
+                    ScanCakeNumber();
+                }
+
                 break;
 
             default:
                 _hasTokenOnLine = true;
-                if (char.IsDigit(c)) ScanCakeNumber();
-                else if (IsIdentifierStart(c)) ScanIdentifier();
-                else AddToken(TokenType.Unknown);
+                if (char.IsDigit(c: c))
+                {
+                    ScanCakeNumber();
+                }
+                else if (IsIdentifierStart(c: c))
+                {
+                    ScanIdentifier();
+                }
+                else
+                {
+                    AddToken(type: TokenType.Unknown);
+                }
+
                 break;
         }
     }
@@ -235,6 +306,7 @@ public class CakeTokenizer : BaseTokenizer
             {
                 spaces += 4;
             }
+
             Advance();
         }
 
@@ -250,12 +322,13 @@ public class CakeTokenizer : BaseTokenizer
             return;
         }
 
-        var newIndentLevel = spaces / 4;
+        int newIndentLevel = spaces / 4;
 
         // Check for misaligned indentation
         if (spaces % 4 != 0)
         {
             throw new LexerException(
+                message:
                 $"Indentation error at line {Line}: expected multiple of 4 spaces, got {spaces} spaces.");
         }
 
@@ -263,10 +336,10 @@ public class CakeTokenizer : BaseTokenizer
         {
             if (newIndentLevel <= _currentIndentLevel)
             {
-                throw new LexerException($"Expected indent after ':' at line {Line}");
+                throw new LexerException(message: $"Expected indent after ':' at line {Line}");
             }
 
-            AddToken(TokenType.Indent, "");
+            AddToken(type: TokenType.Indent, text: "");
             _currentIndentLevel = newIndentLevel;
             _expectIndent = false;
             return;
@@ -275,14 +348,14 @@ public class CakeTokenizer : BaseTokenizer
         // Handle dedents
         while (newIndentLevel < _currentIndentLevel)
         {
-            AddToken(TokenType.Dedent, "");
+            AddToken(type: TokenType.Dedent, text: "");
             _currentIndentLevel -= 1;
         }
 
         // Check for unexpected indent
         if (newIndentLevel > _currentIndentLevel)
         {
-            throw new LexerException($"Unexpected indent at line {Line}");
+            throw new LexerException(message: $"Unexpected indent at line {Line}");
         }
     }
 
@@ -292,7 +365,7 @@ public class CakeTokenizer : BaseTokenizer
 
         if (isSignificant)
         {
-            AddToken(TokenType.Newline, "\\n");
+            AddToken(type: TokenType.Newline, text: "\\n");
         }
 
         _hasTokenOnLine = false;
@@ -300,10 +373,17 @@ public class CakeTokenizer : BaseTokenizer
 
     private bool IsNewlineSignificant()
     {
-        if (!_hasTokenOnLine) return false;
-        if (Tokens.Count == 0) return false;
+        if (!_hasTokenOnLine)
+        {
+            return false;
+        }
 
-        var lastToken = Tokens[^1].Type;
+        if (Tokens.Count == 0)
+        {
+            return false;
+        }
+
+        TokenType lastToken = Tokens[^1].Type;
 
         return lastToken switch
         {
@@ -342,15 +422,16 @@ public class CakeTokenizer : BaseTokenizer
     /// <returns>True if a valid letter prefix was found and processed</returns>
     private bool TryParseLetterPrefix()
     {
-        var startPos = Position - 1; // We already consumed first letter
-        var originalPos = Position;
-        var originalCol = Column;
+        int startPos = Position - 1; // We already consumed first letter
+        int originalPos = Position;
+        int originalCol = Column;
 
         // Build the prefix string starting with the character we already consumed
-        var prefix = Source[startPos].ToString();
+        string prefix = Source[index: startPos]
+           .ToString();
 
         // Continue building the prefix
-        while (!IsAtEnd() && char.IsLetterOrDigit(Peek()))
+        while (!IsAtEnd() && char.IsLetterOrDigit(c: Peek()))
         {
             prefix += Advance();
         }
@@ -369,15 +450,15 @@ public class CakeTokenizer : BaseTokenizer
         {
             case "letter8":
                 Advance(); // consume '\''
-                ScanCharLiteral(TokenType.Letter8Literal, 8);
+                ScanCharLiteral(tokenType: TokenType.Letter8Literal, bitWidth: 8);
                 return true;
             case "letter16":
                 Advance(); // consume '\''
-                ScanCharLiteral(TokenType.Letter16Literal, 16);
+                ScanCharLiteral(tokenType: TokenType.Letter16Literal, bitWidth: 16);
                 return true;
             case "letter32":
                 Advance(); // consume '\''
-                ScanCharLiteral(TokenType.LetterLiteral, 32);
+                ScanCharLiteral(tokenType: TokenType.LetterLiteral, bitWidth: 32);
                 return true;
             default:
                 // Not a letter prefix, reset
@@ -397,19 +478,19 @@ public class CakeTokenizer : BaseTokenizer
         if (Peek() == '\\')
         {
             Advance();
-            ScanEscapeSequence(bitWidth);
+            ScanEscapeSequence(bitWidth: bitWidth);
         }
         else
         {
             Advance();
         }
 
-        if (!Match('\''))
+        if (!Match(expected: '\''))
         {
-            throw new LexerException($"Unterminated character literal at line {Line}");
+            throw new LexerException(message: $"Unterminated character literal at line {Line}");
         }
 
-        AddToken(tokenType);
+        AddToken(type: tokenType);
     }
 
 
@@ -422,22 +503,22 @@ public class CakeTokenizer : BaseTokenizer
     {
         // A colon starts a block if it's followed by whitespace/newline and not more text
         // Look ahead to see if there's significant content after the colon on the same line
-        var pos = Position;
+        int pos = Position;
 
         // Skip whitespace
-        while (pos < Source.Length && (Source[pos] == ' ' || Source[pos] == '\t'))
+        while (pos < Source.Length && (Source[index: pos] == ' ' || Source[index: pos] == '\t'))
         {
             pos++;
         }
 
         // If we hit end of file or newline, it's a block starter
-        if (pos >= Source.Length || Source[pos] == '\n' || Source[pos] == '\r')
+        if (pos >= Source.Length || Source[index: pos] == '\n' || Source[index: pos] == '\r')
         {
             return true;
         }
 
         // If we hit a comment, it's still a block starter
-        if (Source[pos] == '#')
+        if (Source[index: pos] == '#')
         {
             return true;
         }
@@ -454,9 +535,10 @@ public class CakeTokenizer : BaseTokenizer
         // Track definition keywords for script mode detection
         if (Tokens.Count > 0)
         {
-            var lastToken = Tokens[^1].Type;
-            if (lastToken is TokenType.recipe or TokenType.Entity or TokenType.Record or TokenType.Choice
-                or TokenType.Chimera or TokenType.Variant or TokenType.Mutant or TokenType.Protocol)
+            TokenType lastToken = Tokens[^1].Type;
+            if (lastToken is TokenType.recipe or TokenType.Entity or TokenType.Record
+                or TokenType.Choice or TokenType.Chimera or TokenType.Variant or TokenType.Mutant
+                or TokenType.Protocol)
             {
                 _hasDefinitions = true;
             }
@@ -469,17 +551,21 @@ public class CakeTokenizer : BaseTokenizer
     /// </summary>
     protected void ScanCakeNumber()
     {
-        while (char.IsDigit(Peek()) || Peek() == '_')
+        while (char.IsDigit(c: Peek()) || Peek() == '_')
+        {
             Advance();
+        }
 
-        var isFloat = false;
+        bool isFloat = false;
 
-        if (Peek() == '.' && char.IsDigit(Peek(1)))
+        if (Peek() == '.' && char.IsDigit(c: Peek(offset: 1)))
         {
             isFloat = true;
             Advance();
-            while (char.IsDigit(Peek()) || Peek() == '_')
+            while (char.IsDigit(c: Peek()) || Peek() == '_')
+            {
                 Advance();
+            }
         }
 
         if (Peek() == 'e' || Peek() == 'E')
@@ -487,44 +573,57 @@ public class CakeTokenizer : BaseTokenizer
             isFloat = true;
             Advance();
             if (Peek() == '+' || Peek() == '-')
+            {
                 Advance();
-            while (char.IsDigit(Peek()))
+            }
+
+            while (char.IsDigit(c: Peek()))
+            {
                 Advance();
+            }
         }
 
-        if (char.IsLetter(Peek()))
+        if (char.IsLetter(c: Peek()))
         {
-            var suffixStart = Position;
-            while (char.IsLetterOrDigit(Peek()))
+            int suffixStart = Position;
+            while (char.IsLetterOrDigit(c: Peek()))
+            {
                 Advance();
-
-            var suffix = Source.Substring(suffixStart, Position - suffixStart);
-
-            if (_numericSuffixToTokenType.TryGetValue(suffix, out var numericTokenType))
-            {
-                AddToken(numericTokenType);
             }
-            else if (_memorySuffixToTokenType.TryGetValue(suffix, out var memoryTokenType))
+
+            string suffix =
+                Source.Substring(startIndex: suffixStart, length: Position - suffixStart);
+
+            if (_numericSuffixToTokenType.TryGetValue(key: suffix,
+                    value: out TokenType numericTokenType))
             {
-                AddToken(memoryTokenType);
+                AddToken(type: numericTokenType);
             }
-            else if (_durationSuffixToTokenType.TryGetValue(suffix, out var durationTokenType))
+            else if (_memorySuffixToTokenType.TryGetValue(key: suffix,
+                         value: out TokenType memoryTokenType))
             {
-                AddToken(durationTokenType);
+                AddToken(type: memoryTokenType);
+            }
+            else if (_durationSuffixToTokenType.TryGetValue(key: suffix,
+                         value: out TokenType durationTokenType))
+            {
+                AddToken(type: durationTokenType);
             }
             else if (suffix == "d")
             {
-                AddToken(TokenType.Decimal);
+                AddToken(type: TokenType.Decimal);
             }
             else
             {
-                throw new LexerException($"Unknown suffix '{suffix}' at line {Line}");
+                throw new LexerException(message: $"Unknown suffix '{suffix}' at line {Line}");
             }
         }
         else
         {
             // Use Cake's default types: Integer for whole numbers, Decimal for floating point
-            AddToken(isFloat ? TokenType.Decimal : TokenType.Integer);
+            AddToken(type: isFloat
+                ? TokenType.Decimal
+                : TokenType.Integer);
         }
     }
 
@@ -536,36 +635,46 @@ public class CakeTokenizer : BaseTokenizer
     {
         if (isHex)
         {
-            while (IsHexDigit(Peek()) || Peek() == '_')
+            while (IsHexDigit(c: Peek()) || Peek() == '_')
+            {
                 Advance();
+            }
         }
         else
         {
             while (Peek() == '0' || Peek() == '1' || Peek() == '_')
+            {
                 Advance();
+            }
         }
 
-        if (char.IsLetter(Peek()))
+        if (char.IsLetter(c: Peek()))
         {
-            var suffixStart = Position;
-            while (char.IsLetterOrDigit(Peek()))
-                Advance();
-
-            var suffix = Source.Substring(suffixStart, Position - suffixStart);
-            if (_numericSuffixToTokenType.TryGetValue(suffix, out var tokenType))
+            int suffixStart = Position;
+            while (char.IsLetterOrDigit(c: Peek()))
             {
-                AddToken(tokenType);
+                Advance();
+            }
+
+            string suffix =
+                Source.Substring(startIndex: suffixStart, length: Position - suffixStart);
+            if (_numericSuffixToTokenType.TryGetValue(key: suffix, value: out TokenType tokenType))
+            {
+                AddToken(type: tokenType);
             }
             else
             {
-                var baseType = isHex ? "hex" : "binary";
-                throw new LexerException($"Unknown {baseType} suffix '{suffix}' at line {Line}");
+                string baseType = isHex
+                    ? "hex"
+                    : "binary";
+                throw new LexerException(
+                    message: $"Unknown {baseType} suffix '{suffix}' at line {Line}");
             }
         }
         else
         {
             // Use Cake's default Integer type for unsuffixed hex/binary numbers
-            AddToken(TokenType.Integer);
+            AddToken(type: TokenType.Integer);
         }
     }
 }

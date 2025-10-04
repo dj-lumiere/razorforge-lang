@@ -58,12 +58,18 @@
         },
         "razorforge.languageServer.args": {
           "type": "array",
-          "default": ["--lsp"],
+          "default": [
+            "--lsp"
+          ],
           "description": "Arguments to pass to the RazorForge Language Server"
         },
         "razorforge.trace.server": {
           "type": "string",
-          "enum": ["off", "messages", "verbose"],
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
           "default": "off",
           "description": "Traces the communication between VS Code and the RazorForge language server"
         },
@@ -94,7 +100,12 @@
         },
         "razorforge.linting.level": {
           "type": "string",
-          "enum": ["error", "warning", "info", "hint"],
+          "enum": [
+            "error",
+            "warning",
+            "info",
+            "hint"
+          ],
           "default": "warning",
           "description": "Minimum diagnostic level to show"
         },

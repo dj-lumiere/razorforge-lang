@@ -10,67 +10,68 @@ using Compilers.Shared.CodeGen;
 using Compilers.Shared.Lexer;
 using Compilers.RazorForge.Parser;
 
-namespace RazorForge.Tests.Integration
+namespace RazorForge.Tests.Integration;
+
+/// <summary>
+/// End-to-end integration tests for the complete RazorForge compiler pipeline
+/// </summary>
+public class EndToEndTests
 {
-    /// <summary>
-    /// End-to-end integration tests for the complete RazorForge compiler pipeline
-    /// </summary>
-    public class EndToEndTests
+    private readonly SemanticAnalyzer _analyzer;
+    private readonly LLVMCodeGenerator _codeGenerator;
+
+    public EndToEndTests()
     {
-        private readonly SemanticAnalyzer _analyzer;
-        private readonly LLVMCodeGenerator _codeGenerator;
+        _analyzer = new SemanticAnalyzer(language: Language.RazorForge, mode: LanguageMode.Normal);
+        _codeGenerator =
+            new LLVMCodeGenerator(language: Language.RazorForge, mode: LanguageMode.Normal);
+    }
 
-        public EndToEndTests()
-        {
-            _analyzer = new SemanticAnalyzer(Language.RazorForge, LanguageMode.Normal);
-            _codeGenerator = new LLVMCodeGenerator(Language.RazorForge, LanguageMode.Normal);
-        }
+    private string CompileToLLVM(string code)
+    {
+        // Tokenize
+        List<Token> tokens = Tokenizer.Tokenize(source: code, language: Language.RazorForge);
+        Assert.NotEmpty(collection: tokens);
 
-        private string CompileToLLVM(string code)
-        {
-            // Tokenize
-            var tokens = Tokenizer.Tokenize(code, Language.RazorForge);
-            Assert.NotEmpty(tokens);
+        // Parse
+        var parser = new RazorForgeParser(tokens: tokens);
+        Program program = parser.Parse();
+        Assert.NotNull(@object: program);
 
-            // Parse
-            var parser = new RazorForgeParser(tokens);
-            var program = parser.Parse();
-            Assert.NotNull(program);
+        // Semantic Analysis
+        _analyzer.Analyze(program: program);
 
-            // Semantic Analysis
-            _analyzer.Analyze(program);
+        // Code Generation
+        _codeGenerator.Generate(program: program);
+        string llvmIr = _codeGenerator.GetGeneratedCode();
+        Assert.NotNull(@object: llvmIr);
+        Assert.NotEmpty(collection: llvmIr);
 
-            // Code Generation
-            _codeGenerator.Generate(program);
-            var llvmIr = _codeGenerator.GetGeneratedCode();
-            Assert.NotNull(llvmIr);
-            Assert.NotEmpty(llvmIr);
+        return llvmIr;
+    }
 
-            return llvmIr;
-        }
-
-        [Fact]
-        public void TestHelloWorldProgram()
-        {
-            var code = @"
+    [Fact]
+    public void TestHelloWorldProgram()
+    {
+        string code = @"
 recipe main() -> s32 {
     print(""Hello, World!"")
     return 0
 }";
 
-            var llvmIr = CompileToLLVM(code);
+        string llvmIr = CompileToLLVM(code: code);
 
-            // Verify the generated LLVM IR contains expected elements
-            Assert.Contains("define", llvmIr);
-            Assert.Contains("main", llvmIr);
-            Assert.Contains("Hello, World!", llvmIr);
-            Assert.Contains("ret", llvmIr);
-        }
+        // Verify the generated LLVM IR contains expected elements
+        Assert.Contains(expectedSubstring: "define", actualString: llvmIr);
+        Assert.Contains(expectedSubstring: "main", actualString: llvmIr);
+        Assert.Contains(expectedSubstring: "Hello, World!", actualString: llvmIr);
+        Assert.Contains(expectedSubstring: "ret", actualString: llvmIr);
+    }
 
-        [Fact]
-        public void TestFactorialProgram()
-        {
-            var code = @"
+    [Fact]
+    public void TestFactorialProgram()
+    {
+        string code = @"
 recipe factorial(n: s32) -> s32 {
     if n <= 1:
         return 1
@@ -84,18 +85,19 @@ recipe main() -> s32 {
     return 0
 }";
 
-            var llvmIr = CompileToLLVM(code);
+        string llvmIr = CompileToLLVM(code: code);
 
-            // Should compile without errors and contain both functions
-            Assert.Contains("factorial", llvmIr);
-            Assert.Contains("main", llvmIr);
-            Assert.Contains("call", llvmIr); // Recursive and regular calls
-        }
+        // Should compile without errors and contain both functions
+        Assert.Contains(expectedSubstring: "factorial", actualString: llvmIr);
+        Assert.Contains(expectedSubstring: "main", actualString: llvmIr);
+        Assert.Contains(expectedSubstring: "call",
+            actualString: llvmIr); // Recursive and regular calls
+    }
 
-        [Fact]
-        public void TestFibonacciProgram()
-        {
-            var code = @"
+    [Fact]
+    public void TestFibonacciProgram()
+    {
+        string code = @"
 recipe fibonacci(n: s32) -> s32 {
     if n <= 1:
         return n
@@ -110,17 +112,17 @@ recipe main() -> s32 {
     return 0
 }";
 
-            var llvmIr = CompileToLLVM(code);
+        string llvmIr = CompileToLLVM(code: code);
 
-            // Should handle recursive function and loops
-            Assert.Contains("fibonacci", llvmIr);
-            Assert.Contains("main", llvmIr);
-        }
+        // Should handle recursive function and loops
+        Assert.Contains(expectedSubstring: "fibonacci", actualString: llvmIr);
+        Assert.Contains(expectedSubstring: "main", actualString: llvmIr);
+    }
 
-        [Fact]
-        public void TestArrayOperationsProgram()
-        {
-            var code = @"
+    [Fact]
+    public void TestArrayOperationsProgram()
+    {
+        string code = @"
 recipe array_sum(arr: HeapSlice, size: s32) -> s32 {
     var sum = 0
     for i in 0 to size:
@@ -140,17 +142,17 @@ recipe main() -> s32 {
     return 0
 }";
 
-            var llvmIr = CompileToLLVM(code);
+        string llvmIr = CompileToLLVM(code: code);
 
-            // Should handle memory operations and array access
-            Assert.Contains("array_sum", llvmIr);
-            Assert.Contains("HeapSlice", llvmIr);
-        }
+        // Should handle memory operations and array access
+        Assert.Contains(expectedSubstring: "array_sum", actualString: llvmIr);
+        Assert.Contains(expectedSubstring: "HeapSlice", actualString: llvmIr);
+    }
 
-        [Fact]
-        public void TestStringManipulationProgram()
-        {
-            var code = @"
+    [Fact]
+    public void TestStringManipulationProgram()
+    {
+        string code = @"
 recipe string_length(text: Text) -> s32 {
     return text.length
 }
@@ -169,18 +171,18 @@ recipe main() -> s32 {
     return 0
 }";
 
-            var llvmIr = CompileToLLVM(code);
+        string llvmIr = CompileToLLVM(code: code);
 
-            // Should handle string operations
-            Assert.Contains("string_length", llvmIr);
-            Assert.Contains("concatenate", llvmIr);
-            Assert.Contains("Hello", llvmIr);
-        }
+        // Should handle string operations
+        Assert.Contains(expectedSubstring: "string_length", actualString: llvmIr);
+        Assert.Contains(expectedSubstring: "concatenate", actualString: llvmIr);
+        Assert.Contains(expectedSubstring: "Hello", actualString: llvmIr);
+    }
 
-        [Fact]
-        public void TestComplexMathProgram()
-        {
-            var code = @"
+    [Fact]
+    public void TestComplexMathProgram()
+    {
+        string code = @"
 recipe power(base: f64, exponent: s32) -> f64 {
     if exponent == 0:
         return 1.0
@@ -198,17 +200,17 @@ recipe main() -> s32 {
     return 0
 }";
 
-            var llvmIr = CompileToLLVM(code);
+        string llvmIr = CompileToLLVM(code: code);
 
-            // Should handle floating point operations
-            Assert.Contains("power", llvmIr);
-            Assert.Contains("double", llvmIr); // f64 type
-        }
+        // Should handle floating point operations
+        Assert.Contains(expectedSubstring: "power", actualString: llvmIr);
+        Assert.Contains(expectedSubstring: "double", actualString: llvmIr); // f64 type
+    }
 
-        [Fact]
-        public void TestMemoryManagementProgram()
-        {
-            var code = @"
+    [Fact]
+    public void TestMemoryManagementProgram()
+    {
+        string code = @"
 recipe memory_test() {
     let heap_buffer = HeapSlice(1024)
     let stack_buffer = StackSlice(256)
@@ -234,17 +236,17 @@ recipe main() -> s32 {
     return 0
 }";
 
-            var llvmIr = CompileToLLVM(code);
+        string llvmIr = CompileToLLVM(code: code);
 
-            // Should handle different memory allocation types
-            Assert.Contains("HeapSlice", llvmIr);
-            Assert.Contains("StackSlice", llvmIr);
-        }
+        // Should handle different memory allocation types
+        Assert.Contains(expectedSubstring: "HeapSlice", actualString: llvmIr);
+        Assert.Contains(expectedSubstring: "StackSlice", actualString: llvmIr);
+    }
 
-        [Fact]
-        public void TestErrorHandlingProgram()
-        {
-            var code = @"
+    [Fact]
+    public void TestErrorHandlingProgram()
+    {
+        string code = @"
 recipe safe_divide(a: s32, b: s32) -> Option(s32) {
     if b == 0:
         return None
@@ -265,17 +267,17 @@ recipe main() -> s32 {
     return 0
 }";
 
-            var llvmIr = CompileToLLVM(code);
+        string llvmIr = CompileToLLVM(code: code);
 
-            // Should handle Option types and pattern matching
-            Assert.Contains("safe_divide", llvmIr);
-            Assert.Contains("main", llvmIr);
-        }
+        // Should handle Option types and pattern matching
+        Assert.Contains(expectedSubstring: "safe_divide", actualString: llvmIr);
+        Assert.Contains(expectedSubstring: "main", actualString: llvmIr);
+    }
 
-        [Fact]
-        public void TestGenericDataStructuresProgram()
-        {
-            var code = @"
+    [Fact]
+    public void TestGenericDataStructuresProgram()
+    {
+        string code = @"
 recipe list_operations() {
     let numbers = List(s32)()
 
@@ -297,17 +299,17 @@ recipe main() -> s32 {
     return 0
 }";
 
-            var llvmIr = CompileToLLVM(code);
+        string llvmIr = CompileToLLVM(code: code);
 
-            // Should handle generic types and higher-order functions
-            Assert.Contains("list_operations", llvmIr);
-            Assert.Contains("main", llvmIr);
-        }
+        // Should handle generic types and higher-order functions
+        Assert.Contains(expectedSubstring: "list_operations", actualString: llvmIr);
+        Assert.Contains(expectedSubstring: "main", actualString: llvmIr);
+    }
 
-        [Fact]
-        public void TestConcurrencyProgram()
-        {
-            var code = @"
+    [Fact]
+    public void TestConcurrencyProgram()
+    {
+        string code = @"
 recipe worker(id: s32, data: ThreadShared(s32)) {
     for i in 0 to 1000:
         let old_value = data.get()
@@ -331,17 +333,17 @@ recipe main() -> s32 {
     return 0
 }";
 
-            var llvmIr = CompileToLLVM(code);
+        string llvmIr = CompileToLLVM(code: code);
 
-            // Should handle concurrency primitives
-            Assert.Contains("worker", llvmIr);
-            Assert.Contains("ThreadShared", llvmIr);
-        }
+        // Should handle concurrency primitives
+        Assert.Contains(expectedSubstring: "worker", actualString: llvmIr);
+        Assert.Contains(expectedSubstring: "ThreadShared", actualString: llvmIr);
+    }
 
-        [Fact]
-        public void TestDangerModeProgram()
-        {
-            var code = @"
+    [Fact]
+    public void TestDangerModeProgram()
+    {
+        string code = @"
 recipe unsafe_memory_operations() {
     danger {
         let ptr = malloc(1024)
@@ -365,17 +367,17 @@ recipe main() -> s32 {
     return 0
 }";
 
-            var llvmIr = CompileToLLVM(code);
+        string llvmIr = CompileToLLVM(code: code);
 
-            // Should handle unsafe operations in danger blocks
-            Assert.Contains("unsafe_memory_operations", llvmIr);
-            Assert.Contains("main", llvmIr);
-        }
+        // Should handle unsafe operations in danger blocks
+        Assert.Contains(expectedSubstring: "unsafe_memory_operations", actualString: llvmIr);
+        Assert.Contains(expectedSubstring: "main", actualString: llvmIr);
+    }
 
-        [Fact]
-        public void TestOverflowHandlingProgram()
-        {
-            var code = @"
+    [Fact]
+    public void TestOverflowHandlingProgram()
+    {
+        string code = @"
 recipe overflow_demo() {
     let a: u8 = 200
     let b: u8 = 100
@@ -401,17 +403,17 @@ recipe main() -> s32 {
     return 0
 }";
 
-            var llvmIr = CompileToLLVM(code);
+        string llvmIr = CompileToLLVM(code: code);
 
-            // Should handle different overflow semantics
-            Assert.Contains("overflow_demo", llvmIr);
-            Assert.Contains("main", llvmIr);
-        }
+        // Should handle different overflow semantics
+        Assert.Contains(expectedSubstring: "overflow_demo", actualString: llvmIr);
+        Assert.Contains(expectedSubstring: "main", actualString: llvmIr);
+    }
 
-        [Fact]
-        public void TestCompleteApplicationProgram()
-        {
-            var code = @"
+    [Fact]
+    public void TestCompleteApplicationProgram()
+    {
+        string code = @"
 # Simple calculator application
 recipe parse_number(input: Text) -> Option(s32) {
     # Simplified number parsing
@@ -453,68 +455,67 @@ recipe main() -> s32 {
     return 0
 }";
 
-            var llvmIr = CompileToLLVM(code);
+        string llvmIr = CompileToLLVM(code: code);
 
-            // Should compile a complete application
-            Assert.Contains("parse_number", llvmIr);
-            Assert.Contains("calculator", llvmIr);
-            Assert.Contains("main", llvmIr);
-        }
+        // Should compile a complete application
+        Assert.Contains(expectedSubstring: "parse_number", actualString: llvmIr);
+        Assert.Contains(expectedSubstring: "calculator", actualString: llvmIr);
+        Assert.Contains(expectedSubstring: "main", actualString: llvmIr);
+    }
 
-        [Fact]
-        public void TestCompilerPerformance()
-        {
-            // Test compilation of a large program
-            var code = @"
+    [Fact]
+    public void TestCompilerPerformance()
+    {
+        // Test compilation of a large program
+        string code = @"
 recipe main() -> s32 {";
 
-            // Generate a large function with many operations
-            for (int i = 0; i < 100; i++)
-            {
-                code += $@"
+        // Generate a large function with many operations
+        for (int i = 0; i < 100; i++)
+        {
+            code += $@"
     let var{i} = {i}
     let result{i} = var{i} * 2 + 1";
-            }
+        }
 
-            code += @"
+        code += @"
     return 0
 }";
 
-            var stopwatch = Stopwatch.StartNew();
-            var llvmIr = CompileToLLVM(code);
-            stopwatch.Stop();
+        var stopwatch = Stopwatch.StartNew();
+        string llvmIr = CompileToLLVM(code: code);
+        stopwatch.Stop();
 
-            // Should compile within reasonable time (less than 10 seconds)
-            Assert.True(stopwatch.ElapsedMilliseconds < 10000);
-            Assert.NotNull(llvmIr);
-            Assert.Contains("main", llvmIr);
-        }
+        // Should compile within reasonable time (less than 10 seconds)
+        Assert.True(condition: stopwatch.ElapsedMilliseconds < 10000);
+        Assert.NotNull(@object: llvmIr);
+        Assert.Contains(expectedSubstring: "main", actualString: llvmIr);
+    }
 
-        [Fact]
-        public void TestCompilerMemoryUsage()
+    [Fact]
+    public void TestCompilerMemoryUsage()
+    {
+        // Test that compiler doesn't leak memory during compilation
+        long initialMemory = GC.GetTotalMemory(forceFullCollection: true);
+
+        for (int i = 0; i < 10; i++)
         {
-            // Test that compiler doesn't leak memory during compilation
-            var initialMemory = GC.GetTotalMemory(true);
-
-            for (int i = 0; i < 10; i++)
-            {
-                var code = @"
+            string code = @"
 recipe test_function() -> s32 {
     let x = 42
     return x * 2
 }";
-                CompileToLLVM(code);
-            }
-
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
-            GC.Collect();
-
-            var finalMemory = GC.GetTotalMemory(true);
-            var memoryIncrease = finalMemory - initialMemory;
-
-            // Memory increase should be reasonable (less than 10MB)
-            Assert.True(memoryIncrease < 10 * 1024 * 1024);
+            CompileToLLVM(code: code);
         }
+
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+
+        long finalMemory = GC.GetTotalMemory(forceFullCollection: true);
+        long memoryIncrease = finalMemory - initialMemory;
+
+        // Memory increase should be reasonable (less than 10MB)
+        Assert.True(condition: memoryIncrease < 10 * 1024 * 1024);
     }
 }

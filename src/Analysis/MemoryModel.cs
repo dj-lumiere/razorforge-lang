@@ -16,7 +16,6 @@ namespace Compilers.Shared.Analysis;
 /// 
 /// Cake uses automatic reference counting with incremental garbage collection.
 /// </summary>
-
 /// <summary>
 /// Memory wrapper types for RazorForge explicit memory management.
 /// Each wrapper type corresponds to a different access pattern and ownership model.
@@ -29,7 +28,7 @@ public enum WrapperType
     /// Can be transformed into any other wrapper type. Most basic form of ownership.
     /// </summary>
     Owned,
-    
+
     // Group 1 - Exclusive Borrowing (Red 🔴)
     /// <summary>
     /// Exclusive write access (Hijacked&lt;T&gt;). Only one can exist at a time.
@@ -37,7 +36,7 @@ public enum WrapperType
     /// Must be explicitly transferred between functions using usurping.
     /// </summary>
     Hijacked,
-    
+
     // Group 2 - Single-threaded Reference Counting (Green/Brown 🟢🟤)
     /// <summary>
     /// Shared ownership with interior mutability (Shared&lt;T&gt;).
@@ -45,13 +44,14 @@ public enum WrapperType
     /// through reference counting similar to Rc&lt;RefCell&lt;T&gt;&gt; in Rust.
     /// </summary>
     Shared,
+
     /// <summary>
     /// Weak observer (Watched&lt;T&gt;). Does not prevent object destruction.
     /// Can observe shared objects without affecting reference count.
     /// Must use try_share!() to upgrade to strong reference.
     /// </summary>
     Watched,
-    
+
     // Group 3 - Thread-Safe Reference Counting (Blue/Purple 🔵🟣)
     /// <summary>
     /// Thread-safe shared ownership (ThreadShared&lt;T&gt;).
@@ -59,13 +59,14 @@ public enum WrapperType
     /// shared mutable access through atomic reference counting and mutex.
     /// </summary>
     ThreadShared,
+
     /// <summary>
     /// Thread-safe weak observer (ThreadWatched&lt;T&gt;).
     /// Thread-safe weak reference that doesn't prevent destruction.
     /// Can observe thread-shared objects across thread boundaries.
     /// </summary>
     ThreadWatched,
-    
+
     // Unsafe (Black 💀)
     /// <summary>
     /// Forcibly taken (Snatched&lt;T&gt;). Created by snatch!() in danger! blocks.
@@ -88,21 +89,21 @@ public enum MemoryGroup
     /// Cannot coexist with other groups - enforces single-owner semantics.
     /// </summary>
     Exclusive = 1,
-    
+
     /// <summary>
     /// Group 2: Single-threaded reference counting (Green/Brown 🟢🟤).
     /// Contains: Shared, Watched. Allows multiple references within single thread.
     /// Uses RC (reference counting) similar to Rc&lt;RefCell&lt;T&gt;&gt; in Rust.
     /// </summary>
     SingleThreaded = 2,
-    
+
     /// <summary>
     /// Group 3: Multi-threaded reference counting (Blue/Purple 🔵🟣).
     /// Contains: ThreadShared, ThreadWatched. Thread-safe shared ownership.
     /// Uses Arc (atomic reference counting) similar to Arc&lt;Mutex&lt;T&gt;&gt; in Rust.
     /// </summary>
     MultiThreaded = 3,
-    
+
     /// <summary>
     /// Unsafe: Anything goes (Black 💀).
     /// Contains: Snatched. Only usable in danger! blocks.
@@ -123,21 +124,21 @@ public enum ObjectState
     /// All memory operations are allowed based on wrapper type rules.
     /// </summary>
     Valid,
-    
+
     /// <summary>
     /// Object has been invalidated (deadref). Cannot be accessed anymore.
     /// Caused by: memory operations (share!, hijack!, etc.), scope exit, or explicit invalidation.
     /// Attempting to use invalidated objects results in compile-time error.
     /// </summary>
     Invalidated,
-    
+
     /// <summary>
     /// Object moved into container (RazorForge) or RC'd (Cake).
     /// In RazorForge: object becomes deadref after moving into container.
     /// In Cake: object remains valid but RC is incremented.
     /// </summary>
     Moved,
-    
+
     /// <summary>
     /// Object is within danger! block where unsafe rules apply.
     /// Allows operations that would normally be forbidden (snatch!, mixed groups).
@@ -165,8 +166,7 @@ public record MemoryObject(
     ObjectState State,
     int ReferenceCount,
     SourceLocation Location,
-    string? InvalidatedBy = null
-)
+    string? InvalidatedBy = null)
 {
     /// <summary>
     /// Get the memory group for this wrapper type.
@@ -176,21 +176,21 @@ public record MemoryObject(
     public MemoryGroup Group => Wrapper switch
     {
         // Owned can become any group - it's the starting point
-        WrapperType.Owned => MemoryGroup.Exclusive, 
-        
+        WrapperType.Owned => MemoryGroup.Exclusive,
+
         // Group 1: Exclusive access
         WrapperType.Hijacked => MemoryGroup.Exclusive,
-        
+
         // Group 2: Single-threaded reference counting
         WrapperType.Shared or WrapperType.Watched => MemoryGroup.SingleThreaded,
-        
+
         // Group 3: Multi-threaded reference counting  
         WrapperType.ThreadShared or WrapperType.ThreadWatched => MemoryGroup.MultiThreaded,
-        
+
         // Unsafe: Danger zone
         WrapperType.Snatched => MemoryGroup.Unsafe,
-        
-        _ => throw new ArgumentException($"Unknown wrapper type: {Wrapper}")
+
+        _ => throw new ArgumentException(message: $"Unknown wrapper type: {Wrapper}")
     };
 
     /// <summary>
@@ -208,54 +208,58 @@ public record MemoryObject(
     {
         // Rule 1: Only valid objects can be transformed (unless in danger block)
         if (State != ObjectState.Valid && !inDangerBlock)
+        {
             return false;
+        }
 
         // Rule 2: Danger blocks allow everything - escape hatch for unsafe code
         if (inDangerBlock)
-            return true; 
+        {
+            return true;
+        }
 
-        var targetGroup = GetGroup(target);
-        
+        MemoryGroup targetGroup = GetGroup(wrapper: target);
+
         return (Wrapper, target) switch
         {
             // Owned objects can become anything - they're the starting point
             (WrapperType.Owned, _) => true,
-            
+
             // === Within Group 1 (Exclusive) ===
             // Cannot hijack already hijacked object (only one exclusive access allowed)
-            (WrapperType.Hijacked, WrapperType.Hijacked) => false, 
-            
+            (WrapperType.Hijacked, WrapperType.Hijacked) => false,
+
             // === Within Group 2 (Single-threaded RC) ===
             // Creating multiple shared references increments RC
-            (WrapperType.Shared, WrapperType.Shared) => true, 
+            (WrapperType.Shared, WrapperType.Shared) => true,
             // Create weak reference from shared (doesn't invalidate source)
-            (WrapperType.Shared, WrapperType.Watched) => true, 
+            (WrapperType.Shared, WrapperType.Watched) => true,
             // Upgrade weak to strong via try_share!() (if object still exists)
-            (WrapperType.Watched, WrapperType.Shared) => true, 
+            (WrapperType.Watched, WrapperType.Shared) => true,
             // Multiple weak references are allowed
-            (WrapperType.Watched, WrapperType.Watched) => true, 
-            
+            (WrapperType.Watched, WrapperType.Watched) => true,
+
             // === Within Group 3 (Multi-threaded RC) ===
             // Creating multiple thread-shared references increments Arc
-            (WrapperType.ThreadShared, WrapperType.ThreadShared) => true, 
+            (WrapperType.ThreadShared, WrapperType.ThreadShared) => true,
             // Create weak reference from thread-shared
-            (WrapperType.ThreadShared, WrapperType.ThreadWatched) => true, 
+            (WrapperType.ThreadShared, WrapperType.ThreadWatched) => true,
             // Upgrade weak to strong via try_thread_share!()
-            (WrapperType.ThreadWatched, WrapperType.ThreadShared) => true, 
+            (WrapperType.ThreadWatched, WrapperType.ThreadShared) => true,
             // Multiple weak references are allowed
-            (WrapperType.ThreadWatched, WrapperType.ThreadWatched) => true, 
-            
+            (WrapperType.ThreadWatched, WrapperType.ThreadWatched) => true,
+
             // === steal!() operations - reclaim direct ownership ===
             // Can only steal when you're the sole owner (RC = 1)
             (WrapperType.Shared, WrapperType.Owned) => ReferenceCount == 1,
             (WrapperType.ThreadShared, WrapperType.Owned) => ReferenceCount == 1,
             // Can always steal from hijacked (exclusive access guaranteed)
-            (WrapperType.Hijacked, WrapperType.Owned) => true, 
-            
+            (WrapperType.Hijacked, WrapperType.Owned) => true,
+
             // === Cross-group transformations are forbidden ===
             // This prevents mixing different memory management strategies
             _ when Group != targetGroup => false,
-            
+
             // All other combinations are invalid
             _ => false
         };
@@ -267,23 +271,26 @@ public record MemoryObject(
     /// </summary>
     /// <param name="wrapper">The wrapper type to get group for</param>
     /// <returns>The memory group this wrapper belongs to</returns>
-    private static MemoryGroup GetGroup(WrapperType wrapper) => wrapper switch
+    private static MemoryGroup GetGroup(WrapperType wrapper)
     {
-        // Group 1: Exclusive access
-        WrapperType.Owned => MemoryGroup.Exclusive,
-        WrapperType.Hijacked => MemoryGroup.Exclusive,
-        
-        // Group 2: Single-threaded RC
-        WrapperType.Shared or WrapperType.Watched => MemoryGroup.SingleThreaded,
-        
-        // Group 3: Multi-threaded RC
-        WrapperType.ThreadShared or WrapperType.ThreadWatched => MemoryGroup.MultiThreaded,
-        
-        // Unsafe zone
-        WrapperType.Snatched => MemoryGroup.Unsafe,
-        
-        _ => throw new ArgumentException($"Unknown wrapper type: {wrapper}")
-    };
+        return wrapper switch
+        {
+            // Group 1: Exclusive access
+            WrapperType.Owned => MemoryGroup.Exclusive,
+            WrapperType.Hijacked => MemoryGroup.Exclusive,
+
+            // Group 2: Single-threaded RC
+            WrapperType.Shared or WrapperType.Watched => MemoryGroup.SingleThreaded,
+
+            // Group 3: Multi-threaded RC
+            WrapperType.ThreadShared or WrapperType.ThreadWatched => MemoryGroup.MultiThreaded,
+
+            // Unsafe zone
+            WrapperType.Snatched => MemoryGroup.Unsafe,
+
+            _ => throw new ArgumentException(message: $"Unknown wrapper type: {wrapper}")
+        };
+    }
 }
 
 /// <summary>
@@ -310,7 +317,7 @@ public enum MemoryOperation
     /// Use case: When you need guaranteed exclusive write access.
     /// </summary>
     Hijack,
-    
+
     /// <summary>
     /// share!() - Transform to shared ownership (Shared&lt;T&gt;).
     /// Creates reference-counted shared access with interior mutability.
@@ -318,7 +325,7 @@ public enum MemoryOperation
     /// Use case: When multiple references need mutable access to same object.
     /// </summary>
     Share,
-    
+
     /// <summary>
     /// watch!() - Create weak reference (Watched&lt;T&gt;).
     /// Creates observer reference that doesn't prevent object destruction.
@@ -326,7 +333,7 @@ public enum MemoryOperation
     /// Use case: Breaking cycles, observing without ownership responsibility.
     /// </summary>
     Watch,
-    
+
     /// <summary>
     /// thread_share!() - Transform to thread-safe shared (ThreadShared&lt;T&gt;).
     /// Creates atomic reference-counted shared access across threads.
@@ -334,7 +341,7 @@ public enum MemoryOperation
     /// Use case: Sharing mutable objects across thread boundaries.
     /// </summary>
     ThreadShare,
-    
+
     /// <summary>
     /// thread_watch!() - Create thread-safe weak reference (ThreadWatched&lt;T&gt;).
     /// Creates thread-safe observer that doesn't prevent destruction.
@@ -342,7 +349,7 @@ public enum MemoryOperation
     /// Use case: Thread-safe cycle breaking and observation.
     /// </summary>
     ThreadWatch,
-    
+
     /// <summary>
     /// steal!() - Reclaim direct ownership (back to Owned), requires RC = 1.
     /// Only works when you're the sole owner of a shared object.
@@ -350,7 +357,7 @@ public enum MemoryOperation
     /// Use case: Optimizing access when you know you're the only owner.
     /// </summary>
     Steal,
-    
+
     /// <summary>
     /// snatch!() - Force ownership ignoring RC (danger! only).
     /// Forcibly takes ownership regardless of reference count.
@@ -358,7 +365,7 @@ public enum MemoryOperation
     /// Use case: Emergency memory operations when safety guarantees are broken.
     /// </summary>
     Snatch,
-    
+
     /// <summary>
     /// release!() - Decrement RC and invalidate this reference.
     /// Manually decrements reference count and marks this reference as invalid.
@@ -366,7 +373,7 @@ public enum MemoryOperation
     /// Use case: Manual memory optimization, early resource cleanup.
     /// </summary>
     Release,
-    
+
     /// <summary>
     /// try_share!() - Attempt to upgrade weak to strong reference.
     /// Tries to convert Watched reference back to Shared reference.
@@ -374,7 +381,7 @@ public enum MemoryOperation
     /// Use case: Safe upgrade from observer to participant.
     /// </summary>
     TryShare,
-    
+
     /// <summary>
     /// try_thread_share!() - Attempt to upgrade thread-weak to thread-strong.
     /// Tries to convert ThreadWatched reference back to ThreadShared.
@@ -382,7 +389,7 @@ public enum MemoryOperation
     /// Use case: Safe thread-safe upgrade from observer to participant.
     /// </summary>
     TryThreadShare,
-    
+
     /// <summary>
     /// reveal!() - Access snatched object (danger! only).
     /// Allows access to Snatched objects within danger! blocks.
@@ -390,7 +397,7 @@ public enum MemoryOperation
     /// Use case: Reading/using forcibly snatched objects safely.
     /// </summary>
     Reveal,
-    
+
     /// <summary>
     /// own!() - Convert snatched to owned (danger! only).
     /// Converts Snatched wrapper back to clean Owned wrapper.
@@ -408,7 +415,10 @@ public enum MemoryOperation
 /// <param name="Message">Human-readable error description</param>
 /// <param name="Location">Source code location where the error occurred</param>
 /// <param name="Type">Categorized error type for error handling and reporting</param>
-public record MemoryError(string Message, SourceLocation Location, MemoryError.MemoryErrorType Type)
+public record MemoryError(
+    string Message,
+    SourceLocation Location,
+    MemoryError.MemoryErrorType Type)
 {
     /// <summary>
     /// Categories of memory safety violations that can occur in RazorForge.
@@ -423,49 +433,49 @@ public record MemoryError(string Message, SourceLocation Location, MemoryError.M
         /// Example: using 'obj' after 'obj.share!()' invalidated it.
         /// </summary>
         UseAfterInvalidation,
-        
+
         /// <summary>
         /// Attempt to mix objects from different memory groups outside danger! blocks.
         /// Prevents unsafe aliasing by enforcing group separation.
         /// Example: trying to share a Hijacked object with a Shared object.
         /// </summary>
         MixedMemoryGroups,
-        
+
         /// <summary>
         /// Invalid transformation between wrapper types.
         /// Caused by attempting disallowed wrapper type conversions.
         /// Example: trying to hijack an already-hijacked object.
         /// </summary>
         InvalidTransformation,
-        
+
         /// <summary>
         /// Error when moving objects into containers.
         /// Caused by container operations on invalid objects or wrong container types.
         /// Example: pushing invalidated object into vector.
         /// </summary>
         ContainerMoveError,
-        
+
         /// <summary>
         /// Violation of usurping function rules.
         /// Caused by non-usurping functions trying to return Hijacked&lt;T&gt;.
         /// Example: regular function returning exclusive token without usurping declaration.
         /// </summary>
         UsurpingViolation,
-        
+
         /// <summary>
         /// Improper use of danger! block features.
         /// Caused by using danger!-only operations outside danger! blocks.
         /// Example: using snatch!() or reveal!() in safe code.
         /// </summary>
         DangerBlockViolation,
-        
+
         /// <summary>
         /// Reference count constraint violation.
         /// Caused by operations that require specific RC values failing those constraints.
         /// Example: steal!() when RC > 1, or release!() when RC <= 1.
         /// </summary>
         ReferenceCountError,
-        
+
         /// <summary>
         /// Thread safety violation.
         /// Caused by improper use of single-threaded objects across thread boundaries.
@@ -491,7 +501,7 @@ public enum ContainerSemantics
     /// Example: Vector&lt;Node&gt; takes ownership of nodes when push() is called.
     /// </summary>
     Owned,
-    
+
     /// <summary>
     /// Container holds shared references with automatic RC management.
     /// Objects maintain their reference count and can be accessed from
@@ -499,7 +509,7 @@ public enum ContainerSemantics
     /// Example: SharedVector&lt;Node&gt; shares references to nodes.
     /// </summary>
     Shared,
-    
+
     /// <summary>
     /// Container holds thread-safe references with atomic RC management.
     /// Similar to Shared but with thread-safe atomic operations.
@@ -524,7 +534,7 @@ public enum FunctionType
     /// Example: fn process_data(data: Node) -&gt; Node
     /// </summary>
     Regular,
-    
+
     /// <summary>
     /// Usurping function - can return Hijacked&lt;T&gt; (exclusive tokens).
     /// Special functions explicitly marked as 'usurping' that are allowed

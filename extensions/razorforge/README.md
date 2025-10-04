@@ -1,6 +1,7 @@
 # RazorForge Language Support for VS Code
 
-This extension provides comprehensive language support for the RazorForge programming language, including syntax highlighting, error checking, autocomplete, and other IDE features through Language Server Protocol (LSP) integration.
+This extension provides comprehensive language support for the RazorForge programming language, including syntax
+highlighting, error checking, autocomplete, and other IDE features through Language Server Protocol (LSP) integration.
 
 ## Features
 
@@ -50,6 +51,7 @@ Configure the extension through VS Code settings:
 ### Syntax Highlighting
 
 The extension provides syntax highlighting for:
+
 - Keywords: `recipe`, `class`, `struct`, `let`, `var`, `if`, `while`, etc.
 - Types: `s32`, `u64`, `f32`, `bool`, `string`, `HeapSlice`, etc.
 - Comments: Line (`//`) and block (`/* */`) comments
@@ -58,7 +60,8 @@ The extension provides syntax highlighting for:
 
 ### RazorForge Keywords
 
-**Control Flow**: `if`, `else`, `when`, `while`, `for`, `in`, `to`, `by`, `match`, `case`, `default`, `break`, `continue`, `return`
+**Control Flow**: `if`, `else`, `when`, `while`, `for`, `in`, `to`, `by`, `match`, `case`, `default`, `break`,
+`continue`, `return`
 
 **Declarations**: `recipe`, `class`, `struct`, `enum`, `chimera`, `variant`, `mutant`, `option`, `feature`
 

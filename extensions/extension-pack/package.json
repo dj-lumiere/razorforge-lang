@@ -7,7 +7,9 @@
   "engines": {
     "vscode": "^1.74.0"
   },
-  "categories": ["Extension Packs"],
+  "categories": [
+    "Extension Packs"
+  ],
   "keywords": [
     "razorforge",
     "cake",

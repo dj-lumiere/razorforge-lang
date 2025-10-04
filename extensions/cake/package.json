@@ -59,12 +59,18 @@
         },
         "cake.languageServer.args": {
           "type": "array",
-          "default": ["--cake-lsp"],
+          "default": [
+            "--cake-lsp"
+          ],
           "description": "Arguments to pass to the Cake Language Server"
         },
         "cake.trace.server": {
           "type": "string",
-          "enum": ["off", "messages", "verbose"],
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
           "default": "off",
           "description": "Traces the communication between VS Code and the Cake language server"
         },

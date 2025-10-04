@@ -7,62 +7,62 @@ using Compilers.Shared.Analysis;
 using Compilers.Shared.Lexer;
 using Compilers.RazorForge.Parser;
 
-namespace RazorForge.Tests.Analysis
+namespace RazorForge.Tests.Analysis;
+
+/// <summary>
+/// Unit tests for the Semantic Analyzer
+/// </summary>
+public class SemanticAnalyzerTests
 {
-    /// <summary>
-    /// Unit tests for the Semantic Analyzer
-    /// </summary>
-    public class SemanticAnalyzerTests
+    private readonly SemanticAnalyzer _analyzer;
+
+    public SemanticAnalyzerTests()
     {
-        private readonly SemanticAnalyzer _analyzer;
+        _analyzer = new SemanticAnalyzer(language: Language.RazorForge, mode: LanguageMode.Normal);
+    }
 
-        public SemanticAnalyzerTests()
-        {
-            _analyzer = new SemanticAnalyzer(Language.RazorForge, LanguageMode.Normal);
-        }
+    private Program ParseCode(string code)
+    {
+        List<Token> tokens = Tokenizer.Tokenize(source: code, language: Language.RazorForge);
+        var parser = new RazorForgeParser(tokens: tokens);
+        return parser.Parse();
+    }
 
-        private Program ParseCode(string code)
-        {
-            var tokens = Tokenizer.Tokenize(code, Language.RazorForge);
-            var parser = new RazorForgeParser(tokens);
-            return parser.Parse();
-        }
+    private void AnalyzeCode(string code)
+    {
+        Program program = ParseCode(code: code);
+        _analyzer.Analyze(program: program);
+    }
 
-        private void AnalyzeCode(string code)
-        {
-            var program = ParseCode(code);
-            _analyzer.Analyze(program);
-        }
-
-        [Fact]
-        public void TestVariableDeclarationAndUsage()
-        {
-            var code = @"
+    [Fact]
+    public void TestVariableDeclarationAndUsage()
+    {
+        string code = @"
 recipe test() {
     let x = 42
     return x
 }";
-            // Should not throw any semantic errors
-            AnalyzeCode(code);
-            Assert.True(true); // If we get here, analysis passed
-        }
+        // Should not throw any semantic errors
+        AnalyzeCode(code: code);
+        Assert.True(condition: true); // If we get here, analysis passed
+    }
 
-        [Fact]
-        public void TestUndefinedVariableError()
-        {
-            var code = @"
+    [Fact]
+    public void TestUndefinedVariableError()
+    {
+        string code = @"
 recipe test() {
     return undefined_var
 }";
 
-            // Should detect undefined variable
-            Assert.ThrowsAny<Exception>(() => AnalyzeCode(code));
-        }
+        // Should detect undefined variable
+        Assert.ThrowsAny<Exception>(testCode: () => AnalyzeCode(code: code));
+    }
 
-        [Fact]
-        public void TestTypeInference()
-        {
-            var code = @"
+    [Fact]
+    public void TestTypeInference()
+    {
+        string code = @"
 recipe test() {
     let x = 42        # Should infer s32
     let y = 3.14      # Should infer f64
@@ -70,27 +70,27 @@ recipe test() {
     let w = true      # Should infer Bool
 }";
 
-            // Should successfully infer types
-            AnalyzeCode(code);
-            Assert.True(true);
-        }
+        // Should successfully infer types
+        AnalyzeCode(code: code);
+        Assert.True(condition: true);
+    }
 
-        [Fact]
-        public void TestTypeMismatchError()
-        {
-            var code = @"
+    [Fact]
+    public void TestTypeMismatchError()
+    {
+        string code = @"
 recipe test() {
     let x: s32 = ""not a number""
 }";
 
-            // Should detect type mismatch
-            Assert.ThrowsAny<Exception>(() => AnalyzeCode(code));
-        }
+        // Should detect type mismatch
+        Assert.ThrowsAny<Exception>(testCode: () => AnalyzeCode(code: code));
+    }
 
-        [Fact]
-        public void TestRecipeParameterTypes()
-        {
-            var code = @"
+    [Fact]
+    public void TestRecipeParameterTypes()
+    {
+        string code = @"
 recipe add(a: s32, b: s32) -> s32 {
     return a + b
 }
@@ -99,15 +99,15 @@ recipe test() {
     let result = add(1, 2)
 }";
 
-            // Should validate parameter types and return type
-            AnalyzeCode(code);
-            Assert.True(true);
-        }
+        // Should validate parameter types and return type
+        AnalyzeCode(code: code);
+        Assert.True(condition: true);
+    }
 
-        [Fact]
-        public void TestRecipeCallArgumentMismatch()
-        {
-            var code = @"
+    [Fact]
+    public void TestRecipeCallArgumentMismatch()
+    {
+        string code = @"
 recipe add(a: s32, b: s32) -> s32 {
     return a + b
 }
@@ -116,14 +116,14 @@ recipe test() {
     let result = add(1)  # Wrong number of arguments
 }";
 
-            // Should detect argument count mismatch
-            Assert.ThrowsAny<Exception>(() => AnalyzeCode(code));
-        }
+        // Should detect argument count mismatch
+        Assert.ThrowsAny<Exception>(testCode: () => AnalyzeCode(code: code));
+    }
 
-        [Fact]
-        public void TestRecipeCallTypeMismatch()
-        {
-            var code = @"
+    [Fact]
+    public void TestRecipeCallTypeMismatch()
+    {
+        string code = @"
 recipe add(a: s32, b: s32) -> s32 {
     return a + b
 }
@@ -132,14 +132,14 @@ recipe test() {
     let result = add(""hello"", ""world"")  # Wrong argument types
 }";
 
-            // Should detect argument type mismatch
-            Assert.ThrowsAny<Exception>(() => AnalyzeCode(code));
-        }
+        // Should detect argument type mismatch
+        Assert.ThrowsAny<Exception>(testCode: () => AnalyzeCode(code: code));
+    }
 
-        [Fact]
-        public void TestArithmeticOperatorTypes()
-        {
-            var code = @"
+    [Fact]
+    public void TestArithmeticOperatorTypes()
+    {
+        string code = @"
 recipe math_ops() {
     let a = 10
     let b = 20
@@ -149,29 +149,29 @@ recipe math_ops() {
     let quot = a / b
 }";
 
-            // Should validate arithmetic operations
-            AnalyzeCode(code);
-            Assert.True(true);
-        }
+        // Should validate arithmetic operations
+        AnalyzeCode(code: code);
+        Assert.True(condition: true);
+    }
 
-        [Fact]
-        public void TestInvalidArithmeticTypes()
-        {
-            var code = @"
+    [Fact]
+    public void TestInvalidArithmeticTypes()
+    {
+        string code = @"
 recipe invalid_math() {
     let text = ""hello""
     let number = 42
     return text + number  # Invalid: can't add string to number
 }";
 
-            // Should detect invalid arithmetic operation
-            Assert.ThrowsAny<Exception>(() => AnalyzeCode(code));
-        }
+        // Should detect invalid arithmetic operation
+        Assert.ThrowsAny<Exception>(testCode: () => AnalyzeCode(code: code));
+    }
 
-        [Fact]
-        public void TestComparisonOperators()
-        {
-            var code = @"
+    [Fact]
+    public void TestComparisonOperators()
+    {
+        string code = @"
 recipe comparisons() -> Bool {
     let a = 10
     let b = 20
@@ -184,15 +184,15 @@ recipe comparisons() -> Bool {
     return equal
 }";
 
-            // Should validate comparison operations
-            AnalyzeCode(code);
-            Assert.True(true);
-        }
+        // Should validate comparison operations
+        AnalyzeCode(code: code);
+        Assert.True(condition: true);
+    }
 
-        [Fact]
-        public void TestLogicalOperators()
-        {
-            var code = @"
+    [Fact]
+    public void TestLogicalOperators()
+    {
+        string code = @"
 recipe logic() -> Bool {
     let a = true
     let b = false
@@ -202,15 +202,15 @@ recipe logic() -> Bool {
     return and_result
 }";
 
-            // Should validate logical operations
-            AnalyzeCode(code);
-            Assert.True(true);
-        }
+        // Should validate logical operations
+        AnalyzeCode(code: code);
+        Assert.True(condition: true);
+    }
 
-        [Fact]
-        public void TestIfStatementCondition()
-        {
-            var code = @"
+    [Fact]
+    public void TestIfStatementCondition()
+    {
+        string code = @"
 recipe conditional() {
     let x = 10
     if x > 0:
@@ -219,71 +219,71 @@ recipe conditional() {
         return 0
 }";
 
-            // Should validate if condition is boolean
-            AnalyzeCode(code);
-            Assert.True(true);
-        }
+        // Should validate if condition is boolean
+        AnalyzeCode(code: code);
+        Assert.True(condition: true);
+    }
 
-        [Fact]
-        public void TestInvalidIfCondition()
-        {
-            var code = @"
+    [Fact]
+    public void TestInvalidIfCondition()
+    {
+        string code = @"
 recipe invalid_condition() {
     let x = ""hello""
     if x:  # String is not a boolean condition
         return 1
 }";
 
-            // Should detect non-boolean condition
-            Assert.ThrowsAny<Exception>(() => AnalyzeCode(code));
-        }
+        // Should detect non-boolean condition
+        Assert.ThrowsAny<Exception>(testCode: () => AnalyzeCode(code: code));
+    }
 
-        [Fact]
-        public void TestWhileLoopCondition()
-        {
-            var code = @"
+    [Fact]
+    public void TestWhileLoopCondition()
+    {
+        string code = @"
 recipe loop() {
     var i = 0
     while i < 10:
         i = i + 1
 }";
 
-            // Should validate while condition is boolean
-            AnalyzeCode(code);
-            Assert.True(true);
-        }
+        // Should validate while condition is boolean
+        AnalyzeCode(code: code);
+        Assert.True(condition: true);
+    }
 
-        [Fact]
-        public void TestVariableReassignment()
-        {
-            var code = @"
+    [Fact]
+    public void TestVariableReassignment()
+    {
+        string code = @"
 recipe reassignment() {
     var x = 10
     x = 20  # Valid: x is mutable
 }";
 
-            // Should allow reassignment of mutable variables
-            AnalyzeCode(code);
-            Assert.True(true);
-        }
+        // Should allow reassignment of mutable variables
+        AnalyzeCode(code: code);
+        Assert.True(condition: true);
+    }
 
-        [Fact]
-        public void TestImmutableVariableReassignment()
-        {
-            var code = @"
+    [Fact]
+    public void TestImmutableVariableReassignment()
+    {
+        string code = @"
 recipe immutable_error() {
     let x = 10
     x = 20  # Invalid: x is immutable
 }";
 
-            // Should detect reassignment of immutable variable
-            Assert.ThrowsAny<Exception>(() => AnalyzeCode(code));
-        }
+        // Should detect reassignment of immutable variable
+        Assert.ThrowsAny<Exception>(testCode: () => AnalyzeCode(code: code));
+    }
 
-        [Fact]
-        public void TestReturnTypeValidation()
-        {
-            var code = @"
+    [Fact]
+    public void TestReturnTypeValidation()
+    {
+        string code = @"
 recipe returns_number() -> s32 {
     return 42  # Valid
 }
@@ -292,14 +292,14 @@ recipe returns_wrong_type() -> s32 {
     return ""not a number""  # Invalid
 }";
 
-            // Should detect return type mismatch in second function
-            Assert.ThrowsAny<Exception>(() => AnalyzeCode(code));
-        }
+        // Should detect return type mismatch in second function
+        Assert.ThrowsAny<Exception>(testCode: () => AnalyzeCode(code: code));
+    }
 
-        [Fact]
-        public void TestRecursiveRecipeCall()
-        {
-            var code = @"
+    [Fact]
+    public void TestRecursiveRecipeCall()
+    {
+        string code = @"
 recipe factorial(n: s32) -> s32 {
     if n <= 1:
         return 1
@@ -307,15 +307,15 @@ recipe factorial(n: s32) -> s32 {
         return n * factorial(n - 1)
 }";
 
-            // Should allow recursive calls
-            AnalyzeCode(code);
-            Assert.True(true);
-        }
+        // Should allow recursive calls
+        AnalyzeCode(code: code);
+        Assert.True(condition: true);
+    }
 
-        [Fact]
-        public void TestForwardDeclaration()
-        {
-            var code = @"
+    [Fact]
+    public void TestForwardDeclaration()
+    {
+        string code = @"
 recipe caller() {
     return callee()
 }
@@ -324,27 +324,27 @@ recipe callee() -> s32 {
     return 42
 }";
 
-            // Should handle forward declarations
-            AnalyzeCode(code);
-            Assert.True(true);
-        }
+        // Should handle forward declarations
+        AnalyzeCode(code: code);
+        Assert.True(condition: true);
+    }
 
-        [Fact]
-        public void TestUndefinedRecipeCall()
-        {
-            var code = @"
+    [Fact]
+    public void TestUndefinedRecipeCall()
+    {
+        string code = @"
 recipe test() {
     return undefined_recipe()
 }";
 
-            // Should detect undefined recipe
-            Assert.ThrowsAny<Exception>(() => AnalyzeCode(code));
-        }
+        // Should detect undefined recipe
+        Assert.ThrowsAny<Exception>(testCode: () => AnalyzeCode(code: code));
+    }
 
-        [Fact]
-        public void TestNestedScopes()
-        {
-            var code = @"
+    [Fact]
+    public void TestNestedScopes()
+    {
+        string code = @"
 recipe nested_scopes() {
     let x = 10
     if true:
@@ -353,15 +353,15 @@ recipe nested_scopes() {
     # y should not be accessible here
 }";
 
-            // Should validate scope rules
-            AnalyzeCode(code);
-            Assert.True(true);
-        }
+        // Should validate scope rules
+        AnalyzeCode(code: code);
+        Assert.True(condition: true);
+    }
 
-        [Fact]
-        public void TestVariableShadowing()
-        {
-            var code = @"
+    [Fact]
+    public void TestVariableShadowing()
+    {
+        string code = @"
 recipe shadowing() {
     let x = 10
     if true:
@@ -369,15 +369,15 @@ recipe shadowing() {
         return x
 }";
 
-            // Should allow variable shadowing
-            AnalyzeCode(code);
-            Assert.True(true);
-        }
+        // Should allow variable shadowing
+        AnalyzeCode(code: code);
+        Assert.True(condition: true);
+    }
 
-        [Fact]
-        public void TestMemorySliceOperations()
-        {
-            var code = @"
+    [Fact]
+    public void TestMemorySliceOperations()
+    {
+        string code = @"
 recipe slice_operations() {
     let heap_slice = HeapSlice(64)
     let stack_slice = StackSlice(32)
@@ -386,56 +386,56 @@ recipe slice_operations() {
     let value = stack_slice[10]
 }";
 
-            // Should validate slice operations
-            AnalyzeCode(code);
-            Assert.True(true);
-        }
+        // Should validate slice operations
+        AnalyzeCode(code: code);
+        Assert.True(condition: true);
+    }
 
-        [Fact]
-        public void TestInvalidSliceIndex()
-        {
-            var code = @"
+    [Fact]
+    public void TestInvalidSliceIndex()
+    {
+        string code = @"
 recipe invalid_index() {
     let slice = HeapSlice(64)
     slice[""not an index""] = 42  # Invalid index type
 }";
 
-            // Should detect invalid index type
-            Assert.ThrowsAny<Exception>(() => AnalyzeCode(code));
-        }
+        // Should detect invalid index type
+        Assert.ThrowsAny<Exception>(testCode: () => AnalyzeCode(code: code));
+    }
 
-        [Fact]
-        public void TestMemberAccess()
-        {
-            var code = @"
+    [Fact]
+    public void TestMemberAccess()
+    {
+        string code = @"
 recipe member_access() {
     let slice = HeapSlice(64)
     let size = slice.size
     let ptr = slice.ptr
 }";
 
-            // Should validate member access on known types
-            AnalyzeCode(code);
-            Assert.True(true);
-        }
+        // Should validate member access on known types
+        AnalyzeCode(code: code);
+        Assert.True(condition: true);
+    }
 
-        [Fact]
-        public void TestInvalidMemberAccess()
-        {
-            var code = @"
+    [Fact]
+    public void TestInvalidMemberAccess()
+    {
+        string code = @"
 recipe invalid_member() {
     let x = 42
     return x.nonexistent_field  # Invalid member access
 }";
 
-            // Should detect invalid member access
-            Assert.ThrowsAny<Exception>(() => AnalyzeCode(code));
-        }
+        // Should detect invalid member access
+        Assert.ThrowsAny<Exception>(testCode: () => AnalyzeCode(code: code));
+    }
 
-        [Fact]
-        public void TestBreakContinueInLoop()
-        {
-            var code = @"
+    [Fact]
+    public void TestBreakContinueInLoop()
+    {
+        string code = @"
 recipe loop_control() {
     while true:
         if condition1:
@@ -444,27 +444,27 @@ recipe loop_control() {
             continue  # Valid: inside loop
 }";
 
-            // Should allow break/continue in loops
-            AnalyzeCode(code);
-            Assert.True(true);
-        }
+        // Should allow break/continue in loops
+        AnalyzeCode(code: code);
+        Assert.True(condition: true);
+    }
 
-        [Fact]
-        public void TestBreakContinueOutsideLoop()
-        {
-            var code = @"
+    [Fact]
+    public void TestBreakContinueOutsideLoop()
+    {
+        string code = @"
 recipe invalid_break() {
     break  # Invalid: not inside loop
 }";
 
-            // Should detect break outside loop
-            Assert.ThrowsAny<Exception>(() => AnalyzeCode(code));
-        }
+        // Should detect break outside loop
+        Assert.ThrowsAny<Exception>(testCode: () => AnalyzeCode(code: code));
+    }
 
-        [Fact]
-        public void TestDangerModeValidation()
-        {
-            var code = @"
+    [Fact]
+    public void TestDangerModeValidation()
+    {
+        string code = @"
 recipe safe_operations() {
     danger {
         # Should allow potentially unsafe operations here
@@ -472,42 +472,42 @@ recipe safe_operations() {
     }
 }";
 
-            // Should validate danger blocks
-            AnalyzeCode(code);
-            Assert.True(true);
-        }
+        // Should validate danger blocks
+        AnalyzeCode(code: code);
+        Assert.True(condition: true);
+    }
 
-        [Fact]
-        public void TestTypeCoercion()
-        {
-            var code = @"
+    [Fact]
+    public void TestTypeCoercion()
+    {
+        string code = @"
 recipe coercion() {
     let small: s8 = 10
     let big: s32 = small  # Should allow implicit widening
 }";
 
-            // Should allow safe type coercions
-            AnalyzeCode(code);
-            Assert.True(true);
-        }
+        // Should allow safe type coercions
+        AnalyzeCode(code: code);
+        Assert.True(condition: true);
+    }
 
-        [Fact]
-        public void TestUnsafeTypeCoercion()
-        {
-            var code = @"
+    [Fact]
+    public void TestUnsafeTypeCoercion()
+    {
+        string code = @"
 recipe unsafe_coercion() {
     let big: s32 = 1000
     let small: s8 = big  # Should detect potential overflow
 }";
 
-            // Should detect unsafe narrowing conversion
-            Assert.ThrowsAny<Exception>(() => AnalyzeCode(code));
-        }
+        // Should detect unsafe narrowing conversion
+        Assert.ThrowsAny<Exception>(testCode: () => AnalyzeCode(code: code));
+    }
 
-        [Fact]
-        public void TestOverflowOperators()
-        {
-            var code = @"
+    [Fact]
+    public void TestOverflowOperators()
+    {
+        string code = @"
 recipe overflow_ops() {
     let a: u8 = 200
     let b: u8 = 100
@@ -516,9 +516,8 @@ recipe overflow_ops() {
     let checked = a +? b      # Checked add
 }";
 
-            // Should validate overflow operators
-            AnalyzeCode(code);
-            Assert.True(true);
-        }
+        // Should validate overflow operators
+        AnalyzeCode(code: code);
+        Assert.True(condition: true);
     }
 }

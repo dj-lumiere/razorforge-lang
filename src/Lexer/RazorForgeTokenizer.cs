@@ -12,74 +12,74 @@ public class RazorForgeTokenizer : BaseTokenizer
     /// <summary>Dictionary mapping RazorForge keywords to their corresponding token types</summary>
     private readonly Dictionary<string, TokenType> _keywords = new()
     {
-        ["recipe"] = TokenType.recipe,
-        ["choice"] = TokenType.Choice,
-        ["chimera"] = TokenType.Chimera,
-        ["variant"] = TokenType.Variant,
-        ["mutant"] = TokenType.Mutant,
-        ["let"] = TokenType.Let,
-        ["var"] = TokenType.Var,
-        ["preset"] = TokenType.Preset,
-        ["common"] = TokenType.TypeWise,
-        ["private"] = TokenType.Private,
-        ["public(family)"] = TokenType.PublicFamily,
-        ["public(module)"] = TokenType.PublicModule,
-        ["public"] = TokenType.Public,
-        ["global"] = TokenType.Global,
-        ["external"] = TokenType.External,
-        ["me"] = TokenType.Self,
-        ["parent"] = TokenType.Super,
-        ["if"] = TokenType.If,
-        ["elif"] = TokenType.Elif,
-        ["else"] = TokenType.Else,
-        ["then"] = TokenType.Then,
-        ["unless"] = TokenType.Unless,
-        ["break"] = TokenType.Break,
-        ["continue"] = TokenType.Continue,
-        ["return"] = TokenType.Return,
-        ["for"] = TokenType.For,
-        ["loop"] = TokenType.Loop,
-        ["while"] = TokenType.While,
-        ["when"] = TokenType.When,
-        ["is"] = TokenType.Is,
-        ["from"] = TokenType.From,
-        ["follows"] = TokenType.Follows,
-        ["import"] = TokenType.Import,
-        ["define"] = TokenType.Define,
-        ["using"] = TokenType.Using,
-        ["as"] = TokenType.As,
-        ["pass"] = TokenType.Pass,
-        ["danger"] = TokenType.Danger,
-        ["mayhem"] = TokenType.Mayhem,
-        ["with"] = TokenType.With,
-        ["where"] = TokenType.Where,
-        ["isnot"] = TokenType.IsNot,
-        ["notfrom"] = TokenType.NotFrom,
-        ["notin"] = TokenType.NotIn,
-        ["notfollows"] = TokenType.NotFollows,
-        ["in"] = TokenType.In,
-        ["to"] = TokenType.To,
-        ["step"] = TokenType.Step,
-        ["and"] = TokenType.And,
-        ["or"] = TokenType.Or,
-        ["not"] = TokenType.Not,
-        ["true"] = TokenType.True,
-        ["false"] = TokenType.False,
-        ["none"] = TokenType.None,
-        ["entity"] = TokenType.Entity,
-        ["record"] = TokenType.Record,
-        ["protocol"] = TokenType.Protocol,
-        ["requires"] = TokenType.Requires,
-        ["generate"] = TokenType.Generate,
-        ["suspended"] = TokenType.Suspended,
-        ["waitfor"] = TokenType.Waitfor,
+        [key: "recipe"] = TokenType.recipe,
+        [key: "choice"] = TokenType.Choice,
+        [key: "chimera"] = TokenType.Chimera,
+        [key: "variant"] = TokenType.Variant,
+        [key: "mutant"] = TokenType.Mutant,
+        [key: "let"] = TokenType.Let,
+        [key: "var"] = TokenType.Var,
+        [key: "preset"] = TokenType.Preset,
+        [key: "common"] = TokenType.TypeWise,
+        [key: "private"] = TokenType.Private,
+        [key: "public(family)"] = TokenType.PublicFamily,
+        [key: "public(module)"] = TokenType.PublicModule,
+        [key: "public"] = TokenType.Public,
+        [key: "global"] = TokenType.Global,
+        [key: "external"] = TokenType.External,
+        [key: "me"] = TokenType.Self,
+        [key: "parent"] = TokenType.Super,
+        [key: "if"] = TokenType.If,
+        [key: "elif"] = TokenType.Elif,
+        [key: "else"] = TokenType.Else,
+        [key: "then"] = TokenType.Then,
+        [key: "unless"] = TokenType.Unless,
+        [key: "break"] = TokenType.Break,
+        [key: "continue"] = TokenType.Continue,
+        [key: "return"] = TokenType.Return,
+        [key: "for"] = TokenType.For,
+        [key: "loop"] = TokenType.Loop,
+        [key: "while"] = TokenType.While,
+        [key: "when"] = TokenType.When,
+        [key: "is"] = TokenType.Is,
+        [key: "from"] = TokenType.From,
+        [key: "follows"] = TokenType.Follows,
+        [key: "import"] = TokenType.Import,
+        [key: "define"] = TokenType.Define,
+        [key: "using"] = TokenType.Using,
+        [key: "as"] = TokenType.As,
+        [key: "pass"] = TokenType.Pass,
+        [key: "danger"] = TokenType.Danger,
+        [key: "mayhem"] = TokenType.Mayhem,
+        [key: "with"] = TokenType.With,
+        [key: "where"] = TokenType.Where,
+        [key: "isnot"] = TokenType.IsNot,
+        [key: "notfrom"] = TokenType.NotFrom,
+        [key: "notin"] = TokenType.NotIn,
+        [key: "notfollows"] = TokenType.NotFollows,
+        [key: "in"] = TokenType.In,
+        [key: "to"] = TokenType.To,
+        [key: "step"] = TokenType.Step,
+        [key: "and"] = TokenType.And,
+        [key: "or"] = TokenType.Or,
+        [key: "not"] = TokenType.Not,
+        [key: "true"] = TokenType.True,
+        [key: "false"] = TokenType.False,
+        [key: "none"] = TokenType.None,
+        [key: "entity"] = TokenType.Entity,
+        [key: "record"] = TokenType.Record,
+        [key: "protocol"] = TokenType.Protocol,
+        [key: "requires"] = TokenType.Requires,
+        [key: "generate"] = TokenType.Generate,
+        [key: "suspended"] = TokenType.Suspended,
+        [key: "waitfor"] = TokenType.Waitfor
     };
 
     /// <summary>
     /// Initializes a new RazorForge tokenizer with the source code to tokenize.
     /// </summary>
     /// <param name="source">The RazorForge source code text</param>
-    public RazorForgeTokenizer(string source) : base(source)
+    public RazorForgeTokenizer(string source) : base(source: source)
     {
     }
 
@@ -87,7 +87,10 @@ public class RazorForgeTokenizer : BaseTokenizer
     /// Returns the RazorForge-specific keyword mappings.
     /// </summary>
     /// <returns>Dictionary of RazorForge keywords and their token types</returns>
-    protected override Dictionary<string, TokenType> GetKeywords() => _keywords;
+    protected override Dictionary<string, TokenType> GetKeywords()
+    {
+        return _keywords;
+    }
 
     /// <summary>
     /// Tokenizes the entire RazorForge source code into a list of tokens.
@@ -104,7 +107,8 @@ public class RazorForgeTokenizer : BaseTokenizer
             ScanToken();
         }
 
-        Tokens.Add(new Token(TokenType.Eof, "", Line, Column, Position));
+        Tokens.Add(item: new Token(Type: TokenType.Eof, Text: "", Line: Line, Column: Column,
+            Position: Position));
         return Tokens;
     }
 
@@ -114,69 +118,128 @@ public class RazorForgeTokenizer : BaseTokenizer
     /// </summary>
     private void ScanToken()
     {
-        var c = Advance();
+        char c = Advance();
 
         switch (c)
         {
             // Whitespace (ignored)
             case ' ' or '\r' or '\t' or '\n': break;
-            
+
             // Literals
             case '#': ScanComment(); break;
             case '"': ScanRazorForgeString(); break;
             case '\'': ScanChar(); break;
-            case 'l': if (!TryParseLetterPrefix()) ScanIdentifier(); break;
-            case 'r' or 'f' or 't': if (!TryParseTextPrefix()) ScanIdentifier(); break;
+            case 'l':
+                if (!TryParseLetterPrefix())
+                {
+                    ScanIdentifier();
+                }
+
+                break;
+            case 'r' or 'f' or 't':
+                if (!TryParseTextPrefix())
+                {
+                    ScanIdentifier();
+                }
+
+                break;
 
             // Single-character delimiters
-            case '(': AddToken(TokenType.LeftParen); break;
-            case ')': AddToken(TokenType.RightParen); break;
-            case '[': AddToken(TokenType.LeftBracket); break;
-            case ']': AddToken(TokenType.RightBracket); break;
-            case '{': AddToken(TokenType.LeftBrace); break;
-            case '}': AddToken(TokenType.RightBrace); break;
-            case ',': AddToken(TokenType.Comma); break;
-            case ';': AddToken(TokenType.Newline); break;
+            case '(': AddToken(type: TokenType.LeftParen); break;
+            case ')': AddToken(type: TokenType.RightParen); break;
+            case '[': AddToken(type: TokenType.LeftBracket); break;
+            case ']': AddToken(type: TokenType.RightBracket); break;
+            case '{': AddToken(type: TokenType.LeftBrace); break;
+            case '}': AddToken(type: TokenType.RightBrace); break;
+            case ',': AddToken(type: TokenType.Comma); break;
+            case ';': AddToken(type: TokenType.Newline); break;
 
             // Multi-character delimiters and operators
-            case '.': AddToken(Match('.') ? (Match('.') ? TokenType.DotDotDot : TokenType.DotDot) : TokenType.Dot); break;
-            case ':': AddToken(Match(':') ? TokenType.DoubleColon : TokenType.Colon); break;
-            case '!': AddToken(Match('=') ? TokenType.NotEqual : TokenType.Bang); break;
-            case '?': AddToken(Match(':') ? TokenType.QuestionColon : TokenType.Question); break;
-            
+            case '.':
+                AddToken(type: Match(expected: '.')
+                    ? Match(expected: '.')
+                        ? TokenType.DotDotDot
+                        : TokenType.DotDot
+                    : TokenType.Dot); break;
+            case ':':
+                AddToken(type: Match(expected: ':')
+                    ? TokenType.DoubleColon
+                    : TokenType.Colon); break;
+            case '!':
+                AddToken(type: Match(expected: '=')
+                    ? TokenType.NotEqual
+                    : TokenType.Bang); break;
+            case '?':
+                AddToken(type: Match(expected: ':')
+                    ? TokenType.QuestionColon
+                    : TokenType.Question); break;
+
             // Arithmetic operators (delegated to specialized methods)
             case '+': ScanPlusOperator(); break;
-            case '-': if (Match('>')) AddToken(TokenType.Arrow); else ScanMinusOperator(); break;
+            case '-':
+                if (Match(expected: '>'))
+                {
+                    AddToken(type: TokenType.Arrow);
+                }
+                else
+                {
+                    ScanMinusOperator();
+                }
+
+                break;
             case '*': ScanStarOperator(); break;
             case '/': ScanSlashOperator(); break;
             case '%': ScanPercentOperator(); break;
-            
+
             // Comparison and assignment
-            case '=': 
-                AddToken(Match('=') ? TokenType.Equal : (Match('>') ? TokenType.FatArrow : TokenType.Assign)); break;
-            case '<': 
-                AddToken(Match('=') ? TokenType.LessEqual : (Match('<') ? TokenType.LeftShift : TokenType.Less)); break;
-            case '>': 
-                AddToken(Match('=') ? TokenType.GreaterEqual : (Match('>') ? TokenType.RightShift : TokenType.Greater)); break;
+            case '=':
+                AddToken(type: Match(expected: '=') ? TokenType.Equal :
+                    Match(expected: '>') ? TokenType.FatArrow : TokenType.Assign); break;
+            case '<':
+                AddToken(type: Match(expected: '=') ? TokenType.LessEqual :
+                    Match(expected: '<') ? TokenType.LeftShift : TokenType.Less); break;
+            case '>':
+                AddToken(type: Match(expected: '=') ? TokenType.GreaterEqual :
+                    Match(expected: '>') ? TokenType.RightShift : TokenType.Greater); break;
 
             // Single-character operators
-            case '&': AddToken(TokenType.Ampersand); break;
-            case '|': AddToken(TokenType.Pipe); break;
-            case '^': AddToken(TokenType.Caret); break;
-            case '~': AddToken(TokenType.Tilde); break;
-            case '@': AddToken(TokenType.At); break;
+            case '&': AddToken(type: TokenType.Ampersand); break;
+            case '|': AddToken(type: TokenType.Pipe); break;
+            case '^': AddToken(type: TokenType.Caret); break;
+            case '~': AddToken(type: TokenType.Tilde); break;
+            case '@': AddToken(type: TokenType.At); break;
 
             // Numbers
-            case '0': 
-                if (Match('x') || Match('X')) ScanPrefixedNumber(isHex: true);
-                else if (Match('b') || Match('B')) ScanPrefixedNumber(isHex: false);
-                else ScanNumber();
+            case '0':
+                if (Match(expected: 'x') || Match(expected: 'X'))
+                {
+                    ScanPrefixedNumber(isHex: true);
+                }
+                else if (Match(expected: 'b') || Match(expected: 'B'))
+                {
+                    ScanPrefixedNumber(isHex: false);
+                }
+                else
+                {
+                    ScanNumber();
+                }
+
                 break;
 
             default:
-                if (char.IsDigit(c)) ScanNumber();
-                else if (IsIdentifierStart(c)) ScanIdentifier();
-                else AddToken(TokenType.Unknown);
+                if (char.IsDigit(c: c))
+                {
+                    ScanNumber();
+                }
+                else if (IsIdentifierStart(c: c))
+                {
+                    ScanIdentifier();
+                }
+                else
+                {
+                    AddToken(type: TokenType.Unknown);
+                }
+
                 break;
         }
     }
@@ -187,7 +250,8 @@ public class RazorForgeTokenizer : BaseTokenizer
     /// </summary>
     private void ScanRazorForgeString()
     {
-        ScanStringLiteralWithType(isRaw: false, isFormatted: false, TokenType.Text8Literal, 8);
+        ScanStringLiteralWithType(isRaw: false, isFormatted: false,
+            tokenType: TokenType.Text8Literal, bitWidth: 8);
     }
 
     /// <summary>
@@ -196,15 +260,16 @@ public class RazorForgeTokenizer : BaseTokenizer
     /// <returns>True if a valid letter prefix was found and processed</returns>
     private bool TryParseLetterPrefix()
     {
-        var startPos = Position - 1; // We already consumed first letter
-        var originalPos = Position;
-        var originalCol = Column;
+        int startPos = Position - 1; // We already consumed first letter
+        int originalPos = Position;
+        int originalCol = Column;
 
         // Build the prefix string starting with the character we already consumed
-        var prefix = Source[startPos].ToString();
+        string prefix = Source[index: startPos]
+           .ToString();
 
         // Continue building the prefix
-        while (!IsAtEnd() && char.IsLetterOrDigit(Peek()))
+        while (!IsAtEnd() && char.IsLetterOrDigit(c: Peek()))
         {
             prefix += Advance();
         }
@@ -223,15 +288,15 @@ public class RazorForgeTokenizer : BaseTokenizer
         {
             case "letter8":
                 Advance(); // consume '\''
-                ScanCharLiteral(TokenType.Letter8Literal, 8);
+                ScanCharLiteral(tokenType: TokenType.Letter8Literal, bitWidth: 8);
                 return true;
             case "letter16":
                 Advance(); // consume '\''
-                ScanCharLiteral(TokenType.Letter16Literal, 16);
+                ScanCharLiteral(tokenType: TokenType.Letter16Literal, bitWidth: 16);
                 return true;
             case "letter32":
                 Advance(); // consume '\''
-                ScanCharLiteral(TokenType.LetterLiteral, 32);
+                ScanCharLiteral(tokenType: TokenType.LetterLiteral, bitWidth: 32);
                 return true;
             default:
                 // Not a letter prefix, reset
@@ -240,7 +305,7 @@ public class RazorForgeTokenizer : BaseTokenizer
                 return false;
         }
     }
-    
+
     /// <summary>
     /// Scans a character literal with the specified token type.
     /// </summary>
@@ -250,18 +315,18 @@ public class RazorForgeTokenizer : BaseTokenizer
         if (Peek() == '\\')
         {
             Advance();
-            ScanEscapeSequence(bitWidth);
+            ScanEscapeSequence(bitWidth: bitWidth);
         }
         else
         {
             Advance();
         }
-        
-        if (!Match('\''))
+
+        if (!Match(expected: '\''))
         {
-            throw new LexerException($"Unterminated character literal at line {Line}");
+            throw new LexerException(message: $"Unterminated character literal at line {Line}");
         }
-        
-        AddToken(tokenType);
+
+        AddToken(type: tokenType);
     }
 }

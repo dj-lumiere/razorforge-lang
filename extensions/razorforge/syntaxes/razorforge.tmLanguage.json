@@ -3,15 +3,33 @@
   "name": "RazorForge",
   "scopeName": "source.razorforge",
   "patterns": [
-    {"include": "#comments"},
-    {"include": "#keywords"},
-    {"include": "#types"},
-    {"include": "#numbers"},
-    {"include": "#strings"},
-    {"include": "#functions"},
-    {"include": "#variables"},
-    {"include": "#operators"},
-    {"include": "#punctuation"}
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#types"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#functions"
+    },
+    {
+      "include": "#variables"
+    },
+    {
+      "include": "#operators"
+    },
+    {
+      "include": "#punctuation"
+    }
   ],
   "repository": {
     "comments": {
@@ -21,7 +39,9 @@
           "begin": "#",
           "end": "$",
           "captures": {
-            "0": {"name": "punctuation.definition.comment.razorforge"}
+            "0": {
+              "name": "punctuation.definition.comment.razorforge"
+            }
           }
         },
         {
@@ -29,7 +49,9 @@
           "begin": "/\\*",
           "end": "\\*/",
           "captures": {
-            "0": {"name": "punctuation.definition.comment.razorforge"}
+            "0": {
+              "name": "punctuation.definition.comment.razorforge"
+            }
           }
         }
       ]

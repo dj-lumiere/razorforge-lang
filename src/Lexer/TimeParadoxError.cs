@@ -18,7 +18,7 @@ public class TimeParadoxError : Exception
     /// Initializes a new instance of the TimeParadoxError with a specified error message.
     /// </summary>
     /// <param name="message">The error message explaining the syntax violation</param>
-    public TimeParadoxError(string message) : base(message)
+    public TimeParadoxError(string message) : base(message: message)
     {
     }
 }

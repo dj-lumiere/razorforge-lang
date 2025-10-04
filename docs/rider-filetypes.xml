@@ -6,10 +6,10 @@ Import via: File → Settings → Editor → File Types → Import Schema
   <component name="FileTypeManager" version="18">
     <!-- RazorForge Language Support -->
     <extensionMap>
-      <mapping ext="rf" type="CSharp" /> <!-- Treat .rf files as C# for syntax highlighting -->
-      <mapping ext="razorforge" type="CSharp" />
-      <mapping pattern="*.rf" type="CSharp" />
-      <mapping pattern="*.razorforge" type="CSharp" />
+      <mapping ext="rf" type="CSharp"/> <!-- Treat .rf files as C# for syntax highlighting -->
+      <mapping ext="razorforge" type="CSharp"/>
+      <mapping pattern="*.rf" type="CSharp"/>
+      <mapping pattern="*.razorforge" type="CSharp"/>
     </extensionMap>
 
     <!-- File Templates -->

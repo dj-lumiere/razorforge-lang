@@ -23,7 +23,7 @@ export function activate(context: vscode.ExtensionContext) {
     };
 
     const clientOptions: LanguageClientOptions = {
-        documentSelector: [{ scheme: 'file', language: 'cake' }],
+        documentSelector: [{scheme: 'file', language: 'cake'}],
         synchronize: {
             fileEvents: vscode.workspace.createFileSystemWatcher('**/.cake')
         }

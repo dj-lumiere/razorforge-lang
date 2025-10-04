@@ -27,7 +27,7 @@ public enum Language
     /// native code with zero-cost abstractions.
     /// </summary>
     RazorForge,
-    
+
     /// <summary>
     /// Cake: Automatic memory management with reference counting and incremental GC.
     /// Features automatic sharing, transparent reference counting, cycle detection,
@@ -56,7 +56,7 @@ public enum Language
 public enum LanguageMode
 {
     // === RazorForge Modes ===
-    
+
     /// <summary>
     /// RazorForge Normal Mode: Safe memory management for systems programming.
     /// 
@@ -73,7 +73,7 @@ public enum LanguageMode
     /// Use cases: Production systems code, embedded applications, safety-critical software
     /// </summary>
     Normal,
-    
+
     /// <summary>
     /// RazorForge Danger Mode: Raw embedded programming with great power.
     /// 
@@ -91,9 +91,9 @@ public enum LanguageMode
     /// interfacing with C code, memory-mapped I/O
     /// </summary>
     Danger,
-    
+
     // === Cake Modes ===
-    
+
     /// <summary>
     /// Cake Sweet Mode: Quick prototyping with maximum safety and convenience.
     /// 
@@ -111,7 +111,7 @@ public enum LanguageMode
     /// educational environments, data analysis
     /// </summary>
     Sweet,
-    
+
     /// <summary>
     /// Cake Bitter Mode: Performant scripting with lower-level optimizations.
     /// 

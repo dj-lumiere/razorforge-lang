@@ -29,36 +29,36 @@ public class MemoryAnalyzer
 {
     /// <summary>Target language (RazorForge or Cake) - determines memory model behavior</summary>
     private readonly Language _language;
-    
+
     /// <summary>Language mode for additional behavior customization</summary>
     private readonly LanguageMode _mode;
-    
+
     /// <summary>
     /// Current objects in all scopes (flattened view for quick lookup).
     /// Maps variable names to their current memory object state.
     /// </summary>
     private readonly Dictionary<string, MemoryObject> _objects = new();
-    
+
     /// <summary>
     /// Stack of scopes for proper lexical scoping and cleanup.
     /// Each scope contains objects declared within that scope.
     /// When a scope exits, all its objects become invalid.
     /// </summary>
     private readonly Stack<Dictionary<string, MemoryObject>> _scopes = new();
-    
+
     /// <summary>
     /// List of memory safety errors detected during analysis.
     /// Contains detailed error information for reporting to the user.
     /// </summary>
     private readonly List<MemoryError> _errors = new();
-    
+
     /// <summary>
     /// Whether we're currently inside a danger! block.
     /// Danger blocks allow unsafe operations that would normally be forbidden,
     /// such as snatch!(), mixed memory groups, and access to invalidated objects.
     /// </summary>
     private bool _inDangerBlock = false;
-    
+
     /// <summary>
     /// Whether we're currently inside a usurping function.
     /// Usurping functions are allowed to return Hijacked&lt;T&gt; objects,
@@ -77,7 +77,7 @@ public class MemoryAnalyzer
         _language = language;
         _mode = mode;
         // Initialize with global scope
-        _scopes.Push(new Dictionary<string, MemoryObject>());
+        _scopes.Push(item: new Dictionary<string, MemoryObject>());
     }
 
     /// <summary>
@@ -94,7 +94,7 @@ public class MemoryAnalyzer
     /// </summary>
     public void EnterScope()
     {
-        _scopes.Push(new Dictionary<string, MemoryObject>());
+        _scopes.Push(item: new Dictionary<string, MemoryObject>());
     }
 
     /// <summary>
@@ -107,13 +107,13 @@ public class MemoryAnalyzer
     {
         if (_scopes.Count > 1)
         {
-            var scope = _scopes.Pop();
+            Dictionary<string, MemoryObject> scope = _scopes.Pop();
             // All objects in this scope become invalid (go out of scope)
             // This is a fundamental safety mechanism preventing access to
             // objects that have been destroyed by scope exit
-            foreach (var obj in scope.Values)
+            foreach (MemoryObject obj in scope.Values)
             {
-                InvalidateObject(obj.Name, "scope end", obj.Location);
+                InvalidateObject(name: obj.Name, reason: "scope end", location: obj.Location);
             }
         }
     }
@@ -131,9 +131,11 @@ public class MemoryAnalyzer
         {
             // Cake does not have danger blocks - it uses automatic memory management
             // and doesn't expose unsafe operations to the programmer
-            AddError("Danger blocks are not allowed in Cake", location, MemoryError.MemoryErrorType.DangerBlockViolation);
+            AddError(message: "Danger blocks are not allowed in Cake", location: location,
+                type: MemoryError.MemoryErrorType.DangerBlockViolation);
             return;
         }
+
         _inDangerBlock = true;
     }
 
@@ -160,6 +162,7 @@ public class MemoryAnalyzer
             // reference counting and doesn't expose exclusive access tokens
             return;
         }
+
         _inUsurpingFunction = true;
     }
 
@@ -184,22 +187,26 @@ public class MemoryAnalyzer
     /// <param name="type">Type information for the object</param>
     /// <param name="location">Source location for error reporting</param>
     /// <param name="isFloating">Whether this is a floating literal/temporary (Cake only)</param>
-    public void RegisterObject(string name, TypeInfo type, SourceLocation location, bool isFloating = false)
+    public void RegisterObject(string name, TypeInfo type, SourceLocation location,
+        bool isFloating = false)
     {
         // Different default wrapper types based on language memory model
-        var wrapper = _language == Language.Cake ? WrapperType.Shared : WrapperType.Owned;
-        var obj = new MemoryObject(name, type, wrapper, ObjectState.Valid, 1, location);
-        
-        var currentScope = _scopes.Peek();
-        currentScope[name] = obj;
-        
+        WrapperType wrapper = _language == Language.Cake
+            ? WrapperType.Shared
+            : WrapperType.Owned;
+        var obj = new MemoryObject(Name: name, BaseType: type, Wrapper: wrapper,
+            State: ObjectState.Valid, ReferenceCount: 1, Location: location);
+
+        Dictionary<string, MemoryObject> currentScope = _scopes.Peek();
+        currentScope[key: name] = obj;
+
         // Cake automatic reference counting: increment RC when creating non-floating references
         if (_language == Language.Cake && !isFloating)
         {
             // Simulate automatic RC increment for assignment to variables
             // Floating literals don't get RC increment until assigned
             obj = obj with { ReferenceCount = obj.ReferenceCount + 1 };
-            currentScope[name] = obj;
+            currentScope[key: name] = obj;
         }
     }
 
@@ -217,34 +224,39 @@ public class MemoryAnalyzer
     public void HandleCakeAssignment(string target, string source, SourceLocation location)
     {
         // This method only applies to Cake's automatic RC model
-        if (_language != Language.Cake) return;
+        if (_language != Language.Cake)
+        {
+            return;
+        }
 
-        var sourceObj = GetObject(source);
+        MemoryObject? sourceObj = GetObject(name: source);
         if (sourceObj == null)
         {
-            AddError($"Source object '{source}' not found", location, MemoryError.MemoryErrorType.UseAfterInvalidation);
+            AddError(message: $"Source object '{source}' not found", location: location,
+                type: MemoryError.MemoryErrorType.UseAfterInvalidation);
             return;
         }
 
         if (sourceObj.State != ObjectState.Valid)
         {
-            AddError($"Cannot assign from invalidated object '{source}'", location, MemoryError.MemoryErrorType.UseAfterInvalidation);
+            AddError(message: $"Cannot assign from invalidated object '{source}'",
+                location: location, type: MemoryError.MemoryErrorType.UseAfterInvalidation);
             return;
         }
 
         // Cake automatic RC management: both source and target share the same object
         // with incremented reference count
-        var newObj = sourceObj with 
-        { 
-            Name = target, 
-            ReferenceCount = sourceObj.ReferenceCount + 1 
+        MemoryObject newObj = sourceObj with
+        {
+            Name = target, ReferenceCount = sourceObj.ReferenceCount + 1
         };
-        
+
         // Create new reference for target
-        SetObject(target, newObj);
-        
+        SetObject(name: target, obj: newObj);
+
         // Update source object RC to reflect the new reference
-        SetObject(source, sourceObj with { ReferenceCount = sourceObj.ReferenceCount + 1 });
+        SetObject(name: source,
+            obj: sourceObj with { ReferenceCount = sourceObj.ReferenceCount + 1 });
     }
 
     /// <summary>
@@ -265,39 +277,43 @@ public class MemoryAnalyzer
     /// <param name="operation">The memory operation being performed</param>
     /// <param name="location">Source location for error reporting</param>
     /// <returns>New memory object state after operation, or null if operation failed</returns>
-    public MemoryObject? HandleMemoryOperation(string objectName, MemoryOperation operation, SourceLocation location)
+    public MemoryObject? HandleMemoryOperation(string objectName, MemoryOperation operation,
+        SourceLocation location)
     {
-        var obj = GetObject(objectName);
+        MemoryObject? obj = GetObject(name: objectName);
         if (obj == null)
         {
-            AddError($"Object '{objectName}' not found", location, MemoryError.MemoryErrorType.UseAfterInvalidation);
+            AddError(message: $"Object '{objectName}' not found", location: location,
+                type: MemoryError.MemoryErrorType.UseAfterInvalidation);
             return null;
         }
 
         // Core safety rule: cannot operate on invalidated objects (unless in danger! block)
         if (obj.State != ObjectState.Valid && !_inDangerBlock)
         {
-            AddError($"Cannot perform {operation} on invalidated object '{objectName}' (invalidated by: {obj.InvalidatedBy})", 
-                    location, MemoryError.MemoryErrorType.UseAfterInvalidation);
+            AddError(
+                message:
+                $"Cannot perform {operation} on invalidated object '{objectName}' (invalidated by: {obj.InvalidatedBy})",
+                location: location, type: MemoryError.MemoryErrorType.UseAfterInvalidation);
             return null;
         }
 
         // Dispatch to specific operation handlers
         return operation switch
         {
-            MemoryOperation.Hijack => HandleHijack(obj, location),
-            MemoryOperation.Share => HandleShare(obj, location),
-            MemoryOperation.Watch => HandleWatch(obj, location),
-            MemoryOperation.ThreadShare => HandleThreadShare(obj, location),
-            MemoryOperation.ThreadWatch => HandleThreadWatch(obj, location),
-            MemoryOperation.Steal => HandleSteal(obj, location),
-            MemoryOperation.Snatch => HandleSnatch(obj, location),
-            MemoryOperation.Release => HandleRelease(obj, location),
-            MemoryOperation.TryShare => HandleTryShare(obj, location),
-            MemoryOperation.TryThreadShare => HandleTryThreadShare(obj, location),
-            MemoryOperation.Reveal => HandleReveal(obj, location),
-            MemoryOperation.Own => HandleOwn(obj, location),
-            _ => throw new ArgumentException($"Unknown memory operation: {operation}")
+            MemoryOperation.Hijack => HandleHijack(obj: obj, location: location),
+            MemoryOperation.Share => HandleShare(obj: obj, location: location),
+            MemoryOperation.Watch => HandleWatch(obj: obj, location: location),
+            MemoryOperation.ThreadShare => HandleThreadShare(obj: obj, location: location),
+            MemoryOperation.ThreadWatch => HandleThreadWatch(obj: obj, location: location),
+            MemoryOperation.Steal => HandleSteal(obj: obj, location: location),
+            MemoryOperation.Snatch => HandleSnatch(obj: obj, location: location),
+            MemoryOperation.Release => HandleRelease(obj: obj, location: location),
+            MemoryOperation.TryShare => HandleTryShare(obj: obj, location: location),
+            MemoryOperation.TryThreadShare => HandleTryThreadShare(obj: obj, location: location),
+            MemoryOperation.Reveal => HandleReveal(obj: obj, location: location),
+            MemoryOperation.Own => HandleOwn(obj: obj, location: location),
+            _ => throw new ArgumentException(message: $"Unknown memory operation: {operation}")
         };
     }
 
@@ -309,20 +325,20 @@ public class MemoryAnalyzer
     /// </summary>
     private MemoryObject? HandleHijack(MemoryObject obj, SourceLocation location)
     {
-        if (!obj.CanTransformTo(WrapperType.Hijacked, _inDangerBlock))
+        if (!obj.CanTransformTo(target: WrapperType.Hijacked, inDangerBlock: _inDangerBlock))
         {
-            AddError($"Cannot hijack object of type {obj.Wrapper}", location, MemoryError.MemoryErrorType.InvalidTransformation);
+            AddError(message: $"Cannot hijack object of type {obj.Wrapper}", location: location,
+                type: MemoryError.MemoryErrorType.InvalidTransformation);
             return null;
         }
 
         // Invalidate source to enforce exclusive access - no other references allowed
-        InvalidateObject(obj.Name, "hijack!()", location);
-        
+        InvalidateObject(name: obj.Name, reason: "hijack!()", location: location);
+
         // Return hijacked object with exclusive access
-        return obj with 
-        { 
-            Wrapper = WrapperType.Hijacked, 
-            ReferenceCount = 1  // Always 1 for exclusive access
+        return obj with
+        {
+            Wrapper = WrapperType.Hijacked, ReferenceCount = 1 // Always 1 for exclusive access
         };
     }
 
@@ -333,27 +349,27 @@ public class MemoryAnalyzer
     /// </summary>
     private MemoryObject? HandleShare(MemoryObject obj, SourceLocation location)
     {
-        if (!obj.CanTransformTo(WrapperType.Shared, _inDangerBlock))
+        if (!obj.CanTransformTo(target: WrapperType.Shared, inDangerBlock: _inDangerBlock))
         {
-            AddError($"Cannot share object of type {obj.Wrapper}", location, MemoryError.MemoryErrorType.InvalidTransformation);
+            AddError(message: $"Cannot share object of type {obj.Wrapper}", location: location,
+                type: MemoryError.MemoryErrorType.InvalidTransformation);
             return null;
         }
 
         if (obj.Wrapper == WrapperType.Shared)
         {
             // Already shared - increment reference count for new reference
-            var newObj = obj with { ReferenceCount = obj.ReferenceCount + 1 };
-            SetObject(obj.Name, newObj);
+            MemoryObject newObj = obj with { ReferenceCount = obj.ReferenceCount + 1 };
+            SetObject(name: obj.Name, obj: newObj);
             return newObj;
         }
 
         // Convert to shared ownership, invalidate source (one-time transformation)
-        InvalidateObject(obj.Name, "share!()", location);
-        
-        return obj with 
-        { 
-            Wrapper = WrapperType.Shared, 
-            ReferenceCount = 1  // First shared reference
+        InvalidateObject(name: obj.Name, reason: "share!()", location: location);
+
+        return obj with
+        {
+            Wrapper = WrapperType.Shared, ReferenceCount = 1 // First shared reference
         };
     }
 
@@ -367,15 +383,16 @@ public class MemoryAnalyzer
     {
         if (obj.Wrapper != WrapperType.Shared)
         {
-            AddError($"Can only watch Shared objects, not {obj.Wrapper}", location, MemoryError.MemoryErrorType.InvalidTransformation);
+            AddError(message: $"Can only watch Shared objects, not {obj.Wrapper}",
+                location: location, type: MemoryError.MemoryErrorType.InvalidTransformation);
             return null;
         }
 
         // Create weak reference - doesn't invalidate source or affect its RC
-        return obj with 
-        { 
-            Wrapper = WrapperType.Watched, 
-            ReferenceCount = 0  // Weak references don't contribute to RC
+        return obj with
+        {
+            Wrapper = WrapperType.Watched,
+            ReferenceCount = 0 // Weak references don't contribute to RC
         };
     }
 
@@ -387,27 +404,27 @@ public class MemoryAnalyzer
     /// </summary>
     private MemoryObject? HandleThreadShare(MemoryObject obj, SourceLocation location)
     {
-        if (!obj.CanTransformTo(WrapperType.ThreadShared, _inDangerBlock))
+        if (!obj.CanTransformTo(target: WrapperType.ThreadShared, inDangerBlock: _inDangerBlock))
         {
-            AddError($"Cannot thread_share object of type {obj.Wrapper}", location, MemoryError.MemoryErrorType.InvalidTransformation);
+            AddError(message: $"Cannot thread_share object of type {obj.Wrapper}",
+                location: location, type: MemoryError.MemoryErrorType.InvalidTransformation);
             return null;
         }
 
         if (obj.Wrapper == WrapperType.ThreadShared)
         {
             // Already thread-shared - increment atomic reference count
-            var newObj = obj with { ReferenceCount = obj.ReferenceCount + 1 };
-            SetObject(obj.Name, newObj);
+            MemoryObject newObj = obj with { ReferenceCount = obj.ReferenceCount + 1 };
+            SetObject(name: obj.Name, obj: newObj);
             return newObj;
         }
 
         // Convert to thread-safe shared ownership, invalidate source
-        InvalidateObject(obj.Name, "thread_share!()", location);
-        
-        return obj with 
-        { 
-            Wrapper = WrapperType.ThreadShared, 
-            ReferenceCount = 1  // First thread-shared reference
+        InvalidateObject(name: obj.Name, reason: "thread_share!()", location: location);
+
+        return obj with
+        {
+            Wrapper = WrapperType.ThreadShared, ReferenceCount = 1 // First thread-shared reference
         };
     }
 
@@ -421,15 +438,16 @@ public class MemoryAnalyzer
     {
         if (obj.Wrapper != WrapperType.ThreadShared)
         {
-            AddError($"Can only thread_watch ThreadShared objects, not {obj.Wrapper}", location, MemoryError.MemoryErrorType.InvalidTransformation);
+            AddError(message: $"Can only thread_watch ThreadShared objects, not {obj.Wrapper}",
+                location: location, type: MemoryError.MemoryErrorType.InvalidTransformation);
             return null;
         }
 
         // Create thread-safe weak reference - doesn't invalidate source or affect Arc
-        return obj with 
-        { 
-            Wrapper = WrapperType.ThreadWatched, 
-            ReferenceCount = 0  // Weak references don't contribute to Arc
+        return obj with
+        {
+            Wrapper = WrapperType.ThreadWatched,
+            ReferenceCount = 0 // Weak references don't contribute to Arc
         };
     }
 
@@ -444,32 +462,37 @@ public class MemoryAnalyzer
         // Reference count validation for shared objects
         if (obj.Wrapper == WrapperType.Shared && obj.ReferenceCount != 1)
         {
-            AddError($"Cannot steal from Shared object with RC={obj.ReferenceCount} (need RC=1)", 
-                    location, MemoryError.MemoryErrorType.ReferenceCountError);
+            AddError(
+                message:
+                $"Cannot steal from Shared object with RC={obj.ReferenceCount} (need RC=1)",
+                location: location, type: MemoryError.MemoryErrorType.ReferenceCountError);
             return null;
         }
 
         if (obj.Wrapper == WrapperType.ThreadShared && obj.ReferenceCount != 1)
         {
-            AddError($"Cannot steal from ThreadShared object with Arc={obj.ReferenceCount} (need Arc=1)", 
-                    location, MemoryError.MemoryErrorType.ReferenceCountError);
+            AddError(
+                message:
+                $"Cannot steal from ThreadShared object with Arc={obj.ReferenceCount} (need Arc=1)",
+                location: location, type: MemoryError.MemoryErrorType.ReferenceCountError);
             return null;
         }
 
         // Can only steal from shared objects or hijacked objects
-        if (obj.Wrapper != WrapperType.Shared && obj.Wrapper != WrapperType.ThreadShared && obj.Wrapper != WrapperType.Hijacked)
+        if (obj.Wrapper != WrapperType.Shared && obj.Wrapper != WrapperType.ThreadShared &&
+            obj.Wrapper != WrapperType.Hijacked)
         {
-            AddError($"Cannot steal from {obj.Wrapper}", location, MemoryError.MemoryErrorType.InvalidTransformation);
+            AddError(message: $"Cannot steal from {obj.Wrapper}", location: location,
+                type: MemoryError.MemoryErrorType.InvalidTransformation);
             return null;
         }
 
         // Invalidate source reference, return direct ownership
-        InvalidateObject(obj.Name, "steal!()", location);
-        
-        return obj with 
-        { 
-            Wrapper = WrapperType.Owned, 
-            ReferenceCount = 1  // Direct ownership always has RC=1
+        InvalidateObject(name: obj.Name, reason: "steal!()", location: location);
+
+        return obj with
+        {
+            Wrapper = WrapperType.Owned, ReferenceCount = 1 // Direct ownership always has RC=1
         };
     }
 
@@ -483,17 +506,18 @@ public class MemoryAnalyzer
     {
         if (!_inDangerBlock)
         {
-            AddError("snatch!() can only be used in danger! blocks", location, MemoryError.MemoryErrorType.DangerBlockViolation);
+            AddError(message: "snatch!() can only be used in danger! blocks", location: location,
+                type: MemoryError.MemoryErrorType.DangerBlockViolation);
             return null;
         }
 
         // Forcibly take ownership regardless of current state or RC
-        InvalidateObject(obj.Name, "snatch!()", location);
-        
-        return obj with 
-        { 
-            Wrapper = WrapperType.Snatched,  // Marks contaminated ownership
-            ReferenceCount = 1 
+        InvalidateObject(name: obj.Name, reason: "snatch!()", location: location);
+
+        return obj with
+        {
+            Wrapper = WrapperType.Snatched, // Marks contaminated ownership
+            ReferenceCount = 1
         };
     }
 
@@ -507,21 +531,23 @@ public class MemoryAnalyzer
     {
         if (obj.Wrapper != WrapperType.Shared && obj.Wrapper != WrapperType.ThreadShared)
         {
-            AddError($"Can only release Shared or ThreadShared objects, not {obj.Wrapper}", 
-                    location, MemoryError.MemoryErrorType.InvalidTransformation);
+            AddError(
+                message: $"Can only release Shared or ThreadShared objects, not {obj.Wrapper}",
+                location: location, type: MemoryError.MemoryErrorType.InvalidTransformation);
             return null;
         }
 
         if (obj.ReferenceCount <= 1)
         {
-            AddError($"Cannot release object with RC={obj.ReferenceCount} (would drop to 0)", 
-                    location, MemoryError.MemoryErrorType.ReferenceCountError);
+            AddError(
+                message: $"Cannot release object with RC={obj.ReferenceCount} (would drop to 0)",
+                location: location, type: MemoryError.MemoryErrorType.ReferenceCountError);
             return null;
         }
 
         // Invalidate this reference and decrement the overall reference count
-        InvalidateObject(obj.Name, "release!()", location);
-        
+        InvalidateObject(name: obj.Name, reason: "release!()", location: location);
+
         return obj with { ReferenceCount = obj.ReferenceCount - 1 };
     }
 
@@ -535,17 +561,16 @@ public class MemoryAnalyzer
     {
         if (obj.Wrapper != WrapperType.Watched)
         {
-            AddError($"Can only try_share on Watched objects, not {obj.Wrapper}", 
-                    location, MemoryError.MemoryErrorType.InvalidTransformation);
+            AddError(message: $"Can only try_share on Watched objects, not {obj.Wrapper}",
+                location: location, type: MemoryError.MemoryErrorType.InvalidTransformation);
             return null;
         }
 
         // Try to upgrade weak to strong - in real implementation this could fail
         // if the original object was already destroyed
-        return obj with 
-        { 
-            Wrapper = WrapperType.Shared, 
-            ReferenceCount = 1  // New strong reference
+        return obj with
+        {
+            Wrapper = WrapperType.Shared, ReferenceCount = 1 // New strong reference
         };
     }
 
@@ -559,17 +584,18 @@ public class MemoryAnalyzer
     {
         if (obj.Wrapper != WrapperType.ThreadWatched)
         {
-            AddError($"Can only try_thread_share on ThreadWatched objects, not {obj.Wrapper}", 
-                    location, MemoryError.MemoryErrorType.InvalidTransformation);
+            AddError(
+                message: $"Can only try_thread_share on ThreadWatched objects, not {obj.Wrapper}",
+                location: location, type: MemoryError.MemoryErrorType.InvalidTransformation);
             return null;
         }
 
         // Try to upgrade thread-weak to thread-strong - could fail at runtime
         // if the original object was already destroyed
-        return obj with 
-        { 
-            Wrapper = WrapperType.ThreadShared, 
-            ReferenceCount = 1  // New strong thread-shared reference
+        return obj with
+        {
+            Wrapper = WrapperType.ThreadShared,
+            ReferenceCount = 1 // New strong thread-shared reference
         };
     }
 
@@ -583,14 +609,15 @@ public class MemoryAnalyzer
     {
         if (obj.Wrapper != WrapperType.Snatched)
         {
-            AddError($"Can only reveal Snatched objects, not {obj.Wrapper}", 
-                    location, MemoryError.MemoryErrorType.InvalidTransformation);
+            AddError(message: $"Can only reveal Snatched objects, not {obj.Wrapper}",
+                location: location, type: MemoryError.MemoryErrorType.InvalidTransformation);
             return null;
         }
 
         if (!_inDangerBlock)
         {
-            AddError("reveal!() can only be used in danger! blocks", location, MemoryError.MemoryErrorType.DangerBlockViolation);
+            AddError(message: "reveal!() can only be used in danger! blocks", location: location,
+                type: MemoryError.MemoryErrorType.DangerBlockViolation);
             return null;
         }
 
@@ -608,20 +635,21 @@ public class MemoryAnalyzer
     {
         if (obj.Wrapper != WrapperType.Snatched)
         {
-            AddError($"Can only own Snatched objects, not {obj.Wrapper}", 
-                    location, MemoryError.MemoryErrorType.InvalidTransformation);
+            AddError(message: $"Can only own Snatched objects, not {obj.Wrapper}",
+                location: location, type: MemoryError.MemoryErrorType.InvalidTransformation);
             return null;
         }
 
         if (!_inDangerBlock)
         {
-            AddError("own!() can only be used in danger! blocks", location, MemoryError.MemoryErrorType.DangerBlockViolation);
+            AddError(message: "own!() can only be used in danger! blocks", location: location,
+                type: MemoryError.MemoryErrorType.DangerBlockViolation);
             return null;
         }
 
         // Convert snatched to owned and invalidate source to prevent reuse
-        InvalidateObject(obj.Name, "own!()", location);
-        
+        InvalidateObject(name: obj.Name, reason: "own!()", location: location);
+
         return obj with { Wrapper = WrapperType.Owned };
     }
 
@@ -639,19 +667,21 @@ public class MemoryAnalyzer
     /// <param name="objectName">Name of object being moved into container</param>
     /// <param name="containerName">Name of container for error reporting</param>
     /// <param name="location">Source location for error reporting</param>
-    public void HandleContainerMove(string objectName, string containerName, SourceLocation location)
+    public void HandleContainerMove(string objectName, string containerName,
+        SourceLocation location)
     {
-        var obj = GetObject(objectName);
+        MemoryObject? obj = GetObject(name: objectName);
         if (obj == null)
         {
-            AddError($"Object '{objectName}' not found", location, MemoryError.MemoryErrorType.UseAfterInvalidation);
+            AddError(message: $"Object '{objectName}' not found", location: location,
+                type: MemoryError.MemoryErrorType.UseAfterInvalidation);
             return;
         }
 
         if (obj.State != ObjectState.Valid)
         {
-            AddError($"Cannot move invalidated object '{objectName}' into container", 
-                    location, MemoryError.MemoryErrorType.ContainerMoveError);
+            AddError(message: $"Cannot move invalidated object '{objectName}' into container",
+                location: location, type: MemoryError.MemoryErrorType.ContainerMoveError);
             return;
         }
 
@@ -659,13 +689,14 @@ public class MemoryAnalyzer
         if (_language == Language.RazorForge)
         {
             // RazorForge: move semantics - invalidate source after moving to container
-            InvalidateObject(objectName, $"moved into container '{containerName}'", location);
+            InvalidateObject(name: objectName, reason: $"moved into container '{containerName}'",
+                location: location);
         }
         else if (_language == Language.Cake)
         {
             // Cake: automatic reference counting - container shares reference
-            var newObj = obj with { ReferenceCount = obj.ReferenceCount + 1 };
-            SetObject(objectName, newObj);
+            MemoryObject newObj = obj with { ReferenceCount = obj.ReferenceCount + 1 };
+            SetObject(name: objectName, obj: newObj);
         }
     }
 
@@ -681,13 +712,16 @@ public class MemoryAnalyzer
     /// <param name="location">Source location for error reporting</param>
     public void ValidateFunctionReturn(TypeInfo returnType, SourceLocation location)
     {
-        if (_language == Language.Cake) return; // Cake has no usurping functions
+        if (_language == Language.Cake)
+        {
+            return; // Cake has no usurping functions
+        }
 
         // Check if return type is Hijacked<T> without usurping declaration
-        if (IsHijackedType(returnType) && !_inUsurpingFunction)
+        if (IsHijackedType(type: returnType) && !_inUsurpingFunction)
         {
-            AddError("Only usurping functions can return Hijacked<T>", 
-                    location, MemoryError.MemoryErrorType.UsurpingViolation);
+            AddError(message: "Only usurping functions can return Hijacked<T>", location: location,
+                type: MemoryError.MemoryErrorType.UsurpingViolation);
         }
     }
 
@@ -703,7 +737,7 @@ public class MemoryAnalyzer
     {
         // Simplified check based on type name - in full implementation
         // would properly analyze generic type structure
-        return type.Name.StartsWith("Hijacked<");
+        return type.Name.StartsWith(value: "Hijacked<");
     }
 
     /// <summary>
@@ -716,11 +750,14 @@ public class MemoryAnalyzer
     private MemoryObject? GetObject(string name)
     {
         // Search from innermost to outermost scope
-        foreach (var scope in _scopes)
+        foreach (Dictionary<string, MemoryObject> scope in _scopes)
         {
-            if (scope.TryGetValue(name, out var obj))
+            if (scope.TryGetValue(key: name, value: out MemoryObject? obj))
+            {
                 return obj;
+            }
         }
+
         return null;
     }
 
@@ -735,16 +772,17 @@ public class MemoryAnalyzer
     private void SetObject(string name, MemoryObject obj)
     {
         // Find the scope where this object was declared and update it there
-        foreach (var scope in _scopes)
+        foreach (Dictionary<string, MemoryObject> scope in _scopes)
         {
-            if (scope.ContainsKey(name))
+            if (scope.ContainsKey(key: name))
             {
-                scope[name] = obj;
+                scope[key: name] = obj;
                 return;
             }
         }
+
         // If not found in any scope, add to current scope (new declaration)
-        _scopes.Peek()[name] = obj;
+        _scopes.Peek()[key: name] = obj;
     }
 
     /// <summary>
@@ -765,15 +803,15 @@ public class MemoryAnalyzer
     /// <param name="location">Source location for error reporting</param>
     private void InvalidateObject(string name, string reason, SourceLocation location)
     {
-        var obj = GetObject(name);
+        MemoryObject? obj = GetObject(name: name);
         if (obj != null)
         {
-            var invalidated = obj with 
-            { 
-                State = ObjectState.Invalidated, 
-                InvalidatedBy = reason  // Track reason for better error messages
+            MemoryObject invalidated = obj with
+            {
+                State = ObjectState.Invalidated,
+                InvalidatedBy = reason // Track reason for better error messages
             };
-            SetObject(name, invalidated);
+            SetObject(name: name, obj: invalidated);
         }
     }
 
@@ -785,9 +823,10 @@ public class MemoryAnalyzer
     /// <param name="message">Human-readable error message</param>
     /// <param name="location">Source location where error occurred</param>
     /// <param name="type">Categorized error type for error handling</param>
-    private void AddError(string message, SourceLocation location, MemoryError.MemoryErrorType type)
+    private void AddError(string message, SourceLocation location,
+        MemoryError.MemoryErrorType type)
     {
-        _errors.Add(new MemoryError(message, location, type));
+        _errors.Add(item: new MemoryError(Message: message, Location: location, Type: type));
     }
 
     /// <summary>
@@ -798,7 +837,7 @@ public class MemoryAnalyzer
     /// <returns>Memory object if found, null otherwise</returns>
     public MemoryObject? GetMemoryObject(string name)
     {
-        return GetObject(name);
+        return GetObject(name: name);
     }
 
     /// <summary>
@@ -810,182 +849,262 @@ public class MemoryAnalyzer
     /// <param name="operation">Memory operation to validate</param>
     /// <param name="location">Source location for error reporting</param>
     /// <returns>Validation result with success/failure and potential new wrapper type</returns>
-    public MemoryOperationResult ValidateMemoryOperation(MemoryObject memoryObject, MemoryOperation operation, SourceLocation location)
+    public MemoryOperationResult ValidateMemoryOperation(MemoryObject memoryObject,
+        MemoryOperation operation, SourceLocation location)
     {
         var errors = new List<MemoryError>();
 
         // Check if object is valid (unless in danger block)
         if (memoryObject.State != ObjectState.Valid && !_inDangerBlock)
         {
-            errors.Add(new MemoryError($"Cannot perform {operation} on invalidated object '{memoryObject.Name}' (invalidated by: {memoryObject.InvalidatedBy})",
-                                     location, MemoryError.MemoryErrorType.UseAfterInvalidation));
-            return new MemoryOperationResult(false, memoryObject.Wrapper, errors);
+            errors.Add(item: new MemoryError(
+                Message:
+                $"Cannot perform {operation} on invalidated object '{memoryObject.Name}' (invalidated by: {memoryObject.InvalidatedBy})",
+                Location: location, Type: MemoryError.MemoryErrorType.UseAfterInvalidation));
+            return new MemoryOperationResult(IsSuccess: false,
+                NewWrapperType: memoryObject.Wrapper, Errors: errors);
         }
 
         // Validate specific operations
-        var newWrapperType = operation switch
+        WrapperType newWrapperType = operation switch
         {
-            MemoryOperation.Hijack => ValidateHijack(memoryObject, location, errors),
-            MemoryOperation.Share => ValidateShare(memoryObject, location, errors),
-            MemoryOperation.Watch => ValidateWatch(memoryObject, location, errors),
-            MemoryOperation.ThreadShare => ValidateThreadShare(memoryObject, location, errors),
-            MemoryOperation.ThreadWatch => ValidateThreadWatch(memoryObject, location, errors),
-            MemoryOperation.Steal => ValidateSteal(memoryObject, location, errors),
-            MemoryOperation.Snatch => ValidateSnatch(memoryObject, location, errors),
-            MemoryOperation.Release => ValidateRelease(memoryObject, location, errors),
-            MemoryOperation.TryShare => ValidateTryShare(memoryObject, location, errors),
-            MemoryOperation.TryThreadShare => ValidateTryThreadShare(memoryObject, location, errors),
-            MemoryOperation.Reveal => ValidateReveal(memoryObject, location, errors),
-            MemoryOperation.Own => ValidateOwn(memoryObject, location, errors),
+            MemoryOperation.Hijack => ValidateHijack(obj: memoryObject, location: location,
+                errors: errors),
+            MemoryOperation.Share => ValidateShare(obj: memoryObject, location: location,
+                errors: errors),
+            MemoryOperation.Watch => ValidateWatch(obj: memoryObject, location: location,
+                errors: errors),
+            MemoryOperation.ThreadShare => ValidateThreadShare(obj: memoryObject,
+                location: location, errors: errors),
+            MemoryOperation.ThreadWatch => ValidateThreadWatch(obj: memoryObject,
+                location: location, errors: errors),
+            MemoryOperation.Steal => ValidateSteal(obj: memoryObject, location: location,
+                errors: errors),
+            MemoryOperation.Snatch => ValidateSnatch(obj: memoryObject, location: location,
+                errors: errors),
+            MemoryOperation.Release => ValidateRelease(obj: memoryObject, location: location,
+                errors: errors),
+            MemoryOperation.TryShare => ValidateTryShare(obj: memoryObject, location: location,
+                errors: errors),
+            MemoryOperation.TryThreadShare => ValidateTryThreadShare(obj: memoryObject,
+                location: location, errors: errors),
+            MemoryOperation.Reveal => ValidateReveal(obj: memoryObject, location: location,
+                errors: errors),
+            MemoryOperation.Own => ValidateOwn(obj: memoryObject, location: location,
+                errors: errors),
             _ => WrapperType.Owned
         };
 
-        return new MemoryOperationResult(errors.Count == 0, newWrapperType, errors);
+        return new MemoryOperationResult(IsSuccess: errors.Count == 0,
+            NewWrapperType: newWrapperType, Errors: errors);
     }
 
     // Validation helper methods
-    private WrapperType ValidateHijack(MemoryObject obj, SourceLocation location, List<MemoryError> errors)
+    private WrapperType ValidateHijack(MemoryObject obj, SourceLocation location,
+        List<MemoryError> errors)
     {
-        if (!obj.CanTransformTo(WrapperType.Hijacked, _inDangerBlock))
+        if (!obj.CanTransformTo(target: WrapperType.Hijacked, inDangerBlock: _inDangerBlock))
         {
-            errors.Add(new MemoryError($"Cannot hijack object of type {obj.Wrapper}", location, MemoryError.MemoryErrorType.InvalidTransformation));
+            errors.Add(item: new MemoryError(
+                Message: $"Cannot hijack object of type {obj.Wrapper}", Location: location,
+                Type: MemoryError.MemoryErrorType.InvalidTransformation));
             return obj.Wrapper;
         }
+
         return WrapperType.Hijacked;
     }
 
-    private WrapperType ValidateShare(MemoryObject obj, SourceLocation location, List<MemoryError> errors)
+    private WrapperType ValidateShare(MemoryObject obj, SourceLocation location,
+        List<MemoryError> errors)
     {
-        if (!obj.CanTransformTo(WrapperType.Shared, _inDangerBlock))
+        if (!obj.CanTransformTo(target: WrapperType.Shared, inDangerBlock: _inDangerBlock))
         {
-            errors.Add(new MemoryError($"Cannot share object of type {obj.Wrapper}", location, MemoryError.MemoryErrorType.InvalidTransformation));
+            errors.Add(item: new MemoryError(Message: $"Cannot share object of type {obj.Wrapper}",
+                Location: location, Type: MemoryError.MemoryErrorType.InvalidTransformation));
             return obj.Wrapper;
         }
+
         return WrapperType.Shared;
     }
 
-    private WrapperType ValidateWatch(MemoryObject obj, SourceLocation location, List<MemoryError> errors)
+    private WrapperType ValidateWatch(MemoryObject obj, SourceLocation location,
+        List<MemoryError> errors)
     {
         if (obj.Wrapper != WrapperType.Shared)
         {
-            errors.Add(new MemoryError($"Can only watch Shared objects, not {obj.Wrapper}", location, MemoryError.MemoryErrorType.InvalidTransformation));
+            errors.Add(item: new MemoryError(
+                Message: $"Can only watch Shared objects, not {obj.Wrapper}", Location: location,
+                Type: MemoryError.MemoryErrorType.InvalidTransformation));
             return obj.Wrapper;
         }
+
         return WrapperType.Watched;
     }
 
-    private WrapperType ValidateThreadShare(MemoryObject obj, SourceLocation location, List<MemoryError> errors)
+    private WrapperType ValidateThreadShare(MemoryObject obj, SourceLocation location,
+        List<MemoryError> errors)
     {
-        if (!obj.CanTransformTo(WrapperType.ThreadShared, _inDangerBlock))
+        if (!obj.CanTransformTo(target: WrapperType.ThreadShared, inDangerBlock: _inDangerBlock))
         {
-            errors.Add(new MemoryError($"Cannot thread_share object of type {obj.Wrapper}", location, MemoryError.MemoryErrorType.InvalidTransformation));
+            errors.Add(item: new MemoryError(
+                Message: $"Cannot thread_share object of type {obj.Wrapper}", Location: location,
+                Type: MemoryError.MemoryErrorType.InvalidTransformation));
             return obj.Wrapper;
         }
+
         return WrapperType.ThreadShared;
     }
 
-    private WrapperType ValidateThreadWatch(MemoryObject obj, SourceLocation location, List<MemoryError> errors)
+    private WrapperType ValidateThreadWatch(MemoryObject obj, SourceLocation location,
+        List<MemoryError> errors)
     {
         if (obj.Wrapper != WrapperType.ThreadShared)
         {
-            errors.Add(new MemoryError($"Can only thread_watch ThreadShared objects, not {obj.Wrapper}", location, MemoryError.MemoryErrorType.InvalidTransformation));
+            errors.Add(item: new MemoryError(
+                Message: $"Can only thread_watch ThreadShared objects, not {obj.Wrapper}",
+                Location: location, Type: MemoryError.MemoryErrorType.InvalidTransformation));
             return obj.Wrapper;
         }
+
         return WrapperType.ThreadWatched;
     }
 
-    private WrapperType ValidateSteal(MemoryObject obj, SourceLocation location, List<MemoryError> errors)
+    private WrapperType ValidateSteal(MemoryObject obj, SourceLocation location,
+        List<MemoryError> errors)
     {
         if (obj.Wrapper == WrapperType.Shared && obj.ReferenceCount != 1)
         {
-            errors.Add(new MemoryError($"Cannot steal from Shared object with RC={obj.ReferenceCount} (need RC=1)", location, MemoryError.MemoryErrorType.ReferenceCountError));
+            errors.Add(item: new MemoryError(
+                Message:
+                $"Cannot steal from Shared object with RC={obj.ReferenceCount} (need RC=1)",
+                Location: location, Type: MemoryError.MemoryErrorType.ReferenceCountError));
             return obj.Wrapper;
         }
+
         if (obj.Wrapper == WrapperType.ThreadShared && obj.ReferenceCount != 1)
         {
-            errors.Add(new MemoryError($"Cannot steal from ThreadShared object with Arc={obj.ReferenceCount} (need Arc=1)", location, MemoryError.MemoryErrorType.ReferenceCountError));
+            errors.Add(item: new MemoryError(
+                Message:
+                $"Cannot steal from ThreadShared object with Arc={obj.ReferenceCount} (need Arc=1)",
+                Location: location, Type: MemoryError.MemoryErrorType.ReferenceCountError));
             return obj.Wrapper;
         }
-        if (obj.Wrapper != WrapperType.Shared && obj.Wrapper != WrapperType.ThreadShared && obj.Wrapper != WrapperType.Hijacked)
+
+        if (obj.Wrapper != WrapperType.Shared && obj.Wrapper != WrapperType.ThreadShared &&
+            obj.Wrapper != WrapperType.Hijacked)
         {
-            errors.Add(new MemoryError($"Cannot steal from {obj.Wrapper}", location, MemoryError.MemoryErrorType.InvalidTransformation));
+            errors.Add(item: new MemoryError(Message: $"Cannot steal from {obj.Wrapper}",
+                Location: location, Type: MemoryError.MemoryErrorType.InvalidTransformation));
             return obj.Wrapper;
         }
+
         return WrapperType.Owned;
     }
 
-    private WrapperType ValidateSnatch(MemoryObject obj, SourceLocation location, List<MemoryError> errors)
+    private WrapperType ValidateSnatch(MemoryObject obj, SourceLocation location,
+        List<MemoryError> errors)
     {
         if (!_inDangerBlock)
         {
-            errors.Add(new MemoryError("snatch!() can only be used in danger! blocks", location, MemoryError.MemoryErrorType.DangerBlockViolation));
+            errors.Add(item: new MemoryError(
+                Message: "snatch!() can only be used in danger! blocks", Location: location,
+                Type: MemoryError.MemoryErrorType.DangerBlockViolation));
             return obj.Wrapper;
         }
+
         return WrapperType.Snatched;
     }
 
-    private WrapperType ValidateRelease(MemoryObject obj, SourceLocation location, List<MemoryError> errors)
+    private WrapperType ValidateRelease(MemoryObject obj, SourceLocation location,
+        List<MemoryError> errors)
     {
         if (obj.Wrapper != WrapperType.Shared && obj.Wrapper != WrapperType.ThreadShared)
         {
-            errors.Add(new MemoryError($"Can only release Shared or ThreadShared objects, not {obj.Wrapper}", location, MemoryError.MemoryErrorType.InvalidTransformation));
+            errors.Add(item: new MemoryError(
+                Message: $"Can only release Shared or ThreadShared objects, not {obj.Wrapper}",
+                Location: location, Type: MemoryError.MemoryErrorType.InvalidTransformation));
             return obj.Wrapper;
         }
+
         if (obj.ReferenceCount <= 1)
         {
-            errors.Add(new MemoryError($"Cannot release object with RC={obj.ReferenceCount} (would drop to 0)", location, MemoryError.MemoryErrorType.ReferenceCountError));
+            errors.Add(item: new MemoryError(
+                Message: $"Cannot release object with RC={obj.ReferenceCount} (would drop to 0)",
+                Location: location, Type: MemoryError.MemoryErrorType.ReferenceCountError));
             return obj.Wrapper;
         }
+
         return obj.Wrapper;
     }
 
-    private WrapperType ValidateTryShare(MemoryObject obj, SourceLocation location, List<MemoryError> errors)
+    private WrapperType ValidateTryShare(MemoryObject obj, SourceLocation location,
+        List<MemoryError> errors)
     {
         if (obj.Wrapper != WrapperType.Watched)
         {
-            errors.Add(new MemoryError($"Can only try_share on Watched objects, not {obj.Wrapper}", location, MemoryError.MemoryErrorType.InvalidTransformation));
+            errors.Add(item: new MemoryError(
+                Message: $"Can only try_share on Watched objects, not {obj.Wrapper}",
+                Location: location, Type: MemoryError.MemoryErrorType.InvalidTransformation));
             return obj.Wrapper;
         }
+
         return WrapperType.Shared;
     }
 
-    private WrapperType ValidateTryThreadShare(MemoryObject obj, SourceLocation location, List<MemoryError> errors)
+    private WrapperType ValidateTryThreadShare(MemoryObject obj, SourceLocation location,
+        List<MemoryError> errors)
     {
         if (obj.Wrapper != WrapperType.ThreadWatched)
         {
-            errors.Add(new MemoryError($"Can only try_thread_share on ThreadWatched objects, not {obj.Wrapper}", location, MemoryError.MemoryErrorType.InvalidTransformation));
+            errors.Add(item: new MemoryError(
+                Message: $"Can only try_thread_share on ThreadWatched objects, not {obj.Wrapper}",
+                Location: location, Type: MemoryError.MemoryErrorType.InvalidTransformation));
             return obj.Wrapper;
         }
+
         return WrapperType.ThreadShared;
     }
 
-    private WrapperType ValidateReveal(MemoryObject obj, SourceLocation location, List<MemoryError> errors)
+    private WrapperType ValidateReveal(MemoryObject obj, SourceLocation location,
+        List<MemoryError> errors)
     {
         if (obj.Wrapper != WrapperType.Snatched)
         {
-            errors.Add(new MemoryError($"Can only reveal Snatched objects, not {obj.Wrapper}", location, MemoryError.MemoryErrorType.InvalidTransformation));
+            errors.Add(item: new MemoryError(
+                Message: $"Can only reveal Snatched objects, not {obj.Wrapper}",
+                Location: location, Type: MemoryError.MemoryErrorType.InvalidTransformation));
             return obj.Wrapper;
         }
+
         if (!_inDangerBlock)
         {
-            errors.Add(new MemoryError("reveal!() can only be used in danger! blocks", location, MemoryError.MemoryErrorType.DangerBlockViolation));
+            errors.Add(item: new MemoryError(
+                Message: "reveal!() can only be used in danger! blocks", Location: location,
+                Type: MemoryError.MemoryErrorType.DangerBlockViolation));
             return obj.Wrapper;
         }
+
         return WrapperType.Owned;
     }
 
-    private WrapperType ValidateOwn(MemoryObject obj, SourceLocation location, List<MemoryError> errors)
+    private WrapperType ValidateOwn(MemoryObject obj, SourceLocation location,
+        List<MemoryError> errors)
     {
         if (obj.Wrapper != WrapperType.Snatched)
         {
-            errors.Add(new MemoryError($"Can only own Snatched objects, not {obj.Wrapper}", location, MemoryError.MemoryErrorType.InvalidTransformation));
+            errors.Add(item: new MemoryError(
+                Message: $"Can only own Snatched objects, not {obj.Wrapper}", Location: location,
+                Type: MemoryError.MemoryErrorType.InvalidTransformation));
             return obj.Wrapper;
         }
+
         if (!_inDangerBlock)
         {
-            errors.Add(new MemoryError("own!() can only be used in danger! blocks", location, MemoryError.MemoryErrorType.DangerBlockViolation));
+            errors.Add(item: new MemoryError(Message: "own!() can only be used in danger! blocks",
+                Location: location, Type: MemoryError.MemoryErrorType.DangerBlockViolation));
             return obj.Wrapper;
         }
+
         return WrapperType.Owned;
     }
 }
@@ -993,4 +1112,7 @@ public class MemoryAnalyzer
 /// <summary>
 /// Result of validating a memory operation
 /// </summary>
-public record MemoryOperationResult(bool IsSuccess, WrapperType NewWrapperType, List<MemoryError> Errors);
+public record MemoryOperationResult(
+    bool IsSuccess,
+    WrapperType NewWrapperType,
+    List<MemoryError> Errors);

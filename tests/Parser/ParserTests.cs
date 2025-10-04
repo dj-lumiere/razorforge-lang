@@ -17,165 +17,165 @@ public class ParserTests
 {
     private Program ParseCode(string code)
     {
-        var tokens = Tokenizer.Tokenize(code, Language.RazorForge);
-        var parser = new RazorForgeParser(tokens);
+        List<Token> tokens = Tokenizer.Tokenize(source: code, language: Language.RazorForge);
+        var parser = new RazorForgeParser(tokens: tokens);
         return parser.Parse();
     }
 
     private List<Token> TokenizeCode(string code)
     {
-        return Tokenizer.Tokenize(code, Language.RazorForge);
+        return Tokenizer.Tokenize(source: code, language: Language.RazorForge);
     }
 
     [Fact]
     public void TestEmptyProgram()
     {
-        var program = ParseCode("");
-        Assert.NotNull(program);
-        Assert.Empty(program.Declarations);
+        Program program = ParseCode(code: "");
+        Assert.NotNull(@object: program);
+        Assert.Empty(collection: program.Declarations);
     }
 
     [Fact]
     public void TestSimpleRecipeDeclaration()
     {
-        var code = @"recipe main() { }";
-        var program = ParseCode(code);
+        string code = @"recipe main() { }";
+        Program program = ParseCode(code: code);
 
-        Assert.NotNull(program);
-        Assert.Single(program.Declarations);
+        Assert.NotNull(@object: program);
+        Assert.Single(collection: program.Declarations);
 
         var recipe = program.Declarations.First() as RecipeDeclaration;
-        Assert.NotNull(recipe);
-        Assert.Equal("main", recipe.Name);
-        Assert.Empty(recipe.Parameters);
-        Assert.Null(recipe.ReturnType);
-        Assert.NotNull(recipe.Body);
+        Assert.NotNull(@object: recipe);
+        Assert.Equal(expected: "main", actual: recipe.Name);
+        Assert.Empty(collection: recipe.Parameters);
+        Assert.Null(@object: recipe.ReturnType);
+        Assert.NotNull(@object: recipe.Body);
     }
 
     [Fact]
     public void TestRecipeWithParameters()
     {
-        var code = @"recipe add(a: s32, b: s32) -> s32 { return a + b }";
-        var program = ParseCode(code);
+        string code = @"recipe add(a: s32, b: s32) -> s32 { return a + b }";
+        Program program = ParseCode(code: code);
 
-        Assert.NotNull(program);
-        Assert.Single(program.Declarations);
+        Assert.NotNull(@object: program);
+        Assert.Single(collection: program.Declarations);
 
         var recipe = program.Declarations.First() as RecipeDeclaration;
-        Assert.NotNull(recipe);
-        Assert.Equal("add", recipe.Name);
-        Assert.Equal(2, recipe.Parameters.Count);
+        Assert.NotNull(@object: recipe);
+        Assert.Equal(expected: "add", actual: recipe.Name);
+        Assert.Equal(expected: 2, actual: recipe.Parameters.Count);
 
         // Check first parameter
-        Assert.Equal("a", recipe.Parameters[0].Name);
-        Assert.Equal("s32", recipe.Parameters[0].Type?.Name);
+        Assert.Equal(expected: "a", actual: recipe.Parameters[index: 0].Name);
+        Assert.Equal(expected: "s32", actual: recipe.Parameters[index: 0].Type?.Name);
 
         // Check second parameter
-        Assert.Equal("b", recipe.Parameters[1].Name);
-        Assert.Equal("s32", recipe.Parameters[1].Type?.Name);
+        Assert.Equal(expected: "b", actual: recipe.Parameters[index: 1].Name);
+        Assert.Equal(expected: "s32", actual: recipe.Parameters[index: 1].Type?.Name);
 
         // Check return type
-        Assert.NotNull(recipe.ReturnType);
-        Assert.Equal("s32", recipe.ReturnType.Name);
+        Assert.NotNull(@object: recipe.ReturnType);
+        Assert.Equal(expected: "s32", actual: recipe.ReturnType.Name);
 
         // Check body has return statement
-        Assert.NotNull(recipe.Body);
+        Assert.NotNull(@object: recipe.Body);
         var bodyBlock = recipe.Body as BlockStatement;
-        Assert.NotNull(bodyBlock);
-        Assert.Single(bodyBlock.Statements);
+        Assert.NotNull(@object: bodyBlock);
+        Assert.Single(collection: bodyBlock.Statements);
     }
 
     [Fact]
     public void TestVariableDeclarations()
     {
-        var code = @"
+        string code = @"
 recipe test() {
     let x = 42
     var y: s32 = 100
     var z = ""hello""
 }";
-        var program = ParseCode(code);
+        Program program = ParseCode(code: code);
 
         var recipe = program.Declarations.First() as RecipeDeclaration;
-        Assert.NotNull(recipe);
+        Assert.NotNull(@object: recipe);
         var bodyBlock = recipe.Body as BlockStatement;
-        Assert.NotNull(bodyBlock);
-        Assert.Equal(3, bodyBlock.Statements.Count);
+        Assert.NotNull(@object: bodyBlock);
+        Assert.Equal(expected: 3, actual: bodyBlock.Statements.Count);
 
         // Test immutable variable
-        var letStmt = bodyBlock.Statements[0] as DeclarationStatement;
-        Assert.NotNull(letStmt);
+        var letStmt = bodyBlock.Statements[index: 0] as DeclarationStatement;
+        Assert.NotNull(@object: letStmt);
         var letDecl = letStmt.Declaration as VariableDeclaration;
-        Assert.NotNull(letDecl);
-        Assert.Equal("x", letDecl.Name);
-        Assert.False(letDecl.IsMutable);
-        Assert.NotNull(letDecl.Initializer);
+        Assert.NotNull(@object: letDecl);
+        Assert.Equal(expected: "x", actual: letDecl.Name);
+        Assert.False(condition: letDecl.IsMutable);
+        Assert.NotNull(@object: letDecl.Initializer);
 
         // Test mutable variable with type
-        var varStmt = bodyBlock.Statements[1] as DeclarationStatement;
-        Assert.NotNull(varStmt);
+        var varStmt = bodyBlock.Statements[index: 1] as DeclarationStatement;
+        Assert.NotNull(@object: varStmt);
         var varDecl = varStmt.Declaration as VariableDeclaration;
-        Assert.NotNull(varDecl);
-        Assert.Equal("y", varDecl.Name);
-        Assert.True(varDecl.IsMutable);
-        Assert.NotNull(varDecl.Type);
-        Assert.NotNull(varDecl.Initializer);
+        Assert.NotNull(@object: varDecl);
+        Assert.Equal(expected: "y", actual: varDecl.Name);
+        Assert.True(condition: varDecl.IsMutable);
+        Assert.NotNull(@object: varDecl.Type);
+        Assert.NotNull(@object: varDecl.Initializer);
 
         // Test mutable variable without explicit type
-        var varStmt2 = bodyBlock.Statements[2] as DeclarationStatement;
-        Assert.NotNull(varStmt2);
+        var varStmt2 = bodyBlock.Statements[index: 2] as DeclarationStatement;
+        Assert.NotNull(@object: varStmt2);
         var varDecl2 = varStmt2.Declaration as VariableDeclaration;
-        Assert.NotNull(varDecl2);
-        Assert.Equal("z", varDecl2.Name);
-        Assert.True(varDecl2.IsMutable);
-        Assert.NotNull(varDecl2.Initializer);
+        Assert.NotNull(@object: varDecl2);
+        Assert.Equal(expected: "z", actual: varDecl2.Name);
+        Assert.True(condition: varDecl2.IsMutable);
+        Assert.NotNull(@object: varDecl2.Initializer);
     }
 
     [Fact]
     public void TestArithmeticExpressions()
     {
-        var code = @"recipe calc() { return 2 + 3 * 4 - 1 }";
-        var program = ParseCode(code);
+        string code = @"recipe calc() { return 2 + 3 * 4 - 1 }";
+        Program program = ParseCode(code: code);
 
         var recipe = program.Declarations.First() as RecipeDeclaration;
-        Assert.NotNull(recipe);
+        Assert.NotNull(@object: recipe);
 
         var bodyBlock = recipe.Body as BlockStatement;
-        Assert.NotNull(bodyBlock);
-        var returnStmt = bodyBlock.Statements[0] as ReturnStatement;
-        Assert.NotNull(returnStmt);
-        Assert.NotNull(returnStmt.Expression);
+        Assert.NotNull(@object: bodyBlock);
+        var returnStmt = bodyBlock.Statements[index: 0] as ReturnStatement;
+        Assert.NotNull(@object: returnStmt);
+        Assert.NotNull(@object: returnStmt.Expression);
 
         // The expression should be a binary expression
         var expr = returnStmt.Expression as BinaryExpression;
-        Assert.NotNull(expr);
+        Assert.NotNull(@object: expr);
     }
 
     [Fact]
     public void TestComparisonExpressions()
     {
-        var code = @"recipe compare() {
+        string code = @"recipe compare() {
     return x == y
     return a != b
     return p < q
     return m >= n
 }";
-        var program = ParseCode(code);
+        Program program = ParseCode(code: code);
 
         var recipe = program.Declarations.First() as RecipeDeclaration;
-        Assert.NotNull(recipe);
+        Assert.NotNull(@object: recipe);
         var bodyBlock = recipe.Body as BlockStatement;
-        Assert.NotNull(bodyBlock);
-        Assert.Equal(4, bodyBlock.Statements.Count);
+        Assert.NotNull(@object: bodyBlock);
+        Assert.Equal(expected: 4, actual: bodyBlock.Statements.Count);
 
         // Check each return statement has a comparison expression
-        foreach (var stmt in bodyBlock.Statements)
+        foreach (Statement stmt in bodyBlock.Statements)
         {
             var returnStmt = stmt as ReturnStatement;
-            Assert.NotNull(returnStmt);
+            Assert.NotNull(@object: returnStmt);
             var expr = returnStmt.Expression as BinaryExpression;
-            Assert.NotNull(expr);
-            Assert.Contains(expr.Operator.ToStringRepresentation(), new[]
+            Assert.NotNull(@object: expr);
+            Assert.Contains(expected: expr.Operator.ToStringRepresentation(), collection: new[]
             {
                 "==",
                 "!=",
@@ -188,24 +188,24 @@ recipe test() {
     [Fact]
     public void TestLogicalExpressions()
     {
-        var code = @"recipe logic() {
+        string code = @"recipe logic() {
     return x and y
     return a or b
     return not c
 }";
-        var program = ParseCode(code);
+        Program program = ParseCode(code: code);
 
         var recipe = program.Declarations.First() as RecipeDeclaration;
-        Assert.NotNull(recipe);
+        Assert.NotNull(@object: recipe);
         var bodyBlock = recipe.Body as BlockStatement;
-        Assert.NotNull(bodyBlock);
-        Assert.Equal(3, bodyBlock.Statements.Count);
+        Assert.NotNull(@object: bodyBlock);
+        Assert.Equal(expected: 3, actual: bodyBlock.Statements.Count);
     }
 
     [Fact]
     public void TestIfStatement()
     {
-        var code = @"
+        string code = @"
 recipe test() {
     if x > 0:
         return 1
@@ -214,206 +214,206 @@ recipe test() {
     else:
         return 0
 }";
-        var program = ParseCode(code);
+        Program program = ParseCode(code: code);
 
         var recipe = program.Declarations.First() as RecipeDeclaration;
-        Assert.NotNull(recipe);
+        Assert.NotNull(@object: recipe);
         var bodyBlock = recipe.Body as BlockStatement;
-        Assert.NotNull(bodyBlock);
-        Assert.Single(bodyBlock.Statements);
+        Assert.NotNull(@object: bodyBlock);
+        Assert.Single(collection: bodyBlock.Statements);
 
-        var ifStmt = bodyBlock.Statements[0] as IfStatement;
-        Assert.NotNull(ifStmt);
-        Assert.NotNull(ifStmt.Condition);
-        Assert.NotNull(ifStmt.ThenBranch);
-        Assert.NotNull(ifStmt.ElseBranch); // Should be another if statement (elif)
+        var ifStmt = bodyBlock.Statements[index: 0] as IfStatement;
+        Assert.NotNull(@object: ifStmt);
+        Assert.NotNull(@object: ifStmt.Condition);
+        Assert.NotNull(@object: ifStmt.ThenBranch);
+        Assert.NotNull(@object: ifStmt.ElseBranch); // Should be another if statement (elif)
     }
 
     [Fact]
     public void TestWhileLoop()
     {
-        var code = @"
+        string code = @"
 recipe countdown() {
     while i > 0:
         i = i - 1
 }";
-        var program = ParseCode(code);
+        Program program = ParseCode(code: code);
 
         var recipe = program.Declarations.First() as RecipeDeclaration;
-        Assert.NotNull(recipe);
+        Assert.NotNull(@object: recipe);
         var bodyBlock = recipe.Body as BlockStatement;
-        Assert.NotNull(bodyBlock);
-        Assert.Single(bodyBlock.Statements);
+        Assert.NotNull(@object: bodyBlock);
+        Assert.Single(collection: bodyBlock.Statements);
 
-        var whileStmt = bodyBlock.Statements[0] as WhileStatement;
-        Assert.NotNull(whileStmt);
-        Assert.NotNull(whileStmt.Condition);
-        Assert.NotNull(whileStmt.Body);
+        var whileStmt = bodyBlock.Statements[index: 0] as WhileStatement;
+        Assert.NotNull(@object: whileStmt);
+        Assert.NotNull(@object: whileStmt.Condition);
+        Assert.NotNull(@object: whileStmt.Body);
     }
 
     [Fact]
     public void TestForLoop()
     {
-        var code = @"
+        string code = @"
 recipe iterate() {
     for i in 1 to 10:
         print(i)
 }";
-        var program = ParseCode(code);
+        Program program = ParseCode(code: code);
 
         var recipe = program.Declarations.First() as RecipeDeclaration;
-        Assert.NotNull(recipe);
+        Assert.NotNull(@object: recipe);
         var bodyBlock = recipe.Body as BlockStatement;
-        Assert.NotNull(bodyBlock);
-        Assert.Single(bodyBlock.Statements);
+        Assert.NotNull(@object: bodyBlock);
+        Assert.Single(collection: bodyBlock.Statements);
 
-        var forStmt = bodyBlock.Statements[0] as ForStatement;
-        Assert.NotNull(forStmt);
-        Assert.NotNull(forStmt.Variable);
-        Assert.NotNull(forStmt.Iterable);
-        Assert.NotNull(forStmt.Body);
+        var forStmt = bodyBlock.Statements[index: 0] as ForStatement;
+        Assert.NotNull(@object: forStmt);
+        Assert.NotNull(@object: forStmt.Variable);
+        Assert.NotNull(@object: forStmt.Iterable);
+        Assert.NotNull(@object: forStmt.Body);
     }
 
     [Fact]
     public void TestRecipeCall()
     {
-        var code = @"
+        string code = @"
 recipe test() {
     let result = add(1, 2)
     print(""Hello"", ""World"")
 }";
-        var program = ParseCode(code);
+        Program program = ParseCode(code: code);
 
         var recipe = program.Declarations.First() as RecipeDeclaration;
-        Assert.NotNull(recipe);
+        Assert.NotNull(@object: recipe);
         var bodyBlock = recipe.Body as BlockStatement;
-        Assert.NotNull(bodyBlock);
-        Assert.Equal(2, bodyBlock.Statements.Count);
+        Assert.NotNull(@object: bodyBlock);
+        Assert.Equal(expected: 2, actual: bodyBlock.Statements.Count);
 
         // First statement: variable declaration with function call
-        var varDeclStmt = bodyBlock.Statements[0] as DeclarationStatement;
-        Assert.NotNull(varDeclStmt);
+        var varDeclStmt = bodyBlock.Statements[index: 0] as DeclarationStatement;
+        Assert.NotNull(@object: varDeclStmt);
         var varDecl = varDeclStmt.Declaration as VariableDeclaration;
-        Assert.NotNull(varDecl);
+        Assert.NotNull(@object: varDecl);
         var callExpr = varDecl.Initializer as CallExpression;
-        Assert.NotNull(callExpr);
-        Assert.Equal("add", callExpr.Name);
-        Assert.Equal(2, callExpr.Arguments.Count);
+        Assert.NotNull(@object: callExpr);
+        Assert.Equal(expected: "add", actual: callExpr.Name);
+        Assert.Equal(expected: 2, actual: callExpr.Arguments.Count);
 
         // Second statement: expression statement with function call
-        var exprStmt = bodyBlock.Statements[1] as ExpressionStatement;
-        Assert.NotNull(exprStmt);
+        var exprStmt = bodyBlock.Statements[index: 1] as ExpressionStatement;
+        Assert.NotNull(@object: exprStmt);
         var printCall = exprStmt.Expression as CallExpression;
-        Assert.NotNull(printCall);
-        Assert.Equal("print", printCall.Name);
-        Assert.Equal(2, printCall.Arguments.Count);
+        Assert.NotNull(@object: printCall);
+        Assert.Equal(expected: "print", actual: printCall.Name);
+        Assert.Equal(expected: 2, actual: printCall.Arguments.Count);
     }
 
     [Fact]
     public void TestMemberAccess()
     {
-        var code = @"
+        string code = @"
 recipe access() {
     return obj.field
     return obj.method()
     return obj.field.nested
 }";
-        var program = ParseCode(code);
+        Program program = ParseCode(code: code);
 
         var recipe = program.Declarations.First() as RecipeDeclaration;
-        Assert.NotNull(recipe);
+        Assert.NotNull(@object: recipe);
         var bodyBlock = recipe.Body as BlockStatement;
-        Assert.NotNull(bodyBlock);
-        Assert.Equal(3, bodyBlock.Statements.Count);
+        Assert.NotNull(@object: bodyBlock);
+        Assert.Equal(expected: 3, actual: bodyBlock.Statements.Count);
 
         // Each return statement should have a member access expression
-        foreach (var stmt in bodyBlock.Statements)
+        foreach (Statement stmt in bodyBlock.Statements)
         {
             var returnStmt = stmt as ReturnStatement;
-            Assert.NotNull(returnStmt);
-            Assert.NotNull(returnStmt.Expression);
+            Assert.NotNull(@object: returnStmt);
+            Assert.NotNull(@object: returnStmt.Expression);
         }
     }
 
     [Fact]
     public void TestArrayAccess()
     {
-        var code = @"
+        string code = @"
 recipe array_ops() {
     return arr[0]
     return matrix[i][j]
     arr[index] = value
 }";
-        var program = ParseCode(code);
+        Program program = ParseCode(code: code);
 
         var recipe = program.Declarations.First() as RecipeDeclaration;
-        Assert.NotNull(recipe);
+        Assert.NotNull(@object: recipe);
         var bodyBlock = recipe.Body as BlockStatement;
-        Assert.NotNull(bodyBlock);
-        Assert.Equal(3, bodyBlock.Statements.Count);
+        Assert.NotNull(@object: bodyBlock);
+        Assert.Equal(expected: 3, actual: bodyBlock.Statements.Count);
     }
 
     [Fact]
     public void TestStringInterpolation()
     {
-        var code = @"
+        string code = @"
 recipe format() {
     return f""Value: {x}""
     return f""Hello {name}, you are {age} years old""
 }";
-        var program = ParseCode(code);
+        Program program = ParseCode(code: code);
 
         var recipe = program.Declarations.First() as RecipeDeclaration;
-        Assert.NotNull(recipe);
+        Assert.NotNull(@object: recipe);
         var bodyBlock = recipe.Body as BlockStatement;
-        Assert.NotNull(bodyBlock);
-        Assert.Equal(2, bodyBlock.Statements.Count);
+        Assert.NotNull(@object: bodyBlock);
+        Assert.Equal(expected: 2, actual: bodyBlock.Statements.Count);
 
-        foreach (var stmt in bodyBlock.Statements)
+        foreach (Statement stmt in bodyBlock.Statements)
         {
             var returnStmt = stmt as ReturnStatement;
-            Assert.NotNull(returnStmt);
-            Assert.NotNull(returnStmt.Expression);
+            Assert.NotNull(@object: returnStmt);
+            Assert.NotNull(@object: returnStmt.Expression);
         }
     }
 
     [Fact]
     public void TestTypeAnnotations()
     {
-        var code = @"
+        string code = @"
 recipe typed(x: s32, y: f64, name: Text) -> Bool {
     let result: Bool = x > 0
     return result
 }";
-        var program = ParseCode(code);
+        Program program = ParseCode(code: code);
 
         var recipe = program.Declarations.First() as RecipeDeclaration;
-        Assert.NotNull(recipe);
-        Assert.Equal("typed", recipe.Name);
-        Assert.Equal(3, recipe.Parameters.Count);
-        Assert.NotNull(recipe.ReturnType);
-        Assert.Equal("Bool", recipe.ReturnType.Name);
+        Assert.NotNull(@object: recipe);
+        Assert.Equal(expected: "typed", actual: recipe.Name);
+        Assert.Equal(expected: 3, actual: recipe.Parameters.Count);
+        Assert.NotNull(@object: recipe.ReturnType);
+        Assert.Equal(expected: "Bool", actual: recipe.ReturnType.Name);
 
         // Check parameter types
-        Assert.Equal("s32", recipe.Parameters[0].Type?.Name);
-        Assert.Equal("f64", recipe.Parameters[1].Type?.Name);
-        Assert.Equal("Text", recipe.Parameters[2].Type?.Name);
+        Assert.Equal(expected: "s32", actual: recipe.Parameters[index: 0].Type?.Name);
+        Assert.Equal(expected: "f64", actual: recipe.Parameters[index: 1].Type?.Name);
+        Assert.Equal(expected: "Text", actual: recipe.Parameters[index: 2].Type?.Name);
 
         // Check variable declaration with type annotation
         var bodyBlock = recipe.Body as BlockStatement;
-        Assert.NotNull(bodyBlock);
-        var varDeclStmt = bodyBlock.Statements[0] as DeclarationStatement;
-        Assert.NotNull(varDeclStmt);
+        Assert.NotNull(@object: bodyBlock);
+        var varDeclStmt = bodyBlock.Statements[index: 0] as DeclarationStatement;
+        Assert.NotNull(@object: varDeclStmt);
         var varDecl = varDeclStmt.Declaration as VariableDeclaration;
-        Assert.NotNull(varDecl);
-        Assert.NotNull(varDecl.Type);
-        Assert.Equal("Bool", varDecl.Type.Name);
+        Assert.NotNull(@object: varDecl);
+        Assert.NotNull(@object: varDecl.Type);
+        Assert.Equal(expected: "Bool", actual: varDecl.Type.Name);
     }
 
     [Fact]
     public void TestComments()
     {
-        var code = @"
+        string code = @"
 # This is a single-line comment
 recipe test() { # End of line comment
     let x = 42 # Another comment
@@ -423,61 +423,61 @@ recipe test() { # End of line comment
 recipe documented() {
     return 1
 }";
-        var program = ParseCode(code);
+        Program program = ParseCode(code: code);
 
         // Comments should be ignored by parser, so we should get 2 recipe declarations
-        Assert.Equal(2, program.Declarations.Count);
+        Assert.Equal(expected: 2, actual: program.Declarations.Count);
 
-        var recipe1 = program.Declarations[0] as RecipeDeclaration;
-        Assert.NotNull(recipe1);
-        Assert.Equal("test", recipe1.Name);
+        var recipe1 = program.Declarations[index: 0] as RecipeDeclaration;
+        Assert.NotNull(@object: recipe1);
+        Assert.Equal(expected: "test", actual: recipe1.Name);
 
-        var recipe2 = program.Declarations[1] as RecipeDeclaration;
-        Assert.NotNull(recipe2);
-        Assert.Equal("documented", recipe2.Name);
+        var recipe2 = program.Declarations[index: 1] as RecipeDeclaration;
+        Assert.NotNull(@object: recipe2);
+        Assert.Equal(expected: "documented", actual: recipe2.Name);
     }
 
     [Fact]
     public void TestErrorRecovery()
     {
         // Test parser's ability to recover from syntax errors
-        var code = @"
+        string code = @"
 recipe good1() { return 1 }
 recipe bad() { syntax error here
 recipe good2() { return 2 }";
 
         // This should not throw an exception but should attempt to parse what it can
-        var program = ParseCode(code);
-        Assert.NotNull(program);
+        Program program = ParseCode(code: code);
+        Assert.NotNull(@object: program);
 
         // Should have at least some valid declarations
-        Assert.True(program.Declarations.Count >= 1);
+        Assert.True(condition: program.Declarations.Count >= 1);
     }
 
     [Fact]
     public void TestNestedExpressions()
     {
-        var code = @"
+        string code = @"
 recipe nested() {
     return ((a + b) * (c - d)) / (e + f)
 }";
-        var program = ParseCode(code);
+        Program program = ParseCode(code: code);
 
         var recipe = program.Declarations.First() as RecipeDeclaration;
-        Assert.NotNull(recipe);
+        Assert.NotNull(@object: recipe);
         var bodyBlock = recipe.Body as BlockStatement;
-        Assert.NotNull(bodyBlock);
-        Assert.Single(bodyBlock.Statements);
+        Assert.NotNull(@object: bodyBlock);
+        Assert.Single(collection: bodyBlock.Statements);
 
-        var returnStmt = bodyBlock.Statements[0] as ReturnStatement;
-        Assert.NotNull(returnStmt);
-        Assert.NotNull(returnStmt.Expression);
+        var returnStmt = bodyBlock.Statements[index: 0] as ReturnStatement;
+        Assert.NotNull(@object: returnStmt);
+        Assert.NotNull(@object: returnStmt.Expression);
     }
 
     [Fact]
     public void TestBreakAndContinue()
     {
-        var code = @"
+        string code = @"
 recipe loop_control() {
     while true:
         if condition1:
@@ -486,23 +486,23 @@ recipe loop_control() {
             continue
         do_something()
 }";
-        var program = ParseCode(code);
+        Program program = ParseCode(code: code);
 
         var recipe = program.Declarations.First() as RecipeDeclaration;
-        Assert.NotNull(recipe);
+        Assert.NotNull(@object: recipe);
         var bodyBlock = recipe.Body as BlockStatement;
-        Assert.NotNull(bodyBlock);
-        Assert.Single(bodyBlock.Statements);
+        Assert.NotNull(@object: bodyBlock);
+        Assert.Single(collection: bodyBlock.Statements);
 
-        var whileStmt = bodyBlock.Statements[0] as WhileStatement;
-        Assert.NotNull(whileStmt);
-        Assert.NotNull(whileStmt.Body);
+        var whileStmt = bodyBlock.Statements[index: 0] as WhileStatement;
+        Assert.NotNull(@object: whileStmt);
+        Assert.NotNull(@object: whileStmt.Body);
     }
 
     [Fact]
     public void TestSliceOperations()
     {
-        var code = @"
+        string code = @"
 recipe slice_test() {
     let heap_slice = HeapSlice(64)
     let stack_slice = StackSlice(32)
@@ -510,36 +510,36 @@ recipe slice_test() {
     heap_slice[0] = 42
     let value = stack_slice[index]
 }";
-        var program = ParseCode(code);
+        Program program = ParseCode(code: code);
 
         var recipe = program.Declarations.First() as RecipeDeclaration;
-        Assert.NotNull(recipe);
+        Assert.NotNull(@object: recipe);
         var bodyBlock = recipe.Body as BlockStatement;
-        Assert.NotNull(bodyBlock);
-        Assert.Equal(4, bodyBlock.Statements.Count);
+        Assert.NotNull(@object: bodyBlock);
+        Assert.Equal(expected: 4, actual: bodyBlock.Statements.Count);
 
         // Check slice constructor calls
-        var heapDeclStmt = bodyBlock.Statements[0] as DeclarationStatement;
-        Assert.NotNull(heapDeclStmt);
+        var heapDeclStmt = bodyBlock.Statements[index: 0] as DeclarationStatement;
+        Assert.NotNull(@object: heapDeclStmt);
         var heapDecl = heapDeclStmt.Declaration as VariableDeclaration;
-        Assert.NotNull(heapDecl);
+        Assert.NotNull(@object: heapDecl);
         var heapCall = heapDecl.Initializer as CallExpression;
-        Assert.NotNull(heapCall);
-        Assert.Equal("HeapSlice", heapCall.Name);
+        Assert.NotNull(@object: heapCall);
+        Assert.Equal(expected: "HeapSlice", actual: heapCall.Name);
 
-        var stackDeclStmt = bodyBlock.Statements[1] as DeclarationStatement;
-        Assert.NotNull(stackDeclStmt);
+        var stackDeclStmt = bodyBlock.Statements[index: 1] as DeclarationStatement;
+        Assert.NotNull(@object: stackDeclStmt);
         var stackDecl = stackDeclStmt.Declaration as VariableDeclaration;
-        Assert.NotNull(stackDecl);
+        Assert.NotNull(@object: stackDecl);
         var stackCall = stackDecl.Initializer as CallExpression;
-        Assert.NotNull(stackCall);
-        Assert.Equal("StackSlice", stackCall.Name);
+        Assert.NotNull(@object: stackCall);
+        Assert.Equal(expected: "StackSlice", actual: stackCall.Name);
     }
 
     [Fact]
     public void TestDangerBlocks()
     {
-        var code = @"
+        string code = @"
 recipe unsafe_ops() {
     danger {
         # Unsafe operations here
@@ -547,15 +547,15 @@ recipe unsafe_ops() {
         *ptr = 42
     }
 }";
-        var program = ParseCode(code);
+        Program program = ParseCode(code: code);
 
         var recipe = program.Declarations.First() as RecipeDeclaration;
-        Assert.NotNull(recipe);
+        Assert.NotNull(@object: recipe);
         var bodyBlock = recipe.Body as BlockStatement;
-        Assert.NotNull(bodyBlock);
-        Assert.Single(bodyBlock.Statements);
+        Assert.NotNull(@object: bodyBlock);
+        Assert.Single(collection: bodyBlock.Statements);
 
         // Should parse as a block statement or special danger statement
-        Assert.NotNull(bodyBlock.Statements[0]);
+        Assert.NotNull(@object: bodyBlock.Statements[index: 0]);
     }
 }

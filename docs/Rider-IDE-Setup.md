@@ -1,17 +1,20 @@
 # RazorForge IDE Setup for JetBrains Rider
 
-This guide helps you configure Rider for optimal RazorForge development with syntax highlighting, live templates, and proper file associations.
+This guide helps you configure Rider for optimal RazorForge development with syntax highlighting, live templates, and
+proper file associations.
 
 ## Quick Setup
 
 ### 1. File Type Association
 
 **Option A: Automatic (Recommended)**
+
 1. Open any `.rf` file in Rider
 2. When prompted, select "Associate with C#" for syntax highlighting
 3. Check "Remember for this session"
 
 **Option B: Manual Configuration**
+
 1. Go to `File → Settings → Editor → File Types`
 2. Select "C#" from the list
 3. Add pattern: `*.rf`
@@ -36,11 +39,14 @@ This guide helps you configure Rider for optimal RazorForge development with syn
 ## File Association Details
 
 ### Supported Extensions
+
 - `.rf` - RazorForge source files
 - `.razorforge` - Alternative RazorForge files
 
 ### Syntax Highlighting
+
 RazorForge files are associated with C# syntax highlighting, which provides:
+
 - **Keywords**: `recipe`, `record`, `let`, `var`, `danger`, etc.
 - **Memory Operations**: `hijack!`, `share!`, `steal!`, etc. (highlighted in red)
 - **Slice Operations**: `size()`, `address()`, `unsafe_ptr!()` (highlighted in cyan)
@@ -53,25 +59,30 @@ RazorForge files are associated with C# syntax highlighting, which provides:
 Type these abbreviations and press Tab to expand:
 
 ### Memory Management
+
 - `heap` → `var buffer = HeapSlice(64)`
 - `stack` → `var buffer = StackSlice(64)`
 - `slicewrite` → `buffer.write<s32>!(0, 42)`
 - `sliceread` → `let value = buffer.read<s32>!(0)`
 
 ### Memory Operations
+
 - `hijack` → `let hijacked = object.hijack!()`
 - `share` → `let shared = object.share!()`
 
 ### Functions
+
 - `recipe` → Complete recipe template with documentation
 - `forloop` → `for i in 0 to 10 { ... }`
 
 ### Danger Zone
+
 - `danger` → `danger! { ... }`
 - `readas` → `let value = read_as<s32>!(address)`
 - `writeas` → `write_as<s32>!(address, 42)`
 
 ### Imports
+
 - `importmem` → Import HeapSlice and StackSlice
 - `importconsole` → Import write_line
 
@@ -80,6 +91,7 @@ Type these abbreviations and press Tab to expand:
 The RazorForge color scheme provides semantic highlighting:
 
 ### RazorForge Colors
+
 - **Memory Operations** (`hijack!`, `share!`): Red (`#FF6B6B`)
 - **Slice Operations** (`size()`, `address()`): Cyan (`#8BE9FD`)
 - **Danger Operations** (`read_as!`, `write_as!`): Red with dark background
@@ -88,36 +100,42 @@ The RazorForge color scheme provides semantic highlighting:
 - **External Declarations**: Purple (`#BD93F9`)
 
 ### Cake Colors (Future)
+
 - **Keywords**: Pink (`#FF79C6`)
 - **LINQ Operations**: Green (`#50FA7B`)
 
 ## Advanced Configuration
 
 ### Custom File Icon
+
 1. Install "File Icon Provider" plugin
 2. Add custom icon mapping for `.rf` files
 3. Use a forge/hammer icon to distinguish RazorForge files
 
 ### Code Formatting
+
 1. Go to `File → Settings → Editor → Code Style → C#`
 2. Adjust indentation to match RazorForge conventions:
-   - Use 4 spaces for indentation
-   - Continuation indent: 4 spaces
-   - Keep blank lines: 2 maximum
+    - Use 4 spaces for indentation
+    - Continuation indent: 4 spaces
+    - Keep blank lines: 2 maximum
 
 ### Inspections
+
 Disable C#-specific inspections that don't apply to RazorForge:
+
 1. Go to `File → Settings → Editor → Inspections → C#`
 2. Disable:
-   - "Redundant using directive"
-   - "Possible null reference"
-   - C# syntax errors (since RazorForge has different syntax)
+    - "Redundant using directive"
+    - "Possible null reference"
+    - C# syntax errors (since RazorForge has different syntax)
 
 ## File Templates
 
 Create new RazorForge files with proper templates:
 
 ### Recipe File Template
+
 ```razorforge
 # RazorForge Recipe Template
 
@@ -134,6 +152,7 @@ recipe function_name(parameters) return_type {
 ```
 
 ### Record File Template
+
 ```razorforge
 # RazorForge Record Template
 
@@ -158,16 +177,19 @@ record StructName {
 ## Troubleshooting
 
 ### Syntax Highlighting Not Working
+
 1. Verify file extension is `.rf`
 2. Check File Type association in Settings
 3. Restart Rider if changes don't appear
 
 ### Live Templates Not Expanding
+
 1. Ensure templates are enabled in Settings
 2. Check context (should be "OTHER" for .rf files)
 3. Try typing template name + Tab
 
 ### Color Scheme Not Applied
+
 1. Verify scheme is imported correctly
 2. Select "RazorForge & Cake" in Color Scheme settings
 3. Restart Rider to apply changes
@@ -175,7 +197,9 @@ record StructName {
 ## Integration with Build System
 
 ### MSBuild Integration
+
 Add to your `.csproj` file:
+
 ```xml
 <ItemGroup>
   <None Include="**/*.rf" />
@@ -184,6 +208,7 @@ Add to your `.csproj` file:
 ```
 
 ### Custom Build Action
+
 ```xml
 <ItemGroup>
   <RazorForgeSource Include="**/*.rf" />
@@ -194,4 +219,5 @@ Add to your `.csproj` file:
 </Target>
 ```
 
-This setup provides a complete RazorForge development environment in Rider with proper syntax highlighting, intelligent templates, and semantic colors for memory operations.
+This setup provides a complete RazorForge development environment in Rider with proper syntax highlighting, intelligent
+templates, and semantic colors for memory operations.

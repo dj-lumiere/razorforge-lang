@@ -176,8 +176,12 @@ public interface IAstVisitor<T>
 /// <item>Implementation blocks for traits</item>
 /// </list>
 /// </remarks>
-public record Program(List<IAstNode> Declarations, SourceLocation Location) : AstNode(Location)
+public record Program(List<IAstNode> Declarations, SourceLocation Location)
+    : AstNode(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitProgram(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitProgram(node: this);
+    }
 }

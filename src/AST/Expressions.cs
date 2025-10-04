@@ -19,7 +19,7 @@ namespace Compilers.Shared.AST;
 /// <item>Danger zone operations: raw memory access, type punning</item>
 /// </list>
 /// </remarks>
-public abstract record Expression(SourceLocation Location) : AstNode(Location);
+public abstract record Expression(SourceLocation Location) : AstNode(Location: Location);
 
 /// <summary>
 /// Expression representing constant literal values embedded in source code.
@@ -39,10 +39,13 @@ public abstract record Expression(SourceLocation Location) : AstNode(Location);
 /// </list>
 /// </remarks>
 public record LiteralExpression(object Value, TokenType LiteralType, SourceLocation Location)
-    : Expression(Location)
+    : Expression(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitLiteralExpression(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitLiteralExpression(node: this);
+    }
 }
 
 /// <summary>
@@ -61,10 +64,13 @@ public record LiteralExpression(object Value, TokenType LiteralType, SourceLocat
 /// </list>
 /// </remarks>
 public record IdentifierExpression(string Name, SourceLocation Location)
-    : Expression(Location)
+    : Expression(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitIdentifierExpression(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitIdentifierExpression(node: this);
+    }
 }
 
 /// <summary>
@@ -85,11 +91,17 @@ public record IdentifierExpression(string Name, SourceLocation Location)
 /// <item>Bitwise: &, |, ^, <<, >></item>
 /// </list>
 /// </remarks>
-public record BinaryExpression(Expression Left, BinaryOperator Operator, Expression Right, SourceLocation Location)
-    : Expression(Location)
+public record BinaryExpression(
+    Expression Left,
+    BinaryOperator Operator,
+    Expression Right,
+    SourceLocation Location) : Expression(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitBinaryExpression(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitBinaryExpression(node: this);
+    }
 }
 
 /// <summary>
@@ -108,10 +120,13 @@ public record BinaryExpression(Expression Left, BinaryOperator Operator, Express
 /// </list>
 /// </remarks>
 public record UnaryExpression(UnaryOperator Operator, Expression Operand, SourceLocation Location)
-    : Expression(Location)
+    : Expression(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitUnaryExpression(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitUnaryExpression(node: this);
+    }
 }
 
 /// <summary>
@@ -131,17 +146,24 @@ public record UnaryExpression(UnaryOperator Operator, Expression Operand, Source
 /// <item>Operator method calls: obj.+(other)</item>
 /// </list>
 /// </remarks>
-public record CallExpression(Expression Callee, List<Expression> Arguments, SourceLocation Location)
-    : Expression(Location)
+public record CallExpression(
+    Expression Callee,
+    List<Expression> Arguments,
+    SourceLocation Location) : Expression(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitCallExpression(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitCallExpression(node: this);
+    }
 
     /// <summary>
     /// Compatibility property for tests that expect CallExpression.Name
     /// Returns the name if Callee is an IdentifierExpression
     /// </summary>
-    public string? Name => Callee is IdentifierExpression id ? id.Name : null;
+    public string? Name => Callee is IdentifierExpression id
+        ? id.Name
+        : null;
 }
 
 /// <summary>
@@ -161,10 +183,13 @@ public record CallExpression(Expression Callee, List<Expression> Arguments, Sour
 /// </list>
 /// </remarks>
 public record MemberExpression(Expression Object, string PropertyName, SourceLocation Location)
-    : Expression(Location)
+    : Expression(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitMemberExpression(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitMemberExpression(node: this);
+    }
 }
 
 /// <summary>
@@ -184,10 +209,13 @@ public record MemberExpression(Expression Object, string PropertyName, SourceLoc
 /// </list>
 /// </remarks>
 public record IndexExpression(Expression Object, Expression Index, SourceLocation Location)
-    : Expression(Location)
+    : Expression(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitIndexExpression(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitIndexExpression(node: this);
+    }
 }
 
 /// <summary>
@@ -207,11 +235,17 @@ public record IndexExpression(Expression Object, Expression Index, SourceLocatio
 /// <item>Expression context: can be used anywhere a value is expected</item>
 /// </list>
 /// </remarks>
-public record ConditionalExpression(Expression Condition, Expression TrueExpression, Expression FalseExpression, SourceLocation Location)
-    : Expression(Location)
+public record ConditionalExpression(
+    Expression Condition,
+    Expression TrueExpression,
+    Expression FalseExpression,
+    SourceLocation Location) : Expression(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitConditionalExpression(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitConditionalExpression(node: this);
+    }
 }
 
 /// <summary>
@@ -230,11 +264,16 @@ public record ConditionalExpression(Expression Condition, Expression TrueExpress
 /// <item>Type checking: ensures compatible types across all comparisons</item>
 /// </list>
 /// </remarks>
-public record ChainedComparisonExpression(List<Expression> Operands, List<BinaryOperator> Operators, SourceLocation Location)
-    : Expression(Location)
+public record ChainedComparisonExpression(
+    List<Expression> Operands,
+    List<BinaryOperator> Operators,
+    SourceLocation Location) : Expression(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitChainedComparisonExpression(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitChainedComparisonExpression(node: this);
+    }
 }
 
 /// <summary>
@@ -254,11 +293,17 @@ public record ChainedComparisonExpression(List<Expression> Operands, List<Binary
 /// <item>Iterable: can be used in for loops and collection operations</item>
 /// </list>
 /// </remarks>
-public record RangeExpression(Expression Start, Expression End, Expression? Step, SourceLocation Location)
-    : Expression(Location)
+public record RangeExpression(
+    Expression Start,
+    Expression End,
+    Expression? Step,
+    SourceLocation Location) : Expression(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitRangeExpression(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitRangeExpression(node: this);
+    }
 }
 
 /// <summary>
@@ -278,11 +323,16 @@ public record RangeExpression(Expression Start, Expression End, Expression? Step
 /// <item>Functional programming: enables map, filter, reduce patterns</item>
 /// </list>
 /// </remarks>
-public record LambdaExpression(List<Parameter> Parameters, Expression Body, SourceLocation Location)
-    : Expression(Location)
+public record LambdaExpression(
+    List<Parameter> Parameters,
+    Expression Body,
+    SourceLocation Location) : Expression(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitLambdaExpression(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitLambdaExpression(node: this);
+    }
 }
 
 /// <summary>
@@ -308,7 +358,8 @@ public enum BinaryOperator
     // Arithmetic with overflow handling variants
     AddWrap, SubtractWrap, MultiplyWrap, DivideWrap, ModuloWrap, PowerWrap,
     AddSaturate, SubtractSaturate, MultiplySaturate, DivideSaturate, ModuloSaturate, PowerSaturate,
-    AddUnchecked, SubtractUnchecked, MultiplyUnchecked, DivideUnchecked, ModuloUnchecked, PowerUnchecked,
+    AddUnchecked, SubtractUnchecked, MultiplyUnchecked, DivideUnchecked, ModuloUnchecked,
+    PowerUnchecked,
     AddChecked, SubtractChecked, MultiplyChecked, DivideChecked, ModuloChecked, PowerChecked,
 
     // Comparison - equality, relational, and membership
@@ -407,7 +458,11 @@ public enum UnaryOperator
 /// <item>Fully specified: param: s32 = 42</item>
 /// </list>
 /// </remarks>
-public record Parameter(string Name, TypeExpression? Type, Expression? DefaultValue, SourceLocation Location);
+public record Parameter(
+    string Name,
+    TypeExpression? Type,
+    Expression? DefaultValue,
+    SourceLocation Location);
 
 /// <summary>
 /// Expression that represents a type reference in type annotations and declarations.
@@ -425,11 +480,16 @@ public record Parameter(string Name, TypeExpression? Type, Expression? DefaultVa
 /// <item>Nested generics: Array[Dictionary[String, s32]]</item>
 /// </list>
 /// </remarks>
-public record TypeExpression(string Name, List<TypeExpression>? GenericArguments, SourceLocation Location)
-    : Expression(Location)
+public record TypeExpression(
+    string Name,
+    List<TypeExpression>? GenericArguments,
+    SourceLocation Location) : Expression(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitTypeExpression(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitTypeExpression(node: this);
+    }
 }
 
 /// <summary>
@@ -450,11 +510,17 @@ public record TypeExpression(string Name, List<TypeExpression>? GenericArguments
 /// </list>
 /// Both styles are semantically equivalent; choice is stylistic preference.
 /// </remarks>
-public record TypeConversionExpression(string TargetType, Expression Expression, bool IsMethodStyle, SourceLocation Location)
-    : Expression(Location)
+public record TypeConversionExpression(
+    string TargetType,
+    Expression Expression,
+    bool IsMethodStyle,
+    SourceLocation Location) : Expression(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitTypeConversionExpression(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitTypeConversionExpression(node: this);
+    }
 }
 
 /// <summary>
@@ -473,11 +539,16 @@ public record TypeConversionExpression(string TargetType, Expression Expression,
 /// <item>Constructor calls trigger runtime allocation functions</item>
 /// </list>
 /// </remarks>
-public record SliceConstructorExpression(string SliceType, Expression SizeExpression, SourceLocation Location)
-    : Expression(Location)
+public record SliceConstructorExpression(
+    string SliceType,
+    Expression SizeExpression,
+    SourceLocation Location) : Expression(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitSliceConstructorExpression(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitSliceConstructorExpression(node: this);
+    }
 }
 
 /// <summary>
@@ -499,12 +570,19 @@ public record SliceConstructorExpression(string SliceType, Expression SizeExpres
 /// <item>Memory operations (!) require bounds checking at runtime</item>
 /// </list>
 /// </remarks>
-public record GenericMethodCallExpression(Expression Object, string MethodName, List<TypeExpression> TypeArguments,
-    List<Expression> Arguments, bool IsMemoryOperation, SourceLocation Location)
-    : Expression(Location)
+public record GenericMethodCallExpression(
+    Expression Object,
+    string MethodName,
+    List<TypeExpression> TypeArguments,
+    List<Expression> Arguments,
+    bool IsMemoryOperation,
+    SourceLocation Location) : Expression(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitGenericMethodCallExpression(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitGenericMethodCallExpression(node: this);
+    }
 }
 
 /// <summary>
@@ -515,11 +593,17 @@ public record GenericMethodCallExpression(Expression Object, string MethodName, 
 /// <param name="MemberName">Name of the generic member</param>
 /// <param name="TypeArguments">List of type arguments for the generic member</param>
 /// <param name="Location">Source location information</param>
-public record GenericMemberExpression(Expression Object, string MemberName, List<TypeExpression> TypeArguments, SourceLocation Location)
-    : Expression(Location)
+public record GenericMemberExpression(
+    Expression Object,
+    string MemberName,
+    List<TypeExpression> TypeArguments,
+    SourceLocation Location) : Expression(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitGenericMemberExpression(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitGenericMemberExpression(node: this);
+    }
 }
 
 /// <summary>
@@ -540,9 +624,15 @@ public record GenericMemberExpression(Expression Object, string MemberName, List
 /// </list>
 /// All operations use ! to indicate potential runtime failures.
 /// </remarks>
-public record MemoryOperationExpression(Expression Object, string OperationName, List<Expression> Arguments, SourceLocation Location)
-    : Expression(Location)
+public record MemoryOperationExpression(
+    Expression Object,
+    string OperationName,
+    List<Expression> Arguments,
+    SourceLocation Location) : Expression(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitMemoryOperationExpression(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitMemoryOperationExpression(node: this);
+    }
 }

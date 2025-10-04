@@ -3,21 +3,23 @@ namespace Compilers.Shared.AST;
 /// <summary>
 /// Base entity for all declaration nodes
 /// </summary>
-public abstract record Declaration(SourceLocation Location) : AstNode(Location);
+public abstract record Declaration(SourceLocation Location) : AstNode(Location: Location);
 
 /// <summary>
 /// Variable declaration: var name: Type = initializer
 /// </summary>
 public record VariableDeclaration(
-    string Name, 
-    TypeExpression? Type, 
-    Expression? Initializer, 
+    string Name,
+    TypeExpression? Type,
+    Expression? Initializer,
     VisibilityModifier Visibility,
     bool IsMutable, // var vs let
-    SourceLocation Location
-) : Declaration(Location)
+    SourceLocation Location) : Declaration(Location: Location)
 {
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitVariableDeclaration(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitVariableDeclaration(node: this);
+    }
 }
 
 /// <summary>
@@ -30,10 +32,12 @@ public record FunctionDeclaration(
     Statement Body,
     VisibilityModifier Visibility,
     List<string> Attributes, // For decorators like @[everywhere get]
-    SourceLocation Location
-) : Declaration(Location)
+    SourceLocation Location) : Declaration(Location: Location)
 {
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitFunctionDeclaration(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitFunctionDeclaration(node: this);
+    }
 }
 
 /// <summary>
@@ -46,10 +50,12 @@ public record ClassDeclaration(
     List<TypeExpression> Interfaces, // implements/follows
     List<Declaration> Members,
     VisibilityModifier Visibility,
-    SourceLocation Location
-) : Declaration(Location)
+    SourceLocation Location) : Declaration(Location: Location)
 {
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitClassDeclaration(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitClassDeclaration(node: this);
+    }
 }
 
 /// <summary>
@@ -60,10 +66,12 @@ public record StructDeclaration(
     List<string>? GenericParameters,
     List<Declaration> Members,
     VisibilityModifier Visibility,
-    SourceLocation Location
-) : Declaration(Location)
+    SourceLocation Location) : Declaration(Location: Location)
 {
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitStructDeclaration(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitStructDeclaration(node: this);
+    }
 }
 
 /// <summary>
@@ -74,10 +82,12 @@ public record MenuDeclaration(
     List<EnumVariant> Variants,
     List<FunctionDeclaration> Methods,
     VisibilityModifier Visibility,
-    SourceLocation Location
-) : Declaration(Location)
+    SourceLocation Location) : Declaration(Location: Location)
 {
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitMenuDeclaration(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitMenuDeclaration(node: this);
+    }
 }
 
 /// <summary>
@@ -85,9 +95,9 @@ public record MenuDeclaration(
 /// </summary>
 public enum VariantKind
 {
-    Chimera,  // Default tagged union - requires danger! block
-    Variant,  // All fields must be records (value types)
-    Mutant    // Raw memory union - requires danger! block
+    Chimera, // Default tagged union - requires danger! block
+    Variant, // All fields must be records (value types)
+    Mutant // Raw memory union - requires danger! block
 }
 
 public record VariantDeclaration(
@@ -96,11 +106,13 @@ public record VariantDeclaration(
     List<VariantCase> Cases,
     List<FunctionDeclaration> Methods,
     VisibilityModifier Visibility,
-    VariantKind Kind,  // Track which keyword was used
-    SourceLocation Location
-) : Declaration(Location)
+    VariantKind Kind, // Track which keyword was used
+    SourceLocation Location) : Declaration(Location: Location)
 {
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitVariantDeclaration(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitVariantDeclaration(node: this);
+    }
 }
 
 /// <summary>
@@ -111,10 +123,12 @@ public record FeatureDeclaration(
     List<string>? GenericParameters,
     List<FunctionSignature> Methods,
     VisibilityModifier Visibility,
-    SourceLocation Location
-) : Declaration(Location)
+    SourceLocation Location) : Declaration(Location: Location)
 {
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitFeatureDeclaration(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitFeatureDeclaration(node: this);
+    }
 }
 
 /// <summary>
@@ -124,10 +138,12 @@ public record ImplementationDeclaration(
     TypeExpression Type,
     TypeExpression? Trait, // null for inherent impl
     List<FunctionDeclaration> Methods,
-    SourceLocation Location
-) : Declaration(Location)
+    SourceLocation Location) : Declaration(Location: Location)
 {
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitImplementationDeclaration(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitImplementationDeclaration(node: this);
+    }
 }
 
 /// <summary>
@@ -137,10 +153,12 @@ public record ImportDeclaration(
     string ModulePath,
     string? Alias, // as alias
     List<string>? SpecificImports, // { item1, item2 }
-    SourceLocation Location
-) : Declaration(Location)
+    SourceLocation Location) : Declaration(Location: Location)
 {
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitImportDeclaration(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitImportDeclaration(node: this);
+    }
 }
 
 /// <summary>
@@ -149,8 +167,7 @@ public record ImportDeclaration(
 public record EnumVariant(
     string Name,
     int? Value, // For explicit values like Ok = 200
-    SourceLocation Location
-);
+    SourceLocation Location);
 
 /// <summary>
 /// Variant case (for tagged unions)
@@ -158,8 +175,7 @@ public record EnumVariant(
 public record VariantCase(
     string Name,
     List<TypeExpression>? AssociatedTypes, // Success(T), Error(String)
-    SourceLocation Location
-);
+    SourceLocation Location);
 
 /// <summary>
 /// Function signature (for traits/features)
@@ -168,8 +184,7 @@ public record FunctionSignature(
     string Name,
     List<Parameter> Parameters,
     TypeExpression? ReturnType,
-    SourceLocation Location
-);
+    SourceLocation Location);
 
 /// <summary>
 /// Visibility modifiers controlling access to declarations.
@@ -202,20 +217,26 @@ public enum VisibilityModifier
     // Cake descriptive visibility
     /// <summary>Only accessible within the declaring entity (Cake: onlyme)</summary>
     OnlyMe,
+
     /// <summary>Accessible within the declaring entity and its subclasses (Cake: onlyfamily)</summary>
     OnlyFamily,
+
     /// <summary>Accessible within the same module/package (Cake: onlyhere)</summary>
     OnlyHere,
+
     /// <summary>Accessible from anywhere (Cake: everywhere)</summary>
     Everywhere,
 
     // RazorForge traditional visibility
     /// <summary>Only accessible within the declaring entity (RazorForge: private)</summary>
     Private,
+
     /// <summary>Accessible within the declaring entity and its subclasses (RazorForge: protected)</summary>
     Protected,
+
     /// <summary>Accessible within the same module/assembly (RazorForge: internal)</summary>
     Internal,
+
     /// <summary>Accessible from anywhere (RazorForge: public)</summary>
     Public,
 
@@ -228,25 +249,25 @@ public enum VisibilityModifier
 /// <summary>
 /// Redefine statement: redefine OldName as NewName
 /// </summary>
-public record RedefinitionDeclaration(
-    string OldName,
-    string NewName,
-    SourceLocation Location
-) : Declaration(Location)
+public record RedefinitionDeclaration(string OldName, string NewName, SourceLocation Location)
+    : Declaration(Location: Location)
 {
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitRedefinitionDeclaration(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitRedefinitionDeclaration(node: this);
+    }
 }
 
 /// <summary>
 /// Using statement: using TypeName as Alias
 /// </summary>
-public record UsingDeclaration(
-    TypeExpression Type,
-    string Alias,
-    SourceLocation Location
-) : Declaration(Location)
+public record UsingDeclaration(TypeExpression Type, string Alias, SourceLocation Location)
+    : Declaration(Location: Location)
 {
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitUsingDeclaration(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitUsingDeclaration(node: this);
+    }
 }
 
 /// <summary>
@@ -273,10 +294,12 @@ public record ExternalDeclaration(
     List<string>? GenericParameters,
     List<Parameter> Parameters,
     TypeExpression? ReturnType,
-    SourceLocation Location
-) : Declaration(Location)
+    SourceLocation Location) : Declaration(Location: Location)
 {
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitExternalDeclaration(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitExternalDeclaration(node: this);
+    }
 }
 
 /// <summary>
@@ -285,15 +308,10 @@ public record ExternalDeclaration(
 /// </summary>
 public record RecipeDeclaration : FunctionDeclaration
 {
-    public RecipeDeclaration(
-        string Name,
-        List<Parameter> Parameters,
-        TypeExpression? ReturnType,
-        Statement Body,
-        VisibilityModifier Visibility,
-        List<string> Attributes,
-        SourceLocation Location
-    ) : base(Name, Parameters, ReturnType, Body, Visibility, Attributes, Location)
+    public RecipeDeclaration(string Name, List<Parameter> Parameters, TypeExpression? ReturnType,
+        Statement Body, VisibilityModifier Visibility, List<string> Attributes,
+        SourceLocation Location) : base(Name: Name, Parameters: Parameters, ReturnType: ReturnType,
+        Body: Body, Visibility: Visibility, Attributes: Attributes, Location: Location)
     {
     }
 

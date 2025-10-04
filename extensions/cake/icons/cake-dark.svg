@@ -1,42 +1,42 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-  <!-- Cake emoji 🍰 for dark theme -->
+    <!-- Cake emoji 🍰 for dark theme -->
 
-  <!-- Plate/base -->
-  <ellipse cx="12" cy="19" rx="8" ry="2" fill="#F5F5F5" stroke="#E0E0E0" stroke-width="0.5"/>
+    <!-- Plate/base -->
+    <ellipse cx="12" cy="19" rx="8" ry="2" fill="#F5F5F5" stroke="#E0E0E0" stroke-width="0.5"/>
 
-  <!-- Cake bottom layer -->
-  <rect x="6" y="14" width="12" height="5" rx="1" fill="#CD853F" stroke="#D2691E" stroke-width="0.5"/>
+    <!-- Cake bottom layer -->
+    <rect x="6" y="14" width="12" height="5" rx="1" fill="#CD853F" stroke="#D2691E" stroke-width="0.5"/>
 
-  <!-- Cake middle layer -->
-  <rect x="7" y="11" width="10" height="4" rx="0.5" fill="#F5F5DC" stroke="#F0E68C" stroke-width="0.5"/>
+    <!-- Cake middle layer -->
+    <rect x="7" y="11" width="10" height="4" rx="0.5" fill="#F5F5DC" stroke="#F0E68C" stroke-width="0.5"/>
 
-  <!-- Cake top layer -->
-  <rect x="8" y="8" width="8" height="4" rx="0.5" fill="#FFF8DC" stroke="#F5DEB3" stroke-width="0.5"/>
+    <!-- Cake top layer -->
+    <rect x="8" y="8" width="8" height="4" rx="0.5" fill="#FFF8DC" stroke="#F5DEB3" stroke-width="0.5"/>
 
-  <!-- Frosting swirls -->
-  <path d="M7 11 Q9 9 11 11 Q13 9 15 11 Q17 9 17 11"
-        fill="none" stroke="#FF1493" stroke-width="1.2" stroke-linecap="round"/>
+    <!-- Frosting swirls -->
+    <path d="M7 11 Q9 9 11 11 Q13 9 15 11 Q17 9 17 11"
+          fill="none" stroke="#FF1493" stroke-width="1.2" stroke-linecap="round"/>
 
-  <path d="M8 8 Q10 6 12 8 Q14 6 16 8"
-        fill="none" stroke="#FF69B4" stroke-width="1" stroke-linecap="round"/>
+    <path d="M8 8 Q10 6 12 8 Q14 6 16 8"
+          fill="none" stroke="#FF69B4" stroke-width="1" stroke-linecap="round"/>
 
-  <!-- Candle -->
-  <rect x="11.5" y="4" width="1" height="4" fill="#F5DEB3" stroke="#DAA520" stroke-width="0.3"/>
+    <!-- Candle -->
+    <rect x="11.5" y="4" width="1" height="4" fill="#F5DEB3" stroke="#DAA520" stroke-width="0.3"/>
 
-  <!-- Flame -->
-  <ellipse cx="12" cy="3.5" rx="0.8" ry="1.2" fill="#FF6347" opacity="0.95"/>
-  <ellipse cx="12" cy="3.2" rx="0.5" ry="0.8" fill="#FFD700" opacity="0.9"/>
+    <!-- Flame -->
+    <ellipse cx="12" cy="3.5" rx="0.8" ry="1.2" fill="#FF6347" opacity="0.95"/>
+    <ellipse cx="12" cy="3.2" rx="0.5" ry="0.8" fill="#FFD700" opacity="0.9"/>
 
-  <!-- Decorative berries -->
-  <circle cx="9" cy="10" r="0.8" fill="#FF4500"/>
-  <circle cx="15" cy="10" r="0.8" fill="#FF4500"/>
-  <circle cx="12" cy="13" r="0.6" fill="#32CD32"/>
+    <!-- Decorative berries -->
+    <circle cx="9" cy="10" r="0.8" fill="#FF4500"/>
+    <circle cx="15" cy="10" r="0.8" fill="#FF4500"/>
+    <circle cx="12" cy="13" r="0.6" fill="#32CD32"/>
 
-  <!-- Extra sparkles for dark theme -->
-  <circle cx="18" cy="7" r="0.4" fill="#FFD700"/>
-  <circle cx="6" cy="9" r="0.4" fill="#FFD700"/>
-  <circle cx="16" cy="15" r="0.4" fill="#FFD700"/>
-  <circle cx="10" cy="6" r="0.3" fill="#FFF"/>
-  <circle cx="14" cy="16" r="0.3" fill="#FFF"/>
+    <!-- Extra sparkles for dark theme -->
+    <circle cx="18" cy="7" r="0.4" fill="#FFD700"/>
+    <circle cx="6" cy="9" r="0.4" fill="#FFD700"/>
+    <circle cx="16" cy="15" r="0.4" fill="#FFD700"/>
+    <circle cx="10" cy="6" r="0.3" fill="#FFF"/>
+    <circle cx="14" cy="16" r="0.3" fill="#FFF"/>
 </svg>

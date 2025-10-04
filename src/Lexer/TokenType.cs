@@ -18,7 +18,7 @@ public enum TokenType
     /// <summary>Represents the semicolon (;) token in the syntax
     /// This token is present for unnecessary semicolon detection</summary>
     Semicolon,
-    
+
     /// <summary>Variant declaration keyword (alias for Chimera)</summary>
     Variant,
 

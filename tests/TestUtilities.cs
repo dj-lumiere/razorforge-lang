@@ -8,232 +8,328 @@ using Compilers.Shared.CodeGen;
 using Compilers.Shared.Lexer;
 using Compilers.RazorForge.Parser;
 
-namespace RazorForge.Tests
+namespace RazorForge.Tests;
+
+/// <summary>
+/// Utility methods for testing the RazorForge compiler
+/// </summary>
+public static class TestUtilities
 {
     /// <summary>
-    /// Utility methods for testing the RazorForge compiler
+    /// Tokenize RazorForge source code
     /// </summary>
-    public static class TestUtilities
+    public static List<Token> Tokenize(string code)
     {
-        /// <summary>
-        /// Tokenize RazorForge source code
-        /// </summary>
-        public static List<Token> Tokenize(string code)
-        {
-            return Tokenizer.Tokenize(code, Language.RazorForge);
-        }
+        return Tokenizer.Tokenize(source: code, language: Language.RazorForge);
+    }
 
-        /// <summary>
-        /// Parse RazorForge source code into an AST
-        /// </summary>
-        public static Program Parse(string code)
-        {
-            var tokens = Tokenize(code);
-            var parser = new RazorForgeParser(tokens);
-            return parser.Parse();
-        }
+    /// <summary>
+    /// Parse RazorForge source code into an AST
+    /// </summary>
+    public static Program Parse(string code)
+    {
+        List<Token> tokens = Tokenize(code: code);
+        var parser = new RazorForgeParser(tokens: tokens);
+        return parser.Parse();
+    }
 
-        /// <summary>
-        /// Parse and analyze RazorForge source code
-        /// </summary>
-        public static Program Analyze(string code)
-        {
-            var program = Parse(code);
-            var analyzer = new SemanticAnalyzer(Language.RazorForge, LanguageMode.Normal);
-            analyzer.Analyze(program);
-            return program;
-        }
+    /// <summary>
+    /// Parse and analyze RazorForge source code
+    /// </summary>
+    public static Program Analyze(string code)
+    {
+        Program program = Parse(code: code);
+        var analyzer =
+            new SemanticAnalyzer(language: Language.RazorForge, mode: LanguageMode.Normal);
+        analyzer.Analyze(program: program);
+        return program;
+    }
 
-        /// <summary>
-        /// Compile RazorForge source code to LLVM IR
-        /// </summary>
-        public static string CompileToLLVM(string code)
-        {
-            var program = Analyze(code);
-            var codeGenerator = new LLVMCodeGenerator(Language.RazorForge, LanguageMode.Normal);
-            codeGenerator.Generate(program);
-            return codeGenerator.GetGeneratedCode();
-        }
+    /// <summary>
+    /// Compile RazorForge source code to LLVM IR
+    /// </summary>
+    public static string CompileToLLVM(string code)
+    {
+        Program program = Analyze(code: code);
+        var codeGenerator =
+            new LLVMCodeGenerator(language: Language.RazorForge, mode: LanguageMode.Normal);
+        codeGenerator.Generate(program: program);
+        return codeGenerator.GetGeneratedCode();
+    }
 
-        /// <summary>
-        /// Assert that code compilation throws an exception (for error testing)
-        /// </summary>
-        public static void AssertCompilationError<T>(string code) where T : Exception
+    /// <summary>
+    /// Assert that code compilation throws an exception (for error testing)
+    /// </summary>
+    public static void AssertCompilationError<T>(string code) where T : Exception
+    {
+        try
         {
-            try
-            {
-                CompileToLLVM(code);
-                throw new Exception($"Expected {typeof(T).Name} but compilation succeeded");
-            }
-            catch (T)
-            {
-                // Expected exception
-            }
-            catch (Exception ex)
-            {
-                throw new Exception($"Expected {typeof(T).Name} but got {ex.GetType().Name}: {ex.Message}");
-            }
+            CompileToLLVM(code: code);
+            throw new Exception(message: $"Expected {typeof(T).Name} but compilation succeeded");
         }
-
-        /// <summary>
-        /// Assert that code compilation succeeds
-        /// </summary>
-        public static string AssertCompilationSuccess(string code)
+        catch (T)
         {
-            try
-            {
-                return CompileToLLVM(code);
-            }
-            catch (Exception ex)
-            {
-                throw new Exception($"Expected compilation to succeed but got {ex.GetType().Name}: {ex.Message}");
-            }
+            // Expected exception
         }
-
-        /// <summary>
-        /// Create a simple recipe with the given body
-        /// </summary>
-        public static string CreateRecipe(string name, string body, string parameters = "", string returnType = "")
+        catch (Exception ex)
         {
-            var returnClause = string.IsNullOrEmpty(returnType) ? "" : $" -> {returnType}";
-            return $@"
+            throw new Exception(
+                message: $"Expected {typeof(T).Name} but got {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Assert that code compilation succeeds
+    /// </summary>
+    public static string AssertCompilationSuccess(string code)
+    {
+        try
+        {
+            return CompileToLLVM(code: code);
+        }
+        catch (Exception ex)
+        {
+            throw new Exception(
+                message:
+                $"Expected compilation to succeed but got {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Create a simple recipe with the given body
+    /// </summary>
+    public static string CreateRecipe(string name, string body, string parameters = "",
+        string returnType = "")
+    {
+        string returnClause = string.IsNullOrEmpty(value: returnType)
+            ? ""
+            : $" -> {returnType}";
+        return $@"
 recipe {name}({parameters}){returnClause} {{
 {body}
 }}";
-        }
+    }
 
-        /// <summary>
-        /// Create a test program with main recipe
-        /// </summary>
-        public static string CreateProgram(string mainBody, string additionalRecipes = "")
-        {
-            return $@"
+    /// <summary>
+    /// Create a test program with main recipe
+    /// </summary>
+    public static string CreateProgram(string mainBody, string additionalRecipes = "")
+    {
+        return $@"
 {additionalRecipes}
 
 recipe main() -> s32 {{
 {mainBody}
     return 0
 }}";
+    }
+
+    /// <summary>
+    /// Get all tokens of a specific type from code
+    /// </summary>
+    public static List<Token> GetTokensOfType(string code, TokenType tokenType)
+    {
+        List<Token> tokens = Tokenize(code: code);
+        return tokens.Where(predicate: t => t.Type == tokenType)
+                     .ToList();
+    }
+
+    /// <summary>
+    /// Check if LLVM IR contains specific instructions
+    /// </summary>
+    public static bool LLVMContains(string llvmIr, params string[] instructions)
+    {
+        return instructions.All(predicate: instruction => llvmIr.Contains(value: instruction));
+    }
+
+    /// <summary>
+    /// Count occurrences of a substring in LLVM IR
+    /// </summary>
+    public static int CountInLLVM(string llvmIr, string substring)
+    {
+        if (string.IsNullOrEmpty(value: llvmIr) || string.IsNullOrEmpty(value: substring))
+        {
+            return 0;
         }
 
-        /// <summary>
-        /// Get all tokens of a specific type from code
-        /// </summary>
-        public static List<Token> GetTokensOfType(string code, TokenType tokenType)
+        int count = 0;
+        int index = 0;
+        while ((index = llvmIr.IndexOf(value: substring, startIndex: index)) != -1)
         {
-            var tokens = Tokenize(code);
-            return tokens.Where(t => t.Type == tokenType).ToList();
+            count++;
+            index += substring.Length;
         }
 
-        /// <summary>
-        /// Check if LLVM IR contains specific instructions
-        /// </summary>
-        public static bool LLVMContains(string llvmIr, params string[] instructions)
-        {
-            return instructions.All(instruction => llvmIr.Contains(instruction));
-        }
+        return count;
+    }
 
-        /// <summary>
-        /// Count occurrences of a substring in LLVM IR
-        /// </summary>
-        public static int CountInLLVM(string llvmIr, string substring)
+    /// <summary>
+    /// Create test data for parameterized tests
+    /// </summary>
+    public static class TestData
+    {
+        public static readonly object[][] BasicArithmeticOperators = new object[][]
         {
-            if (string.IsNullOrEmpty(llvmIr) || string.IsNullOrEmpty(substring))
-                return 0;
-
-            int count = 0;
-            int index = 0;
-            while ((index = llvmIr.IndexOf(substring, index)) != -1)
+            new object[]
             {
-                count++;
-                index += substring.Length;
+                "+",
+                "add"
+            },
+            new object[]
+            {
+                "-",
+                "sub"
+            },
+            new object[]
+            {
+                "*",
+                "mul"
+            },
+            new object[]
+            {
+                "/",
+                "div"
+            },
+            new object[]
+            {
+                "%",
+                "rem"
             }
-            return count;
-        }
+        };
 
-        /// <summary>
-        /// Create test data for parameterized tests
-        /// </summary>
-        public static class TestData
+        public static readonly object[][] ComparisonOperators = new object[][]
         {
-            public static readonly object[][] BasicArithmeticOperators = new object[][]
+            new object[]
             {
-                new object[] { "+", "add" },
-                new object[] { "-", "sub" },
-                new object[] { "*", "mul" },
-                new object[] { "/", "div" },
-                new object[] { "%", "rem" },
-            };
-
-            public static readonly object[][] ComparisonOperators = new object[][]
+                "==",
+                "icmp eq"
+            },
+            new object[]
             {
-                new object[] { "==", "icmp eq" },
-                new object[] { "!=", "icmp ne" },
-                new object[] { "<", "icmp slt" },
-                new object[] { "<=", "icmp sle" },
-                new object[] { ">", "icmp sgt" },
-                new object[] { ">=", "icmp sge" },
-            };
-
-            public static readonly object[][] IntegerTypes = new object[][]
+                "!=",
+                "icmp ne"
+            },
+            new object[]
             {
-                new object[] { "s8", "i8" },
-                new object[] { "s16", "i16" },
-                new object[] { "s32", "i32" },
-                new object[] { "s64", "i64" },
-                new object[] { "u8", "i8" },
-                new object[] { "u16", "i16" },
-                new object[] { "u32", "i32" },
-                new object[] { "u64", "i64" },
-            };
-
-            public static readonly object[][] FloatTypes = new object[][]
+                "<",
+                "icmp slt"
+            },
+            new object[]
             {
-                new object[] { "f32", "float" },
-                new object[] { "f64", "double" },
-            };
-
-            public static readonly string[] ValidIdentifiers = new string[]
+                "<=",
+                "icmp sle"
+            },
+            new object[]
             {
-                "variable",
-                "my_variable",
-                "snake_case_name",
-                "with_numbers123",
-                "ending_with_bang!",
-                "_underscore_start",
-            };
-
-            public static readonly string[] ValidTypeIdentifiers = new string[]
+                ">",
+                "icmp sgt"
+            },
+            new object[]
             {
-                "Type",
-                "MyClass",
-                "PascalCase",
-                "HTTPResponse",
-                "XMLParser",
-            };
+                ">=",
+                "icmp sge"
+            }
+        };
 
-            public static readonly string[] InvalidIdentifiers = new string[]
-            {
-                "123starts_with_number",
-                "kebab-case",
-                "space name",
-                "special@char",
-                "",
-            };
-        }
-
-        /// <summary>
-        /// Sample RazorForge programs for testing
-        /// </summary>
-        public static class SamplePrograms
+        public static readonly object[][] IntegerTypes = new object[][]
         {
-            public static readonly string HelloWorld = @"
+            new object[]
+            {
+                "s8",
+                "i8"
+            },
+            new object[]
+            {
+                "s16",
+                "i16"
+            },
+            new object[]
+            {
+                "s32",
+                "i32"
+            },
+            new object[]
+            {
+                "s64",
+                "i64"
+            },
+            new object[]
+            {
+                "u8",
+                "i8"
+            },
+            new object[]
+            {
+                "u16",
+                "i16"
+            },
+            new object[]
+            {
+                "u32",
+                "i32"
+            },
+            new object[]
+            {
+                "u64",
+                "i64"
+            }
+        };
+
+        public static readonly object[][] FloatTypes = new object[][]
+        {
+            new object[]
+            {
+                "f32",
+                "float"
+            },
+            new object[]
+            {
+                "f64",
+                "double"
+            }
+        };
+
+        public static readonly string[] ValidIdentifiers = new string[]
+        {
+            "variable",
+            "my_variable",
+            "snake_case_name",
+            "with_numbers123",
+            "ending_with_bang!",
+            "_underscore_start"
+        };
+
+        public static readonly string[] ValidTypeIdentifiers = new string[]
+        {
+            "Type",
+            "MyClass",
+            "PascalCase",
+            "HTTPResponse",
+            "XMLParser"
+        };
+
+        public static readonly string[] InvalidIdentifiers = new string[]
+        {
+            "123starts_with_number",
+            "kebab-case",
+            "space name",
+            "special@char",
+            ""
+        };
+    }
+
+    /// <summary>
+    /// Sample RazorForge programs for testing
+    /// </summary>
+    public static class SamplePrograms
+    {
+        public static readonly string HelloWorld = @"
 recipe main() -> s32 {
     print(""Hello, World!"")
     return 0
 }";
 
-            public static readonly string Factorial = @"
+        public static readonly string Factorial = @"
 recipe factorial(n: s32) -> s32 {
     if n <= 1:
         return 1
@@ -247,7 +343,7 @@ recipe main() -> s32 {
     return 0
 }";
 
-            public static readonly string FibonacciIterative = @"
+        public static readonly string FibonacciIterative = @"
 recipe fibonacci(n: s32) -> s32 {
     if n <= 1:
         return n
@@ -271,7 +367,7 @@ recipe main() -> s32 {
     return 0
 }";
 
-            public static readonly string ArrayOperations = @"
+        public static readonly string ArrayOperations = @"
 recipe array_sum(arr: HeapSlice, size: s32) -> s32 {
     var sum = 0
     for i in 0 to size:
@@ -290,7 +386,7 @@ recipe main() -> s32 {
     return 0
 }";
 
-            public static readonly string ComplexMath = @"
+        public static readonly string ComplexMath = @"
 recipe power(base: f64, exponent: s32) -> f64 {
     if exponent == 0:
         return 1.0
@@ -308,7 +404,7 @@ recipe main() -> s32 {
     return 0
 }";
 
-            public static readonly string ErrorHandling = @"
+        public static readonly string ErrorHandling = @"
 recipe safe_divide(a: s32, b: s32) -> Option(s32) {
     if b == 0:
         return None
@@ -324,6 +420,5 @@ recipe main() -> s32 {
         print(""Division by zero prevented"")
     return 0
 }";
-        }
     }
 }

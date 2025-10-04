@@ -10,9 +10,9 @@ public static class Tokenizer
     {
         BaseTokenizer tokenizer = language switch
         {
-            Language.Cake => new CakeTokenizer(source),
-            Language.RazorForge => new RazorForgeTokenizer(source),
-            _ => throw new ArgumentException($"Unsupported language: {language}")
+            Language.Cake => new CakeTokenizer(source: source),
+            Language.RazorForge => new RazorForgeTokenizer(source: source),
+            _ => throw new ArgumentException(message: $"Unsupported language: {language}")
         };
 
         return tokenizer.Tokenize();
@@ -21,11 +21,12 @@ public static class Tokenizer
     public static bool IsScriptMode(string source, Language language)
     {
         if (language != Language.Cake)
+        {
             return false;
+        }
 
-        var cakeTokenizer = new CakeTokenizer(source);
+        var cakeTokenizer = new CakeTokenizer(source: source);
         cakeTokenizer.Tokenize(); // Need to tokenize to detect definitions
         return cakeTokenizer.IsScriptMode;
     }
-
 }

@@ -1,69 +1,71 @@
 #pragma once
 #include <stdint>
 
-typedef int8_t rf_i8;
-typedef int16_t rf_i16;
-typedef int32_t rf_i32;
-typedef int64_t rf_i64;
+using rf_i8 = int8_t;
+using rf_i16 = int16_t;
+using rf_i32 = int32_t;
+using rf_i64 = int64_t;
 // llvm i128 to rf_i128
-typedef intptr_t rf_isys;
+using rf_isys = intptr_t;
 
-typedef uint8_t rf_u8;
-typedef uint16_t rf_u16;
-typedef uint32_t rf_u32;
-typedef uint64_t rf_u64;
+using rf_u8 = uint8_t;
+using rf_u16 = uint16_t;
+using rf_u32 = uint32_t;
+using rf_u64 = uint64_t;
 // llvm u128 to rf_u128
-typedef uintptr_t rf_usys;
+using rf_usys = uintptr_t;
 
 // llvm half to rf_f16
-typedef float rf_f32;
-typedef double rf_f64;
+using rf_f32 = float;
+using rf_f64 = double;
 // llvm float128 to rf_f128
 
-typedef bool rf_bool;
-typedef void* rf_cptr;
-typedef const void* rf_ccptr;
-typedef short rf_cshort;
-typedef unsigned short rf_cushort;
-typedef int rf_cint;
-typedef unsigned int rf_cuint;
-typedef long rf_clong;
-typedef unsigned long rf_culong;
-typedef long long rf_cll;
-typedef unsigned long long rf_cull;
+using rf_bool = bool;
+using rf_cptr = void*;
+using rf_ccptr = const void*;
+using rf_cshort = short;
+using rf_cushort = unsigned short;
+using rf_cint = int;
+using rf_cuint = unsigned int;
+using rf_clong = long;
+using rf_culong = unsigned long;
+using rf_cll = long long;
+using rf_cull = unsigned long long;
 
-typedef char rf_cchar;
-typedef char* rf_cstr;
-typedef const char* rf_ccstr;
-typedef wchar_t rf_cwchar;
-typedef wchar_t* rf_cwstr;
-typedef const wchar_t* rf_ccwstr;
-typedef char16_t rf_cchar16;
-typedef char16_t* rf_cchar16str;
-typedef const char16_t* rf_ccchar16str;
-typedef char32_t rf_cchar32;
-typedef char32_t* rf_cchar32str;
-typedef const char32_t* rf_ccchar32str;
+using rf_cchar = char;
+using rf_cstr = char*;
+using rf_ccstr = const char*;
+using rf_cwchar = wchar_t;
+using rf_cwstr = wchar_t*;
+using rf_ccwstr = const wchar_t*;
+using rf_cchar16 = char16_t;
+using rf_cchar16str = char16_t*;
+using rf_ccchar16str = const char16_t*;
+using rf_cchar32 = char32_t;
+using rf_cchar32str = char32_t*;
+using rf_ccchar32str = const char32_t*;
 
-typedef void rf_cvoid;
+using rf_cvoid = void;
 #define rf_null nullptr
 #define rf_true true
 #define rf_false false
 
-typedef struct
+using rf_MemorySlice = struct
 {
     rf_usys len;
     rf_u8* data;
-} rf_MemorySlice;
+};
 
-typedef struct
+using rf_Variant = struct
 {
     rf_u32 tag;
     rf_MemorySlice data;
-} rf_Variant;
+};
 
-typedef rf_u32 rf_Enum;
-typedef struct{} rf_None;
-typedef void* rf_FnPtr;
+using rf_Enum = rf_u32;
+using rf_None = struct
+{
+};
+using rf_FnPtr = void*;
 
-typedef void* cake_Object;
+using cake_Object = void*;

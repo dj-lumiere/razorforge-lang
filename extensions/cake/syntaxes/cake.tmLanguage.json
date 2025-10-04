@@ -1,21 +1,49 @@
 {
-  "fileTypes": ["cake"],
+  "fileTypes": [
+    "cake"
+  ],
   "name": "Cake",
   "scopeName": "source.cake",
   "patterns": [
-    {"include": "#keywords"},
-    {"include": "#cake-keywords"},
-    {"include": "#constants"},
-    {"include": "#types"},
-    {"include": "#strings"},
-    {"include": "#comments"},
-    {"include": "#numbers"},
-    {"include": "#operators"},
-    {"include": "#functions"},
-    {"include": "#attributes"},
-    {"include": "#cake-tasks"},
-    {"include": "#cake-addins"},
-    {"include": "#cake-tools"}
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#cake-keywords"
+    },
+    {
+      "include": "#constants"
+    },
+    {
+      "include": "#types"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#operators"
+    },
+    {
+      "include": "#functions"
+    },
+    {
+      "include": "#attributes"
+    },
+    {
+      "include": "#cake-tasks"
+    },
+    {
+      "include": "#cake-addins"
+    },
+    {
+      "include": "#cake-tools"
+    }
   ],
   "repository": {
     "keywords": {
@@ -79,8 +107,12 @@
         {
           "match": "\\b(Task)\\s*\\(\\s*\"([^\"]+)\"\\s*\\)",
           "captures": {
-            "1": {"name": "keyword.other.cake"},
-            "2": {"name": "entity.name.function.cake"}
+            "1": {
+              "name": "keyword.other.cake"
+            },
+            "2": {
+              "name": "entity.name.function.cake"
+            }
           }
         },
         {
@@ -166,9 +198,15 @@
               "end": "\\}",
               "name": "meta.interpolation.cake",
               "patterns": [
-                {"include": "#keywords"},
-                {"include": "#types"},
-                {"include": "#operators"}
+                {
+                  "include": "#keywords"
+                },
+                {
+                  "include": "#types"
+                },
+                {
+                  "include": "#operators"
+                }
               ]
             },
             {

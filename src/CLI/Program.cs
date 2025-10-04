@@ -7,118 +7,128 @@ using Compilers.Cake.Parser;
 
 namespace Compilers;
 
-class Program
+internal class Program
 {
     public static void Main(string[] args)
     {
         if (args.Length != 1)
         {
-            Console.WriteLine("Usage: RazorForge <source-file>");
-            Console.WriteLine("  <source-file>: .rf file for RazorForge or .cake file for Cake");
+            Console.WriteLine(value: "Usage: RazorForge <source-file>");
+            Console.WriteLine(
+                value: "  <source-file>: .rf file for RazorForge or .cake file for Cake");
             return;
         }
 
-        var sourceFile = args[0];
-        if (!File.Exists(sourceFile))
+        string sourceFile = args[0];
+        if (!File.Exists(path: sourceFile))
         {
-            Console.WriteLine($"Error: File '{sourceFile}' not found.");
+            Console.WriteLine(value: $"Error: File '{sourceFile}' not found.");
             return;
         }
 
-        var code = File.ReadAllText(sourceFile);
-        var language = sourceFile.EndsWith(".cake") ? Language.Cake : Language.RazorForge;
-        var mode = language == Language.Cake ? LanguageMode.Sweet : LanguageMode.Normal;
-        
-        Console.WriteLine($"Compiling {sourceFile} as {language} ({mode})...");
+        string code = File.ReadAllText(path: sourceFile);
+        Language language = sourceFile.EndsWith(value: ".cake")
+            ? Language.Cake
+            : Language.RazorForge;
+        LanguageMode mode = language == Language.Cake
+            ? LanguageMode.Sweet
+            : LanguageMode.Normal;
+
+        Console.WriteLine(value: $"Compiling {sourceFile} as {language} ({mode})...");
         Console.WriteLine();
-        
+
         try
         {
             // Tokenize the code
-            Console.WriteLine("=== TOKENIZATION ===");
-            var tokens = Tokenizer.Tokenize(code, language);
-            Console.WriteLine($"Generated {tokens.Count} tokens");
-            
+            Console.WriteLine(value: "=== TOKENIZATION ===");
+            List<Token> tokens = Tokenizer.Tokenize(source: code, language: language);
+            Console.WriteLine(value: $"Generated {tokens.Count} tokens");
+
             // Parse the code
-            Console.WriteLine("=== PARSING ===");
-            var parser = language == Language.Cake 
-                ? (BaseParser)new CakeParser(tokens)
-                : new RazorForgeParser(tokens);
-            var ast = parser.Parse();
-            Console.WriteLine($"Successfully parsed! AST contains {ast.Declarations.Count} declarations");
-            
+            Console.WriteLine(value: "=== PARSING ===");
+            BaseParser parser = language == Language.Cake
+                ? (BaseParser)new CakeParser(tokens: tokens)
+                : new RazorForgeParser(tokens: tokens);
+            Shared.AST.Program ast = parser.Parse();
+            Console.WriteLine(
+                value: $"Successfully parsed! AST contains {ast.Declarations.Count} declarations");
+
             // Semantic analysis
-            Console.WriteLine("=== SEMANTIC ANALYSIS ===");
-            var analyzer = new SemanticAnalyzer(language, mode);
-            var semanticErrors = analyzer.Analyze(ast);
+            Console.WriteLine(value: "=== SEMANTIC ANALYSIS ===");
+            var analyzer = new SemanticAnalyzer(language: language, mode: mode);
+            List<SemanticError> semanticErrors = analyzer.Analyze(program: ast);
 
             if (semanticErrors.Count > 0)
             {
-                Console.WriteLine($"Found {semanticErrors.Count} semantic errors:");
-                foreach (var error in semanticErrors.Take(10))
+                Console.WriteLine(value: $"Found {semanticErrors.Count} semantic errors:");
+                foreach (SemanticError error in semanticErrors.Take(count: 10))
                 {
-                    Console.WriteLine($"  - {error.Message} at line {error.Location.Line}");
+                    Console.WriteLine(value: $"  - {error.Message} at line {error.Location.Line}");
                 }
+
                 if (semanticErrors.Count > 10)
                 {
-                    Console.WriteLine($"  ... and {semanticErrors.Count - 10} more errors");
+                    Console.WriteLine(value: $"  ... and {semanticErrors.Count - 10} more errors");
                 }
+
                 Console.WriteLine();
             }
             else
             {
-                Console.WriteLine("No semantic errors found!");
+                Console.WriteLine(value: "No semantic errors found!");
             }
-            
+
             // Code generation
-            Console.WriteLine("=== CODE GENERATION ===");
-            
+            Console.WriteLine(value: "=== CODE GENERATION ===");
+
             // Generate readable output
-            var simpleCodeGen = new SimpleCodeGenerator(language, mode);
-            simpleCodeGen.Generate(ast);
-            var outputFile = Path.ChangeExtension(sourceFile, ".out");
-            File.WriteAllText(outputFile, simpleCodeGen.GetGeneratedCode());
-            Console.WriteLine($"Simple code written to: {outputFile}");
-            
+            var simpleCodeGen = new SimpleCodeGenerator(language: language, mode: mode);
+            simpleCodeGen.Generate(program: ast);
+            string outputFile = Path.ChangeExtension(path: sourceFile, extension: ".out");
+            File.WriteAllText(path: outputFile, contents: simpleCodeGen.GetGeneratedCode());
+            Console.WriteLine(value: $"Simple code written to: {outputFile}");
+
             // Generate LLVM IR
-            var llvmCodeGen = new LLVMCodeGenerator(language, mode);
-            llvmCodeGen.Generate(ast);
-            var llvmFile = Path.ChangeExtension(sourceFile, ".ll");
-            File.WriteAllText(llvmFile, llvmCodeGen.GetGeneratedCode());
-            Console.WriteLine($"LLVM IR written to: {llvmFile}");
-            
+            var llvmCodeGen = new LLVMCodeGenerator(language: language, mode: mode);
+            llvmCodeGen.Generate(program: ast);
+            string llvmFile = Path.ChangeExtension(path: sourceFile, extension: ".ll");
+            File.WriteAllText(path: llvmFile, contents: llvmCodeGen.GetGeneratedCode());
+            Console.WriteLine(value: $"LLVM IR written to: {llvmFile}");
+
             // Complete bootstrap pipeline: compile to executable
-            Console.WriteLine("=== EXECUTABLE GENERATION ===");
-            var executablePath = GenerateExecutable(llvmFile);
+            Console.WriteLine(value: "=== EXECUTABLE GENERATION ===");
+            string? executablePath = GenerateExecutable(llvmFile: llvmFile);
             if (executablePath != null)
             {
-                Console.WriteLine($"Executable generated: {executablePath}");
+                Console.WriteLine(value: $"Executable generated: {executablePath}");
             }
             else
             {
-                Console.WriteLine("Note: LLVM tools not available. Skipping executable generation.");
-                Console.WriteLine("To generate executables, install LLVM and ensure 'clang' is in PATH.");
+                Console.WriteLine(
+                    value: "Note: LLVM tools not available. Skipping executable generation.");
+                Console.WriteLine(
+                    value: "To generate executables, install LLVM and ensure 'clang' is in PATH.");
             }
-            
+
             Console.WriteLine();
-            Console.WriteLine("✅ Compilation successful!");
+            Console.WriteLine(value: "✅ Compilation successful!");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"❌ Compilation failed: {ex.Message}");
+            Console.WriteLine(value: $"❌ Compilation failed: {ex.Message}");
             if (ex.InnerException != null)
             {
-                Console.WriteLine($"   Inner: {ex.InnerException.Message}");
+                Console.WriteLine(value: $"   Inner: {ex.InnerException.Message}");
             }
         }
     }
-    
+
     private static string? GenerateExecutable(string llvmFile)
     {
         try
         {
-            var executablePath = Path.ChangeExtension(llvmFile, ".exe");
-            
+            string executablePath = Path.ChangeExtension(path: llvmFile, extension: ".exe");
+
             // Use clang to compile LLVM IR to executable
             var clangProcess = new System.Diagnostics.ProcessStartInfo
             {
@@ -129,29 +139,33 @@ class Program
                 RedirectStandardError = true,
                 CreateNoWindow = true
             };
-            
-            using var process = System.Diagnostics.Process.Start(clangProcess);
-            if (process == null) return null;
-            
+
+            using var process = System.Diagnostics.Process.Start(startInfo: clangProcess);
+            if (process == null)
+            {
+                return null;
+            }
+
             process.WaitForExit();
-            
-            if (process.ExitCode == 0 && File.Exists(executablePath))
+
+            if (process.ExitCode == 0 && File.Exists(path: executablePath))
             {
                 return executablePath;
             }
             else
             {
-                var error = process.StandardError.ReadToEnd();
-                if (!string.IsNullOrEmpty(error))
+                string error = process.StandardError.ReadToEnd();
+                if (!string.IsNullOrEmpty(value: error))
                 {
-                    Console.WriteLine($"Clang error: {error}");
+                    Console.WriteLine(value: $"Clang error: {error}");
                 }
+
                 return null;
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error during executable generation: {ex.Message}");
+            Console.WriteLine(value: $"Error during executable generation: {ex.Message}");
             return null;
         }
     }

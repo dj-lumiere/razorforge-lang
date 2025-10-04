@@ -18,42 +18,44 @@ public readonly struct Decimal32 : IComparable<Decimal32>, IEquatable<Decimal32>
 
     public Decimal32(string value)
     {
-        _value = LibDfpInterop.d32_from_string(value);
+        _value = LibDfpInterop.d32_from_string(str: value);
     }
 
     public static implicit operator Decimal32(int value)
     {
-        return new Decimal32(LibDfpInterop.d32_from_string(value.ToString()));
+        return new Decimal32(value: LibDfpInterop.d32_from_string(str: value.ToString()));
     }
 
     public static implicit operator Decimal32(float value)
     {
-        return new Decimal32(LibDfpInterop.d32_from_string(value.ToString(CultureInfo.InvariantCulture)));
+        return new Decimal32(
+            value: LibDfpInterop.d32_from_string(
+                str: value.ToString(provider: CultureInfo.InvariantCulture)));
     }
 
     public static Decimal32 operator +(Decimal32 a, Decimal32 b)
     {
-        return new Decimal32(LibDfpInterop.d32_add(a._value, b._value));
+        return new Decimal32(value: LibDfpInterop.d32_add(a: a._value, b: b._value));
     }
 
     public static Decimal32 operator -(Decimal32 a, Decimal32 b)
     {
-        return new Decimal32(LibDfpInterop.d32_sub(a._value, b._value));
+        return new Decimal32(value: LibDfpInterop.d32_sub(a: a._value, b: b._value));
     }
 
     public static Decimal32 operator *(Decimal32 a, Decimal32 b)
     {
-        return new Decimal32(LibDfpInterop.d32_mul(a._value, b._value));
+        return new Decimal32(value: LibDfpInterop.d32_mul(a: a._value, b: b._value));
     }
 
     public static Decimal32 operator /(Decimal32 a, Decimal32 b)
     {
-        return new Decimal32(LibDfpInterop.d32_div(a._value, b._value));
+        return new Decimal32(value: LibDfpInterop.d32_div(a: a._value, b: b._value));
     }
 
     public static bool operator ==(Decimal32 a, Decimal32 b)
     {
-        return LibDfpInterop.d32_cmp(a._value, b._value) == 0;
+        return LibDfpInterop.d32_cmp(a: a._value, b: b._value) == 0;
     }
 
     public static bool operator !=(Decimal32 a, Decimal32 b)
@@ -63,27 +65,27 @@ public readonly struct Decimal32 : IComparable<Decimal32>, IEquatable<Decimal32>
 
     public static bool operator <(Decimal32 a, Decimal32 b)
     {
-        return LibDfpInterop.d32_cmp(a._value, b._value) < 0;
+        return LibDfpInterop.d32_cmp(a: a._value, b: b._value) < 0;
     }
 
     public static bool operator <=(Decimal32 a, Decimal32 b)
     {
-        return LibDfpInterop.d32_cmp(a._value, b._value) <= 0;
+        return LibDfpInterop.d32_cmp(a: a._value, b: b._value) <= 0;
     }
 
     public static bool operator >(Decimal32 a, Decimal32 b)
     {
-        return LibDfpInterop.d32_cmp(a._value, b._value) > 0;
+        return LibDfpInterop.d32_cmp(a: a._value, b: b._value) > 0;
     }
 
     public static bool operator >=(Decimal32 a, Decimal32 b)
     {
-        return LibDfpInterop.d32_cmp(a._value, b._value) >= 0;
+        return LibDfpInterop.d32_cmp(a: a._value, b: b._value) >= 0;
     }
 
     public int CompareTo(Decimal32 other)
     {
-        return LibDfpInterop.d32_cmp(_value, other._value);
+        return LibDfpInterop.d32_cmp(a: _value, b: other._value);
     }
 
     public bool Equals(Decimal32 other)
@@ -93,7 +95,7 @@ public readonly struct Decimal32 : IComparable<Decimal32>, IEquatable<Decimal32>
 
     public override bool Equals(object? obj)
     {
-        return obj is Decimal32 other && Equals(other);
+        return obj is Decimal32 other && Equals(other: other);
     }
 
     public override int GetHashCode()
@@ -103,10 +105,13 @@ public readonly struct Decimal32 : IComparable<Decimal32>, IEquatable<Decimal32>
 
     public override string ToString()
     {
-        var strPtr = LibDfpInterop.d32_to_string(_value);
-        if (strPtr == IntPtr.Zero) return "0";
-        
-        var result = Marshal.PtrToStringAnsi(strPtr) ?? "0";
+        nint strPtr = LibDfpInterop.d32_to_string(val: _value);
+        if (strPtr == nint.Zero)
+        {
+            return "0";
+        }
+
+        string result = Marshal.PtrToStringAnsi(ptr: strPtr) ?? "0";
         // Note: In a real implementation, you'd need to free the string
         return result;
     }
@@ -115,7 +120,7 @@ public readonly struct Decimal32 : IComparable<Decimal32>, IEquatable<Decimal32>
     {
         try
         {
-            result = new Decimal32(value);
+            result = new Decimal32(value: value);
             return true;
         }
         catch
@@ -127,6 +132,6 @@ public readonly struct Decimal32 : IComparable<Decimal32>, IEquatable<Decimal32>
 
     public static Decimal32 Parse(string value)
     {
-        return new Decimal32(value);
+        return new Decimal32(value: value);
     }
 }

@@ -2,14 +2,12 @@
   "$schema": "https://raw.githubusercontent.com/razorforge/razorforge/main/schemas/format-config.json",
   "version": "1.0",
   "description": "RazorForge code formatting configuration",
-
   "indentation": {
     "size": 4,
     "style": "spaces",
     "continuationIndent": 8,
     "switchCaseIndent": 4
   },
-
   "braces": {
     "style": "K&R",
     "newLineBeforeOpenBrace": false,
@@ -18,7 +16,6 @@
     "newLineAfterCloseBrace": true,
     "emptyBraces": "sameLine"
   },
-
   "spacing": {
     "beforeComma": false,
     "afterComma": true,
@@ -35,7 +32,6 @@
     "withinBrackets": false,
     "withinBraces": true
   },
-
   "lineBreaks": {
     "maxLineLength": 120,
     "keepLineBreaksInDeclarations": true,
@@ -43,7 +39,6 @@
     "keepSimpleClassesOnOneLine": false,
     "wrapLongLines": true
   },
-
   "alignment": {
     "alignVariableDeclarations": false,
     "alignAssignments": false,
@@ -51,7 +46,6 @@
     "alignFunctionArguments": true,
     "alignArrayElements": true
   },
-
   "blankLines": {
     "beforeRecipe": 1,
     "beforeClass": 2,
@@ -62,14 +56,12 @@
     "beforeImports": 0,
     "atFileEnd": 1
   },
-
   "comments": {
     "preserveExisting": true,
     "alignLineComments": false,
     "spaceAfterLineComment": true,
     "formatBlockComments": true
   },
-
   "sorting": {
     "sortImports": true,
     "groupImports": true,
@@ -80,7 +72,6 @@
       "local"
     ]
   },
-
   "razorForgeSpecific": {
     "dangerBlocks": {
       "indentContent": true,
@@ -105,7 +96,6 @@
       "multiLineWhen": true
     }
   },
-
   "rules": {
     "enforceTrailingCommas": false,
     "requireSemicolons": true,

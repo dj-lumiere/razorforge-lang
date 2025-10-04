@@ -1,49 +1,49 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-  <!-- Sword emoji ⚔️ for RazorForge (dark theme) -->
+    <!-- Sword emoji ⚔️ for RazorForge (dark theme) -->
 
-  <!-- Sword blade -->
-  <path d="M6 18 L12 12 L18 6"
-        stroke="#E5E5E5"
-        stroke-width="3"
-        stroke-linecap="round"
-        fill="none"/>
+    <!-- Sword blade -->
+    <path d="M6 18 L12 12 L18 6"
+          stroke="#E5E5E5"
+          stroke-width="3"
+          stroke-linecap="round"
+          fill="none"/>
 
-  <!-- Sword edge highlight -->
-  <path d="M6.5 17.5 L11.5 12.5 L17.5 6.5"
-        stroke="#FFF"
-        stroke-width="1"
-        stroke-linecap="round"
-        fill="none"/>
+    <!-- Sword edge highlight -->
+    <path d="M6.5 17.5 L11.5 12.5 L17.5 6.5"
+          stroke="#FFF"
+          stroke-width="1"
+          stroke-linecap="round"
+          fill="none"/>
 
-  <!-- Crossguard -->
-  <rect x="10" y="10" width="4" height="1.5"
-        rx="0.5"
-        fill="#D2691E"
-        stroke="#CD853F"
-        stroke-width="0.5"
-        transform="rotate(45 12 12)"/>
-
-  <!-- Handle -->
-  <rect x="4" y="16" width="1.5" height="4"
-        rx="0.7"
-        fill="#A0522D"
-        stroke="#D2691E"
-        stroke-width="0.5"
-        transform="rotate(45 12 12)"/>
-
-  <!-- Pommel -->
-  <circle cx="5" cy="19" r="1"
+    <!-- Crossguard -->
+    <rect x="10" y="10" width="4" height="1.5"
+          rx="0.5"
           fill="#D2691E"
           stroke="#CD853F"
-          stroke-width="0.5"/>
+          stroke-width="0.5"
+          transform="rotate(45 12 12)"/>
 
-  <!-- Sparkle effects -->
-  <circle cx="15" cy="9" r="0.8" fill="#FFD700" opacity="0.9"/>
-  <circle cx="13" cy="11" r="0.5" fill="#FFF" opacity="1"/>
-  <circle cx="16" cy="8" r="0.3" fill="#FFD700"/>
-  <circle cx="14" cy="10" r="0.2" fill="#FFD700"/>
+    <!-- Handle -->
+    <rect x="4" y="16" width="1.5" height="4"
+          rx="0.7"
+          fill="#A0522D"
+          stroke="#D2691E"
+          stroke-width="0.5"
+          transform="rotate(45 12 12)"/>
 
-  <!-- Sharp point highlight -->
-  <circle cx="18" cy="6" r="0.5" fill="#FFF" opacity="0.8"/>
+    <!-- Pommel -->
+    <circle cx="5" cy="19" r="1"
+            fill="#D2691E"
+            stroke="#CD853F"
+            stroke-width="0.5"/>
+
+    <!-- Sparkle effects -->
+    <circle cx="15" cy="9" r="0.8" fill="#FFD700" opacity="0.9"/>
+    <circle cx="13" cy="11" r="0.5" fill="#FFF" opacity="1"/>
+    <circle cx="16" cy="8" r="0.3" fill="#FFD700"/>
+    <circle cx="14" cy="10" r="0.2" fill="#FFD700"/>
+
+    <!-- Sharp point highlight -->
+    <circle cx="18" cy="6" r="0.5" fill="#FFF" opacity="0.8"/>
 </svg>

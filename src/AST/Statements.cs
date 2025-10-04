@@ -15,7 +15,7 @@ namespace Compilers.Shared.AST;
 /// <item>Function returns and loop control</item>
 /// </list>
 /// </remarks>
-public abstract record Statement(SourceLocation Location) : AstNode(Location);
+public abstract record Statement(SourceLocation Location) : AstNode(Location: Location);
 
 /// <summary>
 /// Statement that evaluates an expression for its side effects.
@@ -32,10 +32,13 @@ public abstract record Statement(SourceLocation Location) : AstNode(Location);
 /// </list>
 /// </remarks>
 public record ExpressionStatement(Expression Expression, SourceLocation Location)
-    : Statement(Location)
+    : Statement(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitExpressionStatement(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitExpressionStatement(node: this);
+    }
 }
 
 /// <summary>
@@ -53,10 +56,13 @@ public record ExpressionStatement(Expression Expression, SourceLocation Location
 /// </list>
 /// </remarks>
 public record DeclarationStatement(Declaration Declaration, SourceLocation Location)
-    : Statement(Location)
+    : Statement(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitDeclarationStatement(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitDeclarationStatement(node: this);
+    }
 }
 
 /// <summary>
@@ -76,10 +82,13 @@ public record DeclarationStatement(Declaration Declaration, SourceLocation Locat
 /// </list>
 /// </remarks>
 public record AssignmentStatement(Expression Target, Expression Value, SourceLocation Location)
-    : Statement(Location)
+    : Statement(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitAssignmentStatement(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitAssignmentStatement(node: this);
+    }
 }
 
 /// <summary>
@@ -98,10 +107,13 @@ public record AssignmentStatement(Expression Target, Expression Value, SourceLoc
 /// </list>
 /// </remarks>
 public record ReturnStatement(Expression? Value, SourceLocation Location)
-    : Statement(Location)
+    : Statement(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitReturnStatement(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitReturnStatement(node: this);
+    }
 
     /// <summary>
     /// Compatibility property for tests that expect ReturnStatement.Expression
@@ -126,16 +138,23 @@ public record ReturnStatement(Expression? Value, SourceLocation Location)
 /// <item>Block statements: if (condition) { multiple; statements; }</item>
 /// </list>
 /// </remarks>
-public record IfStatement(Expression Condition, Statement ThenStatement, Statement? ElseStatement, SourceLocation Location)
-    : Statement(Location)
+public record IfStatement(
+    Expression Condition,
+    Statement ThenStatement,
+    Statement? ElseStatement,
+    SourceLocation Location) : Statement(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitIfStatement(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitIfStatement(node: this);
+    }
 
     /// <summary>
     /// Compatibility properties for tests that expect ThenBranch and ElseBranch
     /// </summary>
     public Statement ThenBranch => ThenStatement;
+
     public Statement? ElseBranch => ElseStatement;
 }
 
@@ -156,10 +175,13 @@ public record IfStatement(Expression Condition, Statement ThenStatement, Stateme
 /// </list>
 /// </remarks>
 public record WhileStatement(Expression Condition, Statement Body, SourceLocation Location)
-    : Statement(Location)
+    : Statement(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitWhileStatement(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitWhileStatement(node: this);
+    }
 }
 
 /// <summary>
@@ -179,11 +201,17 @@ public record WhileStatement(Expression Condition, Statement Body, SourceLocatio
 /// <item>Custom iterables implementing iteration protocols</item>
 /// </list>
 /// </remarks>
-public record ForStatement(string Variable, Expression Iterable, Statement Body, SourceLocation Location)
-    : Statement(Location)
+public record ForStatement(
+    string Variable,
+    Expression Iterable,
+    Statement Body,
+    SourceLocation Location) : Statement(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitForStatement(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitForStatement(node: this);
+    }
 }
 
 /// <summary>
@@ -202,10 +230,13 @@ public record ForStatement(string Variable, Expression Iterable, Statement Body,
 /// </list>
 /// </remarks>
 public record BlockStatement(List<Statement> Statements, SourceLocation Location)
-    : Statement(Location)
+    : Statement(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitBlockStatement(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitBlockStatement(node: this);
+    }
 }
 
 /// <summary>
@@ -224,11 +255,16 @@ public record BlockStatement(List<Statement> Statements, SourceLocation Location
 /// <item>Variable binding: patterns can extract and bind values</item>
 /// </list>
 /// </remarks>
-public record WhenStatement(Expression Expression, List<WhenClause> Clauses, SourceLocation Location)
-    : Statement(Location)
+public record WhenStatement(
+    Expression Expression,
+    List<WhenClause> Clauses,
+    SourceLocation Location) : Statement(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitWhenStatement(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitWhenStatement(node: this);
+    }
 }
 
 /// <summary>
@@ -257,11 +293,13 @@ public record WhenClause(Pattern Pattern, Statement Body, SourceLocation Locatio
 /// <item>Continues execution after loop construct</item>
 /// </list>
 /// </remarks>
-public record BreakStatement(SourceLocation Location)
-    : Statement(Location)
+public record BreakStatement(SourceLocation Location) : Statement(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitBreakStatement(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitBreakStatement(node: this);
+    }
 }
 
 /// <summary>
@@ -278,11 +316,13 @@ public record BreakStatement(SourceLocation Location)
 /// <item>Does not exit the loop, only skips current iteration</item>
 /// </list>
 /// </remarks>
-public record ContinueStatement(SourceLocation Location)
-    : Statement(Location)
+public record ContinueStatement(SourceLocation Location) : Statement(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitContinueStatement(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitContinueStatement(node: this);
+    }
 }
 
 /// <summary>
@@ -310,8 +350,7 @@ public abstract record Pattern(SourceLocation Location);
 /// <remarks>
 /// Examples: when x { 42 => ..., "hello" => ..., true => ... }
 /// </remarks>
-public record LiteralPattern(object Value, SourceLocation Location)
-    : Pattern(Location);
+public record LiteralPattern(object Value, SourceLocation Location) : Pattern(Location: Location);
 
 /// <summary>
 /// Pattern that binds a matched value to a variable name for use in the action.
@@ -323,7 +362,7 @@ public record LiteralPattern(object Value, SourceLocation Location)
 /// Example: when someValue { x => print(x) } binds someValue to x.
 /// </remarks>
 public record IdentifierPattern(string Name, SourceLocation Location)
-    : Pattern(Location);
+    : Pattern(Location: Location);
 
 /// <summary>
 /// Pattern that matches values of a specific type, optionally binding to a variable.
@@ -340,7 +379,7 @@ public record IdentifierPattern(string Name, SourceLocation Location)
 /// </list>
 /// </remarks>
 public record TypePattern(TypeExpression Type, string? VariableName, SourceLocation Location)
-    : Pattern(Location);
+    : Pattern(Location: Location);
 
 /// <summary>
 /// Pattern that matches any value without binding it to a variable.
@@ -354,8 +393,7 @@ public record TypePattern(TypeExpression Type, string? VariableName, SourceLocat
 /// <item>Often used for exhaustive pattern matching</item>
 /// </list>
 /// </remarks>
-public record WildcardPattern(SourceLocation Location)
-    : Pattern(Location);
+public record WildcardPattern(SourceLocation Location) : Pattern(Location: Location);
 
 /// <summary>
 /// Statement representing a danger! block that disables safety checks.
@@ -375,10 +413,13 @@ public record WildcardPattern(SourceLocation Location)
 /// Should be used sparingly and with extreme caution.
 /// </remarks>
 public record DangerStatement(BlockStatement Body, SourceLocation Location)
-    : Statement(Location)
+    : Statement(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitDangerStatement(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitDangerStatement(node: this);
+    }
 }
 
 /// <summary>
@@ -390,8 +431,11 @@ public record DangerStatement(BlockStatement Body, SourceLocation Location)
 /// which can modify program structure at runtime. Should almost never be used.
 /// </remarks>
 public record MayhemStatement(BlockStatement Body, SourceLocation Location)
-    : Statement(Location)
+    : Statement(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
-    public override T Accept<T>(IAstVisitor<T> visitor) => visitor.VisitMayhemStatement(this);
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitMayhemStatement(node: this);
+    }
 }

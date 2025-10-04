@@ -6,6 +6,7 @@
 
 #ifdef __cplusplus
 extern "C" {
+
 #endif
 
 // libdfp - IEEE 754 decimal floating point operations
@@ -28,10 +29,11 @@ uint64_t d64_from_string(const char* str);
 char* d64_to_string(uint64_t val);
 
 // d128 operations (using struct for 128-bit values)
-typedef struct {
+using d128_t = struct
+{
     uint64_t low;
     uint64_t high;
-} d128_t;
+};
 
 d128_t d128_add(d128_t a, d128_t b);
 d128_t d128_sub(d128_t a, d128_t b);
@@ -42,8 +44,8 @@ d128_t d128_from_string(const char* str);
 char* d128_to_string(d128_t val);
 
 // libbf - Arbitrary precision arithmetic
-typedef struct bf_context_s bf_context_t;
-typedef struct bf_number_s bf_number_t;
+using bf_context_t = struct bf_context_s;
+using bf_number_t = struct bf_number_s;
 
 // Context management
 void bf_context_init(bf_context_t* ctx, void* realloc_func, void* free_func);
@@ -68,8 +70,8 @@ int32_t bf_cmp(bf_number_t* a, bf_number_t* b);
 char* bf_ftoa(size_t* plen, bf_number_t* a, int32_t radix, uint64_t prec, uint32_t flags);
 
 // mafm - Multiple precision arithmetic for decimals
-typedef struct mafm_context_s mafm_context_t;
-typedef struct mafm_number_s mafm_number_t;
+using mafm_context_t = struct mafm_context_s;
+using mafm_number_t = struct mafm_number_s;
 
 // Context management
 void mafm_context_init(mafm_context_t* ctx, int32_t precision);

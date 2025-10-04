@@ -47,10 +47,13 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     private int _tempCounter;
     private int _labelCounter;
     private readonly Dictionary<string, string> _symbolTypes;
-    private readonly Dictionary<string, TypeInfo> _tempTypes = new(); // Track types of temporary variables
+
+    private readonly Dictionary<string, TypeInfo>
+        _tempTypes = new(); // Track types of temporary variables
+
     private bool _hasReturn = false;
     private List<string>? _stringConstants; // Collect string constants for proper emission
-    
+
     /// <summary>
     /// Initializes a new LLVM IR code generator for the specified language and mode configuration.
     /// Sets up the internal state required for AST traversal and IR generation.
@@ -75,13 +78,16 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         _labelCounter = 0;
         _symbolTypes = new Dictionary<string, string>();
     }
-    
+
     /// <summary>
     /// Retrieves the complete generated LLVM IR code as a string.
     /// </summary>
     /// <returns>Complete LLVM IR module including headers, declarations, and function definitions</returns>
-    public string GetGeneratedCode() => _output.ToString();
-    
+    public string GetGeneratedCode()
+    {
+        return _output.ToString();
+    }
+
     /// <summary>
     /// Generates complete LLVM IR module for the given program AST.
     /// Emits module headers, external declarations, math library support, and processes all program declarations.
@@ -102,68 +108,81 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     public void Generate(AST.Program program)
     {
         // LLVM IR module headers - provide module identification and target configuration
-        _output.AppendLine("; ModuleID = 'razorforge'");
-        _output.AppendLine("source_filename = \"razorforge.rf\"");
-        _output.AppendLine("target datalayout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128\"");
-        _output.AppendLine("target triple = \"x86_64-pc-linux-gnu\"");
+        _output.AppendLine(value: "; ModuleID = 'razorforge'");
+        _output.AppendLine(value: "source_filename = \"razorforge.rf\"");
+        _output.AppendLine(
+            value:
+            "target datalayout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128\"");
+        _output.AppendLine(value: "target triple = \"x86_64-pc-linux-gnu\"");
         _output.AppendLine();
 
         // External function declarations - standard library interfaces
-        _output.AppendLine("; External function declarations");
-        _output.AppendLine("declare i32 @printf(i8*, ...)");    // Formatted output
-        _output.AppendLine("declare i32 @scanf(i8*, ...)");     // Formatted input
-        _output.AppendLine("declare i8* @malloc(i64)");         // Memory allocation
-        _output.AppendLine("declare void @free(i8*)");          // Memory deallocation
+        _output.AppendLine(value: "; External function declarations");
+        _output.AppendLine(value: "declare i32 @printf(i8*, ...)"); // Formatted output
+        _output.AppendLine(value: "declare i32 @scanf(i8*, ...)"); // Formatted input
+        _output.AppendLine(value: "declare i8* @malloc(i64)"); // Memory allocation
+        _output.AppendLine(value: "declare void @free(i8*)"); // Memory deallocation
         _output.AppendLine();
 
         // Mathematical library function declarations - precision arithmetic support
-        _output.AppendLine(MathLibrarySupport.GenerateDeclarations());
+        _output.AppendLine(value: MathLibrarySupport.GenerateDeclarations());
 
         // String constants for I/O operations
-        _output.AppendLine("; String constants");
-        _output.AppendLine("@.str_int_fmt = private unnamed_addr constant [4 x i8] c\"%d\\0A\\00\", align 1");  // Integer format
-        _output.AppendLine("@.str_fmt = private unnamed_addr constant [3 x i8] c\"%s\\00\", align 1");         // String format
+        _output.AppendLine(value: "; String constants");
+        _output.AppendLine(
+            value:
+            "@.str_int_fmt = private unnamed_addr constant [4 x i8] c\"%d\\0A\\00\", align 1"); // Integer format
+        _output.AppendLine(
+            value:
+            "@.str_fmt = private unnamed_addr constant [3 x i8] c\"%s\\00\", align 1"); // String format
 
         // Process the program AST to generate function definitions and global declarations
-        program.Accept(this);
+        program.Accept(visitor: this);
 
         // Emit collected string constants after the predefined constants
         if (_stringConstants != null && _stringConstants.Count > 0)
         {
-            var content = _output.ToString();
+            string content = _output.ToString();
             // Find the line after @.str_fmt and insert our constants there
-            var strFmtLine = "@.str_fmt = private unnamed_addr constant [3 x i8] c\"%s\\00\", align 1";
-            var insertPos = content.IndexOf(strFmtLine);
+            string strFmtLine =
+                "@.str_fmt = private unnamed_addr constant [3 x i8] c\"%s\\00\", align 1";
+            int insertPos = content.IndexOf(value: strFmtLine);
             if (insertPos >= 0)
             {
-                var endOfLine = content.IndexOf('\n', insertPos) + 1;
-                var before = content.Substring(0, endOfLine);
-                var after = content.Substring(endOfLine);
+                int endOfLine = content.IndexOf(value: '\n', startIndex: insertPos) + 1;
+                string before = content.Substring(startIndex: 0, length: endOfLine);
+                string after = content.Substring(startIndex: endOfLine);
 
                 _output.Clear();
-                _output.Append(before);
+                _output.Append(value: before);
 
                 // Add our collected string constants
-                foreach (var constant in _stringConstants)
+                foreach (string constant in _stringConstants)
                 {
-                    _output.AppendLine(constant);
+                    _output.AppendLine(value: constant);
                 }
 
-                _output.Append(after);
+                _output.Append(value: after);
             }
         }
 
         _output.AppendLine();
     }
-    
+
     /// <summary>Generates a unique LLVM IR temporary variable name</summary>
     /// <returns>Unique temporary variable name in LLVM IR format (%tmp0, %tmp1, etc.)</returns>
-    private string GetNextTemp() => $"%tmp{_tempCounter++}";
+    private string GetNextTemp()
+    {
+        return $"%tmp{_tempCounter++}";
+    }
 
     /// <summary>Generates a unique LLVM IR basic block label</summary>
     /// <returns>Unique label name for LLVM IR basic blocks (label0, label1, etc.)</returns>
-    private string GetNextLabel() => $"label{_labelCounter++}";
-    
+    private string GetNextLabel()
+    {
+        return $"label{_labelCounter++}";
+    }
+
     /// <summary>
     /// Maps RazorForge type names to their corresponding LLVM IR type representations.
     /// Handles both primitive types and specialized mathematical library types.
@@ -183,9 +202,9 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     private string MapTypeToLLVM(string rfType)
     {
         // Check for math library types first (d32, d64, d128, bigint, decimal)
-        if (MathLibrarySupport.IsMathLibraryType(rfType))
+        if (MathLibrarySupport.IsMathLibraryType(type: rfType))
         {
-            return MathLibrarySupport.MapMathTypeToLLVM(rfType);
+            return MathLibrarySupport.MapMathTypeToLLVM(rfType: rfType);
         }
 
         return rfType switch
@@ -205,111 +224,118 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             "u128" => "i128",
 
             // System-dependent integers (pointer-sized)
-            "syssint" => "i64",  // intptr_t - 64-bit on x86_64
-            "sysuint" => "i64",  // uintptr_t - 64-bit on x86_64
+            "syssint" => "i64", // intptr_t - 64-bit on x86_64
+            "sysuint" => "i64", // uintptr_t - 64-bit on x86_64
 
             // IEEE 754 floating point types
-            "f16" => "half",      // 16-bit half precision
-            "f32" => "float",     // 32-bit single precision
-            "f64" => "double",    // 64-bit double precision
-            "f128" => "fp128",    // 128-bit quad precision
+            "f16" => "half", // 16-bit half precision
+            "f32" => "float", // 32-bit single precision
+            "f64" => "double", // 64-bit double precision
+            "f128" => "fp128", // 128-bit quad precision
 
             // Boolean type
-            "bool" => "i1",       // Single bit boolean
+            "bool" => "i1", // Single bit boolean
 
             // Text/String types
-            "text" => "i8*",      // Null-terminated C string
-            "Text" => "i8*",      // Alternative capitalization
+            "text" => "i8*", // Null-terminated C string
+            "Text" => "i8*", // Alternative capitalization
 
-            _ => "i8*"             // Default to pointer for unknown types
+            _ => "i8*" // Default to pointer for unknown types
         };
     }
-    
+
     // Program visitor
     public string VisitProgram(AST.Program node)
     {
-        foreach (var decl in node.Declarations)
+        foreach (IAstNode decl in node.Declarations)
         {
-            decl.Accept(this);
+            decl.Accept(visitor: this);
         }
+
         return "";
     }
-    
+
     // Function declaration
     public string VisitFunctionDeclaration(FunctionDeclaration node)
     {
-        var returnType = node.ReturnType != null ? MapTypeToLLVM(node.ReturnType.Name) : "void";
-        
+        string returnType = node.ReturnType != null
+            ? MapTypeToLLVM(rfType: node.ReturnType.Name)
+            : "void";
+
         // Set the current function return type for return statement processing
         _currentFunctionReturnType = returnType;
-        
+
         var parameters = new List<string>();
-        
+
         if (node.Parameters != null)
         {
-            foreach (var param in node.Parameters)
+            foreach (Parameter param in node.Parameters)
             {
-                var paramType = param.Type != null ? MapTypeToLLVM(param.Type.Name) : "i32";
-                parameters.Add($"{paramType} %{param.Name}");
-                _symbolTypes[param.Name] = paramType;
+                string paramType = param.Type != null
+                    ? MapTypeToLLVM(rfType: param.Type.Name)
+                    : "i32";
+                parameters.Add(item: $"{paramType} %{param.Name}");
+                _symbolTypes[key: param.Name] = paramType;
             }
         }
-        
-        var paramList = string.Join(", ", parameters);
-        
-        _output.AppendLine($"define {returnType} @{node.Name}({paramList}) {{");
-        _output.AppendLine("entry:");
-        
+
+        string paramList = string.Join(separator: ", ", values: parameters);
+
+        _output.AppendLine(handler: $"define {returnType} @{node.Name}({paramList}) {{");
+        _output.AppendLine(value: "entry:");
+
         // Reset return flag for this function
         _hasReturn = false;
-        
+
         // Visit function body
         if (node.Body != null)
         {
-            node.Body.Accept(this);
+            node.Body.Accept(visitor: this);
         }
-        
-            // Add default return if needed (only if no explicit return was generated)
+
+        // Add default return if needed (only if no explicit return was generated)
         if (!_hasReturn)
         {
             if (returnType == "void")
             {
-                _output.AppendLine("  ret void");
+                _output.AppendLine(value: "  ret void");
             }
             else if (returnType == "i32")
             {
-                _output.AppendLine("  ret i32 0");
+                _output.AppendLine(value: "  ret i32 0");
             }
         }
-        
-        _output.AppendLine("}");
+
+        _output.AppendLine(value: "}");
         _output.AppendLine();
-        
+
         return "";
     }
-    
+
     // Variable declaration
     public string VisitVariableDeclaration(VariableDeclaration node)
     {
-        var type = node.Type != null ? MapTypeToLLVM(node.Type.Name) : "i32";
-        var varName = $"%{node.Name}";
-        
-        _symbolTypes[node.Name] = type;
-        
+        string type = node.Type != null
+            ? MapTypeToLLVM(rfType: node.Type.Name)
+            : "i32";
+        string varName = $"%{node.Name}";
+
+        _symbolTypes[key: node.Name] = type;
+
         if (node.Initializer != null)
         {
-            var initValue = node.Initializer.Accept(this);
-            _output.AppendLine($"  {varName} = alloca {type}");
-            _output.AppendLine($"  store {type} {initValue}, {type}* {varName}");
+            string initValue = node.Initializer.Accept(visitor: this);
+            _output.AppendLine(handler: $"  {varName} = alloca {type}");
+            _output.AppendLine(handler: $"  store {type} {initValue}, {type}* {varName}");
         }
         else
         {
-            _output.AppendLine($"  {varName} = alloca {type}");
+            _output.AppendLine(handler: $"  {varName} = alloca {type}");
         }
-        
+
         return "";
     }
-    
+
     /// <summary>
     /// Generates LLVM IR for binary expressions with comprehensive operator and type support.
     /// Handles arithmetic, comparison, logical, and bitwise operations with proper type management.
@@ -335,103 +361,119 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     /// </remarks>
     public string VisitBinaryExpression(BinaryExpression node)
     {
-        var left = node.Left.Accept(this);
-        var right = node.Right.Accept(this);
-        var result = GetNextTemp();
-        
+        string left = node.Left.Accept(visitor: this);
+        string right = node.Right.Accept(visitor: this);
+        string result = GetNextTemp();
+
         // Get operand type information (assume both operands have same type)
-        var leftTypeInfo = GetTypeInfo(node.Left);
-        var operandType = leftTypeInfo.LLVMType;
-        
+        TypeInfo leftTypeInfo = GetTypeInfo(expr: node.Left);
+        string operandType = leftTypeInfo.LLVMType;
+
         // Check if this is a math library operation
-        if (MathLibrarySupport.IsMathLibraryType(leftTypeInfo.RazorForgeType))
+        if (MathLibrarySupport.IsMathLibraryType(type: leftTypeInfo.RazorForgeType))
         {
-            return GenerateMathLibraryBinaryOp(node, left, right, result, leftTypeInfo);
+            return GenerateMathLibraryBinaryOp(node: node, left: left, right: right,
+                result: result, typeInfo: leftTypeInfo);
         }
-        
-        var op = node.Operator switch
+
+        string op = node.Operator switch
         {
             // Regular arithmetic
             BinaryOperator.Add => "add",
             BinaryOperator.Subtract => "sub",
             BinaryOperator.Multiply => "mul",
-            BinaryOperator.Divide => GetIntegerDivisionOp(leftTypeInfo),     // sdiv/udiv based on signed/unsigned
-            BinaryOperator.TrueDivide => "fdiv",                            // / (true division) - floats only
-            BinaryOperator.Modulo => GetModuloOp(leftTypeInfo),           // srem/urem for integers, frem for floats
-            
+            BinaryOperator.Divide => GetIntegerDivisionOp(
+                typeInfo: leftTypeInfo), // sdiv/udiv based on signed/unsigned
+            BinaryOperator.TrueDivide => "fdiv", // / (true division) - floats only
+            BinaryOperator.Modulo => GetModuloOp(
+                typeInfo: leftTypeInfo), // srem/urem for integers, frem for floats
+
             // Overflow-handling variants (for now, use LLVM intrinsics will be added later)
-            BinaryOperator.AddWrap => "add",        // Wrapping is default behavior
+            BinaryOperator.AddWrap => "add", // Wrapping is default behavior
             BinaryOperator.SubtractWrap => "sub",
             BinaryOperator.MultiplyWrap => "mul",
-            BinaryOperator.DivideWrap => GetIntegerDivisionOp(leftTypeInfo),
-            BinaryOperator.ModuloWrap => GetModuloOp(leftTypeInfo),
-            
-            BinaryOperator.AddSaturate => "add",    // TODO: Use llvm.sadd.sat intrinsic
+            BinaryOperator.DivideWrap => GetIntegerDivisionOp(typeInfo: leftTypeInfo),
+            BinaryOperator.ModuloWrap => GetModuloOp(typeInfo: leftTypeInfo),
+
+            BinaryOperator.AddSaturate => "add", // TODO: Use llvm.sadd.sat intrinsic
             BinaryOperator.SubtractSaturate => "sub", // TODO: Use llvm.ssub.sat intrinsic  
             BinaryOperator.MultiplySaturate => "mul", // TODO: Custom saturating multiply
-            
-            BinaryOperator.AddChecked => "add",     // TODO: Use llvm.sadd.with.overflow intrinsic
+
+            BinaryOperator.AddChecked => "add", // TODO: Use llvm.sadd.with.overflow intrinsic
             BinaryOperator.SubtractChecked => "sub", // TODO: Use llvm.ssub.with.overflow intrinsic
             BinaryOperator.MultiplyChecked => "mul", // TODO: Use llvm.smul.with.overflow intrinsic
-            
-            BinaryOperator.AddUnchecked => "add",   // Regular operations, no overflow checks
+
+            BinaryOperator.AddUnchecked => "add", // Regular operations, no overflow checks
             BinaryOperator.SubtractUnchecked => "sub",
             BinaryOperator.MultiplyUnchecked => "mul",
-            BinaryOperator.DivideUnchecked => GetIntegerDivisionOp(leftTypeInfo),
-            BinaryOperator.ModuloUnchecked => GetModuloOp(leftTypeInfo),
-            
+            BinaryOperator.DivideUnchecked => GetIntegerDivisionOp(typeInfo: leftTypeInfo),
+            BinaryOperator.ModuloUnchecked => GetModuloOp(typeInfo: leftTypeInfo),
+
             // Comparisons
             BinaryOperator.Less => "icmp slt",
             BinaryOperator.Greater => "icmp sgt",
             BinaryOperator.Equal => "icmp eq",
             BinaryOperator.NotEqual => "icmp ne",
-            
+
             _ => "add"
         };
-        
+
         // Generate the operation with proper type
-        if (op.StartsWith("icmp"))
+        if (op.StartsWith(value: "icmp"))
         {
             // Comparison operations return i1
-            _output.AppendLine($"  {result} = {op} {operandType} {left}, {right}");
-            _tempTypes[result] = new TypeInfo("i1", false, false, "bool");
+            _output.AppendLine(handler: $"  {result} = {op} {operandType} {left}, {right}");
+            _tempTypes[key: result] = new TypeInfo(LLVMType: "i1", IsUnsigned: false,
+                IsFloatingPoint: false, RazorForgeType: "bool");
         }
         else
         {
             // Arithmetic operations maintain operand type
-            _output.AppendLine($"  {result} = {op} {operandType} {left}, {right}");
-            _tempTypes[result] = leftTypeInfo; // Result has same type as operands
+            _output.AppendLine(handler: $"  {result} = {op} {operandType} {left}, {right}");
+            _tempTypes[key: result] = leftTypeInfo; // Result has same type as operands
         }
+
         return result;
     }
 
-    private string GenerateMathLibraryBinaryOp(BinaryExpression node, string left, string right, string result, TypeInfo typeInfo)
+    private string GenerateMathLibraryBinaryOp(BinaryExpression node, string left, string right,
+        string result, TypeInfo typeInfo)
     {
-        var operation = node.Operator switch
+        string operation = node.Operator switch
         {
             BinaryOperator.Add => "+",
             BinaryOperator.Subtract => "-",
             BinaryOperator.Multiply => "*",
             BinaryOperator.Divide => "/",
             BinaryOperator.TrueDivide => "/",
-            _ => throw new NotSupportedException($"Operator {node.Operator} not supported for math library type {typeInfo.RazorForgeType}")
+            _ => throw new NotSupportedException(
+                message:
+                $"Operator {node.Operator} not supported for math library type {typeInfo.RazorForgeType}")
         };
 
-        var mathLibraryCode = typeInfo.RazorForgeType switch
+        string mathLibraryCode = typeInfo.RazorForgeType switch
         {
-            "d32" => MathLibrarySupport.GenerateD32BinaryOp(operation, left, right, result),
-            "d64" => MathLibrarySupport.GenerateD64BinaryOp(operation, left, right, result),
-            "d128" => MathLibrarySupport.GenerateD128BinaryOp(operation, left, right, result),
-            "bigint" => MathLibrarySupport.GenerateBigIntBinaryOp(operation, left, right, result, _tempCounter.ToString()),
-            "decimal" => MathLibrarySupport.GenerateHighPrecisionDecimalBinaryOp(operation, left, right, result, "%decimal_context"),
-            _ => throw new NotSupportedException($"Math library type {typeInfo.RazorForgeType} not supported")
+            "d32" => MathLibrarySupport.GenerateD32BinaryOp(operation: operation,
+                leftOperand: left, rightOperand: right, resultTemp: result),
+            "d64" => MathLibrarySupport.GenerateD64BinaryOp(operation: operation,
+                leftOperand: left, rightOperand: right, resultTemp: result),
+            "d128" => MathLibrarySupport.GenerateD128BinaryOp(operation: operation,
+                leftOperand: left, rightOperand: right, resultTemp: result),
+            "bigint" => MathLibrarySupport.GenerateBigIntBinaryOp(operation: operation,
+                leftOperand: left, rightOperand: right, resultTemp: result,
+                tempCounter: _tempCounter.ToString()),
+            "decimal" => MathLibrarySupport.GenerateHighPrecisionDecimalBinaryOp(
+                operation: operation, leftOperand: left, rightOperand: right, resultTemp: result,
+                contextPtr: "%decimal_context"),
+            _ => throw new NotSupportedException(
+                message: $"Math library type {typeInfo.RazorForgeType} not supported")
         };
 
-        _output.AppendLine(mathLibraryCode);
-        _tempTypes[result] = typeInfo; // Result has same type as operands
+        _output.AppendLine(value: mathLibraryCode);
+        _tempTypes[key: result] = typeInfo; // Result has same type as operands
         return result;
     }
-    
+
     // Literal expression
     public string VisitLiteralExpression(LiteralExpression node)
     {
@@ -469,15 +511,15 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         }
         else if (node.Value is float floatVal)
         {
-            return floatVal.ToString("G");
+            return floatVal.ToString(format: "G");
         }
         else if (node.Value is double doubleVal)
         {
-            return doubleVal.ToString("G");
+            return doubleVal.ToString(format: "G");
         }
         else if (node.Value is decimal decimalVal)
         {
-            return decimalVal.ToString("G");
+            return decimalVal.ToString(format: "G");
         }
         else if (node.Value is BigInteger bigIntVal)
         {
@@ -485,27 +527,37 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         }
         else if (node.Value is Half halfVal)
         {
-            return ((float)halfVal).ToString("G");
+            return ((float)halfVal).ToString(format: "G");
         }
         else if (node.Value is bool boolVal)
         {
-            return boolVal ? "1" : "0";
+            return boolVal
+                ? "1"
+                : "0";
         }
         else if (node.Value is string strVal)
         {
-            var strConst = $"@.str{_tempCounter++}";
-            var len = strVal.Length + 1;
+            string strConst = $"@.str{_tempCounter++}";
+            int len = strVal.Length + 1;
             // Store string constant for later emission instead of inserting immediately
             if (_stringConstants == null)
+            {
                 _stringConstants = new List<string>();
-            _stringConstants.Add($"{strConst} = private unnamed_addr constant [{len} x i8] c\"{strVal}\\00\", align 1");
-            var temp = GetNextTemp();
-            _output.AppendLine($"  {temp} = getelementptr [{len} x i8], [{len} x i8]* {strConst}, i32 0, i32 0");
+            }
+
+            _stringConstants.Add(
+                item:
+                $"{strConst} = private unnamed_addr constant [{len} x i8] c\"{strVal}\\00\", align 1");
+            string temp = GetNextTemp();
+            _output.AppendLine(
+                handler:
+                $"  {temp} = getelementptr [{len} x i8], [{len} x i8]* {strConst}, i32 0, i32 0");
             return temp;
         }
+
         return "0";
     }
-    
+
     // Map TokenType to LLVM type
     private string GetLLVMType(TokenType tokenType)
     {
@@ -516,7 +568,7 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             TokenType.S32Literal => "i32",
             TokenType.S64Literal => "i64",
             TokenType.S128Literal => "i128",
-            TokenType.U8Literal => "i8",    // LLVM doesn't distinguish signed/unsigned at IR level
+            TokenType.U8Literal => "i8", // LLVM doesn't distinguish signed/unsigned at IR level
             TokenType.U16Literal => "i16",
             TokenType.U32Literal => "i32",
             TokenType.U64Literal => "i64",
@@ -525,45 +577,48 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             TokenType.F32Literal => "float",
             TokenType.F64Literal => "double",
             TokenType.F128Literal => "fp128", // IEEE 754 quad precision
-            TokenType.Integer => "i128",    // BigInteger -> large integer type
-            TokenType.Decimal => "double",  // Default floating type
+            TokenType.Integer => "i128", // BigInteger -> large integer type
+            TokenType.Decimal => "double", // Default floating type
             TokenType.True => "i1",
             TokenType.False => "i1",
             _ => "i32" // Default fallback
         };
     }
-    
+
     // Identifier expression
     public string VisitIdentifierExpression(IdentifierExpression node)
     {
-        var temp = GetNextTemp();
-        var type = _symbolTypes.ContainsKey(node.Name) ? _symbolTypes[node.Name] : "i32";
-        _output.AppendLine($"  {temp} = load {type}, {type}* %{node.Name}");
+        string temp = GetNextTemp();
+        string type = _symbolTypes.ContainsKey(key: node.Name)
+            ? _symbolTypes[key: node.Name]
+            : "i32";
+        _output.AppendLine(handler: $"  {temp} = load {type}, {type}* %{node.Name}");
         return temp;
     }
-    
+
     // Function call expression
     public string VisitCallExpression(CallExpression node)
     {
-        var result = GetNextTemp();
+        string result = GetNextTemp();
 
         // Check if this is a standalone danger zone function call (addr_of!, invalidate!)
         if (node.Callee is IdentifierExpression identifierExpr)
         {
-            var dangerfunctionName = identifierExpr.Name;
-            if (IsNonGenericDangerZoneFunction(dangerfunctionName))
+            string dangerfunctionName = identifierExpr.Name;
+            if (IsNonGenericDangerZoneFunction(functionName: dangerfunctionName))
             {
-                return HandleNonGenericDangerZoneFunction(node, dangerfunctionName, result);
+                return HandleNonGenericDangerZoneFunction(node: node,
+                    functionName: dangerfunctionName, resultTemp: result);
             }
         }
 
         var args = new List<string>();
-        foreach (var arg in node.Arguments)
+        foreach (Expression arg in node.Arguments)
         {
-            args.Add($"i32 {arg.Accept(this)}");
+            args.Add(item: $"i32 {arg.Accept(visitor: this)}");
         }
 
-        var argList = string.Join(", ", args);
+        string argList = string.Join(separator: ", ", values: args);
 
         // Special handling for built-in functions
         if (node.Callee is IdentifierExpression id)
@@ -572,8 +627,11 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             {
                 if (args.Count > 0)
                 {
-                    _output.AppendLine($"  {result} = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([4 x i8], [4 x i8]* @.str_int_fmt, i32 0, i32 0), {argList})");
+                    _output.AppendLine(
+                        handler:
+                        $"  {result} = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([4 x i8], [4 x i8]* @.str_int_fmt, i32 0, i32 0), {argList})");
                 }
+
                 return result;
             }
         }
@@ -585,9 +643,10 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             functionName = identifier.Name;
 
             // Check if this is a danger zone function that should use specialized handling
-            if (IsNonGenericDangerZoneFunction(functionName))
+            if (IsNonGenericDangerZoneFunction(functionName: functionName))
             {
-                return HandleNonGenericDangerZoneFunction(node, functionName, result);
+                return HandleNonGenericDangerZoneFunction(node: node, functionName: functionName,
+                    resultTemp: result);
             }
         }
         else
@@ -596,129 +655,140 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             functionName = "unknown_function";
         }
 
-        _output.AppendLine($"  {result} = call i32 @{functionName}({argList})");
+        _output.AppendLine(handler: $"  {result} = call i32 @{functionName}({argList})");
         return result;
     }
-    
+
     // If statement
     public string VisitIfStatement(IfStatement node)
     {
-        var condition = node.Condition.Accept(this);
-        var thenLabel = GetNextLabel();
-        var elseLabel = GetNextLabel();
-        var endLabel = GetNextLabel();
-        
-        _output.AppendLine($"  br i1 {condition}, label %{thenLabel}, label %{elseLabel}");
-        
-        _output.AppendLine($"{thenLabel}:");
-        node.ThenStatement.Accept(this);
-        _output.AppendLine($"  br label %{endLabel}");
-        
-        _output.AppendLine($"{elseLabel}:");
+        string condition = node.Condition.Accept(visitor: this);
+        string thenLabel = GetNextLabel();
+        string elseLabel = GetNextLabel();
+        string endLabel = GetNextLabel();
+
+        _output.AppendLine(
+            handler: $"  br i1 {condition}, label %{thenLabel}, label %{elseLabel}");
+
+        _output.AppendLine(handler: $"{thenLabel}:");
+        node.ThenStatement.Accept(visitor: this);
+        _output.AppendLine(handler: $"  br label %{endLabel}");
+
+        _output.AppendLine(handler: $"{elseLabel}:");
         if (node.ElseStatement != null)
         {
-            node.ElseStatement.Accept(this);
+            node.ElseStatement.Accept(visitor: this);
         }
-        _output.AppendLine($"  br label %{endLabel}");
-        
-        _output.AppendLine($"{endLabel}:");
-        
+
+        _output.AppendLine(handler: $"  br label %{endLabel}");
+
+        _output.AppendLine(handler: $"{endLabel}:");
+
         return "";
     }
-    
+
     // While statement
     public string VisitWhileStatement(WhileStatement node)
     {
-        var condLabel = GetNextLabel();
-        var bodyLabel = GetNextLabel();
-        var endLabel = GetNextLabel();
-        
-        _output.AppendLine($"  br label %{condLabel}");
-        
-        _output.AppendLine($"{condLabel}:");
-        var condition = node.Condition.Accept(this);
-        _output.AppendLine($"  br i1 {condition}, label %{bodyLabel}, label %{endLabel}");
-        
-        _output.AppendLine($"{bodyLabel}:");
-        node.Body.Accept(this);
-        _output.AppendLine($"  br label %{condLabel}");
-        
-        _output.AppendLine($"{endLabel}:");
-        
+        string condLabel = GetNextLabel();
+        string bodyLabel = GetNextLabel();
+        string endLabel = GetNextLabel();
+
+        _output.AppendLine(handler: $"  br label %{condLabel}");
+
+        _output.AppendLine(handler: $"{condLabel}:");
+        string condition = node.Condition.Accept(visitor: this);
+        _output.AppendLine(handler: $"  br i1 {condition}, label %{bodyLabel}, label %{endLabel}");
+
+        _output.AppendLine(handler: $"{bodyLabel}:");
+        node.Body.Accept(visitor: this);
+        _output.AppendLine(handler: $"  br label %{condLabel}");
+
+        _output.AppendLine(handler: $"{endLabel}:");
+
         return "";
     }
-    
+
     // Return statement - we need to track the expected function return type
-    private string _currentFunctionReturnType = "i32"; // Default, will be set by VisitFunctionDeclaration
-    
+    private string
+        _currentFunctionReturnType = "i32"; // Default, will be set by VisitFunctionDeclaration
+
     public string VisitReturnStatement(ReturnStatement node)
     {
-        _hasReturn = true;  // Mark that we've generated a return
-        
+        _hasReturn = true; // Mark that we've generated a return
+
         if (node.Value != null)
         {
-            var value = node.Value.Accept(this);
-            var valueTypeInfo = GetValueTypeInfo(value);
-            
+            string value = node.Value.Accept(visitor: this);
+            TypeInfo valueTypeInfo = GetValueTypeInfo(value: value);
+
             // If the value type doesn't match the function return type, we need to cast
             if (valueTypeInfo.LLVMType != _currentFunctionReturnType)
             {
-                var castResult = GetNextTemp();
-                GenerateCastInstruction(castResult, value, valueTypeInfo, _currentFunctionReturnType);
-                _output.AppendLine($"  ret {_currentFunctionReturnType} {castResult}");
+                string castResult = GetNextTemp();
+                GenerateCastInstruction(result: castResult, value: value, fromType: valueTypeInfo,
+                    toType: _currentFunctionReturnType);
+                _output.AppendLine(handler: $"  ret {_currentFunctionReturnType} {castResult}");
             }
             else
             {
-                _output.AppendLine($"  ret {_currentFunctionReturnType} {value}");
+                _output.AppendLine(handler: $"  ret {_currentFunctionReturnType} {value}");
             }
         }
         else
         {
-            _output.AppendLine("  ret void");
+            _output.AppendLine(value: "  ret void");
         }
+
         return "";
     }
-    
+
     // Generate appropriate cast instruction
-    private void GenerateCastInstruction(string result, string value, TypeInfo fromType, string toType)
+    private void GenerateCastInstruction(string result, string value, TypeInfo fromType,
+        string toType)
     {
         // For now, handle basic integer casts
-        if (fromType.IsFloatingPoint || IsFloatingPointType(toType))
+        if (fromType.IsFloatingPoint || IsFloatingPointType(llvmType: toType))
         {
             // Float conversions need special handling
-            _output.AppendLine($"  {result} = fptoui {fromType.LLVMType} {value} to {toType}");
+            _output.AppendLine(
+                handler: $"  {result} = fptoui {fromType.LLVMType} {value} to {toType}");
         }
         else
         {
             // Integer truncation or extension
-            var fromSize = GetTypeBitWidth(fromType.LLVMType);
-            var toSize = GetTypeBitWidth(toType);
-            
+            int fromSize = GetTypeBitWidth(llvmType: fromType.LLVMType);
+            int toSize = GetTypeBitWidth(llvmType: toType);
+
             if (fromSize > toSize)
             {
                 // Truncation
-                _output.AppendLine($"  {result} = trunc {fromType.LLVMType} {value} to {toType}");
+                _output.AppendLine(
+                    handler: $"  {result} = trunc {fromType.LLVMType} {value} to {toType}");
             }
             else if (fromSize < toSize)
             {
                 // Extension
                 if (fromType.IsUnsigned)
                 {
-                    _output.AppendLine($"  {result} = zext {fromType.LLVMType} {value} to {toType}");
+                    _output.AppendLine(
+                        handler: $"  {result} = zext {fromType.LLVMType} {value} to {toType}");
                 }
                 else
                 {
-                    _output.AppendLine($"  {result} = sext {fromType.LLVMType} {value} to {toType}");
+                    _output.AppendLine(
+                        handler: $"  {result} = sext {fromType.LLVMType} {value} to {toType}");
                 }
             }
             else
             {
                 // Same size, just use as-is (bitcast if needed)
-                _output.AppendLine($"  {result} = bitcast {fromType.LLVMType} {value} to {toType}");
+                _output.AppendLine(
+                    handler: $"  {result} = bitcast {fromType.LLVMType} {value} to {toType}");
             }
         }
     }
-    
+
     // Get bit width of LLVM type
     private int GetTypeBitWidth(string llvmType)
     {
@@ -726,7 +796,7 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         {
             "i1" => 1,
             "i8" => 8,
-            "i16" => 16, 
+            "i16" => 16,
             "i32" => 32,
             "i64" => 64,
             "i128" => 128,
@@ -737,97 +807,129 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             _ => 32 // Default
         };
     }
-    
+
     // Type information including signedness and RazorForge type
-    private record TypeInfo(string LLVMType, bool IsUnsigned, bool IsFloatingPoint, string RazorForgeType = "");
-    
+    private record TypeInfo(
+        string LLVMType,
+        bool IsUnsigned,
+        bool IsFloatingPoint,
+        string RazorForgeType = "");
+
     // Get LLVM type for an expression  
     private string GetExpressionType(Expression expr)
     {
-        return GetTypeInfo(expr).LLVMType;
+        return GetTypeInfo(expr: expr)
+           .LLVMType;
     }
-    
+
     // Get complete type information for an expression
     private TypeInfo GetTypeInfo(Expression expr)
     {
         if (expr is LiteralExpression literal)
         {
-            var llvmType = GetLLVMType(literal.LiteralType);
-            var isUnsigned = IsUnsignedTokenType(literal.LiteralType);
-            var isFloatingPoint = IsFloatingPointTokenType(literal.LiteralType);
-            var razorForgeType = GetRazorForgeTypeFromToken(literal.LiteralType);
-            return new TypeInfo(llvmType, isUnsigned, isFloatingPoint, razorForgeType);
+            string llvmType = GetLLVMType(tokenType: literal.LiteralType);
+            bool isUnsigned = IsUnsignedTokenType(tokenType: literal.LiteralType);
+            bool isFloatingPoint = IsFloatingPointTokenType(tokenType: literal.LiteralType);
+            string razorForgeType = GetRazorForgeTypeFromToken(tokenType: literal.LiteralType);
+            return new TypeInfo(LLVMType: llvmType, IsUnsigned: isUnsigned,
+                IsFloatingPoint: isFloatingPoint, RazorForgeType: razorForgeType);
         }
         // For binary expressions, we need to evaluate them first to get the result type
         // This is handled by the visitor methods storing results in _tempTypes
-        
+
         // Default to signed i32
-        return new TypeInfo("i32", false, false, "i32");
+        return new TypeInfo(LLVMType: "i32", IsUnsigned: false, IsFloatingPoint: false,
+            RazorForgeType: "i32");
     }
-    
+
     // Get type info for a temporary variable or literal value
     private TypeInfo GetValueTypeInfo(string value)
     {
-        if (_tempTypes.TryGetValue(value, out var typeInfo))
+        if (_tempTypes.TryGetValue(key: value, value: out TypeInfo? typeInfo))
         {
             return typeInfo;
         }
-        
+
         // If it's not a temp variable, it might be a literal value
         // Try to infer type from the value itself (this is a simplified approach)
-        if (int.TryParse(value, out _))
+        if (int.TryParse(s: value, result: out _))
         {
             // It's a numeric literal, assume i32 for now
-            return new TypeInfo("i32", false, false, "i32");
+            return new TypeInfo(LLVMType: "i32", IsUnsigned: false, IsFloatingPoint: false,
+                RazorForgeType: "i32");
         }
-        
+
         // Default fallback
-        return new TypeInfo("i32", false, false, "i32");
+        return new TypeInfo(LLVMType: "i32", IsUnsigned: false, IsFloatingPoint: false,
+            RazorForgeType: "i32");
     }
-    
+
     // Get type info from string type name
     private TypeInfo GetTypeInfo(string typeName)
     {
         return typeName switch
         {
             // Signed integers
-            "i8" => new TypeInfo("i8", false, false, "i8"),
-            "i16" => new TypeInfo("i16", false, false, "i16"), 
-            "i32" => new TypeInfo("i32", false, false, "i32"),
-            "i64" => new TypeInfo("i64", false, false, "i64"),
-            "i128" => new TypeInfo("i128", false, false, "i128"),
-            
+            "i8" => new TypeInfo(LLVMType: "i8", IsUnsigned: false, IsFloatingPoint: false,
+                RazorForgeType: "i8"),
+            "i16" => new TypeInfo(LLVMType: "i16", IsUnsigned: false, IsFloatingPoint: false,
+                RazorForgeType: "i16"),
+            "i32" => new TypeInfo(LLVMType: "i32", IsUnsigned: false, IsFloatingPoint: false,
+                RazorForgeType: "i32"),
+            "i64" => new TypeInfo(LLVMType: "i64", IsUnsigned: false, IsFloatingPoint: false,
+                RazorForgeType: "i64"),
+            "i128" => new TypeInfo(LLVMType: "i128", IsUnsigned: false, IsFloatingPoint: false,
+                RazorForgeType: "i128"),
+
             // Unsigned integers
-            "u8" => new TypeInfo("i8", true, false, "u8"),
-            "u16" => new TypeInfo("i16", true, false, "u16"),
-            "u32" => new TypeInfo("i32", true, false, "u32"),
-            "u64" => new TypeInfo("i64", true, false, "u64"),
-            "u128" => new TypeInfo("i128", true, false, "u128"),
-            
+            "u8" => new TypeInfo(LLVMType: "i8", IsUnsigned: true, IsFloatingPoint: false,
+                RazorForgeType: "u8"),
+            "u16" => new TypeInfo(LLVMType: "i16", IsUnsigned: true, IsFloatingPoint: false,
+                RazorForgeType: "u16"),
+            "u32" => new TypeInfo(LLVMType: "i32", IsUnsigned: true, IsFloatingPoint: false,
+                RazorForgeType: "u32"),
+            "u64" => new TypeInfo(LLVMType: "i64", IsUnsigned: true, IsFloatingPoint: false,
+                RazorForgeType: "u64"),
+            "u128" => new TypeInfo(LLVMType: "i128", IsUnsigned: true, IsFloatingPoint: false,
+                RazorForgeType: "u128"),
+
             // System-dependent integers
-            "isys" => new TypeInfo("i64", false, false, "isys"),  // intptr_t - typically i64 on 64-bit systems
-            "usys" => new TypeInfo("i64", true, false, "usys"),   // uintptr_t - typically i64 on 64-bit systems
-            
+            "isys" => new TypeInfo(LLVMType: "i64", IsUnsigned: false, IsFloatingPoint: false,
+                RazorForgeType: "isys"), // intptr_t - typically i64 on 64-bit systems
+            "usys" => new TypeInfo(LLVMType: "i64", IsUnsigned: true, IsFloatingPoint: false,
+                RazorForgeType: "usys"), // uintptr_t - typically i64 on 64-bit systems
+
             // Floating point types
-            "f16" => new TypeInfo("half", false, true, "f16"),
-            "f32" => new TypeInfo("float", false, true, "f32"),
-            "f64" => new TypeInfo("double", false, true, "f64"),
-            "f128" => new TypeInfo("fp128", false, true, "f128"),
-            
+            "f16" => new TypeInfo(LLVMType: "half", IsUnsigned: false, IsFloatingPoint: true,
+                RazorForgeType: "f16"),
+            "f32" => new TypeInfo(LLVMType: "float", IsUnsigned: false, IsFloatingPoint: true,
+                RazorForgeType: "f32"),
+            "f64" => new TypeInfo(LLVMType: "double", IsUnsigned: false, IsFloatingPoint: true,
+                RazorForgeType: "f64"),
+            "f128" => new TypeInfo(LLVMType: "fp128", IsUnsigned: false, IsFloatingPoint: true,
+                RazorForgeType: "f128"),
+
             // Boolean
-            "bool" => new TypeInfo("i1", false, false, "bool"),
-            
+            "bool" => new TypeInfo(LLVMType: "i1", IsUnsigned: false, IsFloatingPoint: false,
+                RazorForgeType: "bool"),
+
             // Math library types
-            "d32" => new TypeInfo("i32", false, false, "d32"),
-            "d64" => new TypeInfo("i64", false, false, "d64"),
-            "d128" => new TypeInfo("{i64, i64}", false, false, "d128"),
-            "bigint" => new TypeInfo("i8*", false, false, "bigint"),
-            "decimal" => new TypeInfo("i8*", false, false, "decimal"),
-            
-            _ => new TypeInfo("i32", false, false, "i32")
+            "d32" => new TypeInfo(LLVMType: "i32", IsUnsigned: false, IsFloatingPoint: false,
+                RazorForgeType: "d32"),
+            "d64" => new TypeInfo(LLVMType: "i64", IsUnsigned: false, IsFloatingPoint: false,
+                RazorForgeType: "d64"),
+            "d128" => new TypeInfo(LLVMType: "{i64, i64}", IsUnsigned: false,
+                IsFloatingPoint: false, RazorForgeType: "d128"),
+            "bigint" => new TypeInfo(LLVMType: "i8*", IsUnsigned: false, IsFloatingPoint: false,
+                RazorForgeType: "bigint"),
+            "decimal" => new TypeInfo(LLVMType: "i8*", IsUnsigned: false, IsFloatingPoint: false,
+                RazorForgeType: "decimal"),
+
+            _ => new TypeInfo(LLVMType: "i32", IsUnsigned: false, IsFloatingPoint: false,
+                RazorForgeType: "i32")
         };
     }
-    
+
     // Get RazorForge type name from token type
     private string GetRazorForgeTypeFromToken(TokenType tokenType)
     {
@@ -844,22 +946,22 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             TokenType.U32Literal => "u32",
             TokenType.U64Literal => "u64",
             TokenType.U128Literal => "u128",
-            
+
             // Floating point literals
             TokenType.F16Literal => "f16",
             TokenType.F32Literal => "f32",
             TokenType.F64Literal => "f64",
             TokenType.F128Literal => "f128",
-            
+
             // Decimal literals (IEEE 754)
             TokenType.D32Literal => "d32",
             TokenType.D64Literal => "d64",
             TokenType.D128Literal => "d128",
-            
+
             // Arbitrary precision types
-            TokenType.Integer => "bigint",    // Cake arbitrary precision integer
-            TokenType.Decimal => "decimal",   // Cake arbitrary precision decimal
-            
+            TokenType.Integer => "bigint", // Cake arbitrary precision integer
+            TokenType.Decimal => "decimal", // Cake arbitrary precision decimal
+
             // Default types
             _ => "i32"
         };
@@ -870,50 +972,58 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     {
         return tokenType switch
         {
-            TokenType.U8Literal or TokenType.U16Literal or TokenType.U32Literal 
-            or TokenType.U64Literal or TokenType.U128Literal => true,
+            TokenType.U8Literal or TokenType.U16Literal or TokenType.U32Literal
+                or TokenType.U64Literal or TokenType.U128Literal => true,
             _ => false
         };
     }
-    
+
     // Check if token type is floating point
     private bool IsFloatingPointTokenType(TokenType tokenType)
     {
         return tokenType switch
         {
-            TokenType.F16Literal or TokenType.F32Literal or TokenType.F64Literal 
-            or TokenType.F128Literal or TokenType.Decimal => true,
+            TokenType.F16Literal or TokenType.F32Literal or TokenType.F64Literal
+                or TokenType.F128Literal or TokenType.Decimal => true,
             _ => false
         };
     }
-    
+
     // Get appropriate division operation based on type
     private string GetDivisionOp(string llvmType)
     {
-        return IsFloatingPointType(llvmType) ? "fdiv" : "sdiv";
+        return IsFloatingPointType(llvmType: llvmType)
+            ? "fdiv"
+            : "sdiv";
     }
-    
+
     // Get true division operation (always floating point)
     private string GetTrueDivisionOp(string llvmType)
     {
         return "fdiv";
     }
-    
+
     // Get appropriate modulo operation based on type  
     private string GetModuloOp(TypeInfo typeInfo)
     {
         if (typeInfo.IsFloatingPoint)
+        {
             return "frem";
-        
-        return typeInfo.IsUnsigned ? "urem" : "srem";
+        }
+
+        return typeInfo.IsUnsigned
+            ? "urem"
+            : "srem";
     }
-    
+
     // Get appropriate integer division operation (signed vs unsigned)
     private string GetIntegerDivisionOp(TypeInfo typeInfo)
     {
-        return typeInfo.IsUnsigned ? "udiv" : "sdiv";
+        return typeInfo.IsUnsigned
+            ? "udiv"
+            : "sdiv";
     }
-    
+
     // Check if LLVM type is floating point
     private bool IsFloatingPointType(string llvmType)
     {
@@ -923,84 +1033,129 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             _ => false
         };
     }
-    
+
     // Other visitor methods (stubs for now)
-    public string VisitClassDeclaration(ClassDeclaration node) => "";
-    public string VisitStructDeclaration(StructDeclaration node) => "";
-    public string VisitMenuDeclaration(MenuDeclaration node) => "";
-    public string VisitVariantDeclaration(VariantDeclaration node) => "";
-    public string VisitFeatureDeclaration(FeatureDeclaration node) => "";
-    public string VisitImportDeclaration(ImportDeclaration node) => "";
-    public string VisitRedefinitionDeclaration(RedefinitionDeclaration node) => "";
-    public string VisitUsingDeclaration(UsingDeclaration node) => "";
-    public string VisitImplementationDeclaration(ImplementationDeclaration node) => "";
-    public string VisitUnaryExpression(UnaryExpression node) => "";
-    public string VisitMemberExpression(MemberExpression node) => "";
-    public string VisitIndexExpression(IndexExpression node) => "";
-    public string VisitConditionalExpression(ConditionalExpression node) => "";
+    public string VisitClassDeclaration(ClassDeclaration node)
+    {
+        return "";
+    }
+    public string VisitStructDeclaration(StructDeclaration node)
+    {
+        return "";
+    }
+    public string VisitMenuDeclaration(MenuDeclaration node)
+    {
+        return "";
+    }
+    public string VisitVariantDeclaration(VariantDeclaration node)
+    {
+        return "";
+    }
+    public string VisitFeatureDeclaration(FeatureDeclaration node)
+    {
+        return "";
+    }
+    public string VisitImportDeclaration(ImportDeclaration node)
+    {
+        return "";
+    }
+    public string VisitRedefinitionDeclaration(RedefinitionDeclaration node)
+    {
+        return "";
+    }
+    public string VisitUsingDeclaration(UsingDeclaration node)
+    {
+        return "";
+    }
+    public string VisitImplementationDeclaration(ImplementationDeclaration node)
+    {
+        return "";
+    }
+    public string VisitUnaryExpression(UnaryExpression node)
+    {
+        return "";
+    }
+    public string VisitMemberExpression(MemberExpression node)
+    {
+        return "";
+    }
+    public string VisitIndexExpression(IndexExpression node)
+    {
+        return "";
+    }
+    public string VisitConditionalExpression(ConditionalExpression node)
+    {
+        return "";
+    }
     public string VisitRangeExpression(RangeExpression node)
     {
         // For now, generate a simple record representation
         // In a real implementation, this would create a Range<T> object
-        var start = node.Start.Accept(this);
-        var end = node.End.Accept(this);
-        
+        string start = node.Start.Accept(visitor: this);
+        string end = node.End.Accept(visitor: this);
+
         if (node.Step != null)
         {
-            var step = node.Step.Accept(this);
+            string step = node.Step.Accept(visitor: this);
             // Generate code for range with step
-            _output.AppendLine($"; Range from {start} to {end} step {step}");
+            _output.AppendLine(handler: $"; Range from {start} to {end} step {step}");
         }
         else
         {
             // Generate code for range without step (default step 1)
-            _output.AppendLine($"; Range from {start} to {end}");
+            _output.AppendLine(handler: $"; Range from {start} to {end}");
         }
-        
+
         return start; // Placeholder
     }
-    
+
     public string VisitChainedComparisonExpression(ChainedComparisonExpression node)
     {
         // Desugar chained comparison: a < b < c becomes (a < b) and (b < c)
         // with single evaluation of b
         if (node.Operands.Count < 2 || node.Operators.Count < 1)
+        {
             return "";
-            
-        var result = GetNextTemp();
+        }
+
+        string result = GetNextTemp();
         var tempVars = new List<string>();
-        
+
         // Evaluate all operands once and store in temporaries
         for (int i = 0; i < node.Operands.Count; i++)
         {
             if (i == 0)
             {
                 // First operand doesn't need temporary storage for first comparison
-                tempVars.Add(node.Operands[i].Accept(this));
+                tempVars.Add(item: node.Operands[index: i]
+                                       .Accept(visitor: this));
             }
             else if (i == node.Operands.Count - 1)
             {
                 // Last operand doesn't need temporary storage
-                tempVars.Add(node.Operands[i].Accept(this));
+                tempVars.Add(item: node.Operands[index: i]
+                                       .Accept(visitor: this));
             }
             else
             {
                 // Middle operands need temporary storage to avoid multiple evaluation
-                var temp = GetNextTemp();
-                var operandValue = node.Operands[i].Accept(this);
-                _output.AppendLine($"  {temp} = add i32 {operandValue}, 0  ; store for reuse");
-                tempVars.Add(temp);
+                string temp = GetNextTemp();
+                string operandValue = node.Operands[index: i]
+                                          .Accept(visitor: this);
+                _output.AppendLine(
+                    handler: $"  {temp} = add i32 {operandValue}, 0  ; store for reuse");
+                tempVars.Add(item: temp);
             }
         }
-        
+
         // Generate comparisons: (temp0 op0 temp1) and (temp1 op1 temp2) and ...
         var compResults = new List<string>();
         for (int i = 0; i < node.Operators.Count; i++)
         {
-            var compResult = GetNextTemp();
-            var left = tempVars[i];
-            var right = tempVars[i + 1];
-            var op = node.Operators[i] switch
+            string compResult = GetNextTemp();
+            string left = tempVars[index: i];
+            string right = tempVars[index: i + 1];
+            string op = node.Operators[index: i] switch
             {
                 BinaryOperator.Less => "icmp slt",
                 BinaryOperator.LessEqual => "icmp sle",
@@ -1010,86 +1165,111 @@ public class LLVMCodeGenerator : IAstVisitor<string>
                 BinaryOperator.NotEqual => "icmp ne",
                 _ => "icmp eq"
             };
-            
-            _output.AppendLine($"  {compResult} = {op} i32 {left}, {right}");
-            compResults.Add(compResult);
+
+            _output.AppendLine(handler: $"  {compResult} = {op} i32 {left}, {right}");
+            compResults.Add(item: compResult);
         }
-        
+
         // Combine all comparisons with AND
         if (compResults.Count == 1)
         {
-            return compResults[0];
+            return compResults[index: 0];
         }
-        
-        var finalResult = compResults[0];
+
+        string finalResult = compResults[index: 0];
         for (int i = 1; i < compResults.Count; i++)
         {
-            var temp = GetNextTemp();
-            _output.AppendLine($"  {temp} = and i1 {finalResult}, {compResults[i]}");
+            string temp = GetNextTemp();
+            _output.AppendLine(
+                handler: $"  {temp} = and i1 {finalResult}, {compResults[index: i]}");
             finalResult = temp;
         }
-        
+
         return finalResult;
     }
-    public string VisitLambdaExpression(LambdaExpression node) => "";
-    public string VisitTypeExpression(TypeExpression node) => "";
-    
+    public string VisitLambdaExpression(LambdaExpression node)
+    {
+        return "";
+    }
+    public string VisitTypeExpression(TypeExpression node)
+    {
+        return "";
+    }
+
     public string VisitTypeConversionExpression(TypeConversionExpression node)
     {
-        var sourceValue = node.Expression.Accept(this);
-        var targetTypeInfo = GetTypeInfo(node.TargetType);
-        
+        string sourceValue = node.Expression.Accept(visitor: this);
+        TypeInfo targetTypeInfo = GetTypeInfo(typeName: node.TargetType);
+
         // Generate a temporary variable for the conversion result
-        var tempVar = $"%tmp{_tempCounter++}";
-        
+        string tempVar = $"%tmp{_tempCounter++}";
+
         // Perform the type conversion using LLVM cast instructions
-        var sourceTypeInfo = GetTypeInfo(node.Expression);
-        
-        string conversionOp = GetConversionInstruction(sourceTypeInfo, targetTypeInfo);
-        
-        _output.AppendLine($"  {tempVar} = {conversionOp} {sourceTypeInfo.LLVMType} {sourceValue} to {targetTypeInfo.LLVMType}");
-        
+        TypeInfo sourceTypeInfo = GetTypeInfo(expr: node.Expression);
+
+        string conversionOp =
+            GetConversionInstruction(sourceType: sourceTypeInfo, targetType: targetTypeInfo);
+
+        _output.AppendLine(
+            handler:
+            $"  {tempVar} = {conversionOp} {sourceTypeInfo.LLVMType} {sourceValue} to {targetTypeInfo.LLVMType}");
+
         return tempVar;
     }
-    
+
     private string GetConversionInstruction(TypeInfo sourceType, TypeInfo targetType)
     {
         // Handle floating point to integer conversions
         if (sourceType.IsFloatingPoint && !targetType.IsFloatingPoint)
         {
-            return targetType.IsUnsigned ? "fptoui" : "fptosi";
+            return targetType.IsUnsigned
+                ? "fptoui"
+                : "fptosi";
         }
-        
+
         // Handle integer to floating point conversions  
         if (!sourceType.IsFloatingPoint && targetType.IsFloatingPoint)
         {
-            return sourceType.IsUnsigned ? "uitofp" : "sitofp";
+            return sourceType.IsUnsigned
+                ? "uitofp"
+                : "sitofp";
         }
-        
+
         // Handle floating point to floating point conversions
         if (sourceType.IsFloatingPoint && targetType.IsFloatingPoint)
         {
-            return GetFloatingPointSize(sourceType.LLVMType) > GetFloatingPointSize(targetType.LLVMType) ? 
-                "fptrunc" : "fpext";
+            return GetFloatingPointSize(llvmType: sourceType.LLVMType) >
+                   GetFloatingPointSize(llvmType: targetType.LLVMType)
+                ? "fptrunc"
+                : "fpext";
         }
-        
+
         // Handle integer to integer conversions
         if (!sourceType.IsFloatingPoint && !targetType.IsFloatingPoint)
         {
-            var sourceSize = GetIntegerSize(sourceType.LLVMType);
-            var targetSize = GetIntegerSize(targetType.LLVMType);
-            
+            int sourceSize = GetIntegerSize(llvmType: sourceType.LLVMType);
+            int targetSize = GetIntegerSize(llvmType: targetType.LLVMType);
+
             if (sourceSize > targetSize)
+            {
                 return "trunc";
+            }
             else if (sourceSize < targetSize)
-                return sourceType.IsUnsigned ? "zext" : "sext";
+            {
+                return sourceType.IsUnsigned
+                    ? "zext"
+                    : "sext";
+            }
             else
+            {
                 return "bitcast"; // Same size, just change signedness
+            }
         }
-        
-        throw new InvalidOperationException($"Cannot convert from {sourceType.LLVMType} to {targetType.LLVMType}");
+
+        throw new InvalidOperationException(
+            message: $"Cannot convert from {sourceType.LLVMType} to {targetType.LLVMType}");
     }
-    
+
     private int GetFloatingPointSize(string llvmType)
     {
         return llvmType switch
@@ -1098,10 +1278,10 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             "float" => 32,
             "double" => 64,
             "fp128" => 128,
-            _ => throw new ArgumentException($"Unknown floating point type: {llvmType}")
+            _ => throw new ArgumentException(message: $"Unknown floating point type: {llvmType}")
         };
     }
-    
+
     private int GetIntegerSize(string llvmType)
     {
         return llvmType switch
@@ -1110,122 +1290,180 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             "i16" => 16,
             "i32" => 32,
             "i64" => 64,
-            _ => throw new ArgumentException($"Unknown integer type: {llvmType}")
+            _ => throw new ArgumentException(message: $"Unknown integer type: {llvmType}")
         };
     }
-    public string VisitExpressionStatement(ExpressionStatement node) => node.Expression.Accept(this);
-    public string VisitDeclarationStatement(DeclarationStatement node) => node.Declaration.Accept(this);
-    public string VisitAssignmentStatement(AssignmentStatement node) => "";
-    public string VisitForStatement(ForStatement node) => "";
-    public string VisitBreakStatement(BreakStatement node) => "";
-    public string VisitContinueStatement(ContinueStatement node) => "";
-    public string VisitWhenStatement(WhenStatement node) => "";
+    public string VisitExpressionStatement(ExpressionStatement node)
+    {
+        return node.Expression.Accept(visitor: this);
+    }
+    public string VisitDeclarationStatement(DeclarationStatement node)
+    {
+        return node.Declaration.Accept(visitor: this);
+    }
+    public string VisitAssignmentStatement(AssignmentStatement node)
+    {
+        return "";
+    }
+    public string VisitForStatement(ForStatement node)
+    {
+        return "";
+    }
+    public string VisitBreakStatement(BreakStatement node)
+    {
+        return "";
+    }
+    public string VisitContinueStatement(ContinueStatement node)
+    {
+        return "";
+    }
+    public string VisitWhenStatement(WhenStatement node)
+    {
+        return "";
+    }
     public string VisitBlockStatement(BlockStatement node)
     {
-        foreach (var statement in node.Statements)
+        foreach (Statement statement in node.Statements)
         {
-            statement.Accept(this);
+            statement.Accept(visitor: this);
         }
+
         return "";
     }
 
     // Memory slice expression visitor methods
     public string VisitSliceConstructorExpression(SliceConstructorExpression node)
     {
-        var sizeTemp = node.SizeExpression.Accept(this);
-        var resultTemp = GetNextTemp();
+        string sizeTemp = node.SizeExpression.Accept(visitor: this);
+        string resultTemp = GetNextTemp();
 
         if (node.SliceType == "HeapSlice")
         {
             // Generate LLVM IR for heap slice construction
-            _output.AppendLine($"  {resultTemp} = call ptr @heap_alloc(i64 {sizeTemp})");
+            _output.AppendLine(handler: $"  {resultTemp} = call ptr @heap_alloc(i64 {sizeTemp})");
         }
         else if (node.SliceType == "StackSlice")
         {
             // Generate LLVM IR for stack slice construction
-            _output.AppendLine($"  {resultTemp} = call ptr @stack_alloc(i64 {sizeTemp})");
+            _output.AppendLine(handler: $"  {resultTemp} = call ptr @stack_alloc(i64 {sizeTemp})");
         }
 
         // Store slice type information for later use
-        _tempTypes[resultTemp] = new TypeInfo("ptr", false, false, node.SliceType);
+        _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "ptr", IsUnsigned: false,
+            IsFloatingPoint: false, RazorForgeType: node.SliceType);
         return resultTemp;
     }
 
     public string VisitGenericMethodCallExpression(GenericMethodCallExpression node)
     {
-        var resultTemp = GetNextTemp();
+        string resultTemp = GetNextTemp();
 
         // Check if this is a standalone danger zone function call
         if (node.Object is IdentifierExpression identifierExpr)
         {
-            var functionName = identifierExpr.Name;
-            if (IsDangerZoneFunction(functionName))
+            string functionName = identifierExpr.Name;
+            if (IsDangerZoneFunction(functionName: functionName))
             {
                 // Get type argument for generic method
-                var dangerTypeArg = node.TypeArguments.First();
-                var dangerLlvmType = MapRazorForgeTypeToLLVM(dangerTypeArg.Name);
+                TypeExpression dangerTypeArg = node.TypeArguments.First();
+                string dangerLlvmType =
+                    MapRazorForgeTypeToLLVM(razorForgeType: dangerTypeArg.Name);
 
-                return HandleDangerZoneFunction(node, functionName, dangerLlvmType, dangerTypeArg.Name, resultTemp);
+                return HandleDangerZoneFunction(node: node, functionName: functionName,
+                    llvmType: dangerLlvmType, typeName: dangerTypeArg.Name,
+                    resultTemp: resultTemp);
             }
         }
 
-        var objectTemp = node.Object.Accept(this);
+        string objectTemp = node.Object.Accept(visitor: this);
 
         // Get type argument for generic method
-        var typeArg = node.TypeArguments.First();
-        var llvmType = MapRazorForgeTypeToLLVM(typeArg.Name);
+        TypeExpression typeArg = node.TypeArguments.First();
+        string llvmType = MapRazorForgeTypeToLLVM(razorForgeType: typeArg.Name);
 
         switch (node.MethodName)
         {
             case "read":
-                var offsetTemp = node.Arguments[0].Accept(this);
-                _output.AppendLine($"  {resultTemp} = call {llvmType} @memory_read_{typeArg.Name}(ptr {objectTemp}, i64 {offsetTemp})");
-                _tempTypes[resultTemp] = new TypeInfo(MapRazorForgeTypeToLLVM(typeArg.Name), false, false, typeArg.Name);
+                string offsetTemp = node.Arguments[index: 0]
+                                        .Accept(visitor: this);
+                _output.AppendLine(
+                    handler:
+                    $"  {resultTemp} = call {llvmType} @memory_read_{typeArg.Name}(ptr {objectTemp}, i64 {offsetTemp})");
+                _tempTypes[key: resultTemp] = new TypeInfo(
+                    LLVMType: MapRazorForgeTypeToLLVM(razorForgeType: typeArg.Name),
+                    IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: typeArg.Name);
                 break;
 
             case "write":
-                var writeOffsetTemp = node.Arguments[0].Accept(this);
-                var valueTemp = node.Arguments[1].Accept(this);
-                _output.AppendLine($"  call void @memory_write_{typeArg.Name}(ptr {objectTemp}, i64 {writeOffsetTemp}, {llvmType} {valueTemp})");
+                string writeOffsetTemp = node.Arguments[index: 0]
+                                             .Accept(visitor: this);
+                string valueTemp = node.Arguments[index: 1]
+                                       .Accept(visitor: this);
+                _output.AppendLine(
+                    handler:
+                    $"  call void @memory_write_{typeArg.Name}(ptr {objectTemp}, i64 {writeOffsetTemp}, {llvmType} {valueTemp})");
                 resultTemp = ""; // void return
                 break;
 
             case "write_as":
                 // write_as<T>!(address, value) - direct memory write to address
-                var addrTemp = node.Arguments[0].Accept(this);
-                var writeValueTemp = node.Arguments[1].Accept(this);
-                _output.AppendLine($"  %ptr_{resultTemp} = inttoptr i64 {addrTemp} to ptr");
-                _output.AppendLine($"  store {llvmType} {writeValueTemp}, ptr %ptr_{resultTemp}, align {GetAlignment(typeArg.Name)}");
+                string addrTemp = node.Arguments[index: 0]
+                                      .Accept(visitor: this);
+                string writeValueTemp = node.Arguments[index: 1]
+                                            .Accept(visitor: this);
+                _output.AppendLine(
+                    handler: $"  %ptr_{resultTemp} = inttoptr i64 {addrTemp} to ptr");
+                _output.AppendLine(
+                    handler:
+                    $"  store {llvmType} {writeValueTemp}, ptr %ptr_{resultTemp}, align {GetAlignment(typeName: typeArg.Name)}");
                 resultTemp = ""; // void return
                 break;
 
             case "read_as":
                 // read_as<T>!(address) - direct memory read from address
-                var readAddrTemp = node.Arguments[0].Accept(this);
-                _output.AppendLine($"  %ptr_{resultTemp} = inttoptr i64 {readAddrTemp} to ptr");
-                _output.AppendLine($"  {resultTemp} = load {llvmType}, ptr %ptr_{resultTemp}, align {GetAlignment(typeArg.Name)}");
-                _tempTypes[resultTemp] = new TypeInfo(MapRazorForgeTypeToLLVM(typeArg.Name), false, false, typeArg.Name);
+                string readAddrTemp = node.Arguments[index: 0]
+                                          .Accept(visitor: this);
+                _output.AppendLine(
+                    handler: $"  %ptr_{resultTemp} = inttoptr i64 {readAddrTemp} to ptr");
+                _output.AppendLine(
+                    handler:
+                    $"  {resultTemp} = load {llvmType}, ptr %ptr_{resultTemp}, align {GetAlignment(typeName: typeArg.Name)}");
+                _tempTypes[key: resultTemp] = new TypeInfo(
+                    LLVMType: MapRazorForgeTypeToLLVM(razorForgeType: typeArg.Name),
+                    IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: typeArg.Name);
                 break;
 
             case "volatile_write":
                 // volatile_write<T>!(address, value) - volatile memory write to address
-                var volWriteAddrTemp = node.Arguments[0].Accept(this);
-                var volWriteValueTemp = node.Arguments[1].Accept(this);
-                _output.AppendLine($"  %ptr_{resultTemp} = inttoptr i64 {volWriteAddrTemp} to ptr");
-                _output.AppendLine($"  store volatile {llvmType} {volWriteValueTemp}, ptr %ptr_{resultTemp}, align {GetAlignment(typeArg.Name)}");
+                string volWriteAddrTemp = node.Arguments[index: 0]
+                                              .Accept(visitor: this);
+                string volWriteValueTemp = node.Arguments[index: 1]
+                                               .Accept(visitor: this);
+                _output.AppendLine(
+                    handler: $"  %ptr_{resultTemp} = inttoptr i64 {volWriteAddrTemp} to ptr");
+                _output.AppendLine(
+                    handler:
+                    $"  store volatile {llvmType} {volWriteValueTemp}, ptr %ptr_{resultTemp}, align {GetAlignment(typeName: typeArg.Name)}");
                 resultTemp = ""; // void return
                 break;
 
             case "volatile_read":
                 // volatile_read<T>!(address) - volatile memory read from address
-                var volReadAddrTemp = node.Arguments[0].Accept(this);
-                _output.AppendLine($"  %ptr_{resultTemp} = inttoptr i64 {volReadAddrTemp} to ptr");
-                _output.AppendLine($"  {resultTemp} = load volatile {llvmType}, ptr %ptr_{resultTemp}, align {GetAlignment(typeArg.Name)}");
-                _tempTypes[resultTemp] = new TypeInfo(MapRazorForgeTypeToLLVM(typeArg.Name), false, false, typeArg.Name);
+                string volReadAddrTemp = node.Arguments[index: 0]
+                                             .Accept(visitor: this);
+                _output.AppendLine(
+                    handler: $"  %ptr_{resultTemp} = inttoptr i64 {volReadAddrTemp} to ptr");
+                _output.AppendLine(
+                    handler:
+                    $"  {resultTemp} = load volatile {llvmType}, ptr %ptr_{resultTemp}, align {GetAlignment(typeName: typeArg.Name)}");
+                _tempTypes[key: resultTemp] = new TypeInfo(
+                    LLVMType: MapRazorForgeTypeToLLVM(razorForgeType: typeArg.Name),
+                    IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: typeArg.Name);
                 break;
 
             default:
-                throw new NotImplementedException($"Generic method {node.MethodName} not implemented");
+                throw new NotImplementedException(
+                    message: $"Generic method {node.MethodName} not implemented");
         }
 
         return resultTemp;
@@ -1239,59 +1477,81 @@ public class LLVMCodeGenerator : IAstVisitor<string>
 
     public string VisitMemoryOperationExpression(MemoryOperationExpression node)
     {
-        var objectTemp = node.Object.Accept(this);
-        var resultTemp = GetNextTemp();
+        string objectTemp = node.Object.Accept(visitor: this);
+        string resultTemp = GetNextTemp();
 
         switch (node.OperationName)
         {
             case "size":
-                _output.AppendLine($"  {resultTemp} = call i64 @slice_size(ptr {objectTemp})");
-                _tempTypes[resultTemp] = new TypeInfo("i64", false, false, "sysuint");
+                _output.AppendLine(
+                    handler: $"  {resultTemp} = call i64 @slice_size(ptr {objectTemp})");
+                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i64", IsUnsigned: false,
+                    IsFloatingPoint: false, RazorForgeType: "sysuint");
                 break;
 
             case "address":
-                _output.AppendLine($"  {resultTemp} = call i64 @slice_address(ptr {objectTemp})");
-                _tempTypes[resultTemp] = new TypeInfo("i64", false, false, "sysuint");
+                _output.AppendLine(
+                    handler: $"  {resultTemp} = call i64 @slice_address(ptr {objectTemp})");
+                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i64", IsUnsigned: false,
+                    IsFloatingPoint: false, RazorForgeType: "sysuint");
                 break;
 
             case "is_valid":
-                _output.AppendLine($"  {resultTemp} = call i1 @slice_is_valid(ptr {objectTemp})");
-                _tempTypes[resultTemp] = new TypeInfo("i1", false, false, "bool");
+                _output.AppendLine(
+                    handler: $"  {resultTemp} = call i1 @slice_is_valid(ptr {objectTemp})");
+                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i1", IsUnsigned: false,
+                    IsFloatingPoint: false, RazorForgeType: "bool");
                 break;
 
             case "unsafe_ptr":
-                var offsetTemp = node.Arguments[0].Accept(this);
-                _output.AppendLine($"  {resultTemp} = call i64 @slice_unsafe_ptr(ptr {objectTemp}, i64 {offsetTemp})");
-                _tempTypes[resultTemp] = new TypeInfo("i64", false, false, "sysuint");
+                string offsetTemp = node.Arguments[index: 0]
+                                        .Accept(visitor: this);
+                _output.AppendLine(
+                    handler:
+                    $"  {resultTemp} = call i64 @slice_unsafe_ptr(ptr {objectTemp}, i64 {offsetTemp})");
+                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i64", IsUnsigned: false,
+                    IsFloatingPoint: false, RazorForgeType: "sysuint");
                 break;
 
             case "slice":
-                var sliceOffsetTemp = node.Arguments[0].Accept(this);
-                var sliceBytesTemp = node.Arguments[1].Accept(this);
-                _output.AppendLine($"  {resultTemp} = call ptr @slice_subslice(ptr {objectTemp}, i64 {sliceOffsetTemp}, i64 {sliceBytesTemp})");
+                string sliceOffsetTemp = node.Arguments[index: 0]
+                                             .Accept(visitor: this);
+                string sliceBytesTemp = node.Arguments[index: 1]
+                                            .Accept(visitor: this);
+                _output.AppendLine(
+                    handler:
+                    $"  {resultTemp} = call ptr @slice_subslice(ptr {objectTemp}, i64 {sliceOffsetTemp}, i64 {sliceBytesTemp})");
 
                 // Get the original slice type
-                if (_tempTypes.TryGetValue(objectTemp, out var objType))
+                if (_tempTypes.TryGetValue(key: objectTemp, value: out TypeInfo? objType))
                 {
-                    _tempTypes[resultTemp] = objType;
+                    _tempTypes[key: resultTemp] = objType;
                 }
+
                 break;
 
             case "hijack":
-                _output.AppendLine($"  {resultTemp} = call ptr @slice_hijack(ptr {objectTemp})");
-                if (_tempTypes.TryGetValue(objectTemp, out var hijackType))
+                _output.AppendLine(
+                    handler: $"  {resultTemp} = call ptr @slice_hijack(ptr {objectTemp})");
+                if (_tempTypes.TryGetValue(key: objectTemp, value: out TypeInfo? hijackType))
                 {
-                    _tempTypes[resultTemp] = new TypeInfo("ptr", false, false, $"Hijacked<{hijackType.RazorForgeType}>");
+                    _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "ptr", IsUnsigned: false,
+                        IsFloatingPoint: false,
+                        RazorForgeType: $"Hijacked<{hijackType.RazorForgeType}>");
                 }
+
                 break;
 
             case "refer":
-                _output.AppendLine($"  {resultTemp} = call i64 @slice_refer(ptr {objectTemp})");
-                _tempTypes[resultTemp] = new TypeInfo("i64", false, false, "sysuint");
+                _output.AppendLine(
+                    handler: $"  {resultTemp} = call i64 @slice_refer(ptr {objectTemp})");
+                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i64", IsUnsigned: false,
+                    IsFloatingPoint: false, RazorForgeType: "sysuint");
                 break;
 
             default:
-                throw new NotImplementedException($"Memory operation {node.OperationName} not implemented");
+                throw new NotImplementedException(
+                    message: $"Memory operation {node.OperationName} not implemented");
         }
 
         return resultTemp;
@@ -1300,35 +1560,41 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     public string VisitDangerStatement(DangerStatement node)
     {
         // Add comment to indicate unsafe block
-        _output.AppendLine("  ; === DANGER BLOCK START ===");
-        node.Body.Accept(this);
-        _output.AppendLine("  ; === DANGER BLOCK END ===");
+        _output.AppendLine(value: "  ; === DANGER BLOCK START ===");
+        node.Body.Accept(visitor: this);
+        _output.AppendLine(value: "  ; === DANGER BLOCK END ===");
         return "";
     }
 
     public string VisitMayhemStatement(MayhemStatement node)
     {
         // Add comment to indicate maximum unsafe block
-        _output.AppendLine("  ; === MAYHEM BLOCK START ===");
-        node.Body.Accept(this);
-        _output.AppendLine("  ; === MAYHEM BLOCK END ===");
+        _output.AppendLine(value: "  ; === MAYHEM BLOCK START ===");
+        node.Body.Accept(visitor: this);
+        _output.AppendLine(value: "  ; === MAYHEM BLOCK END ===");
         return "";
     }
 
     public string VisitExternalDeclaration(ExternalDeclaration node)
     {
         // Generate external function declaration
-        var paramTypes = string.Join(", ", node.Parameters.Select(p => MapRazorForgeTypeToLLVM(p.Type?.Name ?? "void")));
-        var returnType = node.ReturnType != null ? MapRazorForgeTypeToLLVM(node.ReturnType.Name) : "void";
+        string paramTypes = string.Join(separator: ", ",
+            values: node.Parameters.Select(selector: p =>
+                MapRazorForgeTypeToLLVM(razorForgeType: p.Type?.Name ?? "void")));
+        string returnType = node.ReturnType != null
+            ? MapRazorForgeTypeToLLVM(razorForgeType: node.ReturnType.Name)
+            : "void";
 
         if (node.GenericParameters != null && node.GenericParameters.Count > 0)
         {
             // For generic external functions, we'll need to generate specialized versions
-            _output.AppendLine($"; Generic external function {node.Name} - specialized versions generated on demand");
+            _output.AppendLine(
+                handler:
+                $"; Generic external function {node.Name} - specialized versions generated on demand");
         }
         else
         {
-            _output.AppendLine($"declare {returnType} @{node.Name}({paramTypes})");
+            _output.AppendLine(handler: $"declare {returnType} @{node.Name}({paramTypes})");
         }
 
         return "";
@@ -1365,7 +1631,7 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     private void GenerateSliceRuntimeDeclarations()
     {
         // Generate declarations for slice runtime functions
-        var declarations = new[]
+        string[] declarations = new[]
         {
             "declare ptr @heap_alloc(i64)",
             "declare ptr @stack_alloc(i64)",
@@ -1392,9 +1658,9 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             "declare void @rf_crash(ptr)"
         };
 
-        foreach (var decl in declarations)
+        foreach (string decl in declarations)
         {
-            _output.AppendLine(decl);
+            _output.AppendLine(value: decl);
         }
     }
 
@@ -1420,40 +1686,65 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         };
     }
 
-    private string HandleDangerZoneFunction(GenericMethodCallExpression node, string functionName, string llvmType, string typeName, string resultTemp)
+    private string HandleDangerZoneFunction(GenericMethodCallExpression node, string functionName,
+        string llvmType, string typeName, string resultTemp)
     {
         switch (functionName)
         {
             case "write_as":
-                var addrTemp = node.Arguments[0].Accept(this);
-                var writeValueTemp = node.Arguments[1].Accept(this);
-                _output.AppendLine($"  %ptr_{resultTemp} = inttoptr i64 {addrTemp} to ptr");
-                _output.AppendLine($"  store {llvmType} {writeValueTemp}, ptr %ptr_{resultTemp}, align {GetAlignment(typeName)}");
+                string addrTemp = node.Arguments[index: 0]
+                                      .Accept(visitor: this);
+                string writeValueTemp = node.Arguments[index: 1]
+                                            .Accept(visitor: this);
+                _output.AppendLine(
+                    handler: $"  %ptr_{resultTemp} = inttoptr i64 {addrTemp} to ptr");
+                _output.AppendLine(
+                    handler:
+                    $"  store {llvmType} {writeValueTemp}, ptr %ptr_{resultTemp}, align {GetAlignment(typeName: typeName)}");
                 return ""; // void return
 
             case "read_as":
-                var readAddrTemp = node.Arguments[0].Accept(this);
-                _output.AppendLine($"  %ptr_{resultTemp} = inttoptr i64 {readAddrTemp} to ptr");
-                _output.AppendLine($"  {resultTemp} = load {llvmType}, ptr %ptr_{resultTemp}, align {GetAlignment(typeName)}");
-                _tempTypes[resultTemp] = new TypeInfo(MapRazorForgeTypeToLLVM(typeName), false, false, typeName);
+                string readAddrTemp = node.Arguments[index: 0]
+                                          .Accept(visitor: this);
+                _output.AppendLine(
+                    handler: $"  %ptr_{resultTemp} = inttoptr i64 {readAddrTemp} to ptr");
+                _output.AppendLine(
+                    handler:
+                    $"  {resultTemp} = load {llvmType}, ptr %ptr_{resultTemp}, align {GetAlignment(typeName: typeName)}");
+                _tempTypes[key: resultTemp] = new TypeInfo(
+                    LLVMType: MapRazorForgeTypeToLLVM(razorForgeType: typeName), IsUnsigned: false,
+                    IsFloatingPoint: false, RazorForgeType: typeName);
                 return resultTemp;
 
             case "volatile_write":
-                var volWriteAddrTemp = node.Arguments[0].Accept(this);
-                var volWriteValueTemp = node.Arguments[1].Accept(this);
-                _output.AppendLine($"  %ptr_{resultTemp} = inttoptr i64 {volWriteAddrTemp} to ptr");
-                _output.AppendLine($"  store volatile {llvmType} {volWriteValueTemp}, ptr %ptr_{resultTemp}, align {GetAlignment(typeName)}");
+                string volWriteAddrTemp = node.Arguments[index: 0]
+                                              .Accept(visitor: this);
+                string volWriteValueTemp = node.Arguments[index: 1]
+                                               .Accept(visitor: this);
+                _output.AppendLine(
+                    handler: $"  %ptr_{resultTemp} = inttoptr i64 {volWriteAddrTemp} to ptr");
+                _output.AppendLine(
+                    handler:
+                    $"  store volatile {llvmType} {volWriteValueTemp}, ptr %ptr_{resultTemp}, align {GetAlignment(typeName: typeName)}");
                 return ""; // void return
 
             case "volatile_read":
-                var volReadAddrTemp = node.Arguments[0].Accept(this);
-                _output.AppendLine($"  %ptr_{resultTemp} = inttoptr i64 {volReadAddrTemp} to ptr");
-                _output.AppendLine($"  {resultTemp} = load volatile {llvmType}, ptr %ptr_{resultTemp}, align {GetAlignment(typeName)}");
-                _tempTypes[resultTemp] = new TypeInfo(MapRazorForgeTypeToLLVM(typeName), false, false, typeName);
+                string volReadAddrTemp = node.Arguments[index: 0]
+                                             .Accept(visitor: this);
+                _output.AppendLine(
+                    handler: $"  %ptr_{resultTemp} = inttoptr i64 {volReadAddrTemp} to ptr");
+                _output.AppendLine(
+                    handler:
+                    $"  {resultTemp} = load volatile {llvmType}, ptr %ptr_{resultTemp}, align {GetAlignment(typeName: typeName)}");
+                _tempTypes[key: resultTemp] = new TypeInfo(
+                    LLVMType: MapRazorForgeTypeToLLVM(razorForgeType: typeName), IsUnsigned: false,
+                    IsFloatingPoint: false, RazorForgeType: typeName);
                 return resultTemp;
 
             default:
-                throw new NotImplementedException($"Danger zone function {functionName} not implemented in LLVM generator");
+                throw new NotImplementedException(
+                    message:
+                    $"Danger zone function {functionName} not implemented in LLVM generator");
         }
     }
 
@@ -1466,7 +1757,8 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         };
     }
 
-    private string HandleNonGenericDangerZoneFunction(CallExpression node, string functionName, string resultTemp)
+    private string HandleNonGenericDangerZoneFunction(CallExpression node, string functionName,
+        string resultTemp)
     {
         switch (functionName)
         {
@@ -1475,23 +1767,28 @@ public class LLVMCodeGenerator : IAstVisitor<string>
                 // Expects a single identifier argument
                 if (node.Arguments.Count != 1)
                 {
-                    throw new InvalidOperationException($"addr_of! expects exactly 1 argument, got {node.Arguments.Count}");
+                    throw new InvalidOperationException(
+                        message:
+                        $"addr_of! expects exactly 1 argument, got {node.Arguments.Count}");
                 }
 
-                var argument = node.Arguments[0];
+                Expression argument = node.Arguments[index: 0];
                 if (argument is IdentifierExpression varIdent)
                 {
                     // Generate ptrtoint to get address of variable
-                    _output.AppendLine($"  {resultTemp} = ptrtoint ptr %{varIdent.Name} to i64");
-                    _tempTypes[resultTemp] = new TypeInfo("i64", false, true, "sysuint"); // sysuint is unsigned
+                    _output.AppendLine(
+                        handler: $"  {resultTemp} = ptrtoint ptr %{varIdent.Name} to i64");
+                    _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i64", IsUnsigned: false,
+                        IsFloatingPoint: true, RazorForgeType: "sysuint"); // sysuint is unsigned
                     return resultTemp;
                 }
                 else
                 {
                     // Handle complex expressions by first evaluating them
-                    var argTemp = argument.Accept(this);
-                    _output.AppendLine($"  {resultTemp} = ptrtoint ptr {argTemp} to i64");
-                    _tempTypes[resultTemp] = new TypeInfo("i64", false, true, "sysuint"); // sysuint is unsigned
+                    string argTemp = argument.Accept(visitor: this);
+                    _output.AppendLine(handler: $"  {resultTemp} = ptrtoint ptr {argTemp} to i64");
+                    _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i64", IsUnsigned: false,
+                        IsFloatingPoint: true, RazorForgeType: "sysuint"); // sysuint is unsigned
                     return resultTemp;
                 }
 
@@ -1499,17 +1796,21 @@ public class LLVMCodeGenerator : IAstVisitor<string>
                 // invalidate!(slice) -> void (free memory)
                 if (node.Arguments.Count != 1)
                 {
-                    throw new InvalidOperationException($"invalidate! expects exactly 1 argument, got {node.Arguments.Count}");
+                    throw new InvalidOperationException(
+                        message:
+                        $"invalidate! expects exactly 1 argument, got {node.Arguments.Count}");
                 }
 
-                var sliceArgument = node.Arguments[0];
+                Expression sliceArgument = node.Arguments[index: 0];
                 // Evaluate the argument and then call heap_free on it
-                var sliceTemp = sliceArgument.Accept(this);
-                _output.AppendLine($"  call void @heap_free(ptr {sliceTemp})");
+                string sliceTemp = sliceArgument.Accept(visitor: this);
+                _output.AppendLine(handler: $"  call void @heap_free(ptr {sliceTemp})");
                 return ""; // void return
 
             default:
-                throw new NotImplementedException($"Non-generic danger zone function {functionName} not implemented in LLVM generator");
+                throw new NotImplementedException(
+                    message:
+                    $"Non-generic danger zone function {functionName} not implemented in LLVM generator");
         }
     }
 }

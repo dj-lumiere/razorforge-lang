@@ -17,32 +17,32 @@
 
   <!-- Build native libraries before main build -->
   <Target Name="BuildNativeLibraries" BeforeTargets="BeforeBuild">
-    <Exec Command="$(MSBuildProjectDirectory)\native\build.bat" WorkingDirectory="$(MSBuildProjectDirectory)\native" Condition="'$(OS)' == 'Windows_NT'" />
-    <Exec Command="bash $(MSBuildProjectDirectory)/native/build.sh" WorkingDirectory="$(MSBuildProjectDirectory)/native" Condition="'$(OS)' != 'Windows_NT'" />
+    <Exec Command="$(MSBuildProjectDirectory)\native\build.bat" WorkingDirectory="$(MSBuildProjectDirectory)\native" Condition="'$(OS)' == 'Windows_NT'"/>
+    <Exec Command="bash $(MSBuildProjectDirectory)/native/build.sh" WorkingDirectory="$(MSBuildProjectDirectory)/native" Condition="'$(OS)' != 'Windows_NT'"/>
   </Target>
 
   <!-- Include native libraries in output -->
   <ItemGroup>
-    <Content Include="native\build\bin\**\*.*" LinkBase="." CopyToOutputDirectory="PreserveNewest" Condition="Exists('native\build\bin')" />
-    <Content Include="native\build\lib\**\*.*" LinkBase="." CopyToOutputDirectory="PreserveNewest" Condition="Exists('native\build\lib')" />
+    <Content Include="native\build\bin\**\*.*" LinkBase="." CopyToOutputDirectory="PreserveNewest" Condition="Exists('native\build\bin')"/>
+    <Content Include="native\build\lib\**\*.*" LinkBase="." CopyToOutputDirectory="PreserveNewest" Condition="Exists('native\build\lib')"/>
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="DebugUtils.CSharp" Version="1.8.0" />
-    <PackageReference Include="LLVMSharp" Version="20.1.2" />
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
-    <PackageReference Include="xunit" Version="2.6.6" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.6" />
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
-    <PackageReference Include="OmniSharp.Extensions.LanguageServer" Version="0.19.9" />
-    <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.0" />
+    <PackageReference Include="DebugUtils.CSharp" Version="1.8.0"/>
+    <PackageReference Include="LLVMSharp" Version="20.1.2"/>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0"/>
+    <PackageReference Include="xunit" Version="2.6.6"/>
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.6"/>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3"/>
+    <PackageReference Include="OmniSharp.Extensions.LanguageServer" Version="0.19.9"/>
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.0"/>
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="playground\" />
-    <Folder Include="stdlib\Runtime\CompilerService\" />
-    <Folder Include="stdlib\Runtime\ObjectHacker\" />
-    <Folder Include="stdlib\Runtime\Reflection\" />
+    <Folder Include="playground\"/>
+    <Folder Include="stdlib\Runtime\CompilerService\"/>
+    <Folder Include="stdlib\Runtime\ObjectHacker\"/>
+    <Folder Include="stdlib\Runtime\Reflection\"/>
   </ItemGroup>
 
 </Project>

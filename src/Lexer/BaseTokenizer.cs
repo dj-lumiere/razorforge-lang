@@ -10,25 +10,25 @@ public abstract class BaseTokenizer
 {
     /// <summary>The complete source code text being tokenized</summary>
     protected readonly string Source;
-    
+
     /// <summary>Current character position in the source text (0-based index)</summary>
     protected int Position;
-    
+
     /// <summary>Current line number in the source text (1-based)</summary>
     protected int Line = 1;
-    
+
     /// <summary>Current column number in the current line (1-based)</summary>
     protected int Column = 1;
-    
+
     /// <summary>Starting position of the current token being processed</summary>
     protected int TokenStart = 0;
-    
+
     /// <summary>Starting column of the current token being processed</summary>
     protected int TokenStartColumn = 0;
-    
+
     /// <summary>Starting line of the current token being processed</summary>
     protected int TokenStartLine = 0;
-    
+
     /// <summary>List of tokens that have been successfully parsed from the source</summary>
     protected readonly List<Token> Tokens = [];
 
@@ -47,7 +47,7 @@ public abstract class BaseTokenizer
     /// </summary>
     /// <returns>A list of tokens representing the tokenized source code</returns>
     public abstract List<Token> Tokenize();
-    
+
     /// <summary>
     /// Returns the keyword mappings for the specific language.
     /// This method must be implemented by concrete tokenizer classes.
@@ -56,7 +56,7 @@ public abstract class BaseTokenizer
     protected abstract Dictionary<string, TokenType> GetKeywords();
 
     // ===== COMMON HELPER METHODS =====
-    
+
     /// <summary>
     /// Advances to the next character in the source text and returns the current character.
     /// Updates line and column position tracking for newlines and regular characters.
@@ -64,8 +64,12 @@ public abstract class BaseTokenizer
     /// <returns>The current character, or '\0' if at end of source</returns>
     protected char Advance()
     {
-        if (IsAtEnd()) return '\0';
-        char c = Source[Position];
+        if (IsAtEnd())
+        {
+            return '\0';
+        }
+
+        char c = Source[index: Position];
         Position += 1;
 
         if (c == '\n')
@@ -88,8 +92,16 @@ public abstract class BaseTokenizer
     /// <returns>True if the character matches and was consumed, false otherwise</returns>
     protected bool Match(char expected)
     {
-        if (IsAtEnd()) return false;
-        if (Source[Position] != expected) return false;
+        if (IsAtEnd())
+        {
+            return false;
+        }
+
+        if (Source[index: Position] != expected)
+        {
+            return false;
+        }
+
         Position++;
         Column++;
         return true;
@@ -102,14 +114,21 @@ public abstract class BaseTokenizer
     /// <returns>The character at the specified offset, or '\0' if beyond end</returns>
     protected char Peek(int offset = 0)
     {
-        var pos = Position + offset;
-        if (pos >= Source.Length) return '\0';
-        return Source[pos];
+        int pos = Position + offset;
+        if (pos >= Source.Length)
+        {
+            return '\0';
+        }
+
+        return Source[index: pos];
     }
 
     /// <summary>Checks if the tokenizer has reached the end of the source text</summary>
     /// <returns>True if at or beyond the end of source</returns>
-    protected bool IsAtEnd() => Position >= Source.Length;
+    protected bool IsAtEnd()
+    {
+        return Position >= Source.Length;
+    }
 
     /// <summary>
     /// Adds a token of the specified type using the text from tokenStart to current position.
@@ -117,8 +136,8 @@ public abstract class BaseTokenizer
     /// <param name="type">The type of token to create</param>
     protected void AddToken(TokenType type)
     {
-        var text = Source.Substring(TokenStart, Position - TokenStart);
-        AddToken(type, text);
+        string text = Source.Substring(startIndex: TokenStart, length: Position - TokenStart);
+        AddToken(type: type, text: text);
     }
 
     /// <summary>
@@ -128,28 +147,33 @@ public abstract class BaseTokenizer
     /// <param name="text">The text content of the token</param>
     protected void AddToken(TokenType type, string text)
     {
-        Tokens.Add(new Token(type, text, TokenStartLine, TokenStartColumn, TokenStart));
+        Tokens.Add(item: new Token(Type: type, Text: text, Line: TokenStartLine,
+            Column: TokenStartColumn, Position: TokenStart));
     }
 
     // ===== COMMON SCANNING METHODS =====
-    
+
     /// <summary>
     /// Scans a numeric literal, handling integers, floats, and suffixed numbers.
     /// Supports decimal points, scientific notation, and type suffixes (i32, f64, etc.).
     /// </summary>
     protected void ScanNumber()
     {
-        while (char.IsDigit(Peek()) || Peek() == '_')
+        while (char.IsDigit(c: Peek()) || Peek() == '_')
+        {
             Advance();
+        }
 
-        var isFloat = false;
+        bool isFloat = false;
 
-        if (Peek() == '.' && char.IsDigit(Peek(1)))
+        if (Peek() == '.' && char.IsDigit(c: Peek(offset: 1)))
         {
             isFloat = true;
             Advance();
-            while (char.IsDigit(Peek()) || Peek() == '_')
+            while (char.IsDigit(c: Peek()) || Peek() == '_')
+            {
                 Advance();
+            }
         }
 
         if (Peek() == 'e' || Peek() == 'E')
@@ -157,40 +181,51 @@ public abstract class BaseTokenizer
             isFloat = true;
             Advance();
             if (Peek() == '+' || Peek() == '-')
+            {
                 Advance();
-            while (char.IsDigit(Peek()))
+            }
+
+            while (char.IsDigit(c: Peek()))
+            {
                 Advance();
+            }
         }
 
-        if (char.IsLetter(Peek()))
+        if (char.IsLetter(c: Peek()))
         {
-            var suffixStart = Position;
-            while (char.IsLetterOrDigit(Peek()))
+            int suffixStart = Position;
+            while (char.IsLetterOrDigit(c: Peek()))
+            {
                 Advance();
-
-            var suffix = Source.Substring(suffixStart, Position - suffixStart);
-
-            if (_numericSuffixToTokenType.TryGetValue(suffix, out var numericTokenType))
-            {
-                AddToken(numericTokenType);
             }
-            else if (_memorySuffixToTokenType.TryGetValue(suffix, out var memoryTokenType))
+
+            string suffix =
+                Source.Substring(startIndex: suffixStart, length: Position - suffixStart);
+
+            if (_numericSuffixToTokenType.TryGetValue(key: suffix,
+                    value: out TokenType numericTokenType))
             {
-                AddToken(memoryTokenType);
+                AddToken(type: numericTokenType);
             }
-            else if (_durationSuffixToTokenType.TryGetValue(suffix, out var durationTokenType))
+            else if (_memorySuffixToTokenType.TryGetValue(key: suffix,
+                         value: out TokenType memoryTokenType))
             {
-                AddToken(durationTokenType);
+                AddToken(type: memoryTokenType);
+            }
+            else if (_durationSuffixToTokenType.TryGetValue(key: suffix,
+                         value: out TokenType durationTokenType))
+            {
+                AddToken(type: durationTokenType);
             }
             else
             {
-                throw new LexerException($"Unknown suffix '{suffix}' at line {Line}");
+                throw new LexerException(message: $"Unknown suffix '{suffix}' at line {Line}");
             }
         }
         else
         {
             // RazorForge defaults: s64 for integers, f64 for floats
-            AddToken(isFloat
+            AddToken(type: isFloat
                 ? TokenType.F64Literal
                 : TokenType.S64Literal);
         }
@@ -205,36 +240,46 @@ public abstract class BaseTokenizer
     {
         if (isHex)
         {
-            while (IsHexDigit(Peek()) || Peek() == '_')
+            while (IsHexDigit(c: Peek()) || Peek() == '_')
+            {
                 Advance();
+            }
         }
         else
         {
             while (Peek() == '0' || Peek() == '1' || Peek() == '_')
+            {
                 Advance();
+            }
         }
 
-        if (char.IsLetter(Peek()))
+        if (char.IsLetter(c: Peek()))
         {
-            var suffixStart = Position;
-            while (char.IsLetterOrDigit(Peek()))
-                Advance();
-            
-            var suffix = Source.Substring(suffixStart, Position - suffixStart);
-            if (_numericSuffixToTokenType.TryGetValue(suffix, out var tokenType))
+            int suffixStart = Position;
+            while (char.IsLetterOrDigit(c: Peek()))
             {
-                AddToken(tokenType);
+                Advance();
+            }
+
+            string suffix =
+                Source.Substring(startIndex: suffixStart, length: Position - suffixStart);
+            if (_numericSuffixToTokenType.TryGetValue(key: suffix, value: out TokenType tokenType))
+            {
+                AddToken(type: tokenType);
             }
             else
             {
-                var baseType = isHex ? "hex" : "binary";
-                throw new LexerException($"Unknown {baseType} suffix '{suffix}' at line {Line}");
+                string baseType = isHex
+                    ? "hex"
+                    : "binary";
+                throw new LexerException(
+                    message: $"Unknown {baseType} suffix '{suffix}' at line {Line}");
             }
         }
         else
         {
             // RazorForge default for unsuffixed hex/binary: s64
-            AddToken(TokenType.S64Literal);
+            AddToken(type: TokenType.S64Literal);
         }
     }
 
@@ -246,13 +291,15 @@ public abstract class BaseTokenizer
     protected void ScanChar()
     {
         if (IsAtEnd())
-            throw new LexerException($"Unterminated character literal at line {Line}");
+        {
+            throw new LexerException(message: $"Unterminated character literal at line {Line}");
+        }
 
         char value;
         if (Peek() == '\\')
         {
             Advance();
-            value = EscapeCharacter(Advance());
+            value = EscapeCharacter(c: Advance());
         }
         else
         {
@@ -260,10 +307,12 @@ public abstract class BaseTokenizer
         }
 
         if (Peek() != '\'') // Fixed: was checking for " instead of '
-            throw new LexerException($"Unterminated character literal at line {Line}");
+        {
+            throw new LexerException(message: $"Unterminated character literal at line {Line}");
+        }
 
         Advance();
-        AddToken(TokenType.LetterLiteral, value.ToString());
+        AddToken(type: TokenType.LetterLiteral, text: value.ToString());
     }
 
     /// <summary>
@@ -275,10 +324,10 @@ public abstract class BaseTokenizer
     {
         if (IsAtEnd())
         {
-            throw new LexerException($"Unterminated escape sequence at line {Line}");
+            throw new LexerException(message: $"Unterminated escape sequence at line {Line}");
         }
-        
-        var escapeChar = Peek();
+
+        char escapeChar = Peek();
         switch (escapeChar)
         {
             case 'n':
@@ -292,13 +341,14 @@ public abstract class BaseTokenizer
                 break;
             case 'u':
                 Advance(); // consume 'u'
-                ScanUnicodeEscape(bitWidth);
+                ScanUnicodeEscape(bitWidth: bitWidth);
                 break;
             default:
-                throw new LexerException($"Invalid escape sequence '\\{escapeChar}' at line {Line}");
+                throw new LexerException(
+                    message: $"Invalid escape sequence '\\{escapeChar}' at line {Line}");
         }
     }
-    
+
     /// <summary>
     /// Scans a Unicode escape sequence (\uXX, \uXXXX, or \uXXXXXXXX based on bit width).
     /// </summary>
@@ -307,22 +357,25 @@ public abstract class BaseTokenizer
     {
         int hexDigits = bitWidth switch
         {
-            8 => 2,   // \uXX
-            16 => 4,  // \uXXXX
-            32 => 8,  // \uXXXXXXXX
-            _ => 4    // default to 16-bit
+            8 => 2, // \uXX
+            16 => 4, // \uXXXX
+            32 => 8, // \uXXXXXXXX
+            _ => 4 // default to 16-bit
         };
-        
+
         for (int i = 0; i < hexDigits; i++)
         {
-            if (!IsHexDigit(Peek()))
+            if (!IsHexDigit(c: Peek()))
             {
-                throw new LexerException($"Invalid Unicode escape sequence at line {Line}: expected {hexDigits} hex digits for {bitWidth}-bit character");
+                throw new LexerException(
+                    message:
+                    $"Invalid Unicode escape sequence at line {Line}: expected {hexDigits} hex digits for {bitWidth}-bit character");
             }
+
             Advance();
         }
     }
-    
+
     /// <summary>
     /// Converts an escape sequence to its actual character value.
     /// </summary>
@@ -331,8 +384,8 @@ public abstract class BaseTokenizer
     /// <returns>The actual character represented by the escape sequence</returns>
     protected char ParseEscapeSequence(int escapeStart, int bitWidth = 32)
     {
-        var c = Source[escapeStart + 1]; // Character after backslash
-        
+        char c = Source[index: escapeStart + 1]; // Character after backslash
+
         if (c == 'u')
         {
             // Parse Unicode escape
@@ -343,26 +396,30 @@ public abstract class BaseTokenizer
                 32 => 8,
                 _ => 4
             };
-            
-            var hexStr = Source.Substring(escapeStart + 2, hexDigits);
-            var codePoint = Convert.ToInt32(hexStr, 16);
-            
+
+            string hexStr = Source.Substring(startIndex: escapeStart + 2, length: hexDigits);
+            int codePoint = Convert.ToInt32(value: hexStr, fromBase: 16);
+
             // Validate code point range based on bit width
             if (bitWidth == 8 && codePoint > 0xFF)
             {
-                throw new LexerException($"Unicode escape value {codePoint:X} exceeds 8-bit range at line {Line}");
+                throw new LexerException(
+                    message:
+                    $"Unicode escape value {codePoint:X} exceeds 8-bit range at line {Line}");
             }
             else if (bitWidth == 16 && codePoint > 0xFFFF)
             {
-                throw new LexerException($"Unicode escape value {codePoint:X} exceeds 16-bit range at line {Line}");
+                throw new LexerException(
+                    message:
+                    $"Unicode escape value {codePoint:X} exceeds 16-bit range at line {Line}");
             }
-            
+
             return (char)codePoint;
         }
-        
-        return EscapeCharacter(c);
+
+        return EscapeCharacter(c: c);
     }
-    
+
     /// <summary>
     /// Converts a simple escape sequence character to its actual character value.
     /// </summary>
@@ -389,22 +446,26 @@ public abstract class BaseTokenizer
     /// </summary>
     protected void ScanComment()
     {
-        if (Peek() == '#' && Peek(1) == '#')
+        if (Peek() == '#' && Peek(offset: 1) == '#')
         {
             Advance();
             Advance();
 
-            var start = Position;
+            int start = Position;
             while (Peek() != '\n' && !IsAtEnd())
+            {
                 Advance();
+            }
 
-            var text = Source.Substring(start, Position - start);
-            AddToken(TokenType.DocComment, text);
+            string text = Source.Substring(startIndex: start, length: Position - start);
+            AddToken(type: TokenType.DocComment, text: text);
         }
         else
         {
             while (Peek() != '\n' && !IsAtEnd())
+            {
                 Advance();
+            }
         }
     }
 
@@ -414,10 +475,12 @@ public abstract class BaseTokenizer
     /// </summary>
     protected virtual void ScanIdentifier()
     {
-        while (IsIdentifierPart(Peek()))
+        while (IsIdentifierPart(c: Peek()))
+        {
             Advance();
+        }
 
-        var text = Source.Substring(TokenStart, Position - TokenStart);
+        string text = Source.Substring(startIndex: TokenStart, length: Position - TokenStart);
 
         // Note: ! is handled as a separate token, not part of identifiers
         // (removed the automatic inclusion of ! in identifier tokens)
@@ -433,134 +496,156 @@ public abstract class BaseTokenizer
             }
         }
 
-        var keywords = GetKeywords();
-        if (keywords.TryGetValue(text, out var type))
+        Dictionary<string, TokenType> keywords = GetKeywords();
+        if (keywords.TryGetValue(key: text, value: out TokenType type))
         {
-            AddToken(type, text);
+            AddToken(type: type, text: text);
             return;
         }
-        if (string.IsNullOrEmpty(text))
+
+        if (string.IsNullOrEmpty(value: text))
         {
             return;
         }
 
-        AddToken(char.IsUpper(text[0])
+        AddToken(type: char.IsUpper(c: text[index: 0])
             ? TokenType.TypeIdentifier
-            : TokenType.Identifier, text);
+            : TokenType.Identifier, text: text);
     }
 
     /// <summary>Maps numeric suffixes (s32, f64, etc.) to their corresponding token types</summary>
     protected readonly Dictionary<string, TokenType> _numericSuffixToTokenType = new()
     {
-        ["s8"] = TokenType.S8Literal,
-        ["s16"] = TokenType.S16Literal,
-        ["s32"] = TokenType.S32Literal,
-        ["s64"] = TokenType.S64Literal,
-        ["s128"] = TokenType.S128Literal,
-        ["syssint"] = TokenType.SyssintLiteral,
-        ["u8"] = TokenType.U8Literal,
-        ["u16"] = TokenType.U16Literal,
-        ["u32"] = TokenType.U32Literal,
-        ["u64"] = TokenType.U64Literal,
-        ["u128"] = TokenType.U128Literal,
-        ["sysuint"] = TokenType.SysuintLiteral,
-        ["f16"] = TokenType.F16Literal,
-        ["f32"] = TokenType.F32Literal,
-        ["f64"] = TokenType.F64Literal,
-        ["f128"] = TokenType.F128Literal,
-        ["d32"] = TokenType.D32Literal,
-        ["d64"] = TokenType.D64Literal,
-        ["d128"] = TokenType.D128Literal,
+        [key: "s8"] = TokenType.S8Literal,
+        [key: "s16"] = TokenType.S16Literal,
+        [key: "s32"] = TokenType.S32Literal,
+        [key: "s64"] = TokenType.S64Literal,
+        [key: "s128"] = TokenType.S128Literal,
+        [key: "syssint"] = TokenType.SyssintLiteral,
+        [key: "u8"] = TokenType.U8Literal,
+        [key: "u16"] = TokenType.U16Literal,
+        [key: "u32"] = TokenType.U32Literal,
+        [key: "u64"] = TokenType.U64Literal,
+        [key: "u128"] = TokenType.U128Literal,
+        [key: "sysuint"] = TokenType.SysuintLiteral,
+        [key: "f16"] = TokenType.F16Literal,
+        [key: "f32"] = TokenType.F32Literal,
+        [key: "f64"] = TokenType.F64Literal,
+        [key: "f128"] = TokenType.F128Literal,
+        [key: "d32"] = TokenType.D32Literal,
+        [key: "d64"] = TokenType.D64Literal,
+        [key: "d128"] = TokenType.D128Literal
     };
 
     /// <summary>Maps memory size suffixes (kb, mib, etc.) to their corresponding token types</summary>
     protected readonly Dictionary<string, TokenType> _memorySuffixToTokenType = new()
     {
-        ["b"] = TokenType.ByteLiteral,
-        ["kb"] = TokenType.KilobyteLiteral,
-        ["kib"] = TokenType.KibibyteLiteral,
-        ["kbit"] = TokenType.KilobitLiteral,
-        ["kibit"] = TokenType.KibibitLiteral,
-        ["mb"] = TokenType.MegabyteLiteral,
-        ["mib"] = TokenType.MebibyteLiteral,
-        ["mbit"] = TokenType.MegabitLiteral,
-        ["mibit"] = TokenType.MebibitLiteral,
-        ["gb"] = TokenType.GigabyteLiteral,
-        ["gib"] = TokenType.GibibyteLiteral,
-        ["gbit"] = TokenType.GigabitLiteral,
-        ["gibit"] = TokenType.GibibitLiteral,
-        ["tb"] = TokenType.TerabyteLiteral,
-        ["tib"] = TokenType.TebibyteLiteral,
-        ["tbit"] = TokenType.TerabitLiteral,
-        ["tibit"] = TokenType.TebibitLiteral,
-        ["pb"] = TokenType.PetabyteLiteral,
-        ["pib"] = TokenType.PebibyteLiteral,
-        ["pbit"] = TokenType.PetabitLiteral,
-        ["pibit"] = TokenType.PebibitLiteral,
+        [key: "b"] = TokenType.ByteLiteral,
+        [key: "kb"] = TokenType.KilobyteLiteral,
+        [key: "kib"] = TokenType.KibibyteLiteral,
+        [key: "kbit"] = TokenType.KilobitLiteral,
+        [key: "kibit"] = TokenType.KibibitLiteral,
+        [key: "mb"] = TokenType.MegabyteLiteral,
+        [key: "mib"] = TokenType.MebibyteLiteral,
+        [key: "mbit"] = TokenType.MegabitLiteral,
+        [key: "mibit"] = TokenType.MebibitLiteral,
+        [key: "gb"] = TokenType.GigabyteLiteral,
+        [key: "gib"] = TokenType.GibibyteLiteral,
+        [key: "gbit"] = TokenType.GigabitLiteral,
+        [key: "gibit"] = TokenType.GibibitLiteral,
+        [key: "tb"] = TokenType.TerabyteLiteral,
+        [key: "tib"] = TokenType.TebibyteLiteral,
+        [key: "tbit"] = TokenType.TerabitLiteral,
+        [key: "tibit"] = TokenType.TebibitLiteral,
+        [key: "pb"] = TokenType.PetabyteLiteral,
+        [key: "pib"] = TokenType.PebibyteLiteral,
+        [key: "pbit"] = TokenType.PetabitLiteral,
+        [key: "pibit"] = TokenType.PebibitLiteral
     };
 
     /// <summary>Maps duration suffixes (s, ms, h, etc.) to their corresponding token types</summary>
     protected readonly Dictionary<string, TokenType> _durationSuffixToTokenType = new()
     {
-        ["w"] = TokenType.WeekLiteral,
-        ["d"] = TokenType.DayLiteral,
-        ["h"] = TokenType.HourLiteral,
-        ["m"] = TokenType.MinuteLiteral,
-        ["s"] = TokenType.SecondLiteral,
-        ["ms"] = TokenType.MillisecondLiteral,
-        ["us"] = TokenType.MicrosecondLiteral,
-        ["ns"] = TokenType.NanosecondLiteral,
+        [key: "w"] = TokenType.WeekLiteral,
+        [key: "d"] = TokenType.DayLiteral,
+        [key: "h"] = TokenType.HourLiteral,
+        [key: "m"] = TokenType.MinuteLiteral,
+        [key: "s"] = TokenType.SecondLiteral,
+        [key: "ms"] = TokenType.MillisecondLiteral,
+        [key: "us"] = TokenType.MicrosecondLiteral,
+        [key: "ns"] = TokenType.NanosecondLiteral
     };
 
     /// <summary>Maps text prefixes (f, r, text8, etc.) to their corresponding token types</summary>
     private readonly Dictionary<string, TokenType> _textPrefixToTokenType = new()
     {
-        ["r"] = TokenType.RawText,
-        ["f"] = TokenType.FormattedText,
-        ["rf"] = TokenType.RawFormattedText,
-        ["text8"] = TokenType.Text8Literal,
-        ["text8r"] = TokenType.Text8RawText,
-        ["text8f"] = TokenType.Text8FormattedText,
-        ["text8rf"] = TokenType.Text8RawFormattedText,
-        ["text16"] = TokenType.Text16Literal,
-        ["text16r"] = TokenType.Text16RawText,
-        ["text16f"] = TokenType.Text16FormattedText,
-        ["text16rf"] = TokenType.Text16RawFormattedText,
+        [key: "r"] = TokenType.RawText,
+        [key: "f"] = TokenType.FormattedText,
+        [key: "rf"] = TokenType.RawFormattedText,
+        [key: "text8"] = TokenType.Text8Literal,
+        [key: "text8r"] = TokenType.Text8RawText,
+        [key: "text8f"] = TokenType.Text8FormattedText,
+        [key: "text8rf"] = TokenType.Text8RawFormattedText,
+        [key: "text16"] = TokenType.Text16Literal,
+        [key: "text16r"] = TokenType.Text16RawText,
+        [key: "text16f"] = TokenType.Text16FormattedText,
+        [key: "text16rf"] = TokenType.Text16RawFormattedText
     };
 
     /// <summary>List of all valid text prefixes for prefix matching during tokenization</summary>
-    private List<string> _textPrefixes = ["r", "f", "rf", "text8", "text8r", "text8f", "text8rf", "text16", "text16r", "text16f", "text16rf"];
+    private List<string> _textPrefixes =
+    [
+        "r", "f", "rf", "text8", "text8r", "text8f", "text8rf", "text16", "text16r", "text16f",
+        "text16rf"
+    ];
 
     // ===== HELPER PREDICATES =====
-    
+
     /// <summary>Checks if a character can start an identifier (letter or underscore)</summary>
     /// <param name="c">Character to check</param>
     /// <returns>True if the character can start an identifier</returns>
-    protected static bool IsIdentifierStart(char c) => char.IsLetter(c) || c == '_';
+    protected static bool IsIdentifierStart(char c)
+    {
+        return char.IsLetter(c: c) || c == '_';
+    }
     /// <summary>Checks if a character can be part of an identifier (letter, digit, or underscore)</summary>
     /// <param name="c">Character to check</param>
     /// <returns>True if the character can be part of an identifier</returns>
-    protected bool IsIdentifierPart(char c) => char.IsLetterOrDigit(c) || c == '_';
+    protected bool IsIdentifierPart(char c)
+    {
+        return char.IsLetterOrDigit(c: c) || c == '_';
+    }
     /// <summary>Checks if a character is a valid hexadecimal digit (0-9, A-F, a-f)</summary>
     /// <param name="c">Character to check</param>
     /// <returns>True if the character is a hex digit</returns>
-    protected bool IsHexDigit(char c) =>
-        char.IsDigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+    protected bool IsHexDigit(char c)
+    {
+        return char.IsDigit(c: c) || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F';
+    }
 
     /// <summary>Checks if a string is a valid numeric type suffix (i32, f64, etc.)</summary>
     /// <param name="s">String to check</param>
     /// <returns>True if the string is a recognized numeric suffix</returns>
-    protected bool IsNumericSuffix(string s) => _numericSuffixToTokenType.ContainsKey(s);
+    protected bool IsNumericSuffix(string s)
+    {
+        return _numericSuffixToTokenType.ContainsKey(key: s);
+    }
 
     /// <summary>Checks if a string is a valid memory size suffix (kb, mib, etc.)</summary>
     /// <param name="s">String to check</param>
     /// <returns>True if the string is a recognized memory size suffix</returns>
-    protected bool IsMemorySuffix(string s) => _memorySuffixToTokenType.ContainsKey(s);
+    protected bool IsMemorySuffix(string s)
+    {
+        return _memorySuffixToTokenType.ContainsKey(key: s);
+    }
 
     /// <summary>Checks if a string is a valid duration suffix (s, ms, h, etc.)</summary>
     /// <param name="s">String to check</param>
     /// <returns>True if the string is a recognized duration suffix</returns>
-    protected bool IsDurationSuffix(string s) => _durationSuffixToTokenType.ContainsKey(s);
+    protected bool IsDurationSuffix(string s)
+    {
+        return _durationSuffixToTokenType.ContainsKey(key: s);
+    }
 
     /// <summary>
     /// Attempts to parse a text prefix (r, f, t8, etc.) followed by a quoted string.
@@ -569,19 +654,19 @@ public abstract class BaseTokenizer
     /// <returns>True if a valid text prefix was found and processed</returns>
     protected bool TryParseTextPrefix()
     {
-        var startPos = Position - 1; // We already consumed the first character
-        var originalPos = Position;
-        var originalCol = Column;
-        
+        int startPos = Position - 1; // We already consumed the first character
+        int originalPos = Position;
+        int originalCol = Column;
+
         // Backup the first character we already consumed
-        var firstChar = Source[startPos];
-        var prefix = firstChar.ToString();
-        
+        char firstChar = Source[index: startPos];
+        string prefix = firstChar.ToString();
+
         // Try to build the longest possible prefix
-        while (!IsAtEnd() && char.IsLetterOrDigit(Peek()))
+        while (!IsAtEnd() && char.IsLetterOrDigit(c: Peek()))
         {
-            var testPrefix = prefix + Peek();
-            if (_textPrefixes.Any(p => p.StartsWith(testPrefix)))
+            string testPrefix = prefix + Peek();
+            if (_textPrefixes.Any(predicate: p => p.StartsWith(value: testPrefix)))
             {
                 prefix += Advance();
             }
@@ -590,16 +675,16 @@ public abstract class BaseTokenizer
                 break;
             }
         }
-        
+
         // Check if we found a valid prefix
-        if (!_textPrefixToTokenType.ContainsKey(prefix))
+        if (!_textPrefixToTokenType.ContainsKey(key: prefix))
         {
             // Not a valid text prefix, reset and treat as identifier
             Position = originalPos;
             Column = originalCol;
             return false;
         }
-        
+
         // Check if this prefix is followed by a quote
         if (Peek() != '"')
         {
@@ -608,25 +693,32 @@ public abstract class BaseTokenizer
             Column = originalCol;
             return false;
         }
-        
+
         // Consume the opening quote
         Advance();
-        
+
         // Get the token type from the dictionary
-        var tokenType = _textPrefixToTokenType[prefix];
-        
+        TokenType tokenType = _textPrefixToTokenType[key: prefix];
+
         // Determine the properties for scanning
-        var isRaw = prefix.Contains('r');
-        var isFormatted = prefix.Contains('f');
-        
+        bool isRaw = prefix.Contains(value: 'r');
+        bool isFormatted = prefix.Contains(value: 'f');
+
         // Determine bit width from prefix
         int bitWidth = 32; // default
-        if (prefix.Contains("text8")) bitWidth = 8;
-        else if (prefix.Contains("text16")) bitWidth = 16;
+        if (prefix.Contains(value: "text8"))
+        {
+            bitWidth = 8;
+        }
+        else if (prefix.Contains(value: "text16"))
+        {
+            bitWidth = 16;
+        }
         // text32 is the default, so all other prefixes use 32-bit
-        
+
         // Scan the string literal with the determined properties and specific token type
-        ScanStringLiteralWithType(isRaw, isFormatted, tokenType, bitWidth);
+        ScanStringLiteralWithType(isRaw: isRaw, isFormatted: isFormatted, tokenType: tokenType,
+            bitWidth: bitWidth);
         return true;
     }
 
@@ -637,15 +729,16 @@ public abstract class BaseTokenizer
     /// <param name="isFormatted">Whether the text supports interpolation</param>
     protected void ScanStringLiteral(bool isRaw, bool isFormatted)
     {
-        var tokenType = (isRaw, isFormatted) switch
+        TokenType tokenType = (isRaw, isFormatted) switch
         {
             (true, true) => TokenType.RawFormattedText,
             (true, false) => TokenType.RawText,
             (false, true) => TokenType.FormattedText,
             _ => TokenType.TextLiteral
         };
-        
-        ScanStringLiteralWithType(isRaw, isFormatted, tokenType, 32); // Default 32-bit for regular text
+
+        ScanStringLiteralWithType(isRaw: isRaw, isFormatted: isFormatted, tokenType: tokenType,
+            bitWidth: 32); // Default 32-bit for regular text
     }
 
     /// <summary>
@@ -655,41 +748,44 @@ public abstract class BaseTokenizer
     /// <param name="isFormatted">Whether the text supports interpolation (for future use)</param>
     /// <param name="tokenType">The specific token type to create</param>
     /// <param name="bitWidth">The bit width for Unicode escapes (8, 16, or 32)</param>
-    protected void ScanStringLiteralWithType(bool isRaw, bool isFormatted, TokenType tokenType, int bitWidth = 32)
+    protected void ScanStringLiteralWithType(bool isRaw, bool isFormatted, TokenType tokenType,
+        int bitWidth = 32)
     {
-        var startLine = Line;
-        var startColumn = Column;
+        int startLine = Line;
+        int startColumn = Column;
         var content = new System.Text.StringBuilder();
 
         while (!IsAtEnd() && Peek() != '"')
         {
             if (Peek() == '\n')
             {
-                content.Append('\n');
+                content.Append(value: '\n');
                 Advance();
             }
             else if (!isRaw && Peek() == '\\')
             {
-                var escapeStart = Position;
+                int escapeStart = Position;
                 Advance(); // consume backslash
-                ScanEscapeSequence(bitWidth);
-                content.Append(ParseEscapeSequence(escapeStart, bitWidth));
+                ScanEscapeSequence(bitWidth: bitWidth);
+                content.Append(value: ParseEscapeSequence(escapeStart: escapeStart,
+                    bitWidth: bitWidth));
             }
             else
             {
-                content.Append(Advance());
+                content.Append(value: Advance());
             }
         }
 
         if (IsAtEnd())
         {
-            throw new LexerException($"Unterminated text starting at line {startLine}, column {startColumn}");
+            throw new LexerException(
+                message: $"Unterminated text starting at line {startLine}, column {startColumn}");
         }
 
         Advance(); // consume closing quote
-        AddToken(tokenType, content.ToString());
+        AddToken(type: tokenType, text: content.ToString());
     }
-    
+
     /// <summary>
     /// Scans plus-based operators including overflow variants (+%, +^, +!, +?).
     /// </summary>
@@ -697,11 +793,23 @@ public abstract class BaseTokenizer
     {
         switch (Peek())
         {
-            case '%': Advance(); AddToken(TokenType.PlusWrap); break;
-            case '^': Advance(); AddToken(TokenType.PlusSaturate); break;
-            case '!': Advance(); AddToken(TokenType.PlusUnchecked); break;
-            case '?': Advance(); AddToken(TokenType.PlusChecked); break;
-            default: AddToken(TokenType.Plus); break;
+            case '%':
+                Advance();
+                AddToken(type: TokenType.PlusWrap);
+                break;
+            case '^':
+                Advance();
+                AddToken(type: TokenType.PlusSaturate);
+                break;
+            case '!':
+                Advance();
+                AddToken(type: TokenType.PlusUnchecked);
+                break;
+            case '?':
+                Advance();
+                AddToken(type: TokenType.PlusChecked);
+                break;
+            default: AddToken(type: TokenType.Plus); break;
         }
     }
 
@@ -712,11 +820,23 @@ public abstract class BaseTokenizer
     {
         switch (Peek())
         {
-            case '%': Advance(); AddToken(TokenType.MinusWrap); break;
-            case '^': Advance(); AddToken(TokenType.MinusSaturate); break;
-            case '!': Advance(); AddToken(TokenType.MinusUnchecked); break;
-            case '?': Advance(); AddToken(TokenType.MinusChecked); break;
-            default: AddToken(TokenType.Minus); break;
+            case '%':
+                Advance();
+                AddToken(type: TokenType.MinusWrap);
+                break;
+            case '^':
+                Advance();
+                AddToken(type: TokenType.MinusSaturate);
+                break;
+            case '!':
+                Advance();
+                AddToken(type: TokenType.MinusUnchecked);
+                break;
+            case '?':
+                Advance();
+                AddToken(type: TokenType.MinusChecked);
+                break;
+            default: AddToken(type: TokenType.Minus); break;
         }
     }
 
@@ -725,14 +845,37 @@ public abstract class BaseTokenizer
     /// </summary>
     protected void ScanStarOperator()
     {
-        var isPow = Match('*');
+        bool isPow = Match(expected: '*');
         switch (Peek())
         {
-            case '%': Advance(); AddToken(isPow ? TokenType.PowerWrap : TokenType.MultiplyWrap); break;
-            case '^': Advance(); AddToken(isPow ? TokenType.PowerSaturate : TokenType.MultiplySaturate); break;
-            case '!': Advance(); AddToken(isPow ? TokenType.PowerUnchecked : TokenType.MultiplyUnchecked); break;
-            case '?': Advance(); AddToken(isPow ? TokenType.PowerChecked : TokenType.MultiplyChecked); break;
-            default: AddToken(isPow ? TokenType.Power : TokenType.Star); break;
+            case '%':
+                Advance();
+                AddToken(type: isPow
+                    ? TokenType.PowerWrap
+                    : TokenType.MultiplyWrap);
+                break;
+            case '^':
+                Advance();
+                AddToken(type: isPow
+                    ? TokenType.PowerSaturate
+                    : TokenType.MultiplySaturate);
+                break;
+            case '!':
+                Advance();
+                AddToken(type: isPow
+                    ? TokenType.PowerUnchecked
+                    : TokenType.MultiplyUnchecked);
+                break;
+            case '?':
+                Advance();
+                AddToken(type: isPow
+                    ? TokenType.PowerChecked
+                    : TokenType.MultiplyChecked);
+                break;
+            default:
+                AddToken(type: isPow
+                    ? TokenType.Power
+                    : TokenType.Star); break;
         }
     }
 
@@ -742,18 +885,31 @@ public abstract class BaseTokenizer
     /// </summary>
     protected void ScanSlashOperator()
     {
-        switch (Match('/'))
+        switch (Match(expected: '/'))
         {
-            case false: AddToken(TokenType.Slash); break;
+            case false: AddToken(type: TokenType.Slash); break;
             default:
                 switch (Peek())
                 {
-                    case '%': Advance(); AddToken(TokenType.DivideWrap); break;
-                    case '^': Advance(); AddToken(TokenType.DivideSaturate); break;
-                    case '!': Advance(); AddToken(TokenType.DivideUnchecked); break;
-                    case '?': Advance(); AddToken(TokenType.DivideChecked); break;
-                    default: AddToken(TokenType.Divide); break;
+                    case '%':
+                        Advance();
+                        AddToken(type: TokenType.DivideWrap);
+                        break;
+                    case '^':
+                        Advance();
+                        AddToken(type: TokenType.DivideSaturate);
+                        break;
+                    case '!':
+                        Advance();
+                        AddToken(type: TokenType.DivideUnchecked);
+                        break;
+                    case '?':
+                        Advance();
+                        AddToken(type: TokenType.DivideChecked);
+                        break;
+                    default: AddToken(type: TokenType.Divide); break;
                 }
+
                 break;
         }
     }
@@ -765,11 +921,23 @@ public abstract class BaseTokenizer
     {
         switch (Peek())
         {
-            case '%': Advance(); AddToken(TokenType.ModuloWrap); break;
-            case '^': Advance(); AddToken(TokenType.ModuloSaturate); break;
-            case '!': Advance(); AddToken(TokenType.ModuloUnchecked); break;
-            case '?': Advance(); AddToken(TokenType.ModuloChecked); break;
-            default: AddToken(TokenType.Percent); break;
+            case '%':
+                Advance();
+                AddToken(type: TokenType.ModuloWrap);
+                break;
+            case '^':
+                Advance();
+                AddToken(type: TokenType.ModuloSaturate);
+                break;
+            case '!':
+                Advance();
+                AddToken(type: TokenType.ModuloUnchecked);
+                break;
+            case '?':
+                Advance();
+                AddToken(type: TokenType.ModuloChecked);
+                break;
+            default: AddToken(type: TokenType.Percent); break;
         }
     }
 }

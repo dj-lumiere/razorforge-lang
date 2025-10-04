@@ -32,34 +32,34 @@ public static class MathLibrarySupport
     /// <remarks>
     /// The generated declarations include:
     /// <list type="bullet">
-/// <item>Arithmetic operations: add, subtract, multiply, divide</item>
-/// <item>Comparison operations: equality and relational comparisons</item>
-/// <item>Conversion functions: string to/from numeric representations</item>
-/// <item>Memory management: allocation and deallocation functions</item>
-/// </list>
-/// </remarks>
+    /// <item>Arithmetic operations: add, subtract, multiply, divide</item>
+    /// <item>Comparison operations: equality and relational comparisons</item>
+    /// <item>Conversion functions: string to/from numeric representations</item>
+    /// <item>Memory management: allocation and deallocation functions</item>
+    /// </list>
+    /// </remarks>
     public static string GenerateDeclarations()
     {
         var sb = new StringBuilder();
-        
-        sb.AppendLine("; Native math library function declarations");
+
+        sb.AppendLine(value: "; Native math library function declarations");
         sb.AppendLine();
-        
+
         // libdfp - IEEE 754 decimal floating point
-        sb.AppendLine("; libdfp - IEEE 754 decimal floating point operations");
-        GenerateLibDfpDeclarations(sb);
+        sb.AppendLine(value: "; libdfp - IEEE 754 decimal floating point operations");
+        GenerateLibDfpDeclarations(sb: sb);
         sb.AppendLine();
-        
+
         // libbf - Arbitrary precision arithmetic
-        sb.AppendLine("; libbf - Arbitrary precision arithmetic operations");
-        GenerateLibBfDeclarations(sb);
+        sb.AppendLine(value: "; libbf - Arbitrary precision arithmetic operations");
+        GenerateLibBfDeclarations(sb: sb);
         sb.AppendLine();
-        
+
         // mafm - Multiple precision arithmetic
-        sb.AppendLine("; mafm - Multiple precision arithmetic operations");
-        GenerateMafmDeclarations(sb);
+        sb.AppendLine(value: "; mafm - Multiple precision arithmetic operations");
+        GenerateMafmDeclarations(sb: sb);
         sb.AppendLine();
-        
+
         return sb.ToString();
     }
 
@@ -80,32 +80,32 @@ public static class MathLibrarySupport
     private static void GenerateLibDfpDeclarations(StringBuilder sb)
     {
         // Decimal32 operations - 32-bit IEEE 754 decimal floating point
-        sb.AppendLine("declare i32 @d32_add(i32, i32)");      // Addition
-        sb.AppendLine("declare i32 @d32_sub(i32, i32)");      // Subtraction
-        sb.AppendLine("declare i32 @d32_mul(i32, i32)");      // Multiplication
-        sb.AppendLine("declare i32 @d32_div(i32, i32)");      // Division
-        sb.AppendLine("declare i32 @d32_cmp(i32, i32)");      // Comparison (-1, 0, 1)
-        sb.AppendLine("declare i32 @d32_from_string(i8*)");   // Parse from string
-        sb.AppendLine("declare i8* @d32_to_string(i32)");     // Convert to string
+        sb.AppendLine(value: "declare i32 @d32_add(i32, i32)"); // Addition
+        sb.AppendLine(value: "declare i32 @d32_sub(i32, i32)"); // Subtraction
+        sb.AppendLine(value: "declare i32 @d32_mul(i32, i32)"); // Multiplication
+        sb.AppendLine(value: "declare i32 @d32_div(i32, i32)"); // Division
+        sb.AppendLine(value: "declare i32 @d32_cmp(i32, i32)"); // Comparison (-1, 0, 1)
+        sb.AppendLine(value: "declare i32 @d32_from_string(i8*)"); // Parse from string
+        sb.AppendLine(value: "declare i8* @d32_to_string(i32)"); // Convert to string
 
         // Decimal64 operations - 64-bit IEEE 754 decimal floating point
-        sb.AppendLine("declare i64 @d64_add(i64, i64)");
-        sb.AppendLine("declare i64 @d64_sub(i64, i64)");
-        sb.AppendLine("declare i64 @d64_mul(i64, i64)");
-        sb.AppendLine("declare i64 @d64_div(i64, i64)");
-        sb.AppendLine("declare i32 @d64_cmp(i64, i64)");
-        sb.AppendLine("declare i64 @d64_from_string(i8*)");
-        sb.AppendLine("declare i8* @d64_to_string(i64)");
+        sb.AppendLine(value: "declare i64 @d64_add(i64, i64)");
+        sb.AppendLine(value: "declare i64 @d64_sub(i64, i64)");
+        sb.AppendLine(value: "declare i64 @d64_mul(i64, i64)");
+        sb.AppendLine(value: "declare i64 @d64_div(i64, i64)");
+        sb.AppendLine(value: "declare i32 @d64_cmp(i64, i64)");
+        sb.AppendLine(value: "declare i64 @d64_from_string(i8*)");
+        sb.AppendLine(value: "declare i8* @d64_to_string(i64)");
 
         // Decimal128 operations - 128-bit IEEE 754 decimal floating point
         // Uses {i64, i64} struct to represent 128-bit values in LLVM IR
-        sb.AppendLine("declare {i64, i64} @d128_add({i64, i64}, {i64, i64})");
-        sb.AppendLine("declare {i64, i64} @d128_sub({i64, i64}, {i64, i64})");
-        sb.AppendLine("declare {i64, i64} @d128_mul({i64, i64}, {i64, i64})");
-        sb.AppendLine("declare {i64, i64} @d128_div({i64, i64}, {i64, i64})");
-        sb.AppendLine("declare i32 @d128_cmp({i64, i64}, {i64, i64})");
-        sb.AppendLine("declare {i64, i64} @d128_from_string(i8*)");
-        sb.AppendLine("declare i8* @d128_to_string({i64, i64})");
+        sb.AppendLine(value: "declare {i64, i64} @d128_add({i64, i64}, {i64, i64})");
+        sb.AppendLine(value: "declare {i64, i64} @d128_sub({i64, i64}, {i64, i64})");
+        sb.AppendLine(value: "declare {i64, i64} @d128_mul({i64, i64}, {i64, i64})");
+        sb.AppendLine(value: "declare {i64, i64} @d128_div({i64, i64}, {i64, i64})");
+        sb.AppendLine(value: "declare i32 @d128_cmp({i64, i64}, {i64, i64})");
+        sb.AppendLine(value: "declare {i64, i64} @d128_from_string(i8*)");
+        sb.AppendLine(value: "declare i8* @d128_to_string({i64, i64})");
     }
 
     /// <summary>
@@ -126,64 +126,66 @@ public static class MathLibrarySupport
     private static void GenerateLibBfDeclarations(StringBuilder sb)
     {
         // Context management - provides memory pools and configuration
-        sb.AppendLine("declare void @bf_context_init(i8*, i8*, i8*)");  // Initialize computation context
-        sb.AppendLine("declare void @bf_context_end(i8*)");             // Clean up context resources
+        sb.AppendLine(
+            value:
+            "declare void @bf_context_init(i8*, i8*, i8*)"); // Initialize computation context
+        sb.AppendLine(value: "declare void @bf_context_end(i8*)"); // Clean up context resources
 
         // Number lifecycle management
-        sb.AppendLine("declare void @bf_init(i8*, i8*)");     // Initialize bf_number structure
-        sb.AppendLine("declare void @bf_delete(i8*)");        // Free bf_number resources
+        sb.AppendLine(value: "declare void @bf_init(i8*, i8*)"); // Initialize bf_number structure
+        sb.AppendLine(value: "declare void @bf_delete(i8*)"); // Free bf_number resources
 
         // Value assignment operations
-        sb.AppendLine("declare i32 @bf_set_si(i8*, i64)");    // Set from signed integer
-        sb.AppendLine("declare i32 @bf_set_ui(i8*, i64)");    // Set from unsigned integer
+        sb.AppendLine(value: "declare i32 @bf_set_si(i8*, i64)"); // Set from signed integer
+        sb.AppendLine(value: "declare i32 @bf_set_ui(i8*, i64)"); // Set from unsigned integer
 
         // Core arithmetic operations (result, operand1, operand2, precision, rounding_mode)
-        sb.AppendLine("declare i32 @bf_add(i8*, i8*, i8*, i64, i32)");  // Addition
-        sb.AppendLine("declare i32 @bf_sub(i8*, i8*, i8*, i64, i32)");  // Subtraction
-        sb.AppendLine("declare i32 @bf_mul(i8*, i8*, i8*, i64, i32)");  // Multiplication
-        sb.AppendLine("declare i32 @bf_div(i8*, i8*, i8*, i64, i32)");  // Division
+        sb.AppendLine(value: "declare i32 @bf_add(i8*, i8*, i8*, i64, i32)"); // Addition
+        sb.AppendLine(value: "declare i32 @bf_sub(i8*, i8*, i8*, i64, i32)"); // Subtraction
+        sb.AppendLine(value: "declare i32 @bf_mul(i8*, i8*, i8*, i64, i32)"); // Multiplication
+        sb.AppendLine(value: "declare i32 @bf_div(i8*, i8*, i8*, i64, i32)"); // Division
 
         // Comparison and string conversion
-        sb.AppendLine("declare i32 @bf_cmp(i8*, i8*)");                     // Compare two numbers
-        sb.AppendLine("declare i8* @bf_ftoa(i8*, i8*, i32, i64, i32)");      // Format to string
+        sb.AppendLine(value: "declare i32 @bf_cmp(i8*, i8*)"); // Compare two numbers
+        sb.AppendLine(value: "declare i8* @bf_ftoa(i8*, i8*, i32, i64, i32)"); // Format to string
 
         // Memory allocation helpers for bf_number structures
-        sb.AppendLine("declare i8* @bf_alloc_number()");      // Allocate bf_number structure
-        sb.AppendLine("declare void @bf_free_number(i8*)");   // Free bf_number structure
+        sb.AppendLine(value: "declare i8* @bf_alloc_number()"); // Allocate bf_number structure
+        sb.AppendLine(value: "declare void @bf_free_number(i8*)"); // Free bf_number structure
     }
 
     private static void GenerateMafmDeclarations(StringBuilder sb)
     {
         // Context management
-        sb.AppendLine("declare void @mafm_context_init(i8*, i32)");
-        sb.AppendLine("declare void @mafm_context_free(i8*)");
-        
+        sb.AppendLine(value: "declare void @mafm_context_init(i8*, i32)");
+        sb.AppendLine(value: "declare void @mafm_context_free(i8*)");
+
         // Number management
-        sb.AppendLine("declare void @mafm_init(i8*)");
-        sb.AppendLine("declare void @mafm_clear(i8*)");
-        
+        sb.AppendLine(value: "declare void @mafm_init(i8*)");
+        sb.AppendLine(value: "declare void @mafm_clear(i8*)");
+
         // String operations
-        sb.AppendLine("declare i32 @mafm_set_str(i8*, i8*, i32)");
-        sb.AppendLine("declare i8* @mafm_get_str(i8*, i32)");
-        
+        sb.AppendLine(value: "declare i32 @mafm_set_str(i8*, i8*, i32)");
+        sb.AppendLine(value: "declare i8* @mafm_get_str(i8*, i32)");
+
         // Arithmetic operations
-        sb.AppendLine("declare i32 @mafm_add(i8*, i8*, i8*, i8*)");
-        sb.AppendLine("declare i32 @mafm_sub(i8*, i8*, i8*, i8*)");
-        sb.AppendLine("declare i32 @mafm_mul(i8*, i8*, i8*, i8*)");
-        sb.AppendLine("declare i32 @mafm_div(i8*, i8*, i8*, i8*)");
-        sb.AppendLine("declare i32 @mafm_cmp(i8*, i8*)");
-        
+        sb.AppendLine(value: "declare i32 @mafm_add(i8*, i8*, i8*, i8*)");
+        sb.AppendLine(value: "declare i32 @mafm_sub(i8*, i8*, i8*, i8*)");
+        sb.AppendLine(value: "declare i32 @mafm_mul(i8*, i8*, i8*, i8*)");
+        sb.AppendLine(value: "declare i32 @mafm_div(i8*, i8*, i8*, i8*)");
+        sb.AppendLine(value: "declare i32 @mafm_cmp(i8*, i8*)");
+
         // Conversion operations
-        sb.AppendLine("declare i32 @mafm_set_si(i8*, i64)");
-        sb.AppendLine("declare i32 @mafm_set_d(i8*, double)");
-        sb.AppendLine("declare i64 @mafm_get_si(i8*)");
-        sb.AppendLine("declare double @mafm_get_d(i8*)");
-        
+        sb.AppendLine(value: "declare i32 @mafm_set_si(i8*, i64)");
+        sb.AppendLine(value: "declare i32 @mafm_set_d(i8*, double)");
+        sb.AppendLine(value: "declare i64 @mafm_get_si(i8*)");
+        sb.AppendLine(value: "declare double @mafm_get_d(i8*)");
+
         // Memory allocation for mafm_number structures
-        sb.AppendLine("declare i8* @mafm_alloc_number()");
-        sb.AppendLine("declare void @mafm_free_number(i8*)");
-        sb.AppendLine("declare i8* @mafm_alloc_context()");
-        sb.AppendLine("declare void @mafm_free_context(i8*)");
+        sb.AppendLine(value: "declare i8* @mafm_alloc_number()");
+        sb.AppendLine(value: "declare void @mafm_free_number(i8*)");
+        sb.AppendLine(value: "declare i8* @mafm_alloc_context()");
+        sb.AppendLine(value: "declare void @mafm_free_context(i8*)");
     }
 
     /// <summary>
@@ -205,17 +207,18 @@ public static class MathLibrarySupport
     /// <item>"/" → d32_div: IEEE 754 decimal division</item>
     /// </list>
     /// </remarks>
-    public static string GenerateD32BinaryOp(string operation, string leftOperand, string rightOperand, string resultTemp)
+    public static string GenerateD32BinaryOp(string operation, string leftOperand,
+        string rightOperand, string resultTemp)
     {
-        var funcName = operation switch
+        string funcName = operation switch
         {
             "+" => "d32_add",
-            "-" => "d32_sub", 
+            "-" => "d32_sub",
             "*" => "d32_mul",
             "/" => "d32_div",
-            _ => throw new ArgumentException($"Unsupported d32 operation: {operation}")
+            _ => throw new ArgumentException(message: $"Unsupported d32 operation: {operation}")
         };
-        
+
         return $"  {resultTemp} = call i32 @{funcName}(i32 {leftOperand}, i32 {rightOperand})";
     }
 
@@ -229,17 +232,18 @@ public static class MathLibrarySupport
     /// <param name="resultTemp">LLVM IR temporary variable name to store the result</param>
     /// <returns>LLVM IR instruction string for the decimal64 operation</returns>
     /// <exception cref="ArgumentException">Thrown when an unsupported operation is specified</exception>
-    public static string GenerateD64BinaryOp(string operation, string leftOperand, string rightOperand, string resultTemp)
+    public static string GenerateD64BinaryOp(string operation, string leftOperand,
+        string rightOperand, string resultTemp)
     {
-        var funcName = operation switch
+        string funcName = operation switch
         {
             "+" => "d64_add",
             "-" => "d64_sub",
-            "*" => "d64_mul", 
+            "*" => "d64_mul",
             "/" => "d64_div",
-            _ => throw new ArgumentException($"Unsupported d64 operation: {operation}")
+            _ => throw new ArgumentException(message: $"Unsupported d64 operation: {operation}")
         };
-        
+
         return $"  {resultTemp} = call i64 @{funcName}(i64 {leftOperand}, i64 {rightOperand})";
     }
 
@@ -257,18 +261,20 @@ public static class MathLibrarySupport
     /// Decimal128 operations provide maximum precision (34 decimal digits) and are represented
     /// as LLVM structs containing two 64-bit integers to form the 128-bit representation.
     /// </remarks>
-    public static string GenerateD128BinaryOp(string operation, string leftOperand, string rightOperand, string resultTemp)
+    public static string GenerateD128BinaryOp(string operation, string leftOperand,
+        string rightOperand, string resultTemp)
     {
-        var funcName = operation switch
+        string funcName = operation switch
         {
             "+" => "d128_add",
             "-" => "d128_sub",
             "*" => "d128_mul",
             "/" => "d128_div",
-            _ => throw new ArgumentException($"Unsupported d128 operation: {operation}")
+            _ => throw new ArgumentException(message: $"Unsupported d128 operation: {operation}")
         };
-        
-        return $"  {resultTemp} = call {{i64, i64}} @{funcName}({{i64, i64}} {leftOperand}, {{i64, i64}} {rightOperand})";
+
+        return
+            $"  {resultTemp} = call {{i64, i64}} @{funcName}({{i64, i64}} {leftOperand}, {{i64, i64}} {rightOperand})";
     }
 
     /// <summary>
@@ -292,28 +298,32 @@ public static class MathLibrarySupport
     /// </list>
     /// The generated code assumes proper context management is handled elsewhere.
     /// </remarks>
-    public static string GenerateBigIntBinaryOp(string operation, string leftOperand, string rightOperand, string resultTemp, string tempCounter)
+    public static string GenerateBigIntBinaryOp(string operation, string leftOperand,
+        string rightOperand, string resultTemp, string tempCounter)
     {
         var sb = new StringBuilder();
-        
+
         // Allocate result bf_number
-        sb.AppendLine($"  {resultTemp}_ptr = call i8* @bf_alloc_number()");
-        sb.AppendLine($"  call void @bf_init(i8* null, i8* {resultTemp}_ptr)");
-        
-        var funcName = operation switch
+        sb.AppendLine(handler: $"  {resultTemp}_ptr = call i8* @bf_alloc_number()");
+        sb.AppendLine(handler: $"  call void @bf_init(i8* null, i8* {resultTemp}_ptr)");
+
+        string funcName = operation switch
         {
             "+" => "bf_add",
             "-" => "bf_sub",
             "*" => "bf_mul",
             "/" => "bf_div",
-            _ => throw new ArgumentException($"Unsupported BigInt operation: {operation}")
+            _ => throw new ArgumentException(message: $"Unsupported BigInt operation: {operation}")
         };
-        
+
         // Perform the operation
-        sb.AppendLine($"  call i32 @{funcName}(i8* {resultTemp}_ptr, i8* {leftOperand}, i8* {rightOperand}, i64 0, i32 0)");
-        sb.AppendLine($"  {resultTemp} = load i8*, i8** {resultTemp}_ptr");
-        
-        return sb.ToString().TrimEnd();
+        sb.AppendLine(
+            handler:
+            $"  call i32 @{funcName}(i8* {resultTemp}_ptr, i8* {leftOperand}, i8* {rightOperand}, i64 0, i32 0)");
+        sb.AppendLine(handler: $"  {resultTemp} = load i8*, i8** {resultTemp}_ptr");
+
+        return sb.ToString()
+                 .TrimEnd();
     }
 
     /// <summary>
@@ -331,28 +341,33 @@ public static class MathLibrarySupport
     /// mafm operations support user-configurable precision and are ideal for financial calculations
     /// or scientific computing requiring exact decimal arithmetic beyond IEEE 754 limits.
     /// </remarks>
-    public static string GenerateHighPrecisionDecimalBinaryOp(string operation, string leftOperand, string rightOperand, string resultTemp, string contextPtr)
+    public static string GenerateHighPrecisionDecimalBinaryOp(string operation, string leftOperand,
+        string rightOperand, string resultTemp, string contextPtr)
     {
         var sb = new StringBuilder();
-        
+
         // Allocate result mafm_number
-        sb.AppendLine($"  {resultTemp}_ptr = call i8* @mafm_alloc_number()");
-        sb.AppendLine($"  call void @mafm_init(i8* {resultTemp}_ptr)");
-        
-        var funcName = operation switch
+        sb.AppendLine(handler: $"  {resultTemp}_ptr = call i8* @mafm_alloc_number()");
+        sb.AppendLine(handler: $"  call void @mafm_init(i8* {resultTemp}_ptr)");
+
+        string funcName = operation switch
         {
             "+" => "mafm_add",
             "-" => "mafm_sub",
             "*" => "mafm_mul",
             "/" => "mafm_div",
-            _ => throw new ArgumentException($"Unsupported HighPrecisionDecimal operation: {operation}")
+            _ => throw new ArgumentException(
+                message: $"Unsupported HighPrecisionDecimal operation: {operation}")
         };
-        
+
         // Perform the operation
-        sb.AppendLine($"  call i32 @{funcName}(i8* {resultTemp}_ptr, i8* {leftOperand}, i8* {rightOperand}, i8* {contextPtr})");
-        sb.AppendLine($"  {resultTemp} = load i8*, i8** {resultTemp}_ptr");
-        
-        return sb.ToString().TrimEnd();
+        sb.AppendLine(
+            handler:
+            $"  call i32 @{funcName}(i8* {resultTemp}_ptr, i8* {leftOperand}, i8* {rightOperand}, i8* {contextPtr})");
+        sb.AppendLine(handler: $"  {resultTemp} = load i8*, i8** {resultTemp}_ptr");
+
+        return sb.ToString()
+                 .TrimEnd();
     }
 
     /// <summary>
@@ -377,11 +392,11 @@ public static class MathLibrarySupport
         return rfType switch
         {
             "d32" => "i32",
-            "d64" => "i64", 
+            "d64" => "i64",
             "d128" => "{i64, i64}",
-            "bigint" => "i8*",        // Pointer to bf_number structure
-            "decimal" => "i8*",       // Pointer to mafm_number structure
-            _ => throw new ArgumentException($"Unknown math type: {rfType}")
+            "bigint" => "i8*", // Pointer to bf_number structure
+            "decimal" => "i8*", // Pointer to mafm_number structure
+            _ => throw new ArgumentException(message: $"Unknown math type: {rfType}")
         };
     }
 

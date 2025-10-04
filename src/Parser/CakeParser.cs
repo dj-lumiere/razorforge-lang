@@ -13,97 +13,133 @@ public class CakeParser : BaseParser
     private readonly Stack<int> _indentationStack = new();
     private int _currentIndentationLevel = 0;
 
-    public CakeParser(List<Token> tokens) : base(tokens) 
+    public CakeParser(List<Token> tokens) : base(tokens: tokens)
     {
-        _indentationStack.Push(0); // Base indentation level
+        _indentationStack.Push(item: 0); // Base indentation level
     }
 
     public override Compilers.Shared.AST.Program Parse()
     {
         var declarations = new List<IAstNode>();
-        
+
         while (!IsAtEnd)
         {
             try
             {
                 // Skip newlines at top level
-                if (Match(TokenType.Newline)) continue;
-                
+                if (Match(type: TokenType.Newline))
+                {
+                    continue;
+                }
+
                 // Handle dedent tokens (should not occur at top level, but be safe)
-                if (Check(TokenType.Dedent))
+                if (Check(type: TokenType.Dedent))
                 {
                     ProcessDedentTokens();
                     continue;
                 }
-                
-                var decl = ParseDeclaration();
+
+                IAstNode? decl = ParseDeclaration();
                 if (decl != null)
-                    declarations.Add(decl);
+                {
+                    declarations.Add(item: decl);
+                }
             }
             catch (ParseException ex)
             {
-                Console.Error.WriteLine($"Parse error: {ex.Message}");
+                Console.Error.WriteLine(value: $"Parse error: {ex.Message}");
                 Synchronize();
             }
         }
-        
-        return new Compilers.Shared.AST.Program(declarations, GetLocation());
+
+        return new Compilers.Shared.AST.Program(Declarations: declarations,
+            Location: GetLocation());
     }
 
     private IAstNode? ParseDeclaration()
     {
         // Import declaration
-        if (Match(TokenType.Import))
+        if (Match(type: TokenType.Import))
         {
             return ParseImportDeclaration();
         }
-        
+
         // Redefinition
-        if (Match(TokenType.Define))
+        if (Match(type: TokenType.Define))
         {
             return ParseRedefinitionDeclaration();
         }
-        
+
         // Using declaration
-        if (Match(TokenType.Using))
+        if (Match(type: TokenType.Using))
         {
             return ParseUsingDeclaration();
         }
-        
+
         // Parse visibility modifier
-        var visibility = ParseVisibilityModifier();
-        
+        VisibilityModifier visibility = ParseVisibilityModifier();
+
         // Variable declarations
         if (Match(TokenType.Var, TokenType.Let))
         {
-            return ParseVariableDeclaration(visibility);
+            return ParseVariableDeclaration(visibility: visibility);
         }
-        
+
         // Recipe (function) declaration - using 'recipe' keyword in Cake
-        if (Match(TokenType.recipe)) return ParseRecipeDeclaration(visibility);
-        
+        if (Match(type: TokenType.recipe))
+        {
+            return ParseRecipeDeclaration(visibility: visibility);
+        }
+
         // Entity/Record/Choice declarations
-        if (Match(TokenType.Entity)) return ParseClassDeclaration(visibility);
-        if (Match(TokenType.Record)) return ParseStructDeclaration(visibility);
-        if (Match(TokenType.Choice)) return ParseChoiceDeclaration(visibility); // choice in Cake
-        if (Match(TokenType.Chimera)) return ParseVariantDeclaration(visibility, VariantKind.Chimera);
-        if (Match(TokenType.Variant)) return ParseVariantDeclaration(visibility, VariantKind.Variant);
-        if (Match(TokenType.Mutant)) return ParseVariantDeclaration(visibility, VariantKind.Mutant);
-        if (Match(TokenType.Protocol)) return ParseFeatureDeclaration(visibility);
-        
+        if (Match(type: TokenType.Entity))
+        {
+            return ParseClassDeclaration(visibility: visibility);
+        }
+
+        if (Match(type: TokenType.Record))
+        {
+            return ParseStructDeclaration(visibility: visibility);
+        }
+
+        if (Match(type: TokenType.Choice))
+        {
+            return ParseChoiceDeclaration(visibility: visibility); // choice in Cake
+        }
+
+        if (Match(type: TokenType.Chimera))
+        {
+            return ParseVariantDeclaration(visibility: visibility, kind: VariantKind.Chimera);
+        }
+
+        if (Match(type: TokenType.Variant))
+        {
+            return ParseVariantDeclaration(visibility: visibility, kind: VariantKind.Variant);
+        }
+
+        if (Match(type: TokenType.Mutant))
+        {
+            return ParseVariantDeclaration(visibility: visibility, kind: VariantKind.Mutant);
+        }
+
+        if (Match(type: TokenType.Protocol))
+        {
+            return ParseFeatureDeclaration(visibility: visibility);
+        }
+
         // Implementation blocks (Type follows Trait:)
         if (CheckImplementation())
         {
             return ParseImplementationDeclaration();
         }
-        
+
         // If we parsed a visibility modifier but no declaration follows, reset position
         if (visibility != VisibilityModifier.Private)
         {
             // Go back to before the visibility modifier
             Position--;
         }
-        
+
         // Otherwise parse as statement
         return ParseStatement();
     }
@@ -111,497 +147,599 @@ public class CakeParser : BaseParser
     private bool CheckImplementation()
     {
         // Look for pattern: Identifier follows Identifier:
-        if (Check(TokenType.Identifier) || Check(TokenType.TypeIdentifier))
+        if (Check(type: TokenType.Identifier) || Check(type: TokenType.TypeIdentifier))
         {
-            var saved = Position;
+            int saved = Position;
             Advance(); // Skip type name
-            if (Match(TokenType.Follows))
+            if (Match(type: TokenType.Follows))
             {
                 Position = saved; // Reset position
                 return true;
             }
+
             Position = saved; // Reset position
         }
+
         return false;
     }
 
     private Statement? ParseStatement()
     {
         // Handle dedent tokens
-        if (Check(TokenType.Dedent))
+        if (Check(type: TokenType.Dedent))
         {
             ProcessDedentTokens();
         }
-        
+
         // Skip newlines
-        while (Match(TokenType.Newline)) { }
-        
-        if (IsAtEnd) return null;
-        
+        while (Match(type: TokenType.Newline)) { }
+
+        if (IsAtEnd)
+        {
+            return null;
+        }
+
         // Control flow
-        if (Match(TokenType.If)) return ParseIfStatement();
-        if (Match(TokenType.While)) return ParseWhileStatement();
-        if (Match(TokenType.For)) return ParseForStatement();
-        if (Match(TokenType.When)) return ParseWhenStatement();
-        if (Match(TokenType.Return)) return ParseReturnStatement();
-        if (Match(TokenType.Break)) return ParseBreakStatement();
-        if (Match(TokenType.Continue)) return ParseContinueStatement();
+        if (Match(type: TokenType.If))
+        {
+            return ParseIfStatement();
+        }
+
+        if (Match(type: TokenType.While))
+        {
+            return ParseWhileStatement();
+        }
+
+        if (Match(type: TokenType.For))
+        {
+            return ParseForStatement();
+        }
+
+        if (Match(type: TokenType.When))
+        {
+            return ParseWhenStatement();
+        }
+
+        if (Match(type: TokenType.Return))
+        {
+            return ParseReturnStatement();
+        }
+
+        if (Match(type: TokenType.Break))
+        {
+            return ParseBreakStatement();
+        }
+
+        if (Match(type: TokenType.Continue))
+        {
+            return ParseContinueStatement();
+        }
 
         // Danger and mayhem blocks
-        if (Match(TokenType.Danger)) return ParseDangerStatement();
-        if (Match(TokenType.Mayhem)) return ParseMayhemStatement();
-        
+        if (Match(type: TokenType.Danger))
+        {
+            return ParseDangerStatement();
+        }
+
+        if (Match(type: TokenType.Mayhem))
+        {
+            return ParseMayhemStatement();
+        }
+
         // Variable declarations (can appear in statement context)
         if (Match(TokenType.Var, TokenType.Let))
         {
-            var varDecl = ParseVariableDeclaration();
+            VariableDeclaration varDecl = ParseVariableDeclaration();
             return new ExpressionStatement(
-                new IdentifierExpression($"var {varDecl.Name}", GetLocation()),
-                GetLocation());
+                Expression: new IdentifierExpression(Name: $"var {varDecl.Name}",
+                    Location: GetLocation()), Location: GetLocation());
         }
-        
+
         // Cake's display statement (equivalent to print/console.log)
-        if (Check(TokenType.Identifier) && CurrentToken.Text == "display")
+        if (Check(type: TokenType.Identifier) && CurrentToken.Text == "display")
         {
             Advance();
-            Consume(TokenType.LeftParen, "Expected '(' after 'display'");
-            var expr = ParseExpression();
-            Consume(TokenType.RightParen, "Expected ')' after display expression");
-            Match(TokenType.Newline);
-            
+            Consume(type: TokenType.LeftParen, errorMessage: "Expected '(' after 'display'");
+            Expression expr = ParseExpression();
+            Consume(type: TokenType.RightParen,
+                errorMessage: "Expected ')' after display expression");
+            Match(type: TokenType.Newline);
+
             // Convert to a function call expression
             var displayCall = new CallExpression(
-                new IdentifierExpression("Console.WriteLine", GetLocation()),
-                new List<Expression> { expr },
-                GetLocation());
-            
-            return new ExpressionStatement(displayCall, GetLocation());
+                Callee: new IdentifierExpression(Name: "Console.WriteLine",
+                    Location: GetLocation()), Arguments: new List<Expression> { expr },
+                Location: GetLocation());
+
+            return new ExpressionStatement(Expression: displayCall, Location: GetLocation());
         }
-        
+
         // Expression statement
         return ParseExpressionStatement();
     }
 
-    private VariableDeclaration ParseVariableDeclaration(VisibilityModifier visibility = VisibilityModifier.Private)
+    private VariableDeclaration ParseVariableDeclaration(
+        VisibilityModifier visibility = VisibilityModifier.Private)
     {
-        var location = GetLocation(PeekToken(-1));
-        var isMutable = PeekToken(-1).Type == TokenType.Var;
-        
-        var name = ConsumeIdentifier("Expected variable name");
-        
+        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
+        bool isMutable = PeekToken(offset: -1)
+           .Type == TokenType.Var;
+
+        string name = ConsumeIdentifier(errorMessage: "Expected variable name");
+
         TypeExpression? type = null;
-        if (Match(TokenType.Colon))
+        if (Match(type: TokenType.Colon))
         {
             type = ParseType();
         }
-        
+
         Expression? initializer = null;
-        if (Match(TokenType.Assign))
+        if (Match(type: TokenType.Assign))
         {
             initializer = ParseExpression();
         }
-        
+
         ConsumeStatementTerminator();
-        
-        return new VariableDeclaration(name, type, initializer, visibility, isMutable, location);
+
+        return new VariableDeclaration(Name: name, Type: type, Initializer: initializer,
+            Visibility: visibility, IsMutable: isMutable, Location: location);
     }
 
-    private FunctionDeclaration ParseRecipeDeclaration(VisibilityModifier visibility = VisibilityModifier.Private)
+    private FunctionDeclaration ParseRecipeDeclaration(
+        VisibilityModifier visibility = VisibilityModifier.Private)
     {
-        var location = GetLocation(PeekToken(-1));
-        
-        var name = ConsumeIdentifier("Expected recipe name");
-        
+        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
+
+        string name = ConsumeIdentifier(errorMessage: "Expected recipe name");
+
         // Parameters
-        Consume(TokenType.LeftParen, "Expected '(' after recipe name");
+        Consume(type: TokenType.LeftParen, errorMessage: "Expected '(' after recipe name");
         var parameters = new List<Parameter>();
-        
-        if (!Check(TokenType.RightParen))
+
+        if (!Check(type: TokenType.RightParen))
         {
             do
             {
-                var paramName = ConsumeIdentifier("Expected parameter name");
-                Consume(TokenType.Colon, "Expected ':' after parameter name");
-                var paramType = ParseType();
-                
+                string paramName = ConsumeIdentifier(errorMessage: "Expected parameter name");
+                Consume(type: TokenType.Colon, errorMessage: "Expected ':' after parameter name");
+                TypeExpression paramType = ParseType();
+
                 Expression? defaultValue = null;
-                if (Match(TokenType.Assign))
+                if (Match(type: TokenType.Assign))
                 {
                     defaultValue = ParseExpression();
                 }
-                
-                parameters.Add(new Parameter(paramName, paramType, defaultValue, GetLocation()));
-            } while (Match(TokenType.Comma));
+
+                parameters.Add(item: new Parameter(Name: paramName, Type: paramType,
+                    DefaultValue: defaultValue, Location: GetLocation()));
+            } while (Match(type: TokenType.Comma));
         }
-        
-        Consume(TokenType.RightParen, "Expected ')' after parameters");
-        
+
+        Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after parameters");
+
         // Return type
         TypeExpression? returnType = null;
-        if (Match(TokenType.Arrow))
+        if (Match(type: TokenType.Arrow))
         {
             returnType = ParseType();
         }
-        
+
         // Colon to start indented block
-        Consume(TokenType.Colon, "Expected ':' after recipe header");
-        
+        Consume(type: TokenType.Colon, errorMessage: "Expected ':' after recipe header");
+
         // Body (indented block)
-        var body = ParseIndentedBlock();
-        
-        return new FunctionDeclaration(name, parameters, returnType, body, visibility, new List<string>(), location);
+        Statement body = ParseIndentedBlock();
+
+        return new FunctionDeclaration(Name: name, Parameters: parameters, ReturnType: returnType,
+            Body: body, Visibility: visibility, Attributes: new List<string>(),
+            Location: location);
     }
 
-    private ClassDeclaration ParseClassDeclaration(VisibilityModifier visibility = VisibilityModifier.Private)
+    private ClassDeclaration ParseClassDeclaration(
+        VisibilityModifier visibility = VisibilityModifier.Private)
     {
-        var location = GetLocation(PeekToken(-1));
-        
-        var name = ConsumeIdentifier("Expected entity name");
-        
+        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
+
+        string name = ConsumeIdentifier(errorMessage: "Expected entity name");
+
         // Base entity - can use "from Animal" syntax
         TypeExpression? baseClass = null;
         var interfaces = new List<TypeExpression>();
-        if (Match(TokenType.From))
+        if (Match(type: TokenType.From))
         {
             baseClass = ParseType();
         }
-        
+
         // Colon to start indented block
-        Consume(TokenType.Colon, "Expected ':' after entity header");
-        
+        Consume(type: TokenType.Colon, errorMessage: "Expected ':' after entity header");
+
         var members = new List<Declaration>();
-        
+
         // Parse indented members
-        if (Match(TokenType.Indent))
+        if (Match(type: TokenType.Indent))
         {
-            while (!Check(TokenType.Dedent) && !IsAtEnd)
+            while (!Check(type: TokenType.Dedent) && !IsAtEnd)
             {
-                if (Match(TokenType.Newline)) continue;
-                
+                if (Match(type: TokenType.Newline))
+                {
+                    continue;
+                }
+
                 var member = ParseDeclaration() as Declaration;
                 if (member != null)
-                    members.Add(member);
+                {
+                    members.Add(item: member);
+                }
             }
-            
-            if (!Match(TokenType.Dedent))
+
+            if (!Match(type: TokenType.Dedent))
             {
                 // If no dedent token, we might be at end of file
                 if (!IsAtEnd)
                 {
-                    throw new ParseException("Expected dedent after entity body");
+                    throw new ParseException(message: "Expected dedent after entity body");
                 }
             }
         }
-        
-        return new ClassDeclaration(name, null, baseClass, interfaces, members, visibility, location);
+
+        return new ClassDeclaration(Name: name, GenericParameters: null, BaseClass: baseClass,
+            Interfaces: interfaces, Members: members, Visibility: visibility, Location: location);
     }
 
-    private StructDeclaration ParseStructDeclaration(VisibilityModifier visibility = VisibilityModifier.Private)
+    private StructDeclaration ParseStructDeclaration(
+        VisibilityModifier visibility = VisibilityModifier.Private)
     {
-        var location = GetLocation(PeekToken(-1));
-        
-        var name = ConsumeIdentifier("Expected record name");
-        
+        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
+
+        string name = ConsumeIdentifier(errorMessage: "Expected record name");
+
         // Colon to start indented block
-        Consume(TokenType.Colon, "Expected ':' after record header");
-        
+        Consume(type: TokenType.Colon, errorMessage: "Expected ':' after record header");
+
         var members = new List<Declaration>();
-        
+
         // Parse record body as indented block
-        Consume(TokenType.Newline, "Expected newline after ':'");
-        
-        if (Check(TokenType.Indent))
+        Consume(type: TokenType.Newline, errorMessage: "Expected newline after ':'");
+
+        if (Check(type: TokenType.Indent))
         {
             ProcessIndentToken();
-            
-            while (!Check(TokenType.Dedent) && !IsAtEnd)
+
+            while (!Check(type: TokenType.Dedent) && !IsAtEnd)
             {
-                if (Match(TokenType.Newline)) continue;
-                
+                if (Match(type: TokenType.Newline))
+                {
+                    continue;
+                }
+
                 var member = ParseDeclaration() as Declaration;
                 if (member != null)
-                    members.Add(member);
+                {
+                    members.Add(item: member);
+                }
             }
-            
-            if (Check(TokenType.Dedent))
+
+            if (Check(type: TokenType.Dedent))
             {
                 ProcessDedentTokens();
             }
             else if (!IsAtEnd)
             {
-                throw new ParseException("Expected dedent after record body");
+                throw new ParseException(message: "Expected dedent after record body");
             }
         }
-        
-        return new StructDeclaration(name, null, members, visibility, location);
+
+        return new StructDeclaration(Name: name, GenericParameters: null, Members: members,
+            Visibility: visibility, Location: location);
     }
 
-    private MenuDeclaration ParseChoiceDeclaration(VisibilityModifier visibility = VisibilityModifier.Private)
+    private MenuDeclaration ParseChoiceDeclaration(
+        VisibilityModifier visibility = VisibilityModifier.Private)
     {
-        var location = GetLocation(PeekToken(-1));
-        
-        var name = ConsumeIdentifier("Expected option name");
-        
+        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
+
+        string name = ConsumeIdentifier(errorMessage: "Expected option name");
+
         // Colon to start indented block
-        Consume(TokenType.Colon, "Expected ':' after option header");
-        
+        Consume(type: TokenType.Colon, errorMessage: "Expected ':' after option header");
+
         var variants = new List<EnumVariant>();
         var methods = new List<FunctionDeclaration>();
-        
+
         // Parse option body as indented block
-        Consume(TokenType.Newline, "Expected newline after ':'");
-        
-        if (Check(TokenType.Indent))
+        Consume(type: TokenType.Newline, errorMessage: "Expected newline after ':'");
+
+        if (Check(type: TokenType.Indent))
         {
             ProcessIndentToken();
-            
-            while (!Check(TokenType.Dedent) && !IsAtEnd)
+
+            while (!Check(type: TokenType.Dedent) && !IsAtEnd)
             {
-                if (Match(TokenType.Newline)) continue;
-                
+                if (Match(type: TokenType.Newline))
+                {
+                    continue;
+                }
+
                 // Check if it's a method (recipe)
-                if (Check(TokenType.Public) || Check(TokenType.Private) || Check(TokenType.recipe))
+                if (Check(type: TokenType.Public) || Check(type: TokenType.Private) ||
+                    Check(type: TokenType.recipe))
                 {
                     var method = ParseDeclaration() as FunctionDeclaration;
                     if (method != null)
-                        methods.Add(method);
+                    {
+                        methods.Add(item: method);
+                    }
                 }
                 else
                 {
                     // Parse enum variant
-                    var variantName = ConsumeIdentifier("Expected option variant name");
-                    
+                    string variantName =
+                        ConsumeIdentifier(errorMessage: "Expected option variant name");
+
                     int? value = null;
-                    if (Match(TokenType.Assign))
+                    if (Match(type: TokenType.Assign))
                     {
-                        var expr = ParseExpression();
+                        Expression expr = ParseExpression();
                         if (expr is LiteralExpression literal && literal.Value is int intVal)
                         {
                             value = intVal;
                         }
                     }
-                    
-                    variants.Add(new EnumVariant(variantName, value, GetLocation()));
-                    Match(TokenType.Newline);
+
+                    variants.Add(item: new EnumVariant(Name: variantName, Value: value,
+                        Location: GetLocation()));
+                    Match(type: TokenType.Newline);
                 }
             }
-            
-            if (Check(TokenType.Dedent))
+
+            if (Check(type: TokenType.Dedent))
             {
                 ProcessDedentTokens();
             }
             else if (!IsAtEnd)
             {
-                throw new ParseException("Expected dedent after option body");
+                throw new ParseException(message: "Expected dedent after option body");
             }
         }
-        
-        return new MenuDeclaration(name, variants, methods, visibility, location);
+
+        return new MenuDeclaration(Name: name, Variants: variants, Methods: methods,
+            Visibility: visibility, Location: location);
     }
 
-    private VariantDeclaration ParseVariantDeclaration(VisibilityModifier visibility = VisibilityModifier.Private, VariantKind kind = VariantKind.Chimera)
+    private VariantDeclaration ParseVariantDeclaration(
+        VisibilityModifier visibility = VisibilityModifier.Private,
+        VariantKind kind = VariantKind.Chimera)
     {
-        var location = GetLocation(PeekToken(-1));
-        
-        var name = ConsumeIdentifier("Expected variant name");
-        
+        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
+
+        string name = ConsumeIdentifier(errorMessage: "Expected variant name");
+
         // Generic parameters
         List<string>? genericParams = null;
-        if (Match(TokenType.Less))
+        if (Match(type: TokenType.Less))
         {
             genericParams = new List<string>();
             do
             {
-                genericParams.Add(ConsumeIdentifier("Expected generic parameter name"));
-            } while (Match(TokenType.Comma));
-            
-            Consume(TokenType.Greater, "Expected '>' after generic parameters");
+                genericParams.Add(
+                    item: ConsumeIdentifier(errorMessage: "Expected generic parameter name"));
+            } while (Match(type: TokenType.Comma));
+
+            Consume(type: TokenType.Greater,
+                errorMessage: "Expected '>' after generic parameters");
         }
-        
+
         // Colon to start indented block
-        Consume(TokenType.Colon, "Expected ':' after variant header");
-        
+        Consume(type: TokenType.Colon, errorMessage: "Expected ':' after variant header");
+
         var cases = new List<VariantCase>();
         var methods = new List<FunctionDeclaration>();
-        
+
         // Parse variant body as indented block
-        Consume(TokenType.Newline, "Expected newline after ':'");
-        
-        if (Check(TokenType.Indent))
+        Consume(type: TokenType.Newline, errorMessage: "Expected newline after ':'");
+
+        if (Check(type: TokenType.Indent))
         {
             ProcessIndentToken();
-            
-            while (!Check(TokenType.Dedent) && !IsAtEnd)
+
+            while (!Check(type: TokenType.Dedent) && !IsAtEnd)
             {
-                if (Match(TokenType.Newline)) continue;
-                
+                if (Match(type: TokenType.Newline))
+                {
+                    continue;
+                }
+
                 // Check if it's a method (recipe)
-                if (Check(TokenType.Public) || Check(TokenType.Private) || Check(TokenType.recipe))
+                if (Check(type: TokenType.Public) || Check(type: TokenType.Private) ||
+                    Check(type: TokenType.recipe))
                 {
                     var method = ParseDeclaration() as FunctionDeclaration;
                     if (method != null)
-                        methods.Add(method);
+                    {
+                        methods.Add(item: method);
+                    }
                 }
                 else
                 {
                     // Parse variant case
-                    var caseName = ConsumeIdentifier("Expected variant case name");
-                    
+                    string caseName =
+                        ConsumeIdentifier(errorMessage: "Expected variant case name");
+
                     List<TypeExpression>? associatedTypes = null;
-                    if (Match(TokenType.LeftParen))
+                    if (Match(type: TokenType.LeftParen))
                     {
                         associatedTypes = new List<TypeExpression>();
-                        if (!Check(TokenType.RightParen))
+                        if (!Check(type: TokenType.RightParen))
                         {
                             do
                             {
-                                associatedTypes.Add(ParseType());
-                            } while (Match(TokenType.Comma));
+                                associatedTypes.Add(item: ParseType());
+                            } while (Match(type: TokenType.Comma));
                         }
-                        Consume(TokenType.RightParen, "Expected ')' after variant case types");
+
+                        Consume(type: TokenType.RightParen,
+                            errorMessage: "Expected ')' after variant case types");
                     }
-                    
-                    cases.Add(new VariantCase(caseName, associatedTypes, GetLocation()));
-                    Match(TokenType.Newline);
+
+                    cases.Add(item: new VariantCase(Name: caseName,
+                        AssociatedTypes: associatedTypes, Location: GetLocation()));
+                    Match(type: TokenType.Newline);
                 }
             }
-            
-            if (Check(TokenType.Dedent))
+
+            if (Check(type: TokenType.Dedent))
             {
                 ProcessDedentTokens();
             }
             else if (!IsAtEnd)
             {
-                throw new ParseException("Expected dedent after variant body");
+                throw new ParseException(message: "Expected dedent after variant body");
             }
         }
-        
-        return new VariantDeclaration(name, genericParams, cases, methods, visibility, kind, location);
+
+        return new VariantDeclaration(Name: name, GenericParameters: genericParams, Cases: cases,
+            Methods: methods, Visibility: visibility, Kind: kind, Location: location);
     }
 
-    private FeatureDeclaration ParseFeatureDeclaration(VisibilityModifier visibility = VisibilityModifier.Private)
+    private FeatureDeclaration ParseFeatureDeclaration(
+        VisibilityModifier visibility = VisibilityModifier.Private)
     {
-        var location = GetLocation(PeekToken(-1));
-        
-        var name = ConsumeIdentifier("Expected feature name");
-        
+        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
+
+        string name = ConsumeIdentifier(errorMessage: "Expected feature name");
+
         // Colon to start indented block
-        Consume(TokenType.Colon, "Expected ':' after feature header");
-        
+        Consume(type: TokenType.Colon, errorMessage: "Expected ':' after feature header");
+
         var methods = new List<FunctionSignature>();
-        
+
         // Parse feature body as indented block
-        Consume(TokenType.Newline, "Expected newline after ':'");
-        
-        if (Check(TokenType.Indent))
+        Consume(type: TokenType.Newline, errorMessage: "Expected newline after ':'");
+
+        if (Check(type: TokenType.Indent))
         {
             ProcessIndentToken();
-            
-            while (!Check(TokenType.Dedent) && !IsAtEnd)
+
+            while (!Check(type: TokenType.Dedent) && !IsAtEnd)
             {
-                if (Match(TokenType.Newline)) continue;
-                
+                if (Match(type: TokenType.Newline))
+                {
+                    continue;
+                }
+
                 // Parse recipe signature
-                Consume(TokenType.recipe, "Expected 'recipe' in feature method");
-                var methodName = ConsumeIdentifier("Expected method name");
-                
+                Consume(type: TokenType.recipe,
+                    errorMessage: "Expected 'recipe' in feature method");
+                string methodName = ConsumeIdentifier(errorMessage: "Expected method name");
+
                 // Parameters
-                Consume(TokenType.LeftParen, "Expected '(' after method name");
+                Consume(type: TokenType.LeftParen, errorMessage: "Expected '(' after method name");
                 var parameters = new List<Parameter>();
-                
-                if (!Check(TokenType.RightParen))
+
+                if (!Check(type: TokenType.RightParen))
                 {
                     do
                     {
-                        var paramName = ConsumeIdentifier("Expected parameter name");
-                        Consume(TokenType.Colon, "Expected ':' after parameter name");
-                        var paramType = ParseType();
-                        parameters.Add(new Parameter(paramName, paramType, null, GetLocation()));
-                    } while (Match(TokenType.Comma));
+                        string paramName =
+                            ConsumeIdentifier(errorMessage: "Expected parameter name");
+                        Consume(type: TokenType.Colon,
+                            errorMessage: "Expected ':' after parameter name");
+                        TypeExpression paramType = ParseType();
+                        parameters.Add(item: new Parameter(Name: paramName, Type: paramType,
+                            DefaultValue: null, Location: GetLocation()));
+                    } while (Match(type: TokenType.Comma));
                 }
-                
-                Consume(TokenType.RightParen, "Expected ')' after parameters");
-                
+
+                Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after parameters");
+
                 // Return type
                 TypeExpression? returnType = null;
-                if (Match(TokenType.Arrow))
+                if (Match(type: TokenType.Arrow))
                 {
                     returnType = ParseType();
                 }
-                
-                methods.Add(new FunctionSignature(methodName, parameters, returnType, GetLocation()));
-                Match(TokenType.Newline);
+
+                methods.Add(item: new FunctionSignature(Name: methodName, Parameters: parameters,
+                    ReturnType: returnType, Location: GetLocation()));
+                Match(type: TokenType.Newline);
             }
-            
-            if (Check(TokenType.Dedent))
+
+            if (Check(type: TokenType.Dedent))
             {
                 ProcessDedentTokens();
             }
             else if (!IsAtEnd)
             {
-                throw new ParseException("Expected dedent after feature body");
+                throw new ParseException(message: "Expected dedent after feature body");
             }
         }
-        
-        return new FeatureDeclaration(name, null, methods, visibility, location);
+
+        return new FeatureDeclaration(Name: name, GenericParameters: null, Methods: methods,
+            Visibility: visibility, Location: location);
     }
 
     private ImplementationDeclaration ParseImplementationDeclaration()
     {
-        var location = GetLocation();
-        
-        var type = ParseType();
-        Consume(TokenType.Follows, "Expected 'follows' in implementation");
-        var trait = ParseType();
-        
+        SourceLocation location = GetLocation();
+
+        TypeExpression type = ParseType();
+        Consume(type: TokenType.Follows, errorMessage: "Expected 'follows' in implementation");
+        TypeExpression trait = ParseType();
+
         // Colon to start indented block
-        Consume(TokenType.Colon, "Expected ':' after implementation header");
-        
+        Consume(type: TokenType.Colon, errorMessage: "Expected ':' after implementation header");
+
         var methods = new List<FunctionDeclaration>();
-        
+
         // Parse implementation body as indented block
-        Consume(TokenType.Newline, "Expected newline after ':'");
-        
-        if (Check(TokenType.Indent))
+        Consume(type: TokenType.Newline, errorMessage: "Expected newline after ':'");
+
+        if (Check(type: TokenType.Indent))
         {
             ProcessIndentToken();
-            
-            while (!Check(TokenType.Dedent) && !IsAtEnd)
+
+            while (!Check(type: TokenType.Dedent) && !IsAtEnd)
             {
-                if (Match(TokenType.Newline)) continue;
-                
+                if (Match(type: TokenType.Newline))
+                {
+                    continue;
+                }
+
                 var method = ParseDeclaration() as FunctionDeclaration;
                 if (method != null)
-                    methods.Add(method);
+                {
+                    methods.Add(item: method);
+                }
             }
-            
-            if (Check(TokenType.Dedent))
+
+            if (Check(type: TokenType.Dedent))
             {
                 ProcessDedentTokens();
             }
             else if (!IsAtEnd)
             {
-                throw new ParseException("Expected dedent after implementation body");
+                throw new ParseException(message: "Expected dedent after implementation body");
             }
         }
-        
-        return new ImplementationDeclaration(type, trait, methods, location);
+
+        return new ImplementationDeclaration(Type: type, Trait: trait, Methods: methods,
+            Location: location);
     }
 
     private ImportDeclaration ParseImportDeclaration()
     {
-        var location = GetLocation(PeekToken(-1));
-        
-        var modulePath = "";
-        var alias = (string?)null;
+        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
+
+        string modulePath = "";
+        string? alias = (string?)null;
         var specificImports = (List<string>?)null;
-        
+
         // Parse module path - could be multiple identifiers separated by slashes
         do
         {
-            var part = ConsumeIdentifier("Expected module name");
+            string part = ConsumeIdentifier(errorMessage: "Expected module name");
             modulePath += part;
-            if (Match(TokenType.Slash))
+            if (Match(type: TokenType.Slash))
             {
                 modulePath += "/";
             }
@@ -610,295 +748,327 @@ public class CakeParser : BaseParser
                 break;
             }
         } while (true);
-        
+
         // Optional alias
-        if (Match(TokenType.As))
+        if (Match(type: TokenType.As))
         {
-            alias = ConsumeIdentifier("Expected alias name");
+            alias = ConsumeIdentifier(errorMessage: "Expected alias name");
         }
-        
+
         ConsumeStatementTerminator();
-        
-        return new ImportDeclaration(modulePath, alias, specificImports, location);
+
+        return new ImportDeclaration(ModulePath: modulePath, Alias: alias,
+            SpecificImports: specificImports, Location: location);
     }
 
     private IAstNode ParseRedefinitionDeclaration()
     {
-        var location = GetLocation(PeekToken(-1));
-        
-        var oldName = ConsumeIdentifier("Expected identifier after 'redefine'");
-        Consume(TokenType.As, "Expected 'as' in redefinition");
-        var newName = ConsumeIdentifier("Expected new identifier in redefinition");
-        
+        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
+
+        string oldName = ConsumeIdentifier(errorMessage: "Expected identifier after 'redefine'");
+        Consume(type: TokenType.As, errorMessage: "Expected 'as' in redefinition");
+        string newName =
+            ConsumeIdentifier(errorMessage: "Expected new identifier in redefinition");
+
         ConsumeStatementTerminator();
-        
-        return new RedefinitionDeclaration(oldName, newName, location);
+
+        return new RedefinitionDeclaration(OldName: oldName, NewName: newName, Location: location);
     }
 
     private IAstNode ParseUsingDeclaration()
     {
-        var location = GetLocation(PeekToken(-1));
-        
-        var type = ParseType();
-        Consume(TokenType.As, "Expected 'as' in using declaration");
-        var alias = ConsumeIdentifier("Expected alias name in using declaration");
-        
+        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
+
+        TypeExpression type = ParseType();
+        Consume(type: TokenType.As, errorMessage: "Expected 'as' in using declaration");
+        string alias = ConsumeIdentifier(errorMessage: "Expected alias name in using declaration");
+
         ConsumeStatementTerminator();
-        
-        return new UsingDeclaration(type, alias, location);
+
+        return new UsingDeclaration(Type: type, Alias: alias, Location: location);
     }
 
     private VisibilityModifier ParseVisibilityModifier()
     {
         // Handle Cake's special visibility syntax: public(family), public(module)
-        if (Match(TokenType.Public))
+        if (Match(type: TokenType.Public))
         {
-            if (Match(TokenType.LeftParen))
+            if (Match(type: TokenType.LeftParen))
             {
-                var modifier = ConsumeIdentifier("Expected visibility modifier");
-                Consume(TokenType.RightParen, "Expected ')' after visibility modifier");
-                
+                string modifier = ConsumeIdentifier(errorMessage: "Expected visibility modifier");
+                Consume(type: TokenType.RightParen,
+                    errorMessage: "Expected ')' after visibility modifier");
+
                 return modifier switch
                 {
                     "family" => VisibilityModifier.Protected,
                     "module" => VisibilityModifier.Internal,
-                    _ => throw new ParseException($"Unknown visibility modifier: {modifier}")
+                    _ => throw new ParseException(
+                        message: $"Unknown visibility modifier: {modifier}")
                 };
             }
+
             return VisibilityModifier.Public;
         }
-        
-        if (Match(TokenType.PublicFamily))
+
+        if (Match(type: TokenType.PublicFamily))
+        {
             return VisibilityModifier.Protected;
-        if (Match(TokenType.PublicModule))
+        }
+
+        if (Match(type: TokenType.PublicModule))
+        {
             return VisibilityModifier.Internal;
-        if (Match(TokenType.Private))
+        }
+
+        if (Match(type: TokenType.Private))
+        {
             return VisibilityModifier.Private;
-        if (Match(TokenType.External))
+        }
+
+        if (Match(type: TokenType.External))
+        {
             return VisibilityModifier.External;
-        if (Match(TokenType.Global))
+        }
+
+        if (Match(type: TokenType.Global))
+        {
             return VisibilityModifier.Global;
-        
+        }
+
         return VisibilityModifier.Private; // Default
     }
 
     private Statement ParseIfStatement()
     {
-        var location = GetLocation(PeekToken(-1));
-        
-        var condition = ParseExpression();
-        Consume(TokenType.Colon, "Expected ':' after if condition");
-        var thenBranch = ParseIndentedBlock();
-        
+        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
+
+        Expression condition = ParseExpression();
+        Consume(type: TokenType.Colon, errorMessage: "Expected ':' after if condition");
+        Statement thenBranch = ParseIndentedBlock();
+
         Statement? elseBranch = null;
-        if (Match(TokenType.Else))
+        if (Match(type: TokenType.Else))
         {
-            Consume(TokenType.Colon, "Expected ':' after else");
+            Consume(type: TokenType.Colon, errorMessage: "Expected ':' after else");
             elseBranch = ParseIndentedBlock();
         }
-        
-        return new IfStatement(condition, thenBranch, elseBranch, location);
+
+        return new IfStatement(Condition: condition, ThenStatement: thenBranch,
+            ElseStatement: elseBranch, Location: location);
     }
 
     private Statement ParseWhileStatement()
     {
-        var location = GetLocation(PeekToken(-1));
-        
-        var condition = ParseExpression();
-        Consume(TokenType.Colon, "Expected ':' after while condition");
-        var body = ParseIndentedBlock();
-        
-        return new WhileStatement(condition, body, location);
+        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
+
+        Expression condition = ParseExpression();
+        Consume(type: TokenType.Colon, errorMessage: "Expected ':' after while condition");
+        Statement body = ParseIndentedBlock();
+
+        return new WhileStatement(Condition: condition, Body: body, Location: location);
     }
 
     private Statement ParseForStatement()
     {
-        var location = GetLocation(PeekToken(-1));
-        
-        var variable = ConsumeIdentifier("Expected variable name");
-        Consume(TokenType.In, "Expected 'in' in for loop");
-        var iterable = ParseExpression();
-        Consume(TokenType.Colon, "Expected ':' after for header");
-        var body = ParseIndentedBlock();
-        
-        return new ForStatement(variable, iterable, body, location);
+        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
+
+        string variable = ConsumeIdentifier(errorMessage: "Expected variable name");
+        Consume(type: TokenType.In, errorMessage: "Expected 'in' in for loop");
+        Expression iterable = ParseExpression();
+        Consume(type: TokenType.Colon, errorMessage: "Expected ':' after for header");
+        Statement body = ParseIndentedBlock();
+
+        return new ForStatement(Variable: variable, Iterable: iterable, Body: body,
+            Location: location);
     }
 
     private WhenStatement ParseWhenStatement()
     {
-        var location = GetLocation(PeekToken(-1));
-        
-        var expression = ParseExpression();
-        Consume(TokenType.Colon, "Expected ':' after when expression");
-        
-        Consume(TokenType.Newline, "Expected newline after when header");
-        Consume(TokenType.Indent, "Expected indented block after when");
-        
+        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
+
+        Expression expression = ParseExpression();
+        Consume(type: TokenType.Colon, errorMessage: "Expected ':' after when expression");
+
+        Consume(type: TokenType.Newline, errorMessage: "Expected newline after when header");
+        Consume(type: TokenType.Indent, errorMessage: "Expected indented block after when");
+
         var clauses = new List<WhenClause>();
-        
-        while (!Check(TokenType.Dedent) && !IsAtEnd)
+
+        while (!Check(type: TokenType.Dedent) && !IsAtEnd)
         {
             // Skip newlines
-            if (Match(TokenType.Newline)) continue;
-            
-            var pattern = ParsePattern();
-            Consume(TokenType.FatArrow, "Expected '=>' after pattern");
-            
-            Statement body;
-            if (Check(TokenType.Colon))
+            if (Match(type: TokenType.Newline))
             {
-                Consume(TokenType.Colon, "Expected ':' after '=>'");
+                continue;
+            }
+
+            Pattern pattern = ParsePattern();
+            Consume(type: TokenType.FatArrow, errorMessage: "Expected '=>' after pattern");
+
+            Statement body;
+            if (Check(type: TokenType.Colon))
+            {
+                Consume(type: TokenType.Colon, errorMessage: "Expected ':' after '=>'");
                 body = ParseIndentedBlock();
             }
             else
             {
                 body = ParseExpressionStatement();
             }
-            
-            clauses.Add(new WhenClause(pattern, body, GetLocation()));
-            
+
+            clauses.Add(
+                item: new WhenClause(Pattern: pattern, Body: body, Location: GetLocation()));
+
             // Optional newline between clauses
-            Match(TokenType.Newline);
+            Match(type: TokenType.Newline);
         }
-        
-        Consume(TokenType.Dedent, "Expected dedent after when clauses");
-        
-        return new WhenStatement(expression, clauses, location);
+
+        Consume(type: TokenType.Dedent, errorMessage: "Expected dedent after when clauses");
+
+        return new WhenStatement(Expression: expression, Clauses: clauses, Location: location);
     }
 
     private Pattern ParsePattern()
     {
-        var location = GetLocation();
-        
+        SourceLocation location = GetLocation();
+
         // Wildcard pattern: _
-        if (Match(TokenType.Identifier) && PeekToken(-1).Text == "_")
+        if (Match(type: TokenType.Identifier) && PeekToken(offset: -1)
+               .Text == "_")
         {
-            return new WildcardPattern(location);
+            return new WildcardPattern(Location: location);
         }
-        
+
         // Type pattern with optional variable binding: Type variableName or Type
-        if (Check(TokenType.TypeIdentifier))
+        if (Check(type: TokenType.TypeIdentifier))
         {
-            var type = ParseType();
-            
+            TypeExpression type = ParseType();
+
             // Check for variable binding
             string? variableName = null;
-            if (Check(TokenType.Identifier))
+            if (Check(type: TokenType.Identifier))
             {
-                variableName = ConsumeIdentifier("Expected variable name for type pattern");
+                variableName =
+                    ConsumeIdentifier(errorMessage: "Expected variable name for type pattern");
             }
-            
-            return new TypePattern(type, variableName, location);
+
+            return new TypePattern(Type: type, VariableName: variableName, Location: location);
         }
-        
+
         // Identifier pattern: variable binding
-        if (Check(TokenType.Identifier))
+        if (Check(type: TokenType.Identifier))
         {
-            var name = ConsumeIdentifier("Expected identifier for pattern");
-            return new IdentifierPattern(name, location);
+            string name = ConsumeIdentifier(errorMessage: "Expected identifier for pattern");
+            return new IdentifierPattern(Name: name, Location: location);
         }
-        
+
         // Literal pattern: constants like 42, "hello", true, etc.
-        var expr = ParsePrimary();
+        Expression expr = ParsePrimary();
         if (expr is LiteralExpression literal)
         {
-            return new LiteralPattern(literal.Value, location);
+            return new LiteralPattern(Value: literal.Value, Location: location);
         }
-        
-        throw new ParseException($"Expected pattern, got {CurrentToken.Type}");
+
+        throw new ParseException(message: $"Expected pattern, got {CurrentToken.Type}");
     }
 
     private Statement ParseReturnStatement()
     {
-        var location = GetLocation(PeekToken(-1));
-        
+        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
+
         Expression? value = null;
-        if (!Check(TokenType.Newline) && !IsAtEnd)
+        if (!Check(type: TokenType.Newline) && !IsAtEnd)
         {
             value = ParseExpression();
         }
-        
+
         ConsumeStatementTerminator();
-        
-        return new ReturnStatement(value, location);
+
+        return new ReturnStatement(Value: value, Location: location);
     }
 
     private Statement ParseBreakStatement()
     {
-        var location = GetLocation(PeekToken(-1));
+        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
         ConsumeStatementTerminator();
-        return new BreakStatement(location);
+        return new BreakStatement(Location: location);
     }
 
     private Statement ParseContinueStatement()
     {
-        var location = GetLocation(PeekToken(-1));
+        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
         ConsumeStatementTerminator();
-        return new ContinueStatement(location);
+        return new ContinueStatement(Location: location);
     }
 
     private Statement ParseDangerStatement()
     {
-        var location = GetLocation(PeekToken(-1));
-        Consume(TokenType.Colon, "Expected ':' after 'danger'");
+        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
+        Consume(type: TokenType.Colon, errorMessage: "Expected ':' after 'danger'");
         var body = (BlockStatement)ParseIndentedBlock();
-        return new DangerStatement(body, location);
+        return new DangerStatement(Body: body, Location: location);
     }
 
     private Statement ParseMayhemStatement()
     {
-        var location = GetLocation(PeekToken(-1));
-        Consume(TokenType.Colon, "Expected ':' after 'mayhem'");
+        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
+        Consume(type: TokenType.Colon, errorMessage: "Expected ':' after 'mayhem'");
         var body = (BlockStatement)ParseIndentedBlock();
-        return new MayhemStatement(body, location);
+        return new MayhemStatement(Body: body, Location: location);
     }
 
     private Statement ParseIndentedBlock()
     {
-        var location = GetLocation();
+        SourceLocation location = GetLocation();
         var statements = new List<Statement>();
-        
+
         // Consume newline after colon
-        Consume(TokenType.Newline, "Expected newline after ':'");
-        
+        Consume(type: TokenType.Newline, errorMessage: "Expected newline after ':'");
+
         // Must have an indent token for a proper indented block
-        if (!Check(TokenType.Indent))
+        if (!Check(type: TokenType.Indent))
         {
-            throw new ParseException("Expected indented block after ':'");
+            throw new ParseException(message: "Expected indented block after ':'");
         }
-        
+
         // Process the indent token
         ProcessIndentToken();
-        
+
         // Parse statements until we hit a dedent
-        while (!Check(TokenType.Dedent) && !IsAtEnd)
+        while (!Check(type: TokenType.Dedent) && !IsAtEnd)
         {
             // Skip empty lines
-            if (Match(TokenType.Newline)) continue;
-            
-            var stmt = ParseStatement();
+            if (Match(type: TokenType.Newline))
+            {
+                continue;
+            }
+
+            Statement? stmt = ParseStatement();
             if (stmt != null)
-                statements.Add(stmt);
+            {
+                statements.Add(item: stmt);
+            }
         }
-        
+
         // Process dedent tokens
-        if (Check(TokenType.Dedent))
+        if (Check(type: TokenType.Dedent))
         {
             ProcessDedentTokens();
         }
         else if (!IsAtEnd)
         {
-            throw new ParseException("Expected dedent to close indented block");
+            throw new ParseException(message: "Expected dedent to close indented block");
         }
-        
-        return new BlockStatement(statements, location);
+
+        return new BlockStatement(Statements: statements, Location: location);
     }
 
     private ExpressionStatement ParseExpressionStatement()
     {
-        var expr = ParseExpression();
+        Expression expr = ParseExpression();
         ConsumeStatementTerminator();
-        return new ExpressionStatement(expr, expr.Location);
+        return new ExpressionStatement(Expression: expr, Location: expr.Location);
     }
 
     private Expression ParseExpression()
@@ -908,269 +1078,298 @@ public class CakeParser : BaseParser
 
     private Expression ParseAssignment()
     {
-        var expr = ParseTernary();
-        
-        if (Match(TokenType.Assign))
+        Expression expr = ParseTernary();
+
+        if (Match(type: TokenType.Assign))
         {
-            var value = ParseAssignment();
+            Expression value = ParseAssignment();
             // For now, treat assignment as a binary expression
-            return new BinaryExpression(expr, BinaryOperator.Assign, value, expr.Location);
+            return new BinaryExpression(Left: expr, Operator: BinaryOperator.Assign, Right: value,
+                Location: expr.Location);
         }
-        
+
         return expr;
     }
 
     private Expression ParseTernary()
     {
-        var expr = ParseLogicalOr();
-        
-        if (Match(TokenType.Question))
+        Expression expr = ParseLogicalOr();
+
+        if (Match(type: TokenType.Question))
         {
-            var thenExpr = ParseExpression();
-            Consume(TokenType.Colon, "Expected ':' in ternary expression");
-            var elseExpr = ParseExpression();
-            return new ConditionalExpression(expr, thenExpr, elseExpr, expr.Location);
+            Expression thenExpr = ParseExpression();
+            Consume(type: TokenType.Colon, errorMessage: "Expected ':' in ternary expression");
+            Expression elseExpr = ParseExpression();
+            return new ConditionalExpression(Condition: expr, TrueExpression: thenExpr,
+                FalseExpression: elseExpr, Location: expr.Location);
         }
-        
+
         return expr;
     }
 
     private Expression ParseLogicalOr()
     {
-        var expr = ParseRange();
-        
-        while (Match(TokenType.Or))
+        Expression expr = ParseRange();
+
+        while (Match(type: TokenType.Or))
         {
-            var op = PeekToken(-1);
-            var right = ParseRange();
-            expr = new BinaryExpression(expr, TokenToBinaryOperator(op.Type), right, GetLocation(op));
+            Token op = PeekToken(offset: -1);
+            Expression right = ParseRange();
+            expr = new BinaryExpression(Left: expr,
+                Operator: TokenToBinaryOperator(tokenType: op.Type), Right: right,
+                Location: GetLocation(token: op));
         }
-        
+
         return expr;
     }
 
     private Expression ParseRange()
     {
-        var expr = ParseLogicalAnd();
-        
+        Expression expr = ParseLogicalAnd();
+
         // Handle range expressions: A to B or A to B step C
-        if (Match(TokenType.To))
+        if (Match(type: TokenType.To))
         {
-            var end = ParseLogicalAnd();
+            Expression end = ParseLogicalAnd();
             Expression? step = null;
-            
-            if (Match(TokenType.Step))
+
+            if (Match(type: TokenType.Step))
             {
                 step = ParseLogicalAnd();
             }
-            
+
             // Create a range expression - for now use a call expression to represent it
             var args = new List<Expression> { expr, end };
             if (step != null)
-                args.Add(step);
-            
+            {
+                args.Add(item: step);
+            }
+
             return new CallExpression(
-                new IdentifierExpression("range", expr.Location),
-                args,
-                expr.Location);
+                Callee: new IdentifierExpression(Name: "range", Location: expr.Location),
+                Arguments: args, Location: expr.Location);
         }
-        
+
         return expr;
     }
 
     private Expression ParseLogicalAnd()
     {
-        var expr = ParseEquality();
-        
-        while (Match(TokenType.And))
+        Expression expr = ParseEquality();
+
+        while (Match(type: TokenType.And))
         {
-            var op = PeekToken(-1);
-            var right = ParseEquality();
-            expr = new BinaryExpression(expr, TokenToBinaryOperator(op.Type), right, GetLocation(op));
+            Token op = PeekToken(offset: -1);
+            Expression right = ParseEquality();
+            expr = new BinaryExpression(Left: expr,
+                Operator: TokenToBinaryOperator(tokenType: op.Type), Right: right,
+                Location: GetLocation(token: op));
         }
-        
+
         return expr;
     }
 
     private Expression ParseEquality()
     {
-        var expr = ParseComparison();
-        
+        Expression expr = ParseComparison();
+
         while (Match(TokenType.Equal, TokenType.NotEqual))
         {
-            var op = PeekToken(-1);
-            var right = ParseComparison();
-            expr = new BinaryExpression(expr, TokenToBinaryOperator(op.Type), right, GetLocation(op));
+            Token op = PeekToken(offset: -1);
+            Expression right = ParseComparison();
+            expr = new BinaryExpression(Left: expr,
+                Operator: TokenToBinaryOperator(tokenType: op.Type), Right: right,
+                Location: GetLocation(token: op));
         }
-        
+
         return expr;
     }
 
     private Expression ParseComparison()
     {
-        var expr = ParseIsExpression();
-        
-        while (Match(TokenType.Less, TokenType.LessEqual, TokenType.Greater, TokenType.GreaterEqual))
+        Expression expr = ParseIsExpression();
+
+        while (Match(TokenType.Less, TokenType.LessEqual, TokenType.Greater,
+                   TokenType.GreaterEqual))
         {
-            var op = PeekToken(-1);
-            var right = ParseIsExpression();
-            expr = new BinaryExpression(expr, TokenToBinaryOperator(op.Type), right, GetLocation(op));
+            Token op = PeekToken(offset: -1);
+            Expression right = ParseIsExpression();
+            expr = new BinaryExpression(Left: expr,
+                Operator: TokenToBinaryOperator(tokenType: op.Type), Right: right,
+                Location: GetLocation(token: op));
         }
-        
+
         return expr;
     }
 
     private Expression ParseIsExpression()
     {
-        var expr = ParseBitwiseOr();
-        
+        Expression expr = ParseBitwiseOr();
+
         // Handle is/from/follows expressions when not in entity context
         while (Match(TokenType.Is, TokenType.From, TokenType.Follows))
         {
-            var op = PeekToken(-1);
-            var location = GetLocation(op);
-            
+            Token op = PeekToken(offset: -1);
+            SourceLocation location = GetLocation(token: op);
+
             if (op.Type == TokenType.Is)
             {
                 // Handle is expressions: expr is Type or expr is Type(pattern)
-                var type = ParseType();
-                
+                TypeExpression type = ParseType();
+
                 // Check if it's a pattern with variable binding
                 string? variableName = null;
                 if (Match(TokenType.Identifier, TokenType.TypeIdentifier))
                 {
-                    variableName = PeekToken(-1).Text;
+                    variableName = PeekToken(offset: -1)
+                       .Text;
                 }
-                
+
                 // For now, represent as a call expression
                 var args = new List<Expression> { expr };
                 if (variableName != null)
                 {
-                    args.Add(new IdentifierExpression(variableName, location));
+                    args.Add(
+                        item: new IdentifierExpression(Name: variableName, Location: location));
                 }
-                
+
                 expr = new CallExpression(
-                    new IdentifierExpression($"is_{type.Name}", location),
-                    args,
-                    location);
+                    Callee: new IdentifierExpression(Name: $"is_{type.Name}", Location: location),
+                    Arguments: args, Location: location);
             }
             else
             {
                 // Handle from/follows as comparison operators
-                var right = ParseBitwiseOr();
-                var operatorName = op.Type == TokenType.From ? "from" : "follows";
-                
+                Expression right = ParseBitwiseOr();
+                string operatorName = op.Type == TokenType.From
+                    ? "from"
+                    : "follows";
+
                 expr = new CallExpression(
-                    new IdentifierExpression(operatorName, location),
-                    new List<Expression> { expr, right },
-                    location);
+                    Callee: new IdentifierExpression(Name: operatorName, Location: location),
+                    Arguments: new List<Expression> { expr, right }, Location: location);
             }
         }
-        
+
         return expr;
     }
 
     private Expression ParseBitwiseOr()
     {
-        var expr = ParseBitwiseXor();
-        
-        while (Match(TokenType.Pipe))
+        Expression expr = ParseBitwiseXor();
+
+        while (Match(type: TokenType.Pipe))
         {
-            var op = PeekToken(-1);
-            var right = ParseBitwiseXor();
-            expr = new BinaryExpression(expr, TokenToBinaryOperator(op.Type), right, GetLocation(op));
+            Token op = PeekToken(offset: -1);
+            Expression right = ParseBitwiseXor();
+            expr = new BinaryExpression(Left: expr,
+                Operator: TokenToBinaryOperator(tokenType: op.Type), Right: right,
+                Location: GetLocation(token: op));
         }
-        
+
         return expr;
     }
 
     private Expression ParseBitwiseXor()
     {
-        var expr = ParseBitwiseAnd();
-        
-        while (Match(TokenType.Caret))
+        Expression expr = ParseBitwiseAnd();
+
+        while (Match(type: TokenType.Caret))
         {
-            var op = PeekToken(-1);
-            var right = ParseBitwiseAnd();
-            expr = new BinaryExpression(expr, TokenToBinaryOperator(op.Type), right, GetLocation(op));
+            Token op = PeekToken(offset: -1);
+            Expression right = ParseBitwiseAnd();
+            expr = new BinaryExpression(Left: expr,
+                Operator: TokenToBinaryOperator(tokenType: op.Type), Right: right,
+                Location: GetLocation(token: op));
         }
-        
+
         return expr;
     }
 
     private Expression ParseBitwiseAnd()
     {
-        var expr = ParseShift();
-        
-        while (Match(TokenType.Ampersand))
+        Expression expr = ParseShift();
+
+        while (Match(type: TokenType.Ampersand))
         {
-            var op = PeekToken(-1);
-            var right = ParseShift();
-            expr = new BinaryExpression(expr, TokenToBinaryOperator(op.Type), right, GetLocation(op));
+            Token op = PeekToken(offset: -1);
+            Expression right = ParseShift();
+            expr = new BinaryExpression(Left: expr,
+                Operator: TokenToBinaryOperator(tokenType: op.Type), Right: right,
+                Location: GetLocation(token: op));
         }
-        
+
         return expr;
     }
 
     private Expression ParseShift()
     {
-        var expr = ParseAdditive();
-        
+        Expression expr = ParseAdditive();
+
         while (Match(TokenType.LeftShift, TokenType.RightShift))
         {
-            var op = PeekToken(-1);
-            var right = ParseAdditive();
-            expr = new BinaryExpression(expr, TokenToBinaryOperator(op.Type), right, GetLocation(op));
+            Token op = PeekToken(offset: -1);
+            Expression right = ParseAdditive();
+            expr = new BinaryExpression(Left: expr,
+                Operator: TokenToBinaryOperator(tokenType: op.Type), Right: right,
+                Location: GetLocation(token: op));
         }
-        
+
         return expr;
     }
 
     private Expression ParseAdditive()
     {
-        var expr = ParseMultiplicative();
-        
-        while (Match(TokenType.Plus, TokenType.Minus, 
-                     TokenType.PlusWrap, TokenType.PlusSaturate, TokenType.PlusUnchecked, TokenType.PlusChecked,
-                     TokenType.MinusWrap, TokenType.MinusSaturate, TokenType.MinusUnchecked, TokenType.MinusChecked))
+        Expression expr = ParseMultiplicative();
+
+        while (Match(TokenType.Plus, TokenType.Minus, TokenType.PlusWrap, TokenType.PlusSaturate,
+                   TokenType.PlusUnchecked, TokenType.PlusChecked, TokenType.MinusWrap,
+                   TokenType.MinusSaturate, TokenType.MinusUnchecked, TokenType.MinusChecked))
         {
-            var op = PeekToken(-1);
-            var right = ParseMultiplicative();
-            expr = new BinaryExpression(expr, TokenToBinaryOperator(op.Type), right, GetLocation(op));
+            Token op = PeekToken(offset: -1);
+            Expression right = ParseMultiplicative();
+            expr = new BinaryExpression(Left: expr,
+                Operator: TokenToBinaryOperator(tokenType: op.Type), Right: right,
+                Location: GetLocation(token: op));
         }
-        
+
         return expr;
     }
 
     private Expression ParseMultiplicative()
     {
-        var expr = ParsePower();
-        
+        Expression expr = ParsePower();
+
         while (Match(TokenType.Star, TokenType.Slash, TokenType.Percent, TokenType.Divide,
-                     TokenType.MultiplyWrap, TokenType.MultiplySaturate, TokenType.MultiplyUnchecked, TokenType.MultiplyChecked,
-                     TokenType.DivideWrap, TokenType.DivideSaturate, TokenType.DivideUnchecked, TokenType.DivideChecked,
-                     TokenType.ModuloWrap, TokenType.ModuloSaturate, TokenType.ModuloUnchecked, TokenType.ModuloChecked))
+                   TokenType.MultiplyWrap, TokenType.MultiplySaturate, TokenType.MultiplyUnchecked,
+                   TokenType.MultiplyChecked, TokenType.DivideWrap, TokenType.DivideSaturate,
+                   TokenType.DivideUnchecked, TokenType.DivideChecked, TokenType.ModuloWrap,
+                   TokenType.ModuloSaturate, TokenType.ModuloUnchecked, TokenType.ModuloChecked))
         {
-            var op = PeekToken(-1);
-            var right = ParsePower();
-            expr = new BinaryExpression(expr, TokenToBinaryOperator(op.Type), right, GetLocation(op));
+            Token op = PeekToken(offset: -1);
+            Expression right = ParsePower();
+            expr = new BinaryExpression(Left: expr,
+                Operator: TokenToBinaryOperator(tokenType: op.Type), Right: right,
+                Location: GetLocation(token: op));
         }
-        
+
         return expr;
     }
 
     private Expression ParsePower()
     {
-        var expr = ParseUnary();
-        
-        while (Match(TokenType.Power,
-                     TokenType.PowerWrap, TokenType.PowerSaturate, TokenType.PowerUnchecked, TokenType.PowerChecked))
+        Expression expr = ParseUnary();
+
+        while (Match(TokenType.Power, TokenType.PowerWrap, TokenType.PowerSaturate,
+                   TokenType.PowerUnchecked, TokenType.PowerChecked))
         {
-            var op = PeekToken(-1);
-            var right = ParseUnary();
-            expr = new BinaryExpression(expr, TokenToBinaryOperator(op.Type), right, GetLocation(op));
+            Token op = PeekToken(offset: -1);
+            Expression right = ParseUnary();
+            expr = new BinaryExpression(Left: expr,
+                Operator: TokenToBinaryOperator(tokenType: op.Type), Right: right,
+                Location: GetLocation(token: op));
         }
-        
+
         return expr;
     }
 
@@ -1178,241 +1377,312 @@ public class CakeParser : BaseParser
     {
         if (Match(TokenType.Plus, TokenType.Minus, TokenType.Bang, TokenType.Not, TokenType.Tilde))
         {
-            var op = PeekToken(-1);
-            var expr = ParseUnary();
-            return new UnaryExpression(TokenToUnaryOperator(op.Type), expr, GetLocation(op));
+            Token op = PeekToken(offset: -1);
+            Expression expr = ParseUnary();
+            return new UnaryExpression(Operator: TokenToUnaryOperator(tokenType: op.Type),
+                Operand: expr, Location: GetLocation(token: op));
         }
-        
+
         return ParsePostfix();
     }
 
     private Expression ParsePostfix()
     {
-        var expr = ParsePrimary();
-        
+        Expression expr = ParsePrimary();
+
         while (true)
         {
-            if (Match(TokenType.LeftParen))
+            if (Match(type: TokenType.LeftParen))
             {
                 // Function call
                 var args = new List<Expression>();
-                
-                if (!Check(TokenType.RightParen))
+
+                if (!Check(type: TokenType.RightParen))
                 {
                     do
                     {
-                        args.Add(ParseExpression());
-                    } while (Match(TokenType.Comma));
+                        args.Add(item: ParseExpression());
+                    } while (Match(type: TokenType.Comma));
                 }
-                
-                Consume(TokenType.RightParen, "Expected ')' after arguments");
-                expr = new CallExpression(expr, args, expr.Location);
+
+                Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after arguments");
+                expr = new CallExpression(Callee: expr, Arguments: args, Location: expr.Location);
             }
-            else if (Match(TokenType.LeftBracket))
+            else if (Match(type: TokenType.LeftBracket))
             {
                 // Array/map indexing
-                var index = ParseExpression();
-                Consume(TokenType.RightBracket, "Expected ']' after index");
-                expr = new IndexExpression(expr, index, expr.Location);
+                Expression index = ParseExpression();
+                Consume(type: TokenType.RightBracket, errorMessage: "Expected ']' after index");
+                expr = new IndexExpression(Object: expr, Index: index, Location: expr.Location);
             }
-            else if (Match(TokenType.Dot))
+            else if (Match(type: TokenType.Dot))
             {
                 // Member access
-                var member = ConsumeIdentifier("Expected member name after '.'");
-                expr = new MemberExpression(expr, member, expr.Location);
+                string member = ConsumeIdentifier(errorMessage: "Expected member name after '.'");
+                expr = new MemberExpression(Object: expr, PropertyName: member,
+                    Location: expr.Location);
             }
             else
             {
                 break;
             }
         }
-        
+
         return expr;
     }
 
     private Expression ParsePrimary()
     {
-        var location = GetLocation();
-        
+        SourceLocation location = GetLocation();
+
         // Literals
-        if (Match(TokenType.True))
-            return new LiteralExpression(true, TokenType.True, location);
-        
-        if (Match(TokenType.False))
-            return new LiteralExpression(false, TokenType.False, location);
-        
-        if (Match(TokenType.None))
-            return new LiteralExpression(null!, TokenType.None, location);
-        
+        if (Match(type: TokenType.True))
+        {
+            return new LiteralExpression(Value: true, LiteralType: TokenType.True,
+                Location: location);
+        }
+
+        if (Match(type: TokenType.False))
+        {
+            return new LiteralExpression(Value: false, LiteralType: TokenType.False,
+                Location: location);
+        }
+
+        if (Match(type: TokenType.None))
+        {
+            return new LiteralExpression(Value: null!, LiteralType: TokenType.None,
+                Location: location);
+        }
+
         // Integer literals
-        if (Match(TokenType.Integer, TokenType.S8Literal, TokenType.S16Literal, TokenType.S32Literal,
-                  TokenType.S64Literal, TokenType.S128Literal, TokenType.SyssintLiteral,
-                  TokenType.U8Literal, TokenType.U16Literal, TokenType.U32Literal,
-                  TokenType.U64Literal, TokenType.U128Literal, TokenType.SysuintLiteral))
+        if (Match(TokenType.Integer, TokenType.S8Literal, TokenType.S16Literal,
+                TokenType.S32Literal, TokenType.S64Literal, TokenType.S128Literal,
+                TokenType.SyssintLiteral, TokenType.U8Literal, TokenType.U16Literal,
+                TokenType.U32Literal, TokenType.U64Literal, TokenType.U128Literal,
+                TokenType.SysuintLiteral))
         {
-            var token = PeekToken(-1);
-            var value = token.Text;
-            var cleanValue = value.Replace("s8", "").Replace("s16", "").Replace("s32", "").Replace("s64", "")
-                                  .Replace("s128", "").Replace("syssint", "").Replace("u8", "").Replace("u16", "")
-                                  .Replace("u32", "").Replace("u64", "").Replace("u128", "").Replace("sysuint", "");
-            if (long.TryParse(cleanValue, out var intVal))
-                return new LiteralExpression(intVal, token.Type, location);
-            throw new ParseException($"Invalid integer literal: {value}");
+            Token token = PeekToken(offset: -1);
+            string value = token.Text;
+            string cleanValue = value.Replace(oldValue: "s8", newValue: "")
+                                     .Replace(oldValue: "s16", newValue: "")
+                                     .Replace(oldValue: "s32", newValue: "")
+                                     .Replace(oldValue: "s64", newValue: "")
+                                     .Replace(oldValue: "s128", newValue: "")
+                                     .Replace(oldValue: "syssint", newValue: "")
+                                     .Replace(oldValue: "u8", newValue: "")
+                                     .Replace(oldValue: "u16", newValue: "")
+                                     .Replace(oldValue: "u32", newValue: "")
+                                     .Replace(oldValue: "u64", newValue: "")
+                                     .Replace(oldValue: "u128", newValue: "")
+                                     .Replace(oldValue: "sysuint", newValue: "");
+            if (long.TryParse(s: cleanValue, result: out long intVal))
+            {
+                return new LiteralExpression(Value: intVal, LiteralType: token.Type,
+                    Location: location);
+            }
+
+            throw new ParseException(message: $"Invalid integer literal: {value}");
         }
-        
+
         // Float literals  
-        if (Match(TokenType.Decimal, TokenType.F16Literal, TokenType.F32Literal, TokenType.F64Literal, TokenType.F128Literal,
-                  TokenType.D32Literal, TokenType.D64Literal, TokenType.D128Literal))
+        if (Match(TokenType.Decimal, TokenType.F16Literal, TokenType.F32Literal,
+                TokenType.F64Literal, TokenType.F128Literal, TokenType.D32Literal,
+                TokenType.D64Literal, TokenType.D128Literal))
         {
-            var token = PeekToken(-1);
-            var value = token.Text;
-            var cleanValue = value.Replace("f16", "").Replace("f32", "").Replace("f64", "").Replace("f128", "")
-                                  .Replace("d32", "").Replace("d64", "").Replace("d128", "");
-            if (double.TryParse(cleanValue, out var floatVal))
-                return new LiteralExpression(floatVal, token.Type, location);
-            throw new ParseException($"Invalid float literal: {value}");
+            Token token = PeekToken(offset: -1);
+            string value = token.Text;
+            string cleanValue = value.Replace(oldValue: "f16", newValue: "")
+                                     .Replace(oldValue: "f32", newValue: "")
+                                     .Replace(oldValue: "f64", newValue: "")
+                                     .Replace(oldValue: "f128", newValue: "")
+                                     .Replace(oldValue: "d32", newValue: "")
+                                     .Replace(oldValue: "d64", newValue: "")
+                                     .Replace(oldValue: "d128", newValue: "");
+            if (double.TryParse(s: cleanValue, result: out double floatVal))
+            {
+                return new LiteralExpression(Value: floatVal, LiteralType: token.Type,
+                    Location: location);
+            }
+
+            throw new ParseException(message: $"Invalid float literal: {value}");
         }
-        
+
         // String literals with Cake-specific handling
-        if (Match(TokenType.TextLiteral, TokenType.FormattedText, TokenType.RawText, TokenType.RawFormattedText,
-                  TokenType.Text8Literal, TokenType.Text8FormattedText, TokenType.Text8RawText, TokenType.Text8RawFormattedText,
-                  TokenType.Text16Literal, TokenType.Text16FormattedText, TokenType.Text16RawText, TokenType.Text16RawFormattedText))
+        if (Match(TokenType.TextLiteral, TokenType.FormattedText, TokenType.RawText,
+                TokenType.RawFormattedText, TokenType.Text8Literal, TokenType.Text8FormattedText,
+                TokenType.Text8RawText, TokenType.Text8RawFormattedText, TokenType.Text16Literal,
+                TokenType.Text16FormattedText, TokenType.Text16RawText,
+                TokenType.Text16RawFormattedText))
         {
-            var token = PeekToken(-1);
-            var value = token.Text;
-            
+            Token token = PeekToken(offset: -1);
+            string value = token.Text;
+
             // Handle Cake's formatted string literals (f"...")
-            if (value.StartsWith("f\"") && value.EndsWith("\""))
+            if (value.StartsWith(value: "f\"") && value.EndsWith(value: "\""))
             {
                 // This is a formatted string like f"{name} says hello"
                 // For now, treat as regular string but mark as formatted
-                value = value.Substring(2, value.Length - 3); // Remove f" and "
-                return new LiteralExpression(value, TokenType.FormattedText, location);
+                value = value.Substring(startIndex: 2,
+                    length: value.Length - 3); // Remove f" and "
+                return new LiteralExpression(Value: value, LiteralType: TokenType.FormattedText,
+                    Location: location);
             }
-            
+
             // Regular string literals
-            if (value.StartsWith("\"") && value.EndsWith("\""))
+            if (value.StartsWith(value: "\"") && value.EndsWith(value: "\""))
             {
-                value = value.Substring(1, value.Length - 2);
+                value = value.Substring(startIndex: 1, length: value.Length - 2);
             }
-            
+
             // Handle text encoding prefixes (t8", t16", t32")
-            if (value.StartsWith("t8\"") || value.StartsWith("t16\"") || value.StartsWith("t32\""))
+            if (value.StartsWith(value: "t8\"") || value.StartsWith(value: "t16\"") ||
+                value.StartsWith(value: "t32\""))
             {
-                var prefixEnd = value.IndexOf('"');
+                int prefixEnd = value.IndexOf(value: '"');
                 if (prefixEnd > 0)
                 {
-                    value = value.Substring(prefixEnd + 1, value.Length - prefixEnd - 2);
+                    value = value.Substring(startIndex: prefixEnd + 1,
+                        length: value.Length - prefixEnd - 2);
                 }
             }
-            
-            return new LiteralExpression(value, token.Type, location);
+
+            return new LiteralExpression(Value: value, LiteralType: token.Type,
+                Location: location);
         }
-        
+
         // Character literals
         if (Match(TokenType.Letter8Literal, TokenType.Letter16Literal, TokenType.LetterLiteral))
         {
-            var token = PeekToken(-1);
-            var value = token.Text;
-            
+            Token token = PeekToken(offset: -1);
+            string value = token.Text;
+
             try
             {
                 // Handle different prefixes: l8'a', l16'a', 'a'
-                var quoteStart = value.LastIndexOf('\'');
-                var quoteEnd = value.Length - 1;
-                
-                if (quoteStart >= 0 && quoteEnd > quoteStart && value[quoteEnd] == '\'')
+                int quoteStart = value.LastIndexOf(value: '\'');
+                int quoteEnd = value.Length - 1;
+
+                if (quoteStart >= 0 && quoteEnd > quoteStart && value[index: quoteEnd] == '\'')
                 {
-                    var charContent = value.Substring(quoteStart + 1, quoteEnd - quoteStart - 1);
-                    
+                    string charContent = value.Substring(startIndex: quoteStart + 1,
+                        length: quoteEnd - quoteStart - 1);
+
                     // Handle escape sequences
-                    if (charContent == "\\'")  // Single quote
-                        return new LiteralExpression('\'', token.Type, location);
-                    else if (charContent == "\\\\")  // Backslash
-                        return new LiteralExpression('\\', token.Type, location);
-                    else if (charContent == "\\n")  // Newline
-                        return new LiteralExpression('\n', token.Type, location);
-                    else if (charContent == "\\t")  // Tab
-                        return new LiteralExpression('\t', token.Type, location);
-                    else if (charContent == "\\r")  // Carriage return
-                        return new LiteralExpression('\r', token.Type, location);
+                    if (charContent == "\\'") // Single quote
+                    {
+                        return new LiteralExpression(Value: '\'', LiteralType: token.Type,
+                            Location: location);
+                    }
+                    else if (charContent == "\\\\") // Backslash
+                    {
+                        return new LiteralExpression(Value: '\\', LiteralType: token.Type,
+                            Location: location);
+                    }
+                    else if (charContent == "\\n") // Newline
+                    {
+                        return new LiteralExpression(Value: '\n', LiteralType: token.Type,
+                            Location: location);
+                    }
+                    else if (charContent == "\\t") // Tab
+                    {
+                        return new LiteralExpression(Value: '\t', LiteralType: token.Type,
+                            Location: location);
+                    }
+                    else if (charContent == "\\r") // Carriage return
+                    {
+                        return new LiteralExpression(Value: '\r', LiteralType: token.Type,
+                            Location: location);
+                    }
                     else if (charContent.Length == 1)
-                        return new LiteralExpression(charContent[0], token.Type, location);
+                    {
+                        return new LiteralExpression(Value: charContent[index: 0],
+                            LiteralType: token.Type, Location: location);
+                    }
                 }
             }
             catch
             {
                 // Fall through to error
             }
-            
+
             // For now, just return a placeholder for invalid character literals
-            return new LiteralExpression('?', token.Type, location);
+            return new LiteralExpression(Value: '?', LiteralType: token.Type, Location: location);
         }
-        
+
         // Identifiers and Cake-specific keywords
         if (Match(TokenType.Identifier, TokenType.TypeIdentifier))
         {
-            var text = PeekToken(-1).Text;
-            
+            string text = PeekToken(offset: -1)
+               .Text;
+
             // Handle Cake's "me" keyword for self-reference
             if (text == "me")
             {
-                return new IdentifierExpression("this", location); // Map to C# "this"
+                return new IdentifierExpression(Name: "this",
+                    Location: location); // Map to C# "this"
             }
-            
-            return new IdentifierExpression(text, location);
+
+            return new IdentifierExpression(Name: text, Location: location);
         }
-        
+
         // Parenthesized expression
-        if (Match(TokenType.LeftParen))
+        if (Match(type: TokenType.LeftParen))
         {
-            var expr = ParseExpression();
-            Consume(TokenType.RightParen, "Expected ')' after expression");
+            Expression expr = ParseExpression();
+            Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after expression");
             return expr;
         }
-        
+
         // Conditional expression: if A then B else C
-        if (Match(TokenType.If))
+        if (Match(type: TokenType.If))
         {
-            var condition = ParseExpression();
-            Consume(TokenType.Then, "Expected 'then' in conditional expression");
-            var thenExpr = ParseExpression();
-            Consume(TokenType.Else, "Expected 'else' in conditional expression");
-            var elseExpr = ParseExpression();
-            return new ConditionalExpression(condition, thenExpr, elseExpr, location);
+            Expression condition = ParseExpression();
+            Consume(type: TokenType.Then,
+                errorMessage: "Expected 'then' in conditional expression");
+            Expression thenExpr = ParseExpression();
+            Consume(type: TokenType.Else,
+                errorMessage: "Expected 'else' in conditional expression");
+            Expression elseExpr = ParseExpression();
+            return new ConditionalExpression(Condition: condition, TrueExpression: thenExpr,
+                FalseExpression: elseExpr, Location: location);
         }
-        
-        throw new ParseException($"Unexpected token: {CurrentToken.Type} at line {CurrentToken.Line}, column {CurrentToken.Column}");
+
+        throw new ParseException(
+            message:
+            $"Unexpected token: {CurrentToken.Type} at line {CurrentToken.Line}, column {CurrentToken.Column}");
     }
 
     private TypeExpression ParseType()
     {
-        var location = GetLocation();
-        
+        SourceLocation location = GetLocation();
+
         // Named type (identifier or type identifier)
         if (Match(TokenType.Identifier, TokenType.TypeIdentifier))
         {
-            var name = PeekToken(-1).Text;
-            
+            string name = PeekToken(offset: -1)
+               .Text;
+
             // Check for generic type arguments
-            if (Match(TokenType.Less))
+            if (Match(type: TokenType.Less))
             {
                 var typeArgs = new List<TypeExpression>();
-                
+
                 do
                 {
-                    typeArgs.Add(ParseType());
-                } while (Match(TokenType.Comma));
-                
-                Consume(TokenType.Greater, "Expected '>' after type arguments");
-                
-                return new TypeExpression(name, typeArgs, location);
+                    typeArgs.Add(item: ParseType());
+                } while (Match(type: TokenType.Comma));
+
+                Consume(type: TokenType.Greater,
+                    errorMessage: "Expected '>' after type arguments");
+
+                return new TypeExpression(Name: name, GenericArguments: typeArgs,
+                    Location: location);
             }
-            
-            return new TypeExpression(name, null, location);
+
+            return new TypeExpression(Name: name, GenericArguments: null, Location: location);
         }
-        
-        throw new ParseException($"Expected type, got {CurrentToken.Type}");
+
+        throw new ParseException(message: $"Expected type, got {CurrentToken.Type}");
     }
 
     private void ConsumeStatementTerminator()
@@ -1424,9 +1694,9 @@ public class CakeParser : BaseParser
         CheckUnnecessaryBrace();
 
         // Accept newline as statement terminator
-        if (!Check(TokenType.Dedent) && !Check(TokenType.Else) && !IsAtEnd)
+        if (!Check(type: TokenType.Dedent) && !Check(type: TokenType.Else) && !IsAtEnd)
         {
-            Match(TokenType.Newline);
+            Match(type: TokenType.Newline);
         }
     }
 
@@ -1434,12 +1704,14 @@ public class CakeParser : BaseParser
     {
         if (Match(TokenType.Identifier, TokenType.TypeIdentifier))
         {
-            return PeekToken(-1).Text;
+            return PeekToken(offset: -1)
+               .Text;
         }
-        
-        var current = CurrentToken;
-        throw new ParseException($"{errorMessage} at line {current.Line}, column {current.Column}. " +
-                                $"Expected Identifier, got {current.Type}.");
+
+        Token current = CurrentToken;
+        throw new ParseException(
+            message: $"{errorMessage} at line {current.Line}, column {current.Column}. " +
+                     $"Expected Identifier, got {current.Type}.");
     }
 
     /// <summary>
@@ -1447,13 +1719,13 @@ public class CakeParser : BaseParser
     /// </summary>
     private void ProcessIndentToken()
     {
-        if (!Match(TokenType.Indent))
+        if (!Match(type: TokenType.Indent))
         {
-            throw new ParseException("Expected INDENT token");
+            throw new ParseException(message: "Expected INDENT token");
         }
-        
+
         _currentIndentationLevel++;
-        _indentationStack.Push(_currentIndentationLevel);
+        _indentationStack.Push(item: _currentIndentationLevel);
     }
 
     /// <summary>
@@ -1464,10 +1736,10 @@ public class CakeParser : BaseParser
         // Check for unnecessary closing braces before processing dedents
         CheckUnnecessaryBrace();
 
-        while (Check(TokenType.Dedent) && !IsAtEnd)
+        while (Check(type: TokenType.Dedent) && !IsAtEnd)
         {
             Advance(); // Consume the DEDENT token
-            
+
             if (_indentationStack.Count > 1) // Keep base level
             {
                 _indentationStack.Pop();
@@ -1475,7 +1747,7 @@ public class CakeParser : BaseParser
             }
             else
             {
-                throw new ParseException("Unexpected dedent - no matching indent");
+                throw new ParseException(message: "Unexpected dedent - no matching indent");
             }
         }
     }

@@ -26,13 +26,15 @@ public abstract class BaseParser
 
     // Token management
     protected Token CurrentToken => Position < Tokens.Count
-        ? Tokens[Position]
+        ? Tokens[index: Position]
         : Tokens[^1];
 
-    protected Token PeekToken(int offset = 1) =>
-        Position + offset < Tokens.Count
-            ? Tokens[Position + offset]
+    protected Token PeekToken(int offset = 1)
+    {
+        return Position + offset < Tokens.Count
+            ? Tokens[index: Position + offset]
             : Tokens[^1];
+    }
 
     protected bool IsAtEnd => Position >= Tokens.Count || CurrentToken.Type == TokenType.Eof;
 
@@ -41,32 +43,45 @@ public abstract class BaseParser
     /// </summary>
     protected Token Advance()
     {
-        var token = CurrentToken;
-        if (!IsAtEnd) Position++;
+        Token token = CurrentToken;
+        if (!IsAtEnd)
+        {
+            Position++;
+        }
+
         return token;
     }
 
     /// <summary>
     /// Check if current token matches the expected type
     /// </summary>
-    protected bool Check(TokenType type) => !IsAtEnd && CurrentToken.Type == type;
+    protected bool Check(TokenType type)
+    {
+        return !IsAtEnd && CurrentToken.Type == type;
+    }
 
     /// <summary>
     /// Check if current token matches any of the expected types
     /// </summary>
-    protected bool Check(params TokenType[] types) => types.Any(Check);
+    protected bool Check(params TokenType[] types)
+    {
+        return types.Any(predicate: Check);
+    }
 
     /// <summary>
     /// Consume token if it matches expected type, otherwise throw error
     /// </summary>
     protected Token Consume(TokenType type, string errorMessage)
     {
-        if (Check(type)) return Advance();
+        if (Check(type: type))
+        {
+            return Advance();
+        }
 
-        var current = CurrentToken;
+        Token current = CurrentToken;
         throw new ParseException(
-            $"{errorMessage} at line {current.Line}, column {current.Column}. " +
-            $"Expected {type}, got {current.Type}.");
+            message: $"{errorMessage} at line {current.Line}, column {current.Column}. " +
+                     $"Expected {type}, got {current.Type}.");
     }
 
     /// <summary>
@@ -74,7 +89,7 @@ public abstract class BaseParser
     /// </summary>
     protected bool Match(TokenType type)
     {
-        if (Check(type))
+        if (Check(type: type))
         {
             Advance();
             return true;
@@ -88,9 +103,9 @@ public abstract class BaseParser
     /// </summary>
     protected bool Match(params TokenType[] types)
     {
-        foreach (var type in types)
+        foreach (TokenType type in types)
         {
-            if (Check(type))
+            if (Check(type: type))
             {
                 Advance();
                 return true;
@@ -217,16 +232,24 @@ public abstract class BaseParser
     /// </summary>
     protected bool IsValidComparisonChain(List<BinaryOperator> operators)
     {
-        if (operators.Count <= 1) return true;
+        if (operators.Count <= 1)
+        {
+            return true;
+        }
 
-        var directions = operators.Select(op => GetComparisonDirection(BinaryOperatorToToken(op)))
-                                  .ToList();
+        var directions = operators
+                        .Select(selector: op =>
+                             GetComparisonDirection(type: BinaryOperatorToToken(op: op)))
+                        .ToList();
 
         // All equality is valid
-        if (directions.All(d => d == 0)) return true;
+        if (directions.All(predicate: d => d == 0))
+        {
+            return true;
+        }
 
         // Check for consistent direction (all ascending, all descending, or mixed with equality only)
-        var nonZeroDirections = directions.Where(d => d != 0)
+        var nonZeroDirections = directions.Where(predicate: d => d != 0)
                                           .Distinct()
                                           .ToList();
         return nonZeroDirections.Count <= 1; // Only one direction (plus equality)
@@ -283,8 +306,11 @@ public abstract class BaseParser
 
         while (!IsAtEnd)
         {
-            if (PeekToken(-1)
-                   .Type == TokenType.Newline) return;
+            if (PeekToken(offset: -1)
+                   .Type == TokenType.Newline)
+            {
+                return;
+            }
 
             switch (CurrentToken.Type)
             {
@@ -312,9 +338,15 @@ public abstract class BaseParser
     /// <summary>
     /// Create a source location from the current token
     /// </summary>
-    protected SourceLocation GetLocation() => GetLocation(CurrentToken);
-    protected SourceLocation GetLocation(Token token) =>
-        new(token.Line, token.Column, token.Position);
+    protected SourceLocation GetLocation()
+    {
+        return GetLocation(token: CurrentToken);
+    }
+    protected SourceLocation GetLocation(Token token)
+    {
+        return new SourceLocation(Line: token.Line, Column: token.Column,
+            Position: token.Position);
+    }
 
     /// <summary>
     /// Parse expression using Pratt parser with precedence climbing
@@ -322,38 +354,42 @@ public abstract class BaseParser
     protected Expression ParseExpression(Precedence minPrecedence = Precedence.None)
     {
         // Handle 'if then else' conditional expressions at the lowest precedence
-        if (minPrecedence <= Precedence.Conditional && Match(TokenType.If))
+        if (minPrecedence <= Precedence.Conditional && Match(type: TokenType.If))
         {
-            var condition = ParseExpression(Precedence.Range);
-            Consume(TokenType.Then, "Expected 'then' in conditional expression");
-            var thenExpr = ParseExpression(Precedence.Range);
-            Consume(TokenType.Else, "Expected 'else' in conditional expression");
+            Expression condition = ParseExpression(minPrecedence: Precedence.Range);
+            Consume(type: TokenType.Then,
+                errorMessage: "Expected 'then' in conditional expression");
+            Expression thenExpr = ParseExpression(minPrecedence: Precedence.Range);
+            Consume(type: TokenType.Else,
+                errorMessage: "Expected 'else' in conditional expression");
             // Parse else expression at higher precedence to prevent nesting
-            var elseExpr = ParseExpression(Precedence.Range);
-            return new ConditionalExpression(condition, thenExpr, elseExpr, GetLocation());
+            Expression elseExpr = ParseExpression(minPrecedence: Precedence.Range);
+            return new ConditionalExpression(Condition: condition, TrueExpression: thenExpr,
+                FalseExpression: elseExpr, Location: GetLocation());
         }
 
         // Parse prefix expression (unary operators, literals, etc.)
-        var left = ParsePrefixExpression();
+        Expression left = ParsePrefixExpression();
 
         // Handle range expressions: a to b [step c]
-        if (minPrecedence <= Precedence.Range && Match(TokenType.To))
+        if (minPrecedence <= Precedence.Range && Match(type: TokenType.To))
         {
-            var end = ParseExpression(Precedence.LogicalOr);
+            Expression end = ParseExpression(minPrecedence: Precedence.LogicalOr);
             Expression? step = null;
 
-            if (Match(TokenType.Step))
+            if (Match(type: TokenType.Step))
             {
-                step = ParseExpression(Precedence.LogicalOr);
+                step = ParseExpression(minPrecedence: Precedence.LogicalOr);
             }
 
-            left = new RangeExpression(left, end, step, GetLocation());
+            left = new RangeExpression(Start: left, End: end, Step: step, Location: GetLocation());
         }
 
         // Check for comparison chaining at comparison precedence level
-        if (minPrecedence <= Precedence.Comparison && IsComparisonOperator(CurrentToken.Type))
+        if (minPrecedence <= Precedence.Comparison &&
+            IsComparisonOperator(type: CurrentToken.Type))
         {
-            var chainResult = TryParseComparisonChain(left);
+            ChainedComparisonExpression? chainResult = TryParseComparisonChain(left: left);
             if (chainResult != null)
             {
                 left = chainResult;
@@ -363,25 +399,33 @@ public abstract class BaseParser
         // Parse infix expressions (binary operators) with precedence climbing
         while (!IsAtEnd)
         {
-            var precedence = GetBinaryPrecedence(CurrentToken.Type);
-            if (precedence <= minPrecedence) break;
+            Precedence precedence = GetBinaryPrecedence(type: CurrentToken.Type);
+            if (precedence <= minPrecedence)
+            {
+                break;
+            }
 
             // Skip comparison operators if we already handled chaining
             if (precedence == Precedence.Comparison && left is ChainedComparisonExpression)
+            {
                 break;
+            }
 
             // Skip range operators - they're handled above
             if (CurrentToken.Type == TokenType.To || CurrentToken.Type == TokenType.Step)
+            {
                 break;
+            }
 
             // Handle right-associative operators
-            if (IsRightAssociative(CurrentToken.Type))
+            if (IsRightAssociative(type: CurrentToken.Type))
             {
-                left = ParseInfixExpression(left, (Precedence)((int)precedence - 1));
+                left = ParseInfixExpression(left: left,
+                    minPrecedence: (Precedence)((int)precedence - 1));
             }
             else
             {
-                left = ParseInfixExpression(left, precedence);
+                left = ParseInfixExpression(left: left, minPrecedence: precedence);
             }
         }
 
@@ -396,9 +440,10 @@ public abstract class BaseParser
         // Handle unary operators
         if (Match(TokenType.Plus, TokenType.Minus, TokenType.Tilde, TokenType.Not, TokenType.Bang))
         {
-            var op = PeekToken(-1);
-            var operand = ParseExpression(Precedence.Unary);
-            return new UnaryExpression(TokenToUnaryOperator(op.Type), operand, GetLocation(op));
+            Token op = PeekToken(offset: -1);
+            Expression operand = ParseExpression(minPrecedence: Precedence.Unary);
+            return new UnaryExpression(Operator: TokenToUnaryOperator(tokenType: op.Type),
+                Operand: operand, Location: GetLocation(token: op));
         }
 
         // Parse postfix expression (which includes primary)
@@ -410,44 +455,50 @@ public abstract class BaseParser
     /// </summary>
     protected Expression ParsePostfixExpression()
     {
-        var expr = ParsePrimaryExpression();
+        Expression expr = ParsePrimaryExpression();
 
         while (!IsAtEnd)
         {
-            if (Match(TokenType.LeftBracket))
+            if (Match(type: TokenType.LeftBracket))
             {
                 // Array/index access: x[index]
-                var index = ParseExpression();
-                Consume(TokenType.RightBracket, "Expected ']' after index");
-                expr = new IndexExpression(expr, index, GetLocation());
+                Expression index = ParseExpression();
+                Consume(type: TokenType.RightBracket, errorMessage: "Expected ']' after index");
+                expr = new IndexExpression(Object: expr, Index: index, Location: GetLocation());
             }
-            else if (Match(TokenType.Dot))
+            else if (Match(type: TokenType.Dot))
             {
                 // Check if this is a type conversion: x.i32!()
                 if (IsTypeConversion())
                 {
-                    var typeToken = Advance();
-                    var typeName = IsNumericTypeToken(typeToken.Type) ? 
-                        GetTypeNameFromToken(typeToken.Type) : typeToken.Text;
-                    Consume(TokenType.Bang, "Expected '!' after type name");
-                    Consume(TokenType.LeftParen, "Expected '(' after type conversion");
-                    Consume(TokenType.RightParen, "Expected ')' after type conversion");
-                    expr = new TypeConversionExpression(typeName, expr, true, GetLocation());
+                    Token typeToken = Advance();
+                    string typeName = IsNumericTypeToken(type: typeToken.Type)
+                        ? GetTypeNameFromToken(type: typeToken.Type)
+                        : typeToken.Text;
+                    Consume(type: TokenType.Bang, errorMessage: "Expected '!' after type name");
+                    Consume(type: TokenType.LeftParen,
+                        errorMessage: "Expected '(' after type conversion");
+                    Consume(type: TokenType.RightParen,
+                        errorMessage: "Expected ')' after type conversion");
+                    expr = new TypeConversionExpression(TargetType: typeName, Expression: expr,
+                        IsMethodStyle: true, Location: GetLocation());
                 }
                 else
                 {
                     // Regular member access: x.member
-                    var member = Consume(TokenType.Identifier, "Expected member name after '.'");
-                    expr = new MemberExpression(expr, member.Text, GetLocation());
+                    Token member = Consume(type: TokenType.Identifier,
+                        errorMessage: "Expected member name after '.'");
+                    expr = new MemberExpression(Object: expr, PropertyName: member.Text,
+                        Location: GetLocation());
                 }
             }
-            else if (Check(TokenType.LeftParen) && !IsNewExpressionAhead())
+            else if (Check(type: TokenType.LeftParen) && !IsNewExpressionAhead())
             {
                 // Function call: x()
-                Match(TokenType.LeftParen);
-                var args = ParseArgumentList();
-                Consume(TokenType.RightParen, "Expected ')' after arguments");
-                expr = new CallExpression(expr, args, GetLocation());
+                Match(type: TokenType.LeftParen);
+                List<Expression> args = ParseArgumentList();
+                Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after arguments");
+                expr = new CallExpression(Callee: expr, Arguments: args, Location: GetLocation());
             }
             else
             {
@@ -463,11 +514,11 @@ public abstract class BaseParser
     /// </summary>
     protected bool IsTypeConversion()
     {
-        var token = PeekToken();
-        return (IsTypeIdentifier(token.Type) || 
-                (token.Type == TokenType.Identifier && IsTypeNameIdentifier(token.Text))) && 
-               PeekToken(1).Type == TokenType.Bang &&
-               PeekToken(2).Type == TokenType.LeftParen;
+        Token token = PeekToken();
+        return (IsTypeIdentifier(type: token.Type) || token.Type == TokenType.Identifier &&
+            IsTypeNameIdentifier(tokenText: token.Text)) && PeekToken(offset: 1)
+           .Type == TokenType.Bang && PeekToken(offset: 2)
+           .Type == TokenType.LeftParen;
     }
 
     /// <summary>
@@ -475,11 +526,10 @@ public abstract class BaseParser
     /// </summary>
     protected bool IsTypeIdentifier(TokenType type)
     {
-        return type == TokenType.Identifier || 
-               type == TokenType.TypeIdentifier ||
-               IsNumericTypeToken(type);
+        return type == TokenType.Identifier || type == TokenType.TypeIdentifier ||
+               IsNumericTypeToken(type: type);
     }
-    
+
     /// <summary>
     /// Check if a token represents a numeric type name (for identifiers)
     /// </summary>
@@ -487,9 +537,8 @@ public abstract class BaseParser
     {
         return tokenText switch
         {
-            "i8" or "i16" or "i32" or "i64" or
-            "u8" or "u16" or "u32" or "u64" or
-            "f16" or "f32" or "f64" or "f128" => true,
+            "i8" or "i16" or "i32" or "i64" or "u8" or "u16" or "u32" or "u64" or "f16" or "f32"
+                or "f64" or "f128" => true,
             _ => false
         };
     }
@@ -499,10 +548,10 @@ public abstract class BaseParser
     /// </summary>
     protected bool IsNumericTypeToken(TokenType type)
     {
-        return type is TokenType.S8Literal or TokenType.S16Literal or TokenType.S32Literal or
-               TokenType.S64Literal or TokenType.U8Literal or TokenType.U16Literal or
-               TokenType.U32Literal or TokenType.U64Literal or TokenType.F16Literal or
-               TokenType.F32Literal or TokenType.F64Literal;
+        return type is TokenType.S8Literal or TokenType.S16Literal or TokenType.S32Literal
+            or TokenType.S64Literal or TokenType.U8Literal or TokenType.U16Literal
+            or TokenType.U32Literal or TokenType.U64Literal or TokenType.F16Literal
+            or TokenType.F32Literal or TokenType.F64Literal;
     }
 
     /// <summary>
@@ -523,7 +572,7 @@ public abstract class BaseParser
             TokenType.F16Literal => "f16",
             TokenType.F32Literal => "f32",
             TokenType.F64Literal => "f64",
-            _ => throw new ArgumentException($"Invalid numeric type token: {type}")
+            _ => throw new ArgumentException(message: $"Invalid numeric type token: {type}")
         };
     }
 
@@ -532,11 +581,13 @@ public abstract class BaseParser
     /// </summary>
     protected Expression ParseInfixExpression(Expression left, Precedence minPrecedence)
     {
-        var op = Advance();
+        Token op = Advance();
 
         // Regular binary operators
-        var right = ParseExpression(minPrecedence);
-        return new BinaryExpression(left, TokenToBinaryOperator(op.Type), right, GetLocation(op));
+        Expression right = ParseExpression(minPrecedence: minPrecedence);
+        return new BinaryExpression(Left: left,
+            Operator: TokenToBinaryOperator(tokenType: op.Type), Right: right,
+            Location: GetLocation(token: op));
     }
 
     /// <summary>
@@ -545,12 +596,23 @@ public abstract class BaseParser
     protected Expression ParsePrimaryExpression()
     {
         // Boolean literals
-        if (Match(TokenType.True))
-            return new LiteralExpression(true, TokenType.True, GetLocation(PeekToken(-1)));
-        if (Match(TokenType.False))
-            return new LiteralExpression(false, TokenType.False, GetLocation(PeekToken(-1)));
-        if (Match(TokenType.None))
-            return new LiteralExpression(null, TokenType.None, GetLocation(PeekToken(-1)));
+        if (Match(type: TokenType.True))
+        {
+            return new LiteralExpression(Value: true, LiteralType: TokenType.True,
+                Location: GetLocation(token: PeekToken(offset: -1)));
+        }
+
+        if (Match(type: TokenType.False))
+        {
+            return new LiteralExpression(Value: false, LiteralType: TokenType.False,
+                Location: GetLocation(token: PeekToken(offset: -1)));
+        }
+
+        if (Match(type: TokenType.None))
+        {
+            return new LiteralExpression(Value: null, LiteralType: TokenType.None,
+                Location: GetLocation(token: PeekToken(offset: -1)));
+        }
 
         // Numeric literals
         if (Match(TokenType.Integer, TokenType.Decimal, TokenType.S8Literal, TokenType.S16Literal,
@@ -558,65 +620,73 @@ public abstract class BaseParser
                 TokenType.U16Literal, TokenType.U32Literal, TokenType.U64Literal,
                 TokenType.F16Literal, TokenType.F32Literal, TokenType.F64Literal))
         {
-            var token = PeekToken(-1);
-            return new LiteralExpression(ParseNumericLiteral(token), token.Type,
-                GetLocation(token));
+            Token token = PeekToken(offset: -1);
+            return new LiteralExpression(Value: ParseNumericLiteral(token: token),
+                LiteralType: token.Type, Location: GetLocation(token: token));
         }
 
         // String literals
-        if (Match(TokenType.TextLiteral, TokenType.FormattedText, TokenType.RawText, TokenType.RawFormattedText,
-                TokenType.Text8Literal, TokenType.Text8RawText, TokenType.Text8FormattedText, TokenType.Text8RawFormattedText,
-                TokenType.Text16Literal, TokenType.Text16RawText, TokenType.Text16FormattedText, TokenType.Text16RawFormattedText))
+        if (Match(TokenType.TextLiteral, TokenType.FormattedText, TokenType.RawText,
+                TokenType.RawFormattedText, TokenType.Text8Literal, TokenType.Text8RawText,
+                TokenType.Text8FormattedText, TokenType.Text8RawFormattedText,
+                TokenType.Text16Literal, TokenType.Text16RawText, TokenType.Text16FormattedText,
+                TokenType.Text16RawFormattedText))
         {
-            var token = PeekToken(-1);
-            return new LiteralExpression(token.Text, token.Type, GetLocation(token));
+            Token token = PeekToken(offset: -1);
+            return new LiteralExpression(Value: token.Text, LiteralType: token.Type,
+                Location: GetLocation(token: token));
         }
 
         // Check for type conversion function call: i32!(expr)
-        if ((IsNumericTypeToken(PeekToken().Type) || 
-             (PeekToken().Type == TokenType.Identifier && IsTypeNameIdentifier(PeekToken().Text))) && 
-             PeekToken(1).Type == TokenType.Bang)
+        if ((IsNumericTypeToken(type: PeekToken()
+               .Type) || PeekToken()
+               .Type == TokenType.Identifier && IsTypeNameIdentifier(tokenText: PeekToken()
+               .Text)) && PeekToken(offset: 1)
+               .Type == TokenType.Bang)
         {
-            var typeToken = Advance();
-            var typeName = IsNumericTypeToken(typeToken.Type) ?
-                GetTypeNameFromToken(typeToken.Type) : typeToken.Text;
-            Consume(TokenType.Bang, "Expected '!' after type name");
-            Consume(TokenType.LeftParen, "Expected '(' after type conversion");
-            var expr = ParseExpression();
-            Consume(TokenType.RightParen, "Expected ')' after expression");
-            return new TypeConversionExpression(typeName, expr, false, GetLocation(typeToken));
+            Token typeToken = Advance();
+            string typeName = IsNumericTypeToken(type: typeToken.Type)
+                ? GetTypeNameFromToken(type: typeToken.Type)
+                : typeToken.Text;
+            Consume(type: TokenType.Bang, errorMessage: "Expected '!' after type name");
+            Consume(type: TokenType.LeftParen, errorMessage: "Expected '(' after type conversion");
+            Expression expr = ParseExpression();
+            Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after expression");
+            return new TypeConversionExpression(TargetType: typeName, Expression: expr,
+                IsMethodStyle: false, Location: GetLocation(token: typeToken));
         }
 
         // Identifiers
         if (Match(TokenType.Identifier, TokenType.TypeIdentifier))
         {
-            var token = PeekToken(-1);
-            return new IdentifierExpression(token.Text, GetLocation(token));
+            Token token = PeekToken(offset: -1);
+            return new IdentifierExpression(Name: token.Text, Location: GetLocation(token: token));
         }
 
         // Type names as identifiers (when not followed by !)
-        if (IsNumericTypeToken(PeekToken().Type))
+        if (IsNumericTypeToken(type: PeekToken()
+               .Type))
         {
-            var token = Advance();
-            var typeName = GetTypeNameFromToken(token.Type);
-            return new IdentifierExpression(typeName, GetLocation(token));
+            Token token = Advance();
+            string typeName = GetTypeNameFromToken(type: token.Type);
+            return new IdentifierExpression(Name: typeName, Location: GetLocation(token: token));
         }
 
         // Parenthesized expression
-        if (Match(TokenType.LeftParen))
+        if (Match(type: TokenType.LeftParen))
         {
-            var expr = ParseExpression();
-            Consume(TokenType.RightParen, "Expected ')' after expression");
+            Expression expr = ParseExpression();
+            Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after expression");
             return expr;
         }
 
         // Lambda expression
-        if (Check(TokenType.recipe))
+        if (Check(type: TokenType.recipe))
         {
             return ParseLambdaExpression();
         }
 
-        throw new ParseException($"Unexpected token in expression: {CurrentToken.Type}");
+        throw new ParseException(message: $"Unexpected token in expression: {CurrentToken.Type}");
     }
 
     /// <summary>
@@ -626,12 +696,12 @@ public abstract class BaseParser
     {
         var args = new List<Expression>();
 
-        if (!Check(TokenType.RightParen))
+        if (!Check(type: TokenType.RightParen))
         {
             do
             {
-                args.Add(ParseExpression());
-            } while (Match(TokenType.Comma));
+                args.Add(item: ParseExpression());
+            } while (Match(type: TokenType.Comma));
         }
 
         return args;
@@ -652,7 +722,7 @@ public abstract class BaseParser
     protected virtual Expression ParseLambdaExpression()
     {
         // To be implemented by derived parsers
-        throw new NotImplementedException("Lambda expressions not yet implemented");
+        throw new NotImplementedException(message: "Lambda expressions not yet implemented");
     }
 
     /// <summary>
@@ -661,27 +731,32 @@ public abstract class BaseParser
     /// </summary>
     protected ChainedComparisonExpression? TryParseComparisonChain(Expression left)
     {
-        if (!IsComparisonOperator(CurrentToken.Type))
+        if (!IsComparisonOperator(type: CurrentToken.Type))
+        {
             return null;
+        }
 
         var operands = new List<Expression> { left };
         var operators = new List<BinaryOperator>();
 
         // Parse the chain: left op1 middle op2 right op3 ...
-        while (IsComparisonOperator(CurrentToken.Type))
+        while (IsComparisonOperator(type: CurrentToken.Type))
         {
-            var opToken = Advance();
-            var op = TokenToBinaryOperator(opToken.Type);
-            operators.Add(op);
+            Token opToken = Advance();
+            BinaryOperator op = TokenToBinaryOperator(tokenType: opToken.Type);
+            operators.Add(item: op);
 
             // Parse the next operand (right side of this comparison)
-            var nextOperand =
-                ParseExpression(Precedence.Shift); // Higher precedence than comparison
-            operands.Add(nextOperand);
+            Expression nextOperand =
+                ParseExpression(
+                    minPrecedence: Precedence.Shift); // Higher precedence than comparison
+            operands.Add(item: nextOperand);
 
             // Check if we should continue the chain
-            if (!IsComparisonOperator(CurrentToken.Type))
+            if (!IsComparisonOperator(type: CurrentToken.Type))
+            {
                 break;
+            }
         }
 
         // Only create chained comparison if we have more than one operator
@@ -692,13 +767,15 @@ public abstract class BaseParser
         }
 
         // Validate chain direction
-        if (!IsValidComparisonChain(operators))
+        if (!IsValidComparisonChain(operators: operators))
         {
             throw new ParseException(
+                message:
                 $"Invalid comparison chain: mixed ascending and descending operators at line {CurrentToken.Line}");
         }
 
-        return new ChainedComparisonExpression(operands, operators, GetLocation());
+        return new ChainedComparisonExpression(Operands: operands, Operators: operators,
+            Location: GetLocation());
     }
 
     /// <summary>
@@ -706,62 +783,72 @@ public abstract class BaseParser
     /// </summary>
     protected object ParseNumericLiteral(Token token)
     {
-        var text = token.Text;
-        
+        string text = token.Text;
+
         // Parse based on token type to preserve type information
         return token.Type switch
         {
-            TokenType.S8Literal => ParseTypedInteger<sbyte>(text, "s8"),
-            TokenType.S16Literal => ParseTypedInteger<short>(text, "s16"),
-            TokenType.S32Literal => ParseTypedInteger<int>(text, "s32"),
-            TokenType.S64Literal => ParseTypedInteger<long>(text, "s64"),
-            TokenType.S128Literal => ParseTypedInteger<Int128>(text, "s128"),
-            TokenType.U8Literal => ParseTypedInteger<byte>(text, "u8"),
-            TokenType.U16Literal => ParseTypedInteger<ushort>(text, "u16"),
-            TokenType.U32Literal => ParseTypedInteger<uint>(text, "u32"),
-            TokenType.U64Literal => ParseTypedInteger<ulong>(text, "u64"),
-            TokenType.U128Literal => ParseTypedInteger<UInt128>(text, "u128"),
-            TokenType.F16Literal => ParseTypedFloat<Half>(text, "f16"),
-            TokenType.F32Literal => ParseTypedFloat<float>(text, "f32"),
-            TokenType.F64Literal => ParseTypedFloat<double>(text, "f64"),
-            TokenType.F128Literal => ParseTypedFloat<decimal>(text, "f128"), // Using decimal as approximation
-            TokenType.Integer => BigInteger.Parse(text), // Variable-sized integer
-            TokenType.Decimal => ParseBigDecimal(text), // Variable-sized decimal
-            _ => text.Contains('.') ? double.Parse(text) : BigInteger.Parse(text)
+            TokenType.S8Literal => ParseTypedInteger<sbyte>(text: text, suffix: "s8"),
+            TokenType.S16Literal => ParseTypedInteger<short>(text: text, suffix: "s16"),
+            TokenType.S32Literal => ParseTypedInteger<int>(text: text, suffix: "s32"),
+            TokenType.S64Literal => ParseTypedInteger<long>(text: text, suffix: "s64"),
+            TokenType.S128Literal => ParseTypedInteger<Int128>(text: text, suffix: "s128"),
+            TokenType.U8Literal => ParseTypedInteger<byte>(text: text, suffix: "u8"),
+            TokenType.U16Literal => ParseTypedInteger<ushort>(text: text, suffix: "u16"),
+            TokenType.U32Literal => ParseTypedInteger<uint>(text: text, suffix: "u32"),
+            TokenType.U64Literal => ParseTypedInteger<ulong>(text: text, suffix: "u64"),
+            TokenType.U128Literal => ParseTypedInteger<UInt128>(text: text, suffix: "u128"),
+            TokenType.F16Literal => ParseTypedFloat<Half>(text: text, suffix: "f16"),
+            TokenType.F32Literal => ParseTypedFloat<float>(text: text, suffix: "f32"),
+            TokenType.F64Literal => ParseTypedFloat<double>(text: text, suffix: "f64"),
+            TokenType.F128Literal => ParseTypedFloat<decimal>(text: text,
+                suffix: "f128"), // Using decimal as approximation
+            TokenType.Integer => BigInteger.Parse(value: text), // Variable-sized integer
+            TokenType.Decimal => ParseBigDecimal(text: text), // Variable-sized decimal
+            _ => text.Contains(value: '.')
+                ? double.Parse(s: text)
+                : BigInteger.Parse(value: text)
         };
     }
-    
+
     private T ParseTypedInteger<T>(string text, string suffix) where T : struct
     {
         // Remove the type suffix
-        var cleanText = text.EndsWith(suffix) ? text.Substring(0, text.Length - suffix.Length) : text;
-        return (T)Convert.ChangeType(cleanText, typeof(T));
+        string cleanText = text.EndsWith(value: suffix)
+            ? text.Substring(startIndex: 0, length: text.Length - suffix.Length)
+            : text;
+        return (T)Convert.ChangeType(value: cleanText, conversionType: typeof(T));
     }
-    
+
     private T ParseTypedFloat<T>(string text, string suffix) where T : struct
     {
         // Remove the type suffix
-        var cleanText = text.EndsWith(suffix) ? text.Substring(0, text.Length - suffix.Length) : text;
+        string cleanText = text.EndsWith(value: suffix)
+            ? text.Substring(startIndex: 0, length: text.Length - suffix.Length)
+            : text;
         if (typeof(T) == typeof(Half))
         {
             // Half is not directly supported, use float as approximation
-            return (T)(object)(float)double.Parse(cleanText);
+            return (T)(object)(float)double.Parse(s: cleanText);
         }
-        return (T)Convert.ChangeType(cleanText, typeof(T));
+
+        return (T)Convert.ChangeType(value: cleanText, conversionType: typeof(T));
     }
-    
+
     private BigInteger ParseBigInteger(string text, string suffix)
     {
         // Remove the type suffix
-        var cleanText = text.EndsWith(suffix) ? text.Substring(0, text.Length - suffix.Length) : text;
-        return BigInteger.Parse(cleanText);
+        string cleanText = text.EndsWith(value: suffix)
+            ? text.Substring(startIndex: 0, length: text.Length - suffix.Length)
+            : text;
+        return BigInteger.Parse(value: cleanText);
     }
 
     private decimal ParseBigDecimal(string text)
     {
         // For now, use C#'s decimal as a placeholder for arbitrary precision decimal
         // In a real implementation, this would use a proper BigDecimal library
-        return decimal.Parse(text);
+        return decimal.Parse(s: text);
     }
 
     /// <summary>
@@ -891,7 +978,7 @@ public abstract class BaseParser
             TokenType.Follows => BinaryOperator.Follows,
             TokenType.NotFollows => BinaryOperator.NotFollows,
 
-            _ => throw new ParseException($"Unknown binary operator: {tokenType}")
+            _ => throw new ParseException(message: $"Unknown binary operator: {tokenType}")
         };
     }
 
@@ -908,22 +995,27 @@ public abstract class BaseParser
             TokenType.Not => UnaryOperator.Not,
             TokenType.Tilde => UnaryOperator.BitwiseNot,
 
-            _ => throw new ParseException($"Unknown unary operator: {tokenType}")
+            _ => throw new ParseException(message: $"Unknown unary operator: {tokenType}")
         };
     }
 
     /// <summary>
     /// Add a compile warning to the list
     /// </summary>
-    protected void AddWarning(string message, Token token, string warningCode, WarningSeverity severity = WarningSeverity.Warning)
+    protected void AddWarning(string message, Token token, string warningCode,
+        WarningSeverity severity = WarningSeverity.Warning)
     {
-        Warnings.Add(new CompileWarning(message, token.Line, token.Column, severity, warningCode));
+        Warnings.Add(item: new CompileWarning(message: message, line: token.Line,
+            column: token.Column, severity: severity, warningCode: warningCode));
     }
 
     /// <summary>
     /// Get all warnings collected during parsing
     /// </summary>
-    public IReadOnlyList<CompileWarning> GetWarnings() => Warnings.AsReadOnly();
+    public IReadOnlyList<CompileWarning> GetWarnings()
+    {
+        return Warnings.AsReadOnly();
+    }
 
     /// <summary>
     /// Check for unnecessary semicolon (for RazorForge)
@@ -933,11 +1025,10 @@ public abstract class BaseParser
         if (CurrentToken.Type == TokenType.Semicolon)
         {
             AddWarning(
+                message:
                 "Unnecessary semicolon detected. RazorForge uses expression-based syntax without statement terminators.",
-                CurrentToken,
-                WarningCodes.UnnecessarySemicolon,
-                WarningSeverity.StyleViolation
-            );
+                token: CurrentToken, warningCode: WarningCodes.UnnecessarySemicolon,
+                severity: WarningSeverity.StyleViolation);
         }
     }
 
@@ -949,11 +1040,10 @@ public abstract class BaseParser
         if (CurrentToken.Type == TokenType.RightBrace)
         {
             AddWarning(
+                message:
                 "Unnecessary closing brace detected. Cake uses indentation-based scoping, not braces.",
-                CurrentToken,
-                WarningCodes.UnnecessaryBraces,
-                WarningSeverity.StyleViolation
-            );
+                token: CurrentToken, warningCode: WarningCodes.UnnecessaryBraces,
+                severity: WarningSeverity.StyleViolation);
         }
     }
 }
@@ -963,10 +1053,11 @@ public abstract class BaseParser
 /// </summary>
 public class ParseException : Exception
 {
-    public ParseException(string message) : base(message)
+    public ParseException(string message) : base(message: message)
     {
     }
-    public ParseException(string message, Exception innerException) : base(message, innerException)
+    public ParseException(string message, Exception innerException) : base(message: message,
+        innerException: innerException)
     {
     }
 }

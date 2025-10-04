@@ -11,7 +11,8 @@ public class CompileWarning
     public WarningSeverity Severity { get; }
     public string WarningCode { get; }
 
-    public CompileWarning(string message, int line, int column, WarningSeverity severity, string warningCode)
+    public CompileWarning(string message, int line, int column,
+        WarningSeverity severity, string warningCode)
     {
         Message = message;
         Line = line;
