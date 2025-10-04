@@ -1,0 +1,3 @@
+﻿record Chunk<N>{
+    private var value: Array<Char, N>
+}
