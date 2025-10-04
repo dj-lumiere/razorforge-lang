@@ -19,7 +19,7 @@ namespace Compilers.Shared.Lexer;
 public class LexerException : Exception
 {
     /// <summary>
-    /// Initializes a new instance of the LexerException class with a specified error message.
+    /// Initializes a new instance of the LexerException entity with a specified error message.
     /// </summary>
     /// <param name="message">The error message that explains the reason for the exception</param>
     public LexerException(string message) : base(message)

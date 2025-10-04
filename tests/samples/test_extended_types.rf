@@ -1,0 +1,40 @@
+# Test extended precision types
+
+# 128-bit integers  
+func test_i128() -> i128 {
+    return 12345678901234567890i128
+}
+
+func test_u128() -> u128 {
+    return 98765432109876543210u128
+}
+
+# Extended floating-point
+func test_f16() -> f16 {
+    return 3.14f16
+}
+
+func test_f128() -> f128 {
+    return 2.71828182845904523536f128
+}
+
+# Test operations with extended types
+func test_i128_ops() -> i128 {
+    return 1000i128 + 2000i128 * 3i128
+}
+
+func test_u128_ops() -> u128 {
+    return 5000u128 - 1000u128 // 10u128
+}
+
+func test_f16_ops() -> f16 {
+    return 10.5f16 / 2.5f16 + 1.5f16
+}
+
+func test_f128_ops() -> f128 {
+    return 100.0f128 / 3.0f128 * 2.0f128
+}
+
+func main() -> i32 {
+    return 0
+}

@@ -1,0 +1,44 @@
+# Test signed vs unsigned operations
+
+# Signed integer operations - should use sdiv/srem
+func test_signed_ops() -> i32 {
+    return 100i32 // 7i32 + 50i32 % 3i32
+}
+
+func test_i8_signed() -> i8 {
+    return 100i8 // 9i8 - 15i8 % 4i8
+}
+
+# Unsigned integer operations - should use udiv/urem  
+func test_unsigned_ops() -> u32 {
+    return 100u32 // 7u32 + 50u32 % 3u32
+}
+
+func test_u8_unsigned() -> u8 {
+    return 200u8 // 9u8 - 15u8 % 4u8
+}
+
+func test_u16_unsigned() -> u16 {
+    return 1000u16 // 13u16 + 77u16 % 5u16
+}
+
+func test_u64_unsigned() -> u64 {
+    return 9876543u64 // 123u64 + 999u64 % 17u64
+}
+
+func test_u128_unsigned() -> u128 {
+    return 12345u128 // 7u128 + 100u128 % 3u128
+}
+
+# Mixed operations to verify type consistency
+func test_signed_complex() -> i64 {
+    return 123456i64 // 789i64 * 2i64 + 999i64 % 13i64
+}
+
+func test_unsigned_complex() -> u64 {
+    return 987654u64 // 321u64 * 3u64 + 111u64 % 7u64
+}
+
+func main() -> i32 {
+    return 0
+}

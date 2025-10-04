@@ -2,7 +2,7 @@
 # Maps directly to LLVM i8 type for unsigned operations
 
 # Core u8 type definition - maps to LLVM i8
-struct u8 {
+record u8 {
     public value: LlvmNativeI8
 }
 
@@ -15,107 +15,107 @@ preset U8_ONE: u8 = 1_u8
 # Basic arithmetic operations (LLVM intrinsics: add, sub, mul, udiv, urem)
 
 # Addition with overflow checking
-recipe u8.add(my: u8, other: u8) -> u8 {
-    return llvm_intrinsic("llvm.uadd.with.overflow.i8", my, other)
+recipe u8.add(me: u8, other: u8) -> u8 {
+    return llvm_intrinsic("llvm.uadd.with.overflow.i8", me, other)
 }
 
 # Subtraction with overflow checking
-recipe u8.sub(my: u8, other: u8) -> u8 {
-    return llvm_intrinsic("llvm.usub.with.overflow.i8", my, other)
+recipe u8.sub(me: u8, other: u8) -> u8 {
+    return llvm_intrinsic("llvm.usub.with.overflow.i8", me, other)
 }
 
 # Multiplication with overflow checking
-recipe u8.mul(my: u8, other: u8) -> u8 {
-    return llvm_intrinsic("llvm.umul.with.overflow.i8", my, other)
+recipe u8.mul(me: u8, other: u8) -> u8 {
+    return llvm_intrinsic("llvm.umul.with.overflow.i8", me, other)
 }
 
 # Division (unsigned) - maps to LLVM udiv
-recipe u8.floordiv(my: u8, other: u8) -> u8 {
+recipe u8.floordiv(me: u8, other: u8) -> u8 {
     when (other) {
         0 => throw panic("Division by zero"),
-        _ => return llvm_intrinsic("udiv", my, other)
+        _ => return llvm_intrinsic("udiv", me, other)
     }
 }
 
 # Remainder (unsigned) - maps to LLVM urem
-recipe u8.rem(my: u8, other: u8) -> u8 {
+recipe u8.rem(me: u8, other: u8) -> u8 {
     when (other) {
         0 => throw panic("Division by zero"),
-        _ => return llvm_intrinsic("urem", my, other)
+        _ => return llvm_intrinsic("urem", me, other)
     }
 }
 
 # Bitwise operations (direct LLVM mapping)
-recipe u8.and(my: u8, other: u8) -> u8 {
-    return llvm_intrinsic("and", my, other)
+recipe u8.and(me: u8, other: u8) -> u8 {
+    return llvm_intrinsic("and", me, other)
 }
 
-recipe u8.or(my: u8, other: u8) -> u8 {
-    return llvm_intrinsic("or", my, other)
+recipe u8.or(me: u8, other: u8) -> u8 {
+    return llvm_intrinsic("or", me, other)
 }
 
-recipe u8.xor(my: u8, other: u8) -> u8 {
-    return llvm_intrinsic("xor", my, other)
+recipe u8.xor(me: u8, other: u8) -> u8 {
+    return llvm_intrinsic("xor", me, other)
 }
 
-recipe u8.not(my: u8) -> u8 {
-    return llvm_intrinsic("xor", my, 255)
+recipe u8.not(me: u8) -> u8 {
+    return llvm_intrinsic("xor", me, 255)
 }
 
 # Bit shifting operations
-recipe u8.shl(my: u8, bits: u8) -> u8 {
-    return llvm_intrinsic("shl", my, bits)
+recipe u8.shl(me: u8, bits: u8) -> u8 {
+    return llvm_intrinsic("shl", me, bits)
 }
 
-recipe u8.shr(my: u8, bits: u8) -> u8 {
-    return llvm_intrinsic("lshr", my, bits)  # Logical right shift for unsigned
+recipe u8.shr(me: u8, bits: u8) -> u8 {
+    return llvm_intrinsic("lshr", me, bits)  # Logical right shift for unsigned
 }
 
 # Comparison operations (LLVM icmp)
-recipe u8.eq(my: u8, other: u8) -> bool {
-    return llvm_intrinsic("icmp eq", my, other)
+recipe u8.eq(me: u8, other: u8) -> bool {
+    return llvm_intrinsic("icmp eq", me, other)
 }
 
-recipe u8.ne(my: u8, other: u8) -> bool {
-    return llvm_intrinsic("icmp ne", my, other)
+recipe u8.ne(me: u8, other: u8) -> bool {
+    return llvm_intrinsic("icmp ne", me, other)
 }
 
-recipe u8.lt(my: u8, other: u8) -> bool {
-    return llvm_intrinsic("icmp ult", my, other)  # Unsigned less than
+recipe u8.lt(me: u8, other: u8) -> bool {
+    return llvm_intrinsic("icmp ult", me, other)  # Unsigned less than
 }
 
-recipe u8.le(my: u8, other: u8) -> bool {
-    return llvm_intrinsic("icmp ule", my, other)  # Unsigned less equal
+recipe u8.le(me: u8, other: u8) -> bool {
+    return llvm_intrinsic("icmp ule", me, other)  # Unsigned less equal
 }
 
-recipe u8.gt(my: u8, other: u8) -> bool {
-    return llvm_intrinsic("icmp ugt", my, other)  # Unsigned greater than
+recipe u8.gt(me: u8, other: u8) -> bool {
+    return llvm_intrinsic("icmp ugt", me, other)  # Unsigned greater than
 }
 
-recipe u8.ge(my: u8, other: u8) -> bool {
-    return llvm_intrinsic("icmp uge", my, other)  # Unsigned greater equal
+recipe u8.ge(me: u8, other: u8) -> bool {
+    return llvm_intrinsic("icmp uge", me, other)  # Unsigned greater equal
 }
 
 # Math operations
-recipe u8.min(my: u8, other: u8) -> u8 {
-    return if my <= other then my else other
+recipe u8.min(me: u8, other: u8) -> u8 {
+    return if me <= other then me else other
 }
 
-recipe u8.max(my: u8, other: u8) -> u8 {
-    return if my >= other then my else other
+recipe u8.max(me: u8, other: u8) -> u8 {
+    return if me >= other then me else other
 }
 
 # Bit manipulation utilities
-recipe u8.count_leading_zeros(my: u8) -> u8 {
-    return llvm_intrinsic("llvm.ctlz.i8", my, false)
+recipe u8.count_leading_zeros(me: u8) -> u8 {
+    return llvm_intrinsic("llvm.ctlz.i8", me, false)
 }
 
-recipe u8.count_trailing_zeros(my: u8) -> u8 {
-    return llvm_intrinsic("llvm.cttz.i8", my, false)
+recipe u8.count_trailing_zeros(me: u8) -> u8 {
+    return llvm_intrinsic("llvm.cttz.i8", me, false)
 }
 
-recipe u8.count_ones(my: u8) -> u8 {
-    return llvm_intrinsic("llvm.ctpop.i8", my)
+recipe u8.count_ones(me: u8) -> u8 {
+    return llvm_intrinsic("llvm.ctpop.i8", me)
 }
 
 # No byte swapping for 8-bit values (single byte)
@@ -173,17 +173,17 @@ recipe Text(from_u8: u8) -> Text {
 }
 
 # Utility functions for byte operations
-recipe u8.is_power_of_two(my: u8) -> bool {
-    return my != 0 and (my & (my - 1)) == 0
+recipe u8.is_power_of_two(me: u8) -> bool {
+    return me != 0 and (me & (me - 1)) == 0
 }
 
-recipe u8.next_power_of_two(my: u8) -> u8 {
-    when (my) {
+recipe u8.next_power_of_two(me: u8) -> u8 {
+    when (me) {
         0 => return 1,
         1 => return 1,
         _ => {
             var power: u8 = 1
-            while power < my {
+            while power < me {
                 power = power << 1
             }
             return power
@@ -192,18 +192,18 @@ recipe u8.next_power_of_two(my: u8) -> u8 {
 }
 
 # Saturating arithmetic (clamps to min/max instead of wrapping)
-recipe u8.saturating_add(my: u8, other: u8) -> u8 {
-    let result = my + other
-    return if result < my then U8_MAX else result  # Overflow check
+recipe u8.saturating_add(me: u8, other: u8) -> u8 {
+    let result = me + other
+    return if result < me then U8_MAX else result  # Overflow check
 }
 
-recipe u8.saturating_sub(my: u8, other: u8) -> u8 {
-    return if my >= other then my - other else U8_ZERO
+recipe u8.saturating_sub(me: u8, other: u8) -> u8 {
+    return if me >= other then me - other else U8_ZERO
 }
 
-recipe u8.saturating_mul(my: u8, other: u8) -> u8 {
-    let result = my * other
-    return if other != 0 and result / other != my then U8_MAX else result
+recipe u8.saturating_mul(me: u8, other: u8) -> u8 {
+    let result = me * other
+    return if other != 0 and result / other != me then U8_MAX else result
 }
 
 /*

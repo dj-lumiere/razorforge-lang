@@ -1,0 +1,36 @@
+{
+  "name": "razorforge-extension-pack",
+  "displayName": "RazorForge Development Pack",
+  "description": "Complete development environment for RazorForge and Cake languages",
+  "version": "0.1.0",
+  "publisher": "razorforge",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": ["Extension Packs"],
+  "keywords": [
+    "razorforge",
+    "cake",
+    "build automation",
+    "systems programming",
+    "extension pack"
+  ],
+  "extensionPack": [
+    "razorforge.razorforge-language-support",
+    "razorforge.cake-language-support"
+  ],
+  "icon": "icon.png",
+  "galleryBanner": {
+    "color": "#1e1e1e",
+    "theme": "dark"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/razorforge/razorforge"
+  },
+  "bugs": {
+    "url": "https://github.com/razorforge/razorforge/issues"
+  },
+  "homepage": "https://github.com/razorforge/razorforge",
+  "license": "MIT"
+}

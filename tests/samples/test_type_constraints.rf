@@ -1,0 +1,35 @@
+# Final test: Type-specific operator constraints
+# Integer types (i*, u*): Only // and %
+# Float types (f*): Only /
+# Comments: # syntax
+
+func test_integer_constraints() -> i32 {
+    # Integers can use // (floor division) and % (modulo)
+    return 100i32 // 7i32 + 50i32 % 3i32
+}
+
+func test_i8_constraints() -> i8 {
+    return 200i8 // 9i8 - 15i8 % 4i8
+}
+
+func test_u16_constraints() -> u16 {
+    return 1000u16 // 13u16 + 77u16 % 5u16  
+}
+
+func test_float_constraints() -> f32 {
+    # Floats can use / (true division)
+    return 15.5f32 / 3.2f32 + 8.7f32 / 2.1f32
+}
+
+func test_double_constraints() -> f64 {
+    return 100.0f64 / 7.0f64 - 25.5f64 / 3.14f64
+}
+
+# Mixed arithmetic with type-appropriate operators
+func test_mixed_operations() -> i64 {
+    return 9876i64 // 123i64 * 5i64 + 999i64 % 17i64
+}
+
+func main() -> i32 {
+    return 42i32
+}

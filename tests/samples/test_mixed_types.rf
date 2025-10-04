@@ -1,0 +1,30 @@
+# Test mixed-type arithmetic
+
+# Same types - should work fine
+func test_same_types() -> i32 {
+    return 10i32 + 20i32
+}
+
+# Different integer sizes - needs promotion
+func test_mixed_int_sizes() -> i32 {
+    return 10i8 + 20i32
+}
+
+# Signed vs unsigned - needs handling
+func test_signed_unsigned() -> u32 {
+    return 100u32 + 50i32
+}
+
+# Integer + float - needs conversion
+func test_int_float() -> f32 {
+    return 3.14f32 + 2i32
+}
+
+# Different float sizes
+func test_mixed_floats() -> f64 {
+    return 2.5f32 + 1.0f64
+}
+
+func main() -> i32 {
+    return 0
+}

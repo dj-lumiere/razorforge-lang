@@ -1,0 +1,19 @@
+func test_i8() -> i8 {
+    return 42i8
+}
+
+func test_i16() -> i16 {
+    return 1000i16  
+}
+
+func test_i32() -> i32 {
+    return 50000i32
+}
+
+func test_i64() -> i64 {
+    return 123456789i64
+}
+
+func main() -> i32 {
+    return 0
+}

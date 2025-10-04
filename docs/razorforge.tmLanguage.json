@@ -1,0 +1,97 @@
+{
+  "name": "RazorForge",
+  "scopeName": "source.razorforge",
+  "fileTypes": [
+    "rf",
+    "razorforge"
+  ],
+  "patterns": [
+    {
+      "comment": "Keywords",
+      "name": "keyword.control.razorforge",
+      "match": "\\b(recipe|record|entity|let|var|const|preeval|return|if|else|for|in|to|loop|break|continue|import|public|private|protected|danger|with|and|or|not|as|redefine|crash|external|me|auto|using)\\b"
+    },
+    {
+      "comment": "Memory operations",
+      "name": "keyword.operator.memory.razorforge",
+      "match": "\\b(hijack|refer|reveal|share|watch|steal|snatch|release|try_share|try_thread_share|thread_share|thread_watch|size|address|is_valid|unsafe_ptr|slice|resize|fill|copy_from|copy_from_stack|zero|seize|own)\\b(!)?",
+      "captures": {
+        "2": {
+          "name": "keyword.operator.bang.razorforge"
+        }
+      }
+    },
+    {
+      "comment": "Danger zone operations",
+      "name": "keyword.operator.danger.razorforge",
+      "match": "\\b(read_as|write_as|volatile_read|volatile_write|obtain_as|reveal_as|addr_of|invalidate|read|write|heap_alloc|heap_free|stack_alloc|memory_copy|memory_fill|memory_zero|sizeof)\\b(!)?",
+      "captures": {
+        "2": {
+          "name": "keyword.operator.bang.razorforge"
+        }
+      }
+    },
+    {
+      "comment": "Types",
+      "name": "storage.type.razorforge",
+      "match": "\\b(s8|s16|s32|s64|s128|u8|u16|u32|u64|u128|f16|f32|f64|f128|d32|d64|d128|bool|sysuint|syssint|letter|text|HeapSlice|StackSlice|cptr)\\b"
+    },
+    {
+      "comment": "Function calls with !",
+      "name": "entity.name.function.razorforge",
+      "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)(!)?\\s*\\(",
+      "captures": {
+        "1": {
+          "name": "entity.name.function"
+        },
+        "2": {
+          "name": "keyword.operator.bang.razorforge"
+        }
+      }
+    },
+    {
+      "comment": "Integers",
+      "name": "constant.integers.razorforge",
+      "match": "\\b(0x[0-9a-fA-F]+|0b[01]+|0o[0-7]+|0q[0-3]+|[0-9]+)\\b"
+    },
+    {
+      "comment": "BinaryFloats",
+      "name": "constant.floats.binary.razorforge",
+      "match": "\\b(0x[0-9a-fA-F]+|0b[01]+|0o[0-7]+|0q[0-3]+|[0-9]+)\\b"
+    },
+    {
+      "comment": "DecimalFloats",
+      "name": "constant.floats.decimal.razorforge",
+      "match": "\\b(0x[0-9a-fA-F]+|0b[01]+|0o[0-7]+|0q[0-3]+|[0-9]+)\\b"
+    },
+    {
+      "comment": "Strings",
+      "name": "string.quoted.double.razorforge",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.razorforge",
+          "match": "\\\\."
+        }
+      ]
+    },
+    {
+      "comment": "Single line comments",
+      "name": "comment.line.hash.razorforge",
+      "match": "#.*$"
+    },
+    {
+      "comment": "Multiline function comments",
+      "name": "comment.block.documentation.razorforge",
+      "begin": "###",
+      "end": "###"
+    },
+    {
+      "comment": "Block comments",
+      "name": "comment.block.razorforge",
+      "begin": "/\\*",
+      "end": "\\*/"
+    }
+  ]
+}

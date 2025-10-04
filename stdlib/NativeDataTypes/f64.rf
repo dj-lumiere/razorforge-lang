@@ -2,7 +2,7 @@
 # Maps directly to LLVM double type and IEEE 754 double precision format
 
 # Core f64 type definition - maps to LLVM double
-struct f64 {
+record f64 {
     public value: LlvmNativeDouble
 }
 
@@ -25,147 +25,147 @@ preset F64_LN_10: f64 = 2.302585092994046
 # Basic arithmetic operations (LLVM floating point intrinsics)
 
 # Addition - maps to LLVM fadd
-recipe f64.add(my: f64, other: f64) -> f64 {
-    llvm_intrinsic("fadd", my, other)
+recipe f64.add(me: f64, other: f64) -> f64 {
+    llvm_intrinsic("fadd", me, other)
 }
 
 # Subtraction - maps to LLVM fsub
-recipe f64.sub(my: f64, other: f64) -> f64 {
-    llvm_intrinsic("fsub", my, other)
+recipe f64.sub(me: f64, other: f64) -> f64 {
+    llvm_intrinsic("fsub", me, other)
 }
 
 # Multiplication - maps to LLVM fmul
-recipe f64.mul(my: f64, other: f64) -> f64 {
-    llvm_intrinsic("fmul", my, other)
+recipe f64.mul(me: f64, other: f64) -> f64 {
+    llvm_intrinsic("fmul", me, other)
 }
 
 # Division - maps to LLVM fdiv
-recipe f64.div(my: f64, other: f64) -> f64 {
-    llvm_intrinsic("fdiv", my, other)
+recipe f64.div(me: f64, other: f64) -> f64 {
+    llvm_intrinsic("fdiv", me, other)
 }
 
 # Remainder - maps to LLVM frem
-recipe f64.rem(my: f64, other: f64) -> f64 {
-    llvm_intrinsic("frem", my, other)
+recipe f64.rem(me: f64, other: f64) -> f64 {
+    llvm_intrinsic("frem", me, other)
 }
 
 # Comparison operations (LLVM fcmp)
-recipe f64.eq(my: f64, other: f64) -> bool {
-    llvm_intrinsic("fcmp oeq", my, other)  # Ordered equal
+recipe f64.eq(me: f64, other: f64) -> bool {
+    llvm_intrinsic("fcmp oeq", me, other)  # Ordered equal
 }
 
-recipe f64.ne(my: f64, other: f64) -> bool {
-    llvm_intrinsic("fcmp one", my, other)  # Ordered not equal
+recipe f64.ne(me: f64, other: f64) -> bool {
+    llvm_intrinsic("fcmp one", me, other)  # Ordered not equal
 }
 
-recipe f64.lt(my: f64, other: f64) -> bool {
-    llvm_intrinsic("fcmp olt", my, other)  # Ordered less than
+recipe f64.lt(me: f64, other: f64) -> bool {
+    llvm_intrinsic("fcmp olt", me, other)  # Ordered less than
 }
 
-recipe f64.le(my: f64, other: f64) -> bool {
-    llvm_intrinsic("fcmp ole", my, other)  # Ordered less equal
+recipe f64.le(me: f64, other: f64) -> bool {
+    llvm_intrinsic("fcmp ole", me, other)  # Ordered less equal
 }
 
-recipe f64.gt(my: f64, other: f64) -> bool {
-    llvm_intrinsic("fcmp ogt", my, other)  # Ordered greater than
+recipe f64.gt(me: f64, other: f64) -> bool {
+    llvm_intrinsic("fcmp ogt", me, other)  # Ordered greater than
 }
 
-recipe f64.ge(my: f64, other: f64) -> bool {
-    llvm_intrinsic("fcmp oge", my, other)  # Ordered greater equal
+recipe f64.ge(me: f64, other: f64) -> bool {
+    llvm_intrinsic("fcmp oge", me, other)  # Ordered greater equal
 }
 
 # NaN-aware comparisons
-recipe f64.is_nan(my: f64) -> bool {
-    llvm_intrinsic("fcmp uno", my, my)   # Unordered (NaN check)
+recipe f64.is_nan(me: f64) -> bool {
+    llvm_intrinsic("fcmp uno", me, me)   # Unordered (NaN check)
 }
 
-recipe f64.is_finite(my: f64) -> bool {
-    !my.is_nan() && !my.is_infinite()
+recipe f64.is_finite(me: f64) -> bool {
+    !me.is_nan() && !me.is_infinite()
 }
 
-recipe f64.is_infinite(my: f64) -> bool {
-    my == F64_INFINITY || my == F64_NEG_INFINITY
+recipe f64.is_infinite(me: f64) -> bool {
+    me == F64_INFINITY || me == F64_NEG_INFINITY
 }
 
 # Mathematical functions using LLVM intrinsics
-recipe f64.abs(my: f64) -> f64 {
-    llvm_intrinsic("llvm.fabs.f64", my)
+recipe f64.abs(me: f64) -> f64 {
+    llvm_intrinsic("llvm.fabs.f64", me)
 }
 
-recipe f64.sqrt(my: f64) -> f64 {
-    llvm_intrinsic("llvm.sqrt.f64", my)
+recipe f64.sqrt(me: f64) -> f64 {
+    llvm_intrinsic("llvm.sqrt.f64", me)
 }
 
-recipe f64.sin(my: f64) -> f64 {
-    llvm_intrinsic("llvm.sin.f64", my)
+recipe f64.sin(me: f64) -> f64 {
+    llvm_intrinsic("llvm.sin.f64", me)
 }
 
-recipe f64.cos(my: f64) -> f64 {
-    llvm_intrinsic("llvm.cos.f64", my)
+recipe f64.cos(me: f64) -> f64 {
+    llvm_intrinsic("llvm.cos.f64", me)
 }
 
-recipe f64.tan(my: f64) -> f64 {
-    my.sin() / my.cos()
+recipe f64.tan(me: f64) -> f64 {
+    me.sin() / me.cos()
 }
 
-recipe f64.pow(my: f64, exponent: f64) -> f64 {
-    llvm_intrinsic("llvm.pow.f64", my, exponent)
+recipe f64.pow(me: f64, exponent: f64) -> f64 {
+    llvm_intrinsic("llvm.pow.f64", me, exponent)
 }
 
-recipe f64.exp(my: f64) -> f64 {
-    llvm_intrinsic("llvm.exp.f64", my)
+recipe f64.exp(me: f64) -> f64 {
+    llvm_intrinsic("llvm.exp.f64", me)
 }
 
-recipe f64.exp2(my: f64) -> f64 {
-    llvm_intrinsic("llvm.exp2.f64", my)
+recipe f64.exp2(me: f64) -> f64 {
+    llvm_intrinsic("llvm.exp2.f64", me)
 }
 
-recipe f64.ln(my: f64) -> f64 {
-    llvm_intrinsic("llvm.log.f64", my)
+recipe f64.ln(me: f64) -> f64 {
+    llvm_intrinsic("llvm.log.f64", me)
 }
 
-recipe f64.log2(my: f64) -> f64 {
-    llvm_intrinsic("llvm.log2.f64", my)
+recipe f64.log2(me: f64) -> f64 {
+    llvm_intrinsic("llvm.log2.f64", me)
 }
 
-recipe f64.log10(my: f64) -> f64 {
-    llvm_intrinsic("llvm.log10.f64", my)
+recipe f64.log10(me: f64) -> f64 {
+    llvm_intrinsic("llvm.log10.f64", me)
 }
 
 # Rounding and truncation
-recipe f64.floor(my: f64) -> f64 {
-    llvm_intrinsic("llvm.floor.f64", my)
+recipe f64.floor(me: f64) -> f64 {
+    llvm_intrinsic("llvm.floor.f64", me)
 }
 
-recipe f64.ceil(my: f64) -> f64 {
-    llvm_intrinsic("llvm.ceil.f64", my)
+recipe f64.ceil(me: f64) -> f64 {
+    llvm_intrinsic("llvm.ceil.f64", me)
 }
 
-recipe f64.round(my: f64) -> f64 {
-    llvm_intrinsic("llvm.round.f64", my)
+recipe f64.round(me: f64) -> f64 {
+    llvm_intrinsic("llvm.round.f64", me)
 }
 
-recipe f64.trunc(my: f64) -> f64 {
-    llvm_intrinsic("llvm.trunc.f64", my)
+recipe f64.trunc(me: f64) -> f64 {
+    llvm_intrinsic("llvm.trunc.f64", me)
 }
 
 # Min/Max with proper NaN handling
-recipe f64.min(my: f64, other: f64) -> f64 {
-    llvm_intrinsic("llvm.minnum.f64", my, other)
+recipe f64.min(me: f64, other: f64) -> f64 {
+    llvm_intrinsic("llvm.minnum.f64", me, other)
 }
 
-recipe f64.max(my: f64, other: f64) -> f64 {
-    llvm_intrinsic("llvm.maxnum.f64", my, other)
+recipe f64.max(me: f64, other: f64) -> f64 {
+    llvm_intrinsic("llvm.maxnum.f64", me, other)
 }
 
 # Fused multiply-add for better precision
-recipe f64.fma(my: f64, mul: f64, add: f64) -> f64 {
-    llvm_intrinsic("llvm.fma.f64", my, mul, add)
+recipe f64.fma(me: f64, mul: f64, add: f64) -> f64 {
+    llvm_intrinsic("llvm.fma.f64", me, mul, add)
 }
 
 # IEEE 754 bit manipulation
-recipe f64.as_bits(my: f64) -> s64 {
-    llvm_intrinsic("bitcast", my)  # Reinterpret as s64
+recipe f64.as_bits(me: f64) -> s64 {
+    llvm_intrinsic("bitcast", me)  # Reinterpret as s64
 }
 
 recipe f64(from_bits: BitArray<64>) -> f64 {
@@ -173,18 +173,18 @@ recipe f64(from_bits: BitArray<64>) -> f64 {
 }
 
 # Extract IEEE 754 components
-recipe f64.extract_sign(my: f64) -> bool {
-    let bits = my.as_bits()
+recipe f64.extract_sign(me: f64) -> bool {
+    let bits = me.as_bits()
     (bits >> 63) != 0
 }
 
-recipe f64.extract_exponent(my: f64) -> s64 {
-    let bits = my.as_bits()
+recipe f64.extract_exponent(me: f64) -> s64 {
+    let bits = me.as_bits()
     (bits >> 52) & 0x7FF
 }
 
-recipe f64.extract_mantissa(my: f64) -> s64 {
-    let bits = my.as_bits()
+recipe f64.extract_mantissa(me: f64) -> s64 {
+    let bits = me.as_bits()
     bits & 0x000FFFFFFFFFFFFF
 }
 
@@ -212,9 +212,9 @@ recipe f64.load_from_memory(ptr: *const f64) -> f64 {
     }
 }
 
-recipe f64.store_to_memory(my: f64, ptr: *mut f64) {
+recipe f64.store_to_memory(me: f64, ptr: *mut f64) {
     danger {
-        llvm_intrinsic("store", my, ptr)
+        llvm_intrinsic("store", me, ptr)
     }
 }
 
@@ -224,8 +224,8 @@ recipe f64.atomic_load(ptr: *const atomic<f64>) -> f64 {
     f64(from_bits: BitArray<64>(from_s64: bits))
 }
 
-recipe f64.atomic_store(my: f64, ptr: *mut atomic<f64>) {
-    let bits = my.as_bits()
+recipe f64.atomic_store(me: f64, ptr: *mut atomic<f64>) {
+    let bits = me.as_bits()
     llvm_intrinsic("llvm.atomic.store.i64", bits, ptr as *mut atomic<s64>)
 }
 

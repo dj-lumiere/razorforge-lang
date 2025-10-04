@@ -15,6 +15,16 @@ public enum TokenType
     /// <summary>Arbitrary precision decimal in Cake - unsuffixed decimals (3.14, 2.718)</summary>
     Decimal,
 
+    /// <summary>Represents the semicolon (;) token in the syntax
+    /// This token is present for unnecessary semicolon detection</summary>
+    Semicolon,
+    
+    /// <summary>Variant declaration keyword (alias for Chimera)</summary>
+    Variant,
+
+    /// <summary>Mutant declaration keyword (alias for Chimera)</summary>
+    Mutant,
+
     /// <summary>Single 8-bit character literal with explicit prefix (l8'a')</summary>
     Letter8Literal,
 
@@ -231,20 +241,20 @@ public enum TokenType
     /// <summary>Function declaration keyword (recipe)</summary>
     recipe,
 
-    /// <summary>Class declaration keyword</summary>
-    Class,
+    /// <summary>Entity declaration keyword</summary>
+    Entity,
 
-    /// <summary>Struct declaration keyword</summary>
-    Struct,
+    /// <summary>Record declaration keyword</summary>
+    Record,
 
-    /// <summary>Menu declaration keyword (enum in both languages)</summary>
-    Menu,
+    /// <summary>Choice declaration keyword (enum in both languages)</summary>
+    Choice,
 
-    /// <summary>Variant declaration keyword</summary>
-    Variant,
+    /// <summary>Chimera declaration keyword</summary>
+    Chimera,
 
     /// <summary>Feature declaration keyword</summary>
-    Feature,
+    Protocol,
 
     /// <summary>Immutable variable declaration keyword</summary>
     Let,
@@ -294,7 +304,7 @@ public enum TokenType
 
     /// <summary>Else conditional keyword</summary>
     Else,
-    
+
     /// <summary>One liner of conditional expression (if predicate then A else B)</summary>
     Then,
 
@@ -337,7 +347,7 @@ public enum TokenType
     As,
 
     /// <summary>Method redefinition keyword (redefinition A = B)</summary>
-    Redefine,
+    Define,
 
     /// <summary>No-operation pass keyword</summary>
     Pass,
@@ -347,6 +357,9 @@ public enum TokenType
 
     /// <summary>Danger mode keyword for unsafe operations</summary>
     Danger,
+
+    /// <summary>Mayhem mode keyword for ultimate unsafe operations (method replacement, code execution)</summary>
+    Mayhem,
 
     /// <summary>With clause keyword for context</summary>
     With,
@@ -359,8 +372,11 @@ public enum TokenType
 
     /// <summary>In keyword for iterating/contains(ex, for i in 1 to 10 step 2)</summary>
     In,
-    
-    NotIn, IsNot, NotFrom, NotFollows,
+
+    NotIn,
+    IsNot,
+    NotFrom,
+    NotFollows,
 
     /// <summary>To keyword for Range object(ex, for i in 1 to 10 step 2)</summary>
     To,
@@ -600,9 +616,14 @@ public enum TokenType
     /// <summary>Documentation comment token (##)</summary>
     DocComment,
 
-    /// <summary>Throw token</summary>
-    Throw,
-    
+    /// <summary>requires token</summary>
+    Requires,
+
+    Generate,
+    Suspended,
+    Waitfor,
+    Usurping,
+
     /// <summary>End of file marker token</summary>
     Eof,
 

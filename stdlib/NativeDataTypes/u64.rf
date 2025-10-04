@@ -2,7 +2,7 @@
 # Maps directly to LLVM i64 type for unsigned operations
 
 # Core u64 type definition - maps to LLVM i64
-struct u64 {
+record u64 {
     public value: LlvmNativeI64
 }
 
@@ -15,112 +15,112 @@ preset U64_ONE: u64 = 1_u64
 # Basic arithmetic operations (LLVM intrinsics: add, sub, mul, udiv, urem)
 
 # Addition with overflow checking
-recipe u64.add(my: u64, other: u64) -> u64 {
-    return llvm_intrinsic("llvm.uadd.with.overflow.i64", my, other)
+recipe u64.add(me: u64, other: u64) -> u64 {
+    return llvm_intrinsic("llvm.uadd.with.overflow.i64", me, other)
 }
 
 # Subtraction with overflow checking
-recipe u64.sub(my: u64, other: u64) -> u64 {
-    return llvm_intrinsic("llvm.usub.with.overflow.i64", my, other)
+recipe u64.sub(me: u64, other: u64) -> u64 {
+    return llvm_intrinsic("llvm.usub.with.overflow.i64", me, other)
 }
 
 # Multiplication with overflow checking
-recipe u64.mul(my: u64, other: u64) -> u64 {
-    return llvm_intrinsic("llvm.umul.with.overflow.i64", my, other)
+recipe u64.mul(me: u64, other: u64) -> u64 {
+    return llvm_intrinsic("llvm.umul.with.overflow.i64", me, other)
 }
 
 # Division (unsigned) - maps to LLVM udiv
-recipe u64.floordiv(my: u64, other: u64) -> u64 {
+recipe u64.floordiv(me: u64, other: u64) -> u64 {
     when (other) {
         0 => throw panic("Division by zero"),
-        _ => return llvm_intrinsic("udiv", my, other)
+        _ => return llvm_intrinsic("udiv", me, other)
     }
 }
 
 # Remainder (unsigned) - maps to LLVM urem
-recipe u64.rem(my: u64, other: u64) -> u64 {
+recipe u64.rem(me: u64, other: u64) -> u64 {
     when (other) {
         0 => throw panic("Division by zero"),
-        _ => return llvm_intrinsic("urem", my, other)
+        _ => return llvm_intrinsic("urem", me, other)
     }
 }
 
 # Bitwise operations (direct LLVM mapping)
-recipe u64.and(my: u64, other: u64) -> u64 {
-    return llvm_intrinsic("and", my, other)
+recipe u64.and(me: u64, other: u64) -> u64 {
+    return llvm_intrinsic("and", me, other)
 }
 
-recipe u64.or(my: u64, other: u64) -> u64 {
-    return llvm_intrinsic("or", my, other)
+recipe u64.or(me: u64, other: u64) -> u64 {
+    return llvm_intrinsic("or", me, other)
 }
 
-recipe u64.xor(my: u64, other: u64) -> u64 {
-    return llvm_intrinsic("xor", my, other)
+recipe u64.xor(me: u64, other: u64) -> u64 {
+    return llvm_intrinsic("xor", me, other)
 }
 
-recipe u64.not(my: u64) -> u64 {
-    return llvm_intrinsic("xor", my, 18446744073709551615)
+recipe u64.not(me: u64) -> u64 {
+    return llvm_intrinsic("xor", me, 18446744073709551615)
 }
 
 # Bit shifting operations
-recipe u64.shl(my: u64, bits: u64) -> u64 {
-    return llvm_intrinsic("shl", my, bits)
+recipe u64.shl(me: u64, bits: u64) -> u64 {
+    return llvm_intrinsic("shl", me, bits)
 }
 
-recipe u64.shr(my: u64, bits: u64) -> u64 {
-    return llvm_intrinsic("lshr", my, bits)  # Logical right shift for unsigned
+recipe u64.shr(me: u64, bits: u64) -> u64 {
+    return llvm_intrinsic("lshr", me, bits)  # Logical right shift for unsigned
 }
 
 # Comparison operations (LLVM icmp)
-recipe u64.eq(my: u64, other: u64) -> bool {
-    return llvm_intrinsic("icmp eq", my, other)
+recipe u64.eq(me: u64, other: u64) -> bool {
+    return llvm_intrinsic("icmp eq", me, other)
 }
 
-recipe u64.ne(my: u64, other: u64) -> bool {
-    return llvm_intrinsic("icmp ne", my, other)
+recipe u64.ne(me: u64, other: u64) -> bool {
+    return llvm_intrinsic("icmp ne", me, other)
 }
 
-recipe u64.lt(my: u64, other: u64) -> bool {
-    return llvm_intrinsic("icmp ult", my, other)  # Unsigned less than
+recipe u64.lt(me: u64, other: u64) -> bool {
+    return llvm_intrinsic("icmp ult", me, other)  # Unsigned less than
 }
 
-recipe u64.le(my: u64, other: u64) -> bool {
-    return llvm_intrinsic("icmp ule", my, other)  # Unsigned less equal
+recipe u64.le(me: u64, other: u64) -> bool {
+    return llvm_intrinsic("icmp ule", me, other)  # Unsigned less equal
 }
 
-recipe u64.gt(my: u64, other: u64) -> bool {
-    return llvm_intrinsic("icmp ugt", my, other)  # Unsigned greater than
+recipe u64.gt(me: u64, other: u64) -> bool {
+    return llvm_intrinsic("icmp ugt", me, other)  # Unsigned greater than
 }
 
-recipe u64.ge(my: u64, other: u64) -> bool {
-    return llvm_intrinsic("icmp uge", my, other)  # Unsigned greater equal
+recipe u64.ge(me: u64, other: u64) -> bool {
+    return llvm_intrinsic("icmp uge", me, other)  # Unsigned greater equal
 }
 
 # Math operations
-recipe u64.min(my: u64, other: u64) -> u64 {
-    return if my <= other then my else other
+recipe u64.min(me: u64, other: u64) -> u64 {
+    return if me <= other then me else other
 }
 
-recipe u64.max(my: u64, other: u64) -> u64 {
-    return if my >= other then my else other
+recipe u64.max(me: u64, other: u64) -> u64 {
+    return if me >= other then me else other
 }
 
 # Bit manipulation utilities
-recipe u64.count_leading_zeros(my: u64) -> u64 {
-    return llvm_intrinsic("llvm.ctlz.i64", my, false)
+recipe u64.count_leading_zeros(me: u64) -> u64 {
+    return llvm_intrinsic("llvm.ctlz.i64", me, false)
 }
 
-recipe u64.count_trailing_zeros(my: u64) -> u64 {
-    return llvm_intrinsic("llvm.cttz.i64", my, false)
+recipe u64.count_trailing_zeros(me: u64) -> u64 {
+    return llvm_intrinsic("llvm.cttz.i64", me, false)
 }
 
-recipe u64.count_ones(my: u64) -> u64 {
-    return llvm_intrinsic("llvm.ctpop.i64", my)
+recipe u64.count_ones(me: u64) -> u64 {
+    return llvm_intrinsic("llvm.ctpop.i64", me)
 }
 
 # Byte swapping for endianness conversion
-recipe u64.byte_swap(my: u64) -> u64 {
-    return llvm_intrinsic("llvm.bswap.i64", my)
+recipe u64.byte_swap(me: u64) -> u64 {
+    return llvm_intrinsic("llvm.bswap.i64", me)
 }
 
 # Type conversions to other native types (using constructor syntax)
@@ -188,17 +188,17 @@ recipe Text(from_u64: u64) -> Text {
 }
 
 # Utility functions for bit operations
-recipe u64.is_power_of_two(my: u64) -> bool {
-    return my != 0 and (my & (my - 1)) == 0
+recipe u64.is_power_of_two(me: u64) -> bool {
+    return me != 0 and (me & (me - 1)) == 0
 }
 
-recipe u64.next_power_of_two(my: u64) -> u64 {
-    when (my) {
+recipe u64.next_power_of_two(me: u64) -> u64 {
+    when (me) {
         0 => return 1,
         1 => return 1,
         _ => {
             var power: u64 = 1
-            while power < my {
+            while power < me {
                 power = power << 1
             }
             return power
@@ -207,18 +207,18 @@ recipe u64.next_power_of_two(my: u64) -> u64 {
 }
 
 # Saturating arithmetic (clamps to min/max instead of wrapping)
-recipe u64.saturating_add(my: u64, other: u64) -> u64 {
-    let result = my + other
-    return if result < my then U64_MAX else result  # Overflow check
+recipe u64.saturating_add(me: u64, other: u64) -> u64 {
+    let result = me + other
+    return if result < me then U64_MAX else result  # Overflow check
 }
 
-recipe u64.saturating_sub(my: u64, other: u64) -> u64 {
-    return if my >= other then my - other else U64_ZERO
+recipe u64.saturating_sub(me: u64, other: u64) -> u64 {
+    return if me >= other then me - other else U64_ZERO
 }
 
-recipe u64.saturating_mul(my: u64, other: u64) -> u64 {
-    let result = my * other
-    return if other != 0 and result / other != my then U64_MAX else result
+recipe u64.saturating_mul(me: u64, other: u64) -> u64 {
+    let result = me * other
+    return if other != 0 and result / other != me then U64_MAX else result
 }
 
 /*

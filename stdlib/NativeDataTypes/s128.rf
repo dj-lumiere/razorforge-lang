@@ -2,7 +2,7 @@
 # Maps directly to LLVM i128 type for extended precision integers
 
 # Core s128 type definition - maps to LLVM i128
-struct s128 {
+record s128 {
     public value: LlvmNativeI128
 }
 
@@ -15,119 +15,119 @@ preset S128_ONE: s128 = 1_s128
 # Basic arithmetic operations (LLVM intrinsics: add, sub, mul, sdiv, srem)
 
 # Addition with overflow checking
-recipe s128.add(my: s128, other: s128) -> s128 {
-    return llvm_intrinsic("llvm.sadd.with.overflow.i128", my, other)
+recipe s128.add(me: s128, other: s128) -> s128 {
+    return llvm_intrinsic("llvm.sadd.with.overflow.i128", me, other)
 }
 
 # Subtraction with overflow checking
-recipe s128.sub(my: s128, other: s128) -> s128 {
-    return llvm_intrinsic("llvm.ssub.with.overflow.i128", my, other)
+recipe s128.sub(me: s128, other: s128) -> s128 {
+    return llvm_intrinsic("llvm.ssub.with.overflow.i128", me, other)
 }
 
 # Multiplication with overflow checking
-recipe s128.mul(my: s128, other: s128) -> s128 {
-    return llvm_intrinsic("llvm.smul.with.overflow.i128", my, other)
+recipe s128.mul(me: s128, other: s128) -> s128 {
+    return llvm_intrinsic("llvm.smul.with.overflow.i128", me, other)
 }
 
 # Division (signed) - maps to LLVM sdiv
-recipe s128.floordiv(my: s128, other: s128) -> s128 {
+recipe s128.floordiv(me: s128, other: s128) -> s128 {
     when (other) {
         0 => throw panic("Division by zero"),
-        _ => return llvm_intrinsic("sdiv", my, other)
+        _ => return llvm_intrinsic("sdiv", me, other)
     }
 }
 
 # Remainder (signed) - maps to LLVM srem
-recipe s128.rem(my: s128, other: s128) -> s128 {
+recipe s128.rem(me: s128, other: s128) -> s128 {
     when (other) {
         0 => throw panic("Division by zero"),
-        _ => return llvm_intrinsic("srem", my, other)
+        _ => return llvm_intrinsic("srem", me, other)
     }
 }
 
 # Bitwise operations (direct LLVM mapping)
-recipe s128.and(my: s128, other: s128) -> s128 {
-    return llvm_intrinsic("and", my, other)
+recipe s128.and(me: s128, other: s128) -> s128 {
+    return llvm_intrinsic("and", me, other)
 }
 
-recipe s128.or(my: s128, other: s128) -> s128 {
-    return llvm_intrinsic("or", my, other)
+recipe s128.or(me: s128, other: s128) -> s128 {
+    return llvm_intrinsic("or", me, other)
 }
 
-recipe s128.xor(my: s128, other: s128) -> s128 {
-    return llvm_intrinsic("xor", my, other)
+recipe s128.xor(me: s128, other: s128) -> s128 {
+    return llvm_intrinsic("xor", me, other)
 }
 
-recipe s128.not(my: s128) -> s128 {
-    return llvm_intrinsic("xor", my, -1)
+recipe s128.not(me: s128) -> s128 {
+    return llvm_intrinsic("xor", me, -1)
 }
 
 # Bit shifting operations
-recipe s128.shl(my: s128, bits: s128) -> s128 {
-    return llvm_intrinsic("shl", my, bits)
+recipe s128.shl(me: s128, bits: s128) -> s128 {
+    return llvm_intrinsic("shl", me, bits)
 }
 
-recipe s128.shr(my: s128, bits: s128) -> s128 {
-    return llvm_intrinsic("ashr", my, bits)  # Arithmetic right shift for signed
+recipe s128.shr(me: s128, bits: s128) -> s128 {
+    return llvm_intrinsic("ashr", me, bits)  # Arithmetic right shift for signed
 }
 
 # Comparison operations (LLVM icmp)
-recipe s128.eq(my: s128, other: s128) -> bool {
-    return llvm_intrinsic("icmp eq", my, other)
+recipe s128.eq(me: s128, other: s128) -> bool {
+    return llvm_intrinsic("icmp eq", me, other)
 }
 
-recipe s128.ne(my: s128, other: s128) -> bool {
-    return llvm_intrinsic("icmp ne", my, other)
+recipe s128.ne(me: s128, other: s128) -> bool {
+    return llvm_intrinsic("icmp ne", me, other)
 }
 
-recipe s128.lt(my: s128, other: s128) -> bool {
-    return llvm_intrinsic("icmp slt", my, other)  # Signed less than
+recipe s128.lt(me: s128, other: s128) -> bool {
+    return llvm_intrinsic("icmp slt", me, other)  # Signed less than
 }
 
-recipe s128.le(my: s128, other: s128) -> bool {
-    return llvm_intrinsic("icmp sle", my, other)  # Signed less equal
+recipe s128.le(me: s128, other: s128) -> bool {
+    return llvm_intrinsic("icmp sle", me, other)  # Signed less equal
 }
 
-recipe s128.gt(my: s128, other: s128) -> bool {
-    return llvm_intrinsic("icmp sgt", my, other)  # Signed greater than
+recipe s128.gt(me: s128, other: s128) -> bool {
+    return llvm_intrinsic("icmp sgt", me, other)  # Signed greater than
 }
 
-recipe s128.ge(my: s128, other: s128) -> bool {
-    return llvm_intrinsic("icmp sge", my, other)  # Signed greater equal
+recipe s128.ge(me: s128, other: s128) -> bool {
+    return llvm_intrinsic("icmp sge", me, other)  # Signed greater equal
 }
 
 # Advanced math operations using LLVM intrinsics
-recipe s128.abs(my: s128) -> s128 {
-    when (my) {
-        >= 0 => return my,
-        _ => return -my
+recipe s128.abs(me: s128) -> s128 {
+    when (me) {
+        >= 0 => return me,
+        _ => return -me
     }
 }
 
-recipe s128.min(my: s128, other: s128) -> s128 {
-    return if my <= other then my else other
+recipe s128.min(me: s128, other: s128) -> s128 {
+    return if me <= other then me else other
 }
 
-recipe s128.max(my: s128, other: s128) -> s128 {
-    return if my >= other then my else other
+recipe s128.max(me: s128, other: s128) -> s128 {
+    return if me >= other then me else other
 }
 
 # Bit manipulation utilities
-recipe s128.count_leading_zeros(my: s128) -> s128 {
-    return llvm_intrinsic("llvm.ctlz.i128", my, false)
+recipe s128.count_leading_zeros(me: s128) -> s128 {
+    return llvm_intrinsic("llvm.ctlz.i128", me, false)
 }
 
-recipe s128.count_trailing_zeros(my: s128) -> s128 {
-    return llvm_intrinsic("llvm.cttz.i128", my, false)
+recipe s128.count_trailing_zeros(me: s128) -> s128 {
+    return llvm_intrinsic("llvm.cttz.i128", me, false)
 }
 
-recipe s128.count_ones(my: s128) -> s128 {
-    return llvm_intrinsic("llvm.ctpop.i128", my)
+recipe s128.count_ones(me: s128) -> s128 {
+    return llvm_intrinsic("llvm.ctpop.i128", me)
 }
 
 # Byte swapping for endianness conversion
-recipe s128.swap_bytes(my: s128) -> s128 {
-    return llvm_intrinsic("llvm.bswap.i128", my)
+recipe s128.swap_bytes(me: s128) -> s128 {
+    return llvm_intrinsic("llvm.bswap.i128", me)
 }
 
 # Type conversions to other native types (using constructor syntax)
@@ -164,18 +164,18 @@ recipe bool(from_s128: s128) -> bool {
 }
 
 # High-precision arithmetic utilities
-recipe s128.multiply_with_carry(my: s128, other: s128) -> (s128, s128) {
+recipe s128.multiply_with_carry(me: s128, other: s128) -> (s128, s128) {
     # Returns (low, high) parts of 128x128 -> 256 bit multiplication
-    let result_256 = llvm_intrinsic("llvm.umul.with.overflow.i128", my, other)
+    let result_256 = llvm_intrinsic("llvm.umul.with.overflow.i128", me, other)
     return (result_256.low, result_256.high)
 }
 
-recipe s128.divide_with_remainder(my: s128, other: s128) -> (s128, s128) {
+recipe s128.divide_with_remainder(me: s128, other: s128) -> (s128, s128) {
     when (other) {
         0 => throw panic("Division by zero"),
         _ => {
-            let quotient = my / other
-            let remainder = my % other
+            let quotient = me / other
+            let remainder = me % other
             return (quotient, remainder)
         }
     }
@@ -193,7 +193,7 @@ recipe Text(from_s128: s128) -> Text {
 }
 
 # Cryptographic and high-precision math utilities
-recipe s128.gcd(my: s128, other: s128) -> s128 {
+recipe s128.gcd(me: s128, other: s128) -> s128 {
     # Greatest common divisor using Euclidean algorithm
     recipe gcd_helper(a: s128, b: s128) -> s128 {
         when (b) {
@@ -202,12 +202,12 @@ recipe s128.gcd(my: s128, other: s128) -> s128 {
         }
     }
 
-    return gcd_helper(my.abs(), other.abs())
+    return gcd_helper(me.abs(), other.abs())
 }
 
-recipe s128.lcm(my: s128, other: s128) -> s128 {
+recipe s128.lcm(me: s128, other: s128) -> s128 {
     # Least common multiple
-    return (my * other).abs() / my.gcd(other)
+    return (me * other).abs() / me.gcd(other)
 }
 
 recipe s128.mod_pow(base: s128, exponent: s128, modulus: s128) -> s128 {

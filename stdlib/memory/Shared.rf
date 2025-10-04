@@ -12,15 +12,15 @@ recipe T.share!() -> Shared<T> {
         # Create Shared struct
         return Shared<T>(
             controller_address: address_of(controller),
-            data_address: address_of(my)
+            data_address: address_of(me)
         )
     }
 }
 
 recipe Shared<T>.Shared<T>(controller_address: sysuint, data_address: sysuint) {
-    my.controller_address = controller_address
-    my.data_address = data_address
-    return my
+    me.controller_address = controller_address
+    me.data_address = data_address
+    return me
 }
 
 recipe Shared<T>.share!() -> Shared<T> {
@@ -28,7 +28,7 @@ recipe Shared<T>.share!() -> Shared<T> {
         var controller = read_as<RefCountController>(controller_address)
         controller.increase_strong_count!()
     }
-    return my
+    return me
 }
 
 recipe Shared<T>.release!() {
@@ -52,26 +52,26 @@ recipe Shared<T>.release!() {
     }
 }
 
-recipe Shared<T>.get(my: Shared<T>) -> T {
+recipe Shared<T>.get(me: Shared<T>) -> T {
     danger! {
         return read_as<T>(data_address)
     }
 }
 
-recipe Shared<T>.set(my: Shared<T>, new_data: T) {
+recipe Shared<T>.set(me: Shared<T>, new_data: T) {
     danger! {
         write_to_address<T>(data_address, new_data)
     }
 }
 
-recipe Shared<T>.strong_count(my: Shared<T>) -> s32 {
+recipe Shared<T>.strong_count(me: Shared<T>) -> s32 {
     danger! {
         var controller = read_as<RefCountController>(controller_address)
         return controller.strong_count()
     }
 }
 
-recipe Shared<T>.weak_count(my: Shared<T>) -> s32 {
+recipe Shared<T>.weak_count(me: Shared<T>) -> s32 {
     danger! {
         var controller = read_as<RefCountController>(controller_address)
         return controller.weak_count()

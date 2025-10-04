@@ -1,0 +1,45 @@
+// Test file for all new RazorForge language features
+
+
+// Memory and time literals
+let memory_size = 4gb + 512mb
+let duration = 30m + 45s + 500ms
+
+// Unless and elif statements
+let x = 10
+unless x > 15 {
+    print("x is not greater than 15")
+}
+
+if x < 5 {
+    print("x is small")
+} elif x < 10 {
+    print("x is medium")
+} elif x < 20 {
+    print("x is large")
+} else {
+    print("x is very large")
+}
+
+// Conditional expressions (if A then B else C)
+let message = if x > 5 then "big" else "small"
+
+// Chained comparisons
+let y = 8
+let z = 12
+if 5 < x <= 10 < z < 15 {
+    print("Values are in ascending order within ranges")
+}
+
+// Multi-encoding text literals
+let text8 = t8"Hello in 8-bit"
+let text16 = t16"Hello in 16-bit" 
+let text32 = t32"Hello in 32-bit"
+let formatted = f"x is {x}, y is {y}"
+
+recipe main() {
+    print(message)
+    print(formatted)
+    print("Memory: " + memory_size)
+    print("Duration: " + duration)
+}

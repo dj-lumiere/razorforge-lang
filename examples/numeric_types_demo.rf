@@ -1,0 +1,161 @@
+# RazorForge s64 and f64 demonstration with LLVM mapping
+# This shows how RazorForge types map to LLVM IR native types
+
+# Integer operations with s64 (maps to LLVM i64)
+recipe calculate_fibonacci(n: s64) -> s64 {
+    when (n) {
+        0 => 0,
+        1 => 1,
+        _ => calculate_fibonacci(n - 1) + calculate_fibonacci(n - 2)
+    }
+}
+
+# Floating point operations with f64 (maps to LLVM double)
+recipe calculate_compound_interest(principal: f64, rate: f64, time: s64) -> f64 {
+    let years: f64 = f64(from_s64: time)
+    return principal * ((1.0 + rate) ^ years)
+}
+
+# Mixed integer and floating point arithmetic
+recipe compute_average(values: slice<s64>) -> f64 {
+    let sum: s64 = 0
+    let count: s64 = values.length()
+
+    for value in values {
+        sum += value
+    }
+
+    # Convert s64 to f64 for division
+    return f64(from_s64: sum) / f64(from_s64: count)
+}
+
+# Bitwise operations on s64 (direct LLVM mapping)
+recipe hash_combine(a: s64, b: s64) -> s64 {
+    # Golden ratio hash combination
+    return a ^ (b + 0x9e3779b9 + (a << 6) + (a >> 2))
+}
+
+# IEEE 754 floating point manipulation
+recipe extract_mantissa_exponent(value: f64) -> (s64, s64) {
+    # Convert f64 bits to s64 for bit manipulation
+    let bits: s64 = value.as_bits()
+
+    # IEEE 754 double precision format:
+    # Sign: bit 63
+    # Exponent: bits 62-52 (11 bits)
+    # Mantissa: bits 51-0 (52 bits)
+
+    let mantissa: s64 = bits & 0x000FFFFFFFFFFFFF
+    let exponent: s64 = (bits >> 52) & 0x7FF
+
+    return (mantissa, exponent)
+}
+
+# SIMD-friendly operations (vectorizable by LLVM)
+recipe vector_dot_product(a: slice<f64>, b: slice<f64>) -> f64 {
+    let result: f64 = 0.0
+    let length: s64 = min(a.length(), b.length())
+
+    # This loop can be auto-vectorized by LLVM
+    for i in 0..length {
+        result += a[i] * b[i]
+    }
+
+    return result
+}
+
+# Memory-efficient struct with aligned fields
+record Point3D {
+    x: f64  # 8 bytes, aligned to 8-byte boundary
+    y: f64  # 8 bytes, aligned to 8-byte boundary
+    z: f64  # 8 bytes, aligned to 8-byte boundary
+    # Total: 24 bytes, naturally aligned for SIMD
+}
+
+recipe distance_squared(p1: Point3D, p2: Point3D) -> f64 {
+    let dx: f64 = p1.x - p2.x
+    let dy: f64 = p1.y - p2.y
+    let dz: f64 = p1.z - p2.z
+
+    return dx * dx + dy * dy + dz * dz
+}
+
+# Unsafe pointer operations for low-level LLVM integration
+recipe unsafe_memory_copy(src: sysuint, dest: sysuint, count: s64) {
+    danger {
+        # Direct memory manipulation - compiles to LLVM memcpy intrinsic
+        for i in 0..count {
+            write_as<f64>!(dest + i * 8, read_as<f64>!(src + i * 8))
+        }
+    }
+}
+
+# Atomic operations for concurrent programming
+record AtomicCounter {
+    value: atomic<s64>
+}
+
+recipe atomic_increment(counter: AtomicCounter) -> s64 {
+    # Maps to LLVM atomic add intrinsic
+    counter.value.fetch_add(1, memory_order.acquire_release)
+}
+
+# Main demonstration recipe
+recipe main() -> s64 {
+    # s64 operations
+    let large_number: s64 = 9_223_372_036_854_775_807  # s64.MAX
+    let fib_result: s64 = calculate_fibonacci(20)
+
+    # f64 operations
+    let pi: f64 = 3.14159265358979323846
+    let interest: f64 = calculate_compound_interest(1000.0, 0.05, 10)
+
+    # Mixed operations
+    let numbers: Array<s64, 5> = [1, 2, 3, 4, 5]
+    let avg: f64 = compute_average(numbers)
+
+    # Bitwise operations
+    let hash: s64 = hash_combine(fib_result, large_number)
+
+    # Floating point bit manipulation
+    let (mantissa, exponent) = extract_mantissa_exponent(pi)
+
+    # SIMD operations
+    let vec_a: Array<f64, 4> = [1.0, 2.0, 3.0, 4.0]
+    let vec_b: Array<f64, 4> = [2.0, 3.0, 4.0, 5.0]
+    let dot_product: f64 = vector_dot_product(vec_a, vec_b)
+
+    # Record operations
+    let point1: Point3D = Point3D(x: 0.0, y: 0.0, z: 0.0)
+    let point2: Point3D = Point3D(x: 1.0, y: 1.0, z: 1.0)
+    let dist_sq: f64 = distance_squared(point1, point2)
+
+    # Return combined result as s64
+    return hash + mantissa + exponent + s64(from_f64: dot_product) + s64(from_f64: dist_sq)
+}
+
+###
+### LLVM IR Mapping Reference:
+###
+### RazorForge Type      -> LLVM Type    -> C Equivalent
+### s64                  -> i64           -> int64_t
+### f64                  -> double        -> double
+### HeapSlice/StackSlice -> {i64, i64}     -> struct { size_t starting_address; size_t len; }
+### atomic<s64>          -> atomic i64    -> _Atomic int64_t
+
+### LLVM Intrinsics Generated:
+### - Arithmetic: add, sub, mul, sdiv, udiv, srem, urem
+### - Floating: fadd, fsub, fmul, fdiv, frem
+### - Bitwise: and, or, xor, shl, lshr, ashr
+### - Memory: load, store, memcpy, memmove
+### - Atomic: atomicrmw, cmpxchg
+### - Math: sqrt, sin, cos, pow, exp, log
+### - SIMD: vector operations when auto-vectorized
+
+### Optimization Opportunities:
+### - Loop vectorization for array operations
+### - Constant folding for compile-time calculations
+### - Dead code elimination
+### - Tail call optimization for recursive functions
+### - Register allocation for local variables
+###

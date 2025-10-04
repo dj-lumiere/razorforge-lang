@@ -1,0 +1,123 @@
+<!--
+RazorForge Live Templates for JetBrains Rider
+Import via: File → Settings → Editor → Live Templates → Import
+-->
+<templateSet group="RazorForge">
+  <!-- Memory Slice Templates -->
+  <template name="heap" value="var $VAR$ = HeapSlice($SIZE$)$END$" description="Create HeapSlice" toReformat="true" toShortenFQNames="true">
+    <variable name="VAR" expression="" defaultValue="buffer" alwaysStopAt="true" />
+    <variable name="SIZE" expression="" defaultValue="64" alwaysStopAt="true" />
+    <context>
+      <option name="OTHER" value="true" />
+    </context>
+  </template>
+
+  <template name="stack" value="var $VAR$ = StackSlice($SIZE$)$END$" description="Create StackSlice" toReformat="true" toShortenFQNames="true">
+    <variable name="VAR" expression="" defaultValue="buffer" alwaysStopAt="true" />
+    <variable name="SIZE" expression="" defaultValue="64" alwaysStopAt="true" />
+    <context>
+      <option name="OTHER" value="true" />
+    </context>
+  </template>
+
+  <template name="slicewrite" value="$SLICE$.write&lt;$TYPE$&gt;!($OFFSET$, $VALUE$)$END$" description="Write to slice" toReformat="true" toShortenFQNames="true">
+    <variable name="SLICE" expression="" defaultValue="buffer" alwaysStopAt="true" />
+    <variable name="TYPE" expression="" defaultValue="s32" alwaysStopAt="true" />
+    <variable name="OFFSET" expression="" defaultValue="0" alwaysStopAt="true" />
+    <variable name="VALUE" expression="" defaultValue="42" alwaysStopAt="true" />
+    <context>
+      <option name="OTHER" value="true" />
+    </context>
+  </template>
+
+  <template name="sliceread" value="let $VAR$ = $SLICE$.read&lt;$TYPE$&gt;!($OFFSET$)$END$" description="Read from slice" toReformat="true" toShortenFQNames="true">
+    <variable name="VAR" expression="" defaultValue="value" alwaysStopAt="true" />
+    <variable name="SLICE" expression="" defaultValue="buffer" alwaysStopAt="true" />
+    <variable name="TYPE" expression="" defaultValue="s32" alwaysStopAt="true" />
+    <variable name="OFFSET" expression="" defaultValue="0" alwaysStopAt="true" />
+    <context>
+      <option name="OTHER" value="true" />
+    </context>
+  </template>
+
+  <!-- Recipe Templates -->
+  <template name="recipe" value="###&#10;$DESCRIPTION$&#10;$PARAMS$&#10;$RETURN$&#10;###&#10;recipe $NAME$($PARAMETERS$) $RETURN_TYPE$ {&#10;    $BODY$&#10;}$END$" description="Create recipe function" toReformat="true" toShortenFQNames="true">
+    <variable name="DESCRIPTION" expression="" defaultValue="Function description" alwaysStopAt="true" />
+    <variable name="PARAMS" expression="" defaultValue="@param param - parameter description" alwaysStopAt="true" />
+    <variable name="RETURN" expression="" defaultValue="@return return description" alwaysStopAt="true" />
+    <variable name="NAME" expression="" defaultValue="function_name" alwaysStopAt="true" />
+    <variable name="PARAMETERS" expression="" defaultValue="" alwaysStopAt="true" />
+    <variable name="RETURN_TYPE" expression="" defaultValue="" alwaysStopAt="true" />
+    <variable name="BODY" expression="" defaultValue="# Implementation" alwaysStopAt="true" />
+    <context>
+      <option name="OTHER" value="true" />
+    </context>
+  </template>
+
+  <!-- Memory Operation Templates -->
+  <template name="hijack" value="let $VAR$ = $OBJ$.hijack!()$END$" description="Hijack object" toReformat="true" toShortenFQNames="true">
+    <variable name="VAR" expression="" defaultValue="hijacked" alwaysStopAt="true" />
+    <variable name="OBJ" expression="" defaultValue="object" alwaysStopAt="true" />
+    <context>
+      <option name="OTHER" value="true" />
+    </context>
+  </template>
+
+  <template name="share" value="let $VAR$ = $OBJ$.share!()$END$" description="Share object" toReformat="true" toShortenFQNames="true">
+    <variable name="VAR" expression="" defaultValue="shared" alwaysStopAt="true" />
+    <variable name="OBJ" expression="" defaultValue="object" alwaysStopAt="true" />
+    <context>
+      <option name="OTHER" value="true" />
+    </context>
+  </template>
+
+  <!-- Danger Zone Templates -->
+  <template name="danger" value="danger! {&#10;    $BODY$&#10;}$END$" description="Danger block" toReformat="true" toShortenFQNames="true">
+    <variable name="BODY" expression="" defaultValue="# Unsafe operations" alwaysStopAt="true" />
+    <context>
+      <option name="OTHER" value="true" />
+    </context>
+  </template>
+
+  <template name="readas" value="let $VAR$ = read_as&lt;$TYPE$&gt;!($ADDR$)$END$" description="Read from address" toReformat="true" toShortenFQNames="true">
+    <variable name="VAR" expression="" defaultValue="value" alwaysStopAt="true" />
+    <variable name="TYPE" expression="" defaultValue="s32" alwaysStopAt="true" />
+    <variable name="ADDR" expression="" defaultValue="address" alwaysStopAt="true" />
+    <context>
+      <option name="OTHER" value="true" />
+    </context>
+  </template>
+
+  <template name="writeas" value="write_as&lt;$TYPE$&gt;!($ADDR$, $VALUE$)$END$" description="Write to address" toReformat="true" toShortenFQNames="true">
+    <variable name="TYPE" expression="" defaultValue="s32" alwaysStopAt="true" />
+    <variable name="ADDR" expression="" defaultValue="address" alwaysStopAt="true" />
+    <variable name="VALUE" expression="" defaultValue="42" alwaysStopAt="true" />
+    <context>
+      <option name="OTHER" value="true" />
+    </context>
+  </template>
+
+  <!-- Control Flow Templates -->
+  <template name="forloop" value="for $VAR$ in $START$ to $END$ {&#10;    $BODY$&#10;}$END$" description="For loop" toReformat="true" toShortenFQNames="true">
+    <variable name="VAR" expression="" defaultValue="i" alwaysStopAt="true" />
+    <variable name="START" expression="" defaultValue="0" alwaysStopAt="true" />
+    <variable name="END" expression="" defaultValue="10" alwaysStopAt="true" />
+    <variable name="BODY" expression="" defaultValue="# Loop body" alwaysStopAt="true" />
+    <context>
+      <option name="OTHER" value="true" />
+    </context>
+  </template>
+
+  <!-- Import Templates -->
+  <template name="importmem" value="import stdlib/memory/HeapSlice&#10;import stdlib/memory/StackSlice$END$" description="Import memory slices" toReformat="true" toShortenFQNames="true">
+    <context>
+      <option name="OTHER" value="true" />
+    </context>
+  </template>
+
+  <template name="importconsole" value="import system/console/write_line$END$" description="Import console output" toReformat="true" toShortenFQNames="true">
+    <context>
+      <option name="OTHER" value="true" />
+    </context>
+  </template>
+</templateSet>

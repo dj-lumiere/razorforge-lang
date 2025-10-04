@@ -1,0 +1,57 @@
+variant Maybe<T> {
+    Some(T),
+    None,
+
+    func is_some(self) -> bool {
+        when self {
+            Some(_) => true,
+            _ => false
+        }
+    }
+
+    func is_none(self) -> bool {
+        return not self.is_some()
+    }
+
+    func unwrap(self) -> T {
+        when self {
+            Some(value) => value,
+            None => crash!("Called unwrap on None")
+        }
+    }
+
+    func unwrap_or(self, default: T) -> T {
+        when self {
+            Some(value) => value,
+            None => default
+        }
+    }
+
+    func expect(self, message: Text) -> T {
+        when self {
+            Some(value) => value,
+            None => crash!(message)
+        }
+    }
+
+    func map<U>(self, f: (T) -> U) -> Maybe<U> {
+        when self {
+            Some(value) => Some(f(value)),
+            None => None
+        }
+    }
+
+    func and_then<U>(self, f: (T) -> Maybe<U>) -> Maybe<U> {
+        when self {
+            Some(value) => f(value),
+            None => None
+        }
+    }
+
+    func filter(self, predicate: (T) -> bool) -> Maybe<T> {
+        when self {
+            Some(value) => if predicate(value) { Some(value) } else { None },
+            None => None
+        }
+    }
+}

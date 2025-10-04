@@ -1,0 +1,82 @@
+// Comprehensive operator and type testing for RazorForge
+
+// Integer arithmetic with various types
+func test_i8_ops() -> i8 {
+    return 10i8 + 20i8 - 5i8 * 2i8
+}
+
+func test_i16_ops() -> i16 {
+    return 1000i16 / 10i16 + 50i16
+}
+
+func test_i32_ops() -> i32 {
+    return 100000i32 * 2i32 - 50000i32
+}
+
+func test_i64_ops() -> i64 {
+    return 123456789i64 % 1000i64
+}
+
+// Unsigned integer arithmetic  
+func test_u8_ops() -> u8 {
+    return 200u8 + 50u8
+}
+
+func test_u16_ops() -> u16 {
+    return 60000u16 - 10000u16
+}
+
+func test_u32_ops() -> u32 {
+    return 4000000000u32 / 2u32
+}
+
+func test_u64_ops() -> u64 {
+    return 9876543210u64 * 2u64
+}
+
+// Floating-point arithmetic
+func test_f32_ops() -> f32 {
+    return 3.14f32 * 2.0f32 + 1.5f32
+}
+
+func test_f64_ops() -> f64 {
+    return 2.71828f64 / 1.4142f64 - 0.5f64
+}
+
+// Overflow-safe arithmetic operators
+func test_wrap_ops() -> i8 {
+    return 100i8 +% 200i8  // Should wrap around
+}
+
+func test_saturate_ops() -> i8 {
+    return 100i8 +^ 100i8  // Should saturate at 127
+}
+
+func test_checked_ops() -> i16 {
+    return 30000i16 +? 5000i16  // Should complete without overflow
+}
+
+func test_unchecked_ops() -> i32 {
+    return 1000000i32 +! 500000i32  // Regular arithmetic
+}
+
+// Mixed arithmetic with different operators
+func test_subtract_variants() -> i8 {
+    return 50i8 -% 100i8  // Wrap subtraction
+}
+
+func test_multiply_variants() -> i16 {
+    return 200i16 *^ 300i16  // Saturating multiply
+}
+
+func test_divide_variants() -> i32 {
+    return 1000000i32 /? 500i32  // Checked division
+}
+
+func test_modulo_variants() -> i8 {
+    return 100i8 %! 7i8  // Unchecked modulo
+}
+
+func main() -> i32 {
+    return 0
+}

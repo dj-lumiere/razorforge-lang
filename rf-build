@@ -1,0 +1,77 @@
+#!/bin/bash
+# RazorForge Unified Build Script
+# ==============================
+# Single entry point for all build operations
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+# Show help if no arguments provided
+if [ $# -eq 0 ]; then
+    echo "RazorForge Build System"
+    echo "======================"
+    echo ""
+    echo "Quick Commands:"
+    echo "  ./rf-build dev          # Development build (debug + test)"
+    echo "  ./rf-build release      # Release build"
+    echo "  ./rf-build test         # Run all tests"
+    echo "  ./rf-build format       # Format code"
+    echo "  ./rf-build package      # Create distribution packages"
+    echo "  ./rf-build ci           # CI pipeline (format + build + test)"
+    echo "  ./rf-build clean        # Clean all build artifacts"
+    echo ""
+    echo "For more options:"
+    echo "  make help              # Show all Makefile targets"
+    echo "  ./build.sh --help      # Show CMake build options"
+    echo ""
+    exit 0
+fi
+
+case "$1" in
+    dev|development)
+        echo "🔨 Development build..."
+        BUILD_TYPE=Debug RUN_TESTS_AFTER_BUILD=true ./build.sh --debug --test
+        ;;
+    release|rel)
+        echo "🚀 Release build..."
+        ./build.sh --release
+        ;;
+    test|tests)
+        echo "🧪 Running tests..."
+        bash scripts/run-tests.sh
+        ;;
+    format|fmt)
+        echo "✨ Formatting code..."
+        bash scripts/format-code.sh
+        ;;
+    package|pkg)
+        echo "📦 Creating packages..."
+        bash scripts/package.sh
+        ;;
+    ci)
+        echo "🤖 CI Pipeline..."
+        echo "Step 1/4: Formatting code..."
+        bash scripts/format-code.sh --verify-only
+        echo "Step 2/4: Building project..."
+        ./build.sh --release
+        echo "Step 3/4: Running tests..."
+        bash scripts/run-tests.sh
+        echo "Step 4/4: Creating packages..."
+        bash scripts/package.sh
+        echo "✅ CI Pipeline completed!"
+        ;;
+    clean)
+        echo "🧹 Cleaning..."
+        make clean
+        ;;
+    help|--help|-h)
+        make help
+        ;;
+    *)
+        echo "❌ Unknown command: $1"
+        echo "Run './rf-build' for available commands"
+        exit 1
+        ;;
+esac

@@ -1,0 +1,117 @@
+{
+  "$schema": "https://raw.githubusercontent.com/razorforge/razorforge/main/schemas/format-config.json",
+  "version": "1.0",
+  "description": "RazorForge code formatting configuration",
+
+  "indentation": {
+    "size": 4,
+    "style": "spaces",
+    "continuationIndent": 8,
+    "switchCaseIndent": 4
+  },
+
+  "braces": {
+    "style": "K&R",
+    "newLineBeforeOpenBrace": false,
+    "newLineAfterOpenBrace": true,
+    "newLineBeforeCloseBrace": true,
+    "newLineAfterCloseBrace": true,
+    "emptyBraces": "sameLine"
+  },
+
+  "spacing": {
+    "beforeComma": false,
+    "afterComma": true,
+    "beforeSemicolon": false,
+    "afterSemicolon": true,
+    "aroundOperators": true,
+    "beforeParentheses": {
+      "functionDeclaration": false,
+      "functionCall": false,
+      "controlFlow": true,
+      "catchClause": true
+    },
+    "withinParentheses": false,
+    "withinBrackets": false,
+    "withinBraces": true
+  },
+
+  "lineBreaks": {
+    "maxLineLength": 120,
+    "keepLineBreaksInDeclarations": true,
+    "keepSimpleMethodsOnOneLine": true,
+    "keepSimpleClassesOnOneLine": false,
+    "wrapLongLines": true
+  },
+
+  "alignment": {
+    "alignVariableDeclarations": false,
+    "alignAssignments": false,
+    "alignFunctionParameters": true,
+    "alignFunctionArguments": true,
+    "alignArrayElements": true
+  },
+
+  "blankLines": {
+    "beforeRecipe": 1,
+    "beforeClass": 2,
+    "beforeStruct": 2,
+    "beforeEnum": 2,
+    "withinClass": 1,
+    "afterImports": 2,
+    "beforeImports": 0,
+    "atFileEnd": 1
+  },
+
+  "comments": {
+    "preserveExisting": true,
+    "alignLineComments": false,
+    "spaceAfterLineComment": true,
+    "formatBlockComments": true
+  },
+
+  "sorting": {
+    "sortImports": true,
+    "groupImports": true,
+    "importGroups": [
+      "standard",
+      "external",
+      "internal",
+      "local"
+    ]
+  },
+
+  "razorForgeSpecific": {
+    "dangerBlocks": {
+      "indentContent": true,
+      "alignBraces": true,
+      "newLineBeforeDanger": true
+    },
+    "memorySlices": {
+      "formatTypeParameters": true,
+      "spaceAroundTypeParameters": false
+    },
+    "recipes": {
+      "alignParameters": true,
+      "newLineAfterLongParameters": true,
+      "parameterThreshold": 3
+    },
+    "variants": {
+      "alignCases": true,
+      "indentCaseBody": true
+    },
+    "when": {
+      "alignArrows": true,
+      "multiLineWhen": true
+    }
+  },
+
+  "rules": {
+    "enforceTrailingCommas": false,
+    "requireSemicolons": true,
+    "removeTrailingWhitespace": true,
+    "insertFinalNewline": true,
+    "normalizeLineEndings": "lf",
+    "trimBlankLines": true
+  }
+}

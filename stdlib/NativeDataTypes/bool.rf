@@ -1,4 +1,4 @@
-struct bool {
+record bool {
     private value: LlvmI1
     
 }

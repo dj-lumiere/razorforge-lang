@@ -1,0 +1,50 @@
+variant Result<T> {
+    Ok(T),
+    Err(Error),
+
+    func is_ok(self) -> bool {
+        when self {
+            Ok(_) => true,
+            _ => false
+        }
+    }
+
+    func is_err(self) -> bool {
+        return not self.is_ok()
+    }
+
+    func unwrap(self) -> T {
+        when self {
+            Ok(value) => value,
+            Err(error) => crash!("Called unwrap on Err result")
+        }
+    }
+
+    func unwrap_or(self, default: T) -> T {
+        when self {
+            Ok(value) => value,
+            Err(_) => default
+        }
+    }
+
+    func expect(self, message: Text) -> T {
+        when self {
+            Ok(value) => value,
+            Err(error) => crash!(message)
+        }
+    }
+
+    func map<U>(self, f: (T) -> U) -> Result<U> {
+        when self {
+            Ok(value) => Ok(f(value)),
+            Err(error) => Err(error)
+        }
+    }
+
+    func and_then<U>(self, f: (T) -> Result<U>) -> Result<U> {
+        when self {
+            Ok(value) => f(value),
+            Err(error) => Err(error)
+        }
+    }
+}

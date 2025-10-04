@@ -1,0 +1,204 @@
+{
+  "name": "razorforge-language-support",
+  "displayName": "RazorForge Language Support",
+  "description": "Language support for RazorForge programming language with LSP integration",
+  "version": "0.1.0",
+  "publisher": "razorforge",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Syntax Highlighters"
+  ],
+  "keywords": [
+    "razorforge",
+    "programming language",
+    "systems programming",
+    "memory safety"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onLanguage:razorforge"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "razorforge",
+        "aliases": [
+          "RazorForge",
+          "razorforge",
+          "rf"
+        ],
+        "extensions": [
+          ".rf"
+        ],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icons/razorforge-light.svg",
+          "dark": "./icons/razorforge-dark.svg"
+        }
+      }
+    ],
+    "grammars": [
+      {
+        "language": "razorforge",
+        "scopeName": "source.razorforge",
+        "path": "./syntaxes/razorforge.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "RazorForge Language Support",
+      "properties": {
+        "razorforge.languageServer.path": {
+          "type": "string",
+          "default": "RazorForge.exe",
+          "description": "Path to the RazorForge Language Server executable"
+        },
+        "razorforge.languageServer.args": {
+          "type": "array",
+          "default": ["--lsp"],
+          "description": "Arguments to pass to the RazorForge Language Server"
+        },
+        "razorforge.trace.server": {
+          "type": "string",
+          "enum": ["off", "messages", "verbose"],
+          "default": "off",
+          "description": "Traces the communication between VS Code and the RazorForge language server"
+        },
+        "razorforge.formatOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically format RazorForge files when saving"
+        },
+        "razorforge.autoSync": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically sync files and restart language server on configuration changes"
+        },
+        "razorforge.cakeIntegration": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable automatic integration with Cake language extension"
+        },
+        "razorforge.sharedWorkspace": {
+          "type": "boolean",
+          "default": true,
+          "description": "Share workspace settings between RazorForge and Cake extensions"
+        },
+        "razorforge.linting.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable real-time linting and code analysis"
+        },
+        "razorforge.linting.level": {
+          "type": "string",
+          "enum": ["error", "warning", "info", "hint"],
+          "default": "warning",
+          "description": "Minimum diagnostic level to show"
+        },
+        "razorforge.formatting.indentSize": {
+          "type": "number",
+          "default": 4,
+          "description": "Number of spaces for indentation"
+        },
+        "razorforge.formatting.insertFinalNewline": {
+          "type": "boolean",
+          "default": true,
+          "description": "Insert final newline at end of file"
+        },
+        "razorforge.formatting.trimTrailingWhitespace": {
+          "type": "boolean",
+          "default": true,
+          "description": "Remove trailing whitespace when formatting"
+        },
+        "razorforge.formatting.bracesOnNewLine": {
+          "type": "boolean",
+          "default": false,
+          "description": "Place opening braces on new line (Allman style)"
+        },
+        "razorforge.codeActions.autoImport": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically suggest imports for unresolved symbols"
+        },
+        "razorforge.codeActions.organizeImports": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically organize imports on save"
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "razorforge.newFile",
+        "title": "New RazorForge File",
+        "category": "RazorForge"
+      },
+      {
+        "command": "razorforge.restartLanguageServer",
+        "title": "Restart Language Server",
+        "category": "RazorForge"
+      },
+      {
+        "command": "razorforge.showServerStatus",
+        "title": "Show Server Status",
+        "category": "RazorForge"
+      },
+      {
+        "command": "razorforge.createIntegratedProject",
+        "title": "Create Integrated RazorForge + Cake Project",
+        "category": "RazorForge"
+      },
+      {
+        "command": "razorforge.formatDocument",
+        "title": "Format Document",
+        "category": "RazorForge"
+      },
+      {
+        "command": "razorforge.formatSelection",
+        "title": "Format Selection",
+        "category": "RazorForge"
+      },
+      {
+        "command": "razorforge.lintDocument",
+        "title": "Lint Document",
+        "category": "RazorForge"
+      },
+      {
+        "command": "razorforge.fixAllProblems",
+        "title": "Fix All Auto-fixable Problems",
+        "category": "RazorForge"
+      },
+      {
+        "command": "razorforge.organizeImports",
+        "title": "Organize Imports",
+        "category": "RazorForge"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "lint:fix": "eslint src --ext ts --fix",
+    "pretest": "npm run compile && npm run lint",
+    "test": "node ./out/test/runTest.js"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^8.1.0"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.74.0",
+    "@types/node": "16.x",
+    "typescript": "^4.9.4",
+    "@typescript-eslint/eslint-plugin": "^6.7.0",
+    "@typescript-eslint/parser": "^6.7.0",
+    "eslint": "^8.49.0",
+    "eslint-config-prettier": "^9.0.0",
+    "eslint-plugin-prettier": "^5.0.0",
+    "prettier": "^3.0.3"
+  }
+}

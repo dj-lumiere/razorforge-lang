@@ -1,0 +1,59 @@
+<!--
+RazorForge File Types for JetBrains Rider
+Import via: File → Settings → Editor → File Types → Import Schema
+-->
+<application>
+  <component name="FileTypeManager" version="18">
+    <!-- RazorForge Language Support -->
+    <extensionMap>
+      <mapping ext="rf" type="CSharp" /> <!-- Treat .rf files as C# for syntax highlighting -->
+      <mapping ext="razorforge" type="CSharp" />
+      <mapping pattern="*.rf" type="CSharp" />
+      <mapping pattern="*.razorforge" type="CSharp" />
+    </extensionMap>
+
+    <!-- File Templates -->
+    <templates>
+      <template name="RazorForge Recipe" extension="rf">
+        <content><![CDATA[
+# RazorForge Recipe Template
+# $NAME$
+
+import system/console/write_line
+
+###
+$DESCRIPTION$
+$PARAMS$
+$RETURN$
+###
+recipe $RECIPE_NAME$($PARAMETERS$) $RETURN_TYPE$ {
+    $BODY$
+}
+]]></content>
+      </template>
+
+      <template name="RazorForge Record" extension="rf">
+        <content><![CDATA[
+# RazorForge Record Template
+# $NAME$
+
+###
+$DESCRIPTION$
+###
+record $STRUCT_NAME$ {
+    $FIELDS$
+
+    ###
+    Constructor
+    $PARAMS$
+    ###
+    public recipe __init__($CONSTRUCTOR_PARAMS$) -> $STRUCT_NAME$ {
+        $CONSTRUCTOR_BODY$
+        return me
+    }
+}
+]]></content>
+      </template>
+    </templates>
+  </component>
+</application>

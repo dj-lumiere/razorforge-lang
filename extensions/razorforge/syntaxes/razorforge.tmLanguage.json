@@ -1,0 +1,192 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "RazorForge",
+  "scopeName": "source.razorforge",
+  "patterns": [
+    {"include": "#comments"},
+    {"include": "#keywords"},
+    {"include": "#types"},
+    {"include": "#numbers"},
+    {"include": "#strings"},
+    {"include": "#functions"},
+    {"include": "#variables"},
+    {"include": "#operators"},
+    {"include": "#punctuation"}
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.hash.razorforge",
+          "begin": "#",
+          "end": "$",
+          "captures": {
+            "0": {"name": "punctuation.definition.comment.razorforge"}
+          }
+        },
+        {
+          "name": "comment.block.razorforge",
+          "begin": "/\\*",
+          "end": "\\*/",
+          "captures": {
+            "0": {"name": "punctuation.definition.comment.razorforge"}
+          }
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.razorforge",
+          "match": "\\b(if|elif|else|then|unless|when|is|while|for|loop|in|to|step|break|continue|return|throw|from|follows|isnot|notfrom|notin|notfollows)\\b"
+        },
+        {
+          "name": "keyword.declaration.class.razorforge",
+          "match": "\\b(class)\\b"
+        },
+        {
+          "name": "keyword.declaration.struct.razorforge",
+          "match": "\\b(struct)\\b"
+        },
+        {
+          "name": "keyword.declaration.razorforge",
+          "match": "\\b(recipe|option|chimera|variant|mutant|feature)\\b"
+        },
+        {
+          "name": "keyword.storage.razorforge",
+          "match": "\\b(let|var|preset|common|danger|mayhem)\\b"
+        },
+        {
+          "name": "keyword.modifier.razorforge",
+          "match": "\\b(private|public\\(family\\)|public\\(module\\)|public|global|external)\\b"
+        },
+        {
+          "name": "keyword.self.razorforge",
+          "match": "\\b(me|parent)\\b"
+        },
+        {
+          "name": "keyword.logical.razorforge",
+          "match": "\\b(and|or|not)\\b"
+        },
+        {
+          "name": "keyword.other.razorforge",
+          "match": "\\b(danger|import|redefine|using|as|pass|with|where)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "storage.type.primitive.razorforge",
+          "match": "\\b(s8|s16|s32|s64|s128|u8|u16|u32|u64|u128|f16|f32|f64|f128|d32|d64|d128|bool|char|string|void|any|sysuint)\\b"
+        },
+        {
+          "name": "storage.type.memory.razorforge",
+          "match": "\\b(HeapSlice|StackSlice)\\b"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.float.razorforge",
+          "match": "\\b\\d+\\.\\d+([eE][+-]?\\d+)?[fFdD]?\\b"
+        },
+        {
+          "name": "constant.numeric.integer.razorforge",
+          "match": "\\b(0x[0-9a-fA-F]+|0b[01]+|\\d+)[uUlL]*\\b"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.razorforge",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.razorforge",
+              "match": "\\\\."
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.razorforge",
+          "begin": "'",
+          "end": "'",
+          "patterns": [
+            {
+              "name": "constant.character.escape.razorforge",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "entity.name.function.danger.razorforge",
+          "match": "\\b(write_as|read_as|addr_of|invalidate)!\\b"
+        },
+        {
+          "name": "entity.name.function.razorforge",
+          "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*(?=\\s*\\()"
+        }
+      ]
+    },
+    "variables": {
+      "patterns": [
+        {
+          "name": "constant.language.razorforge",
+          "match": "\\b(true|false|none|null|undefined)\\b"
+        },
+        {
+          "name": "variable.other.razorforge",
+          "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.comparison.razorforge",
+          "match": "(==|!=|<=|>=|<|>)"
+        },
+        {
+          "name": "keyword.operator.logical.razorforge",
+          "match": "(&&|\\|\\||!)"
+        },
+        {
+          "name": "keyword.operator.assignment.razorforge",
+          "match": "(=|\\+=|-=|\\*=|/=|%=)"
+        },
+        {
+          "name": "keyword.operator.arithmetic.razorforge",
+          "match": "(\\+|-|\\*|//|/|%)"
+        },
+        {
+          "name": "keyword.operator.bitwise.razorforge",
+          "match": "(&|\\||\\^|~|<<|>>)"
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.separator.razorforge",
+          "match": "[,;]"
+        },
+        {
+          "name": "punctuation.brackets.razorforge",
+          "match": "[\\[\\]{}()]"
+        },
+        {
+          "name": "punctuation.accessor.razorforge",
+          "match": "\\."
+        }
+      ]
+    }
+  }
+}

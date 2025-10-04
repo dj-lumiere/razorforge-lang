@@ -1,0 +1,264 @@
+{
+  "fileTypes": ["cake"],
+  "name": "Cake",
+  "scopeName": "source.cake",
+  "patterns": [
+    {"include": "#keywords"},
+    {"include": "#cake-keywords"},
+    {"include": "#constants"},
+    {"include": "#types"},
+    {"include": "#strings"},
+    {"include": "#comments"},
+    {"include": "#numbers"},
+    {"include": "#operators"},
+    {"include": "#functions"},
+    {"include": "#attributes"},
+    {"include": "#cake-tasks"},
+    {"include": "#cake-addins"},
+    {"include": "#cake-tools"}
+  ],
+  "repository": {
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.cake",
+          "match": "\\b(if|elif|else|then|unless|when|is|while|for|loop|in|to|step|break|continue|return|throw|from|follows|isnot|notfrom|notin|notfollows)\\b"
+        },
+        {
+          "name": "keyword.declaration.class.cake",
+          "match": "\\b(class)\\b"
+        },
+        {
+          "name": "keyword.declaration.struct.cake",
+          "match": "\\b(struct)\\b"
+        },
+        {
+          "name": "keyword.declaration.cake",
+          "match": "\\b(recipe|option|chimera|variant|mutant|feature)\\b"
+        },
+        {
+          "name": "keyword.storage.cake",
+          "match": "\\b(let|var|preset|common|danger|mayhem)\\b"
+        },
+        {
+          "name": "keyword.modifier.cake",
+          "match": "\\b(private|public\\(family\\)|public\\(module\\)|public|global|external)\\b"
+        },
+        {
+          "name": "keyword.self.cake",
+          "match": "\\b(me|parent)\\b"
+        },
+        {
+          "name": "keyword.logical.cake",
+          "match": "\\b(and|or|not)\\b"
+        },
+        {
+          "name": "keyword.other.cake",
+          "match": "\\b(bitter|import|redefine|using|as|pass|with|where)\\b"
+        }
+      ]
+    },
+    "cake-keywords": {
+      "patterns": [
+        {
+          "match": "\\b(Task|RunTarget|Argument|EnvironmentVariable|HasArgument|HasEnvironmentVariable|Setup|Teardown|TaskSetup|TaskTeardown|Information|Warning|Error|Verbose|Debug)\\b",
+          "name": "keyword.other.cake"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.cake",
+          "match": "\\b(true|false|none|null)\\b"
+        }
+      ]
+    },
+    "cake-tasks": {
+      "patterns": [
+        {
+          "match": "\\b(Task)\\s*\\(\\s*\"([^\"]+)\"\\s*\\)",
+          "captures": {
+            "1": {"name": "keyword.other.cake"},
+            "2": {"name": "entity.name.function.cake"}
+          }
+        },
+        {
+          "match": "\\.(Description|Does|IsDependentOn|IsDependeeOf|WithCriteria|OnError|Finally|ReportError|ContinueOnError|Defer)\\b",
+          "name": "support.function.cake"
+        }
+      ]
+    },
+    "cake-addins": {
+      "patterns": [
+        {
+          "match": "^\\s*(#addin|#tool|#load|#reference|#break)\\b",
+          "name": "keyword.preprocessor.cake"
+        },
+        {
+          "match": "(nuget|paket):",
+          "name": "keyword.other.cake"
+        }
+      ]
+    },
+    "cake-tools": {
+      "patterns": [
+        {
+          "match": "\\b(DotNetCore\\w+|MSBuild|NuGet\\w+|GitVersion|OpenCover|ReportGenerator|XUnit2|NUnit3|VSTest|Chocolatey|ILMerge|SignTool|WiX|InnoSetup|Squirrel|OctopusDeploy|TeamCity|AppVeyor|Jenkins|AzureDevOps|Docker\\w+|Kubernetes\\w+|Terraform\\w+)\\b",
+          "name": "support.class.cake"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "match": "\\b(ICakeContext|FilePath|DirectoryPath|FilePathCollection|DirectoryPathCollection|ProcessSettings|ToolSettings|Globber|IFileSystem|IEnvironment|IProcessRunner|IRegistry|IToolLocator|ICakeLog|ICakeArguments|ICakeConfiguration|ICakeDataService)\\b",
+          "name": "support.type.cake"
+        },
+        {
+          "match": "\\b(string|int|bool|double|float|decimal|long|short|byte|char|uint|ulong|ushort|sbyte|object|dynamic|var)\\b",
+          "name": "storage.type.cake"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "begin": "\"",
+          "end": "\"",
+          "name": "string.quoted.double.cake",
+          "patterns": [
+            {
+              "match": "\\\\.",
+              "name": "constant.character.escape.cake"
+            }
+          ]
+        },
+        {
+          "begin": "'",
+          "end": "'",
+          "name": "string.quoted.single.cake",
+          "patterns": [
+            {
+              "match": "\\\\.",
+              "name": "constant.character.escape.cake"
+            }
+          ]
+        },
+        {
+          "begin": "@\"",
+          "end": "\"",
+          "name": "string.quoted.verbatim.cake",
+          "patterns": [
+            {
+              "match": "\"\"",
+              "name": "constant.character.escape.cake"
+            }
+          ]
+        },
+        {
+          "begin": "\\$\"",
+          "end": "\"",
+          "name": "string.interpolated.cake",
+          "patterns": [
+            {
+              "begin": "\\{",
+              "end": "\\}",
+              "name": "meta.interpolation.cake",
+              "patterns": [
+                {"include": "#keywords"},
+                {"include": "#types"},
+                {"include": "#operators"}
+              ]
+            },
+            {
+              "match": "\\\\.",
+              "name": "constant.character.escape.cake"
+            }
+          ]
+        }
+      ]
+    },
+    "comments": {
+      "patterns": [
+        {
+          "begin": "/\\*",
+          "end": "\\*/",
+          "name": "comment.block.cake"
+        },
+        {
+          "match": "#.*$",
+          "name": "comment.line.hash.cake"
+        },
+        {
+          "begin": "///",
+          "end": "$",
+          "name": "comment.documentation.cake"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "match": "\\b(0x[0-9a-fA-F]+|0b[01]+|\\d+(\\.\\d+)?([eE][+-]?\\d+)?[fFdDmM]?)\\b",
+          "name": "constant.numeric.cake"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "match": "(\\+\\+|--|\\+=|-=|\\*=|/=|%=|&=|\\|=|\\^=|<<=|>>=|\\?\\?=)",
+          "name": "keyword.operator.assignment.cake"
+        },
+        {
+          "match": "(==|!=|<=|>=|<|>)",
+          "name": "keyword.operator.comparison.cake"
+        },
+        {
+          "match": "(&&|\\|\\||!)",
+          "name": "keyword.operator.logical.cake"
+        },
+        {
+          "match": "(\\+|-|\\*|/|%)",
+          "name": "keyword.operator.arithmetic.cake"
+        },
+        {
+          "match": "(&|\\||\\^|~|<<|>>)",
+          "name": "keyword.operator.bitwise.cake"
+        },
+        {
+          "match": "(\\?|:)",
+          "name": "keyword.operator.ternary.cake"
+        },
+        {
+          "match": "(=>|->)",
+          "name": "keyword.operator.lambda.cake"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(?=\\()",
+          "name": "entity.name.function.cake"
+        }
+      ]
+    },
+    "attributes": {
+      "patterns": [
+        {
+          "begin": "\\[",
+          "end": "\\]",
+          "name": "meta.attribute.cake",
+          "patterns": [
+            {
+              "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b",
+              "name": "entity.name.type.attribute.cake"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

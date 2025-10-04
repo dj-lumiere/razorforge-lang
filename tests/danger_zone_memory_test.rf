@@ -1,0 +1,222 @@
+# RazorForge Danger Zone Memory Test
+# Tests unsafe memory operations and raw pointer manipulation
+
+import stdlib/memory/StackSlice
+import stdlib/memory/HeapSlice
+import system/console/write_line
+
+###
+Tests direct memory access bypassing safety checks
+###
+recipe test_raw_memory_access() {
+    write_line("=== Testing Raw Memory Access ===")
+
+    danger! {
+        # Create heap memory for testing
+        var buffer = HeapSlice(64)
+        let raw_addr = buffer.address()
+
+        # Write directly to memory address
+        write_as<s32>!(raw_addr, 0xDEADBEEF)
+        write_as<s32>!(raw_addr + 4, 0xCAFEBABE)
+
+        # Read back using raw address
+        let value1 = read_as<s32>!(raw_addr)
+        let value2 = read_as<s32>!(raw_addr + 4)
+
+        write_line(f"Raw read value1: 0x{value1:x}")
+        write_line(f"Raw read value2: 0x{value2:x}")
+
+        # Test addr_of operation
+        let stack_data: s32 = 42
+        let stack_addr = addr_of!(stack_data)
+        write_line(f"Stack variable address: 0x{stack_addr:x}")
+    }
+
+    write_line("Raw memory access test completed\n")
+}
+
+###
+Tests volatile memory operations for hardware access
+###
+recipe test_volatile_operations() {
+    write_line("=== Testing Volatile Operations ===")
+
+    danger! {
+        # Simulate memory-mapped I/O operations
+        var io_buffer = HeapSlice(16)
+        let io_base = io_buffer.address()
+
+        # Volatile write to "hardware register"
+        volatile_write<u32>!(io_base, 0xFF00)
+        volatile_write<u32>!(io_base + 4, 0x00FF)
+
+        # Volatile read from "hardware register"
+        let status = volatile_read<u32>!(io_base)
+        let control = volatile_read<u32>!(io_base + 4)
+
+        write_line(f"Hardware status: 0x{status:x}")
+        write_line(f"Hardware control: 0x{control:x}")
+
+        # Test multiple volatile operations in sequence
+        for i in 0 to 4 {
+            volatile_write<u8>!(io_base + 8 + i, (0xA0 + i) as u8)
+        }
+
+        write_line("Volatile register sequence:")
+        for i in 0 to 4 {
+            let reg_val = volatile_read<u8>!(io_base + 8 + i)
+            write_line(f"  reg[{i}] = 0x{reg_val:x}")
+        }
+    }
+
+    write_line("Volatile operations test completed\n")
+}
+
+###
+Tests type punning and pointer casting
+###
+recipe test_type_punning() {
+    write_line("=== Testing Type Punning ===")
+
+    danger! {
+        # Create a float value
+        let float_val: f32 = 3.14159f
+
+        # Get its address and reinterpret as integer
+        let float_addr = addr_of!(float_val)
+        let int_bits = read_as<u32>!(float_addr)
+
+        write_line(f"Float value: {float_val}")
+        write_line(f"As integer bits: 0x{int_bits:x}")
+
+        # Test with heap slice
+        var buffer = HeapSlice(16)
+
+        # Write different types to same memory
+        buffer.write<f64>!(0, 123.456789)
+
+        # Read back as different type
+        let double_addr = buffer.address()
+        let long_bits = read_as<u64>!(double_addr)
+        let int_parts = [
+            read_as<u32>!(double_addr),
+            read_as<u32>!(double_addr + 4)
+        ]
+
+        write_line(f"Double as u64: 0x{long_bits:x}")
+        write_line(f"Double as u32[0]: 0x{int_parts[0]:x}")
+        write_line(f"Double as u32[1]: 0x{int_parts[1]:x}")
+    }
+
+    write_line("Type punning test completed\n")
+}
+
+###
+Tests manual memory management and invalidation
+###
+recipe test_manual_memory_management() {
+    write_line("=== Testing Manual Memory Management ===")
+
+    danger! {
+        # Create multiple heap slices
+        var slice1 = HeapSlice(32)
+        var slice2 = HeapSlice(64)
+
+        # Fill with test data
+        for i in 0 to 8 {
+            slice1.write<s32>!(i * 4, i * 100)
+            slice2.write<s32>!(i * 4, i * 200)
+        }
+
+        # Get raw addresses
+        let addr1 = slice1.address()
+        let addr2 = slice2.address()
+
+        write_line(f"Slice1 address: 0x{addr1:x}")
+        write_line(f"Slice2 address: 0x{addr2:x}")
+
+        # Test manual invalidation (dangerous!)
+        # This bypasses normal destructor and reference counting
+        invalidate!(slice1)
+
+        # slice1 is now invalid - accessing it would be undefined behavior
+        # But we can still work with slice2
+        let test_val = slice2.read<s32>!(12)
+        write_line(f"slice2[3] = {test_val}")
+
+        # Force invalidation of remaining memory
+        invalidate!(slice2)
+    }
+
+    write_line("Manual memory management test completed\n")
+}
+
+###
+Tests memory slice operations in danger zone
+###
+recipe test_danger_slice_operations() {
+    write_line("=== Testing Danger Zone Slice Operations ===")
+
+    danger! {
+        # Create slices
+        var stack_slice = StackSlice(40)
+        var heap_slice = HeapSlice(40)
+
+        # Bypass bounds checking - write beyond allocated space
+        # WARNING: This is undefined behavior in real usage!
+        write_line("Testing bounds bypass (controlled environment):")
+
+        # Get raw pointers
+        let stack_ptr = stack_slice.unsafe_ptr!(0)
+        let heap_ptr = heap_slice.unsafe_ptr!(0)
+
+        # Write test pattern
+        for i in 0 to 10 {
+            write_as<s32>!(stack_ptr + (i * 4), (i * 10) as s32)
+            write_as<s32>!(heap_ptr + (i * 4), (i * 20) as s32)
+        }
+
+        # Read back using raw access
+        write_line("Stack data (raw access):")
+        for i in 0 to 10 {
+            let val = read_as<s32>!(stack_ptr + (i * 4))
+            write_line(f"  [{i}] = {val}")
+        }
+
+        write_line("Heap data (raw access):")
+        for i in 0 to 10 {
+            let val = read_as<s32>!(heap_ptr + (i * 4))
+            write_line(f"  [{i}] = {val}")
+        }
+
+        # Test memory copying between raw addresses
+        let temp_addr = heap_alloc!(20)
+        memory_copy!(stack_ptr, temp_addr, 20)
+        memory_copy!(temp_addr, heap_ptr + 20, 20)
+        heap_free!(temp_addr)
+    }
+
+    write_line("Danger zone slice operations test completed\n")
+}
+
+###
+Main test runner
+@return Exit code (0 for success)
+###
+recipe main() -> s32 {
+    write_line("RazorForge Danger Zone Memory Test Suite")
+    write_line("=======================================")
+    write_line("WARNING: These tests use unsafe operations!")
+    write_line("=========================================\n")
+
+    test_raw_memory_access()
+    test_volatile_operations()
+    test_type_punning()
+    test_manual_memory_management()
+    test_danger_slice_operations()
+
+    write_line("All danger zone tests completed!")
+    write_line("Note: In production code, avoid danger! blocks unless absolutely necessary.")
+    return 0
+}

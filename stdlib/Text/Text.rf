@@ -1,0 +1,4 @@
+entity Text {
+    private List<letter> letters
+}
+

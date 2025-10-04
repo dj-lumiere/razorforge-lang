@@ -2,7 +2,7 @@
 # Maps directly to LLVM i32 type and native machine integers
 
 # Core s32 type definition - maps to LLVM i32
-struct s32 {
+record s32 {
     public value: LlvmNativeI32
 }
 
@@ -15,119 +15,119 @@ preset S32_ONE: s32 = 1_s32
 # Basic arithmetic operations (LLVM intrinsics: add, sub, mul, sdiv, srem)
 
 # Addition with overflow checking
-recipe s32.add(my: s32, other: s32) -> s32 {
-    return llvm_intrinsic("llvm.sadd.with.overflow.i32", my, other)
+recipe s32.add(me: s32, other: s32) -> s32 {
+    return llvm_intrinsic("llvm.sadd.with.overflow.i32", me, other)
 }
 
 # Subtraction with overflow checking
-recipe s32.sub(my: s32, other: s32) -> s32 {
-    return llvm_intrinsic("llvm.ssub.with.overflow.i32", my, other)
+recipe s32.sub(me: s32, other: s32) -> s32 {
+    return llvm_intrinsic("llvm.ssub.with.overflow.i32", me, other)
 }
 
 # Multiplication with overflow checking
-recipe s32.mul(my: s32, other: s32) -> s32 {
-    return llvm_intrinsic("llvm.smul.with.overflow.i32", my, other)
+recipe s32.mul(me: s32, other: s32) -> s32 {
+    return llvm_intrinsic("llvm.smul.with.overflow.i32", me, other)
 }
 
 # Division (signed) - maps to LLVM sdiv
-recipe s32.floordiv(my: s32, other: s32) -> s32 {
+recipe s32.floordiv(me: s32, other: s32) -> s32 {
     when (other) {
         0 => throw panic("Division by zero"),
-        _ => return llvm_intrinsic("sdiv", my, other)
+        _ => return llvm_intrinsic("sdiv", me, other)
     }
 }
 
 # Remainder (signed) - maps to LLVM srem
-recipe s32.rem(my: s32, other: s32) -> s32 {
+recipe s32.rem(me: s32, other: s32) -> s32 {
     when (other) {
         0 => throw panic("Division by zero"),
-        _ => return llvm_intrinsic("srem", my, other)
+        _ => return llvm_intrinsic("srem", me, other)
     }
 }
 
 # Bitwise operations (direct LLVM mapping)
-recipe s32.and(my: s32, other: s32) -> s32 {
-    return llvm_intrinsic("and", my, other)
+recipe s32.and(me: s32, other: s32) -> s32 {
+    return llvm_intrinsic("and", me, other)
 }
 
-recipe s32.or(my: s32, other: s32) -> s32 {
-    return llvm_intrinsic("or", my, other)
+recipe s32.or(me: s32, other: s32) -> s32 {
+    return llvm_intrinsic("or", me, other)
 }
 
-recipe s32.xor(my: s32, other: s32) -> s32 {
-    return llvm_intrinsic("xor", my, other)
+recipe s32.xor(me: s32, other: s32) -> s32 {
+    return llvm_intrinsic("xor", me, other)
 }
 
-recipe s32.not(my: s32) -> s32 {
-    return llvm_intrinsic("xor", my, -1)
+recipe s32.not(me: s32) -> s32 {
+    return llvm_intrinsic("xor", me, -1)
 }
 
 # Bit shifting operations
-recipe s32.shl(my: s32, bits: s32) -> s32 {
-    return llvm_intrinsic("shl", my, bits)
+recipe s32.shl(me: s32, bits: s32) -> s32 {
+    return llvm_intrinsic("shl", me, bits)
 }
 
-recipe s32.shr(my: s32, bits: s32) -> s32 {
-    return llvm_intrinsic("ashr", my, bits)  # Arithmetic right shift for signed
+recipe s32.shr(me: s32, bits: s32) -> s32 {
+    return llvm_intrinsic("ashr", me, bits)  # Arithmetic right shift for signed
 }
 
 # Comparison operations (LLVM icmp)
-recipe s32.eq(my: s32, other: s32) -> bool {
-    return llvm_intrinsic("icmp eq", my, other)
+recipe s32.eq(me: s32, other: s32) -> bool {
+    return llvm_intrinsic("icmp eq", me, other)
 }
 
-recipe s32.ne(my: s32, other: s32) -> bool {
-    return llvm_intrinsic("icmp ne", my, other)
+recipe s32.ne(me: s32, other: s32) -> bool {
+    return llvm_intrinsic("icmp ne", me, other)
 }
 
-recipe s32.lt(my: s32, other: s32) -> bool {
-    return llvm_intrinsic("icmp slt", my, other)  # Signed less than
+recipe s32.lt(me: s32, other: s32) -> bool {
+    return llvm_intrinsic("icmp slt", me, other)  # Signed less than
 }
 
-recipe s32.le(my: s32, other: s32) -> bool {
-    return llvm_intrinsic("icmp sle", my, other)  # Signed less equal
+recipe s32.le(me: s32, other: s32) -> bool {
+    return llvm_intrinsic("icmp sle", me, other)  # Signed less equal
 }
 
-recipe s32.gt(my: s32, other: s32) -> bool {
-    return llvm_intrinsic("icmp sgt", my, other)  # Signed greater than
+recipe s32.gt(me: s32, other: s32) -> bool {
+    return llvm_intrinsic("icmp sgt", me, other)  # Signed greater than
 }
 
-recipe s32.ge(my: s32, other: s32) -> bool {
-    return llvm_intrinsic("icmp sge", my, other)  # Signed greater equal
+recipe s32.ge(me: s32, other: s32) -> bool {
+    return llvm_intrinsic("icmp sge", me, other)  # Signed greater equal
 }
 
 # Advanced math operations using LLVM intrinsics
-recipe s32.abs(my: s32) -> s32 {
-    when (my) {
-        >= 0 => return my,
-        _ => return -my
+recipe s32.abs(me: s32) -> s32 {
+    when (me) {
+        >= 0 => return me,
+        _ => return -me
     }
 }
 
-recipe s32.min(my: s32, other: s32) -> s32 {
-    return if my <= other then my else other
+recipe s32.min(me: s32, other: s32) -> s32 {
+    return if me <= other then me else other
 }
 
-recipe s32.max(my: s32, other: s32) -> s32 {
-    return if my >= other then my else other
+recipe s32.max(me: s32, other: s32) -> s32 {
+    return if me >= other then me else other
 }
 
 # Bit manipulation utilities
-recipe s32.count_leading_zeros(my: s32) -> s32 {
-    return llvm_intrinsic("llvm.ctlz.i32", my, false)
+recipe s32.count_leading_zeros(me: s32) -> s32 {
+    return llvm_intrinsic("llvm.ctlz.i32", me, false)
 }
 
-recipe s32.count_trailing_zeros(my: s32) -> s32 {
-    return llvm_intrinsic("llvm.cttz.i32", my, false)
+recipe s32.count_trailing_zeros(me: s32) -> s32 {
+    return llvm_intrinsic("llvm.cttz.i32", me, false)
 }
 
-recipe s32.count_ones(my: s32) -> s32 {
-    return llvm_intrinsic("llvm.ctpop.i32", my)
+recipe s32.count_ones(me: s32) -> s32 {
+    return llvm_intrinsic("llvm.ctpop.i32", me)
 }
 
 # Byte swapping for endianness conversion
-recipe s32.swap_bytes(my: s32) -> s32 {
-    return llvm_intrinsic("llvm.bswap.i32", my)
+recipe s32.swap_bytes(me: s32) -> s32 {
+    return llvm_intrinsic("llvm.bswap.i32", me)
 }
 
 # Type conversions to other native types (using constructor syntax)

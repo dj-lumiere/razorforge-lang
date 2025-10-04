@@ -1,0 +1,179 @@
+# RazorForge s16 (signed 16-bit integer) native type implementation
+# Maps directly to LLVM i16 type and native machine shorts
+
+# Core s16 type definition - maps to LLVM i16
+record s16 {
+    public value: LlvmNativeI16
+}
+
+# Constants for s16 limits (LLVM constant values)
+preset S16_MIN: s16 = -32_768_s16
+preset S16_MAX: s16 = 32_767_s16
+preset S16_ZERO: s16 = 0_s16
+preset S16_ONE: s16 = 1_s16
+
+# Basic arithmetic operations (LLVM intrinsics: add, sub, mul, sdiv, srem)
+
+# Addition with overflow checking
+recipe s16.add(me: s16, other: s16) -> s16 {
+    return llvm_intrinsic("llvm.sadd.with.overflow.i16", me, other)
+}
+
+# Subtraction with overflow checking
+recipe s16.sub(me: s16, other: s16) -> s16 {
+    return llvm_intrinsic("llvm.ssub.with.overflow.i16", me, other)
+}
+
+# Multiplication with overflow checking
+recipe s16.mul(me: s16, other: s16) -> s16 {
+    return llvm_intrinsic("llvm.smul.with.overflow.i16", me, other)
+}
+
+# Division (signed) - maps to LLVM sdiv
+recipe s16.floordiv(me: s16, other: s16) -> s16 {
+    when (other) {
+        0 => throw panic("Division by zero"),
+        _ => return llvm_intrinsic("sdiv", me, other)
+    }
+}
+
+# Remainder (signed) - maps to LLVM srem
+recipe s16.rem(me: s16, other: s16) -> s16 {
+    when (other) {
+        0 => throw panic("Division by zero"),
+        _ => return llvm_intrinsic("srem", me, other)
+    }
+}
+
+# Bitwise operations (direct LLVM mapping)
+recipe s16.and(me: s16, other: s16) -> s16 {
+    return llvm_intrinsic("and", me, other)
+}
+
+recipe s16.or(me: s16, other: s16) -> s16 {
+    return llvm_intrinsic("or", me, other)
+}
+
+recipe s16.xor(me: s16, other: s16) -> s16 {
+    return llvm_intrinsic("xor", me, other)
+}
+
+recipe s16.not(me: s16) -> s16 {
+    return llvm_intrinsic("xor", me, -1)
+}
+
+# Bit shifting operations
+recipe s16.shl(me: s16, bits: s16) -> s16 {
+    return llvm_intrinsic("shl", me, bits)
+}
+
+recipe s16.shr(me: s16, bits: s16) -> s16 {
+    return llvm_intrinsic("ashr", me, bits)  # Arithmetic right shift for signed
+}
+
+# Comparison operations (LLVM icmp)
+recipe s16.eq(me: s16, other: s16) -> bool {
+    return llvm_intrinsic("icmp eq", me, other)
+}
+
+recipe s16.ne(me: s16, other: s16) -> bool {
+    return llvm_intrinsic("icmp ne", me, other)
+}
+
+recipe s16.lt(me: s16, other: s16) -> bool {
+    return llvm_intrinsic("icmp slt", me, other)  # Signed less than
+}
+
+recipe s16.le(me: s16, other: s16) -> bool {
+    return llvm_intrinsic("icmp sle", me, other)  # Signed less equal
+}
+
+recipe s16.gt(me: s16, other: s16) -> bool {
+    return llvm_intrinsic("icmp sgt", me, other)  # Signed greater than
+}
+
+recipe s16.ge(me: s16, other: s16) -> bool {
+    return llvm_intrinsic("icmp sge", me, other)  # Signed greater equal
+}
+
+# Advanced math operations using LLVM intrinsics
+recipe s16.abs(me: s16) -> s16 {
+    when (me) {
+        >= 0 => return me,
+        _ => return -me
+    }
+}
+
+recipe s16.min(me: s16, other: s16) -> s16 {
+    return if me <= other then me else other
+}
+
+recipe s16.max(me: s16, other: s16) -> s16 {
+    return if me >= other then me else other
+}
+
+# Bit manipulation utilities
+recipe s16.count_leading_zeros(me: s16) -> s16 {
+    return llvm_intrinsic("llvm.ctlz.i16", me, false)
+}
+
+recipe s16.count_trailing_zeros(me: s16) -> s16 {
+    return llvm_intrinsic("llvm.cttz.i16", me, false)
+}
+
+recipe s16.count_ones(me: s16) -> s16 {
+    return llvm_intrinsic("llvm.ctpop.i16", me)
+}
+
+# Byte swapping for endianness conversion
+recipe s16.swap_bytes(me: s16) -> s16 {
+    return llvm_intrinsic("llvm.bswap.i16", me)
+}
+
+# Type conversions to other native types (using constructor syntax)
+recipe u16(from_s16: s16) -> u16 {
+    return llvm_intrinsic("bitcast", from_s16)  # Direct bit reinterpretation
+}
+
+recipe s32(from_s16: s16) -> s32 {
+    return llvm_intrinsic("sext", from_s16)     # Sign-extend to 32-bit
+}
+
+recipe s64(from_s16: s16) -> s64 {
+    return llvm_intrinsic("sext", from_s16)     # Sign-extend to 64-bit
+}
+
+recipe s8(from_s16: s16) -> s8 {
+    return llvm_intrinsic("trunc", from_s16)    # Truncate to 8-bit
+}
+
+recipe f32(from_s16: s16) -> f32 {
+    return llvm_intrinsic("sitofp", from_s16)   # Signed int to float
+}
+
+recipe f64(from_s16: s16) -> f64 {
+    return llvm_intrinsic("sitofp", from_s16)   # Signed int to double
+}
+
+recipe bool(from_s16: s16) -> bool {
+    return from_s16 != 0
+}
+
+# Parsing and formatting using constructor syntax
+recipe s16(from_text: Text) -> s16 {
+    # Parse Text to s16 using LLVM constant folding when possible
+    return 0  # Placeholder
+}
+
+recipe Text(from_s16: s16) -> Text {
+    # Convert s16 to Text representation
+    return ""  # Placeholder
+}
+
+/*
+LLVM IR Mapping:
+- RazorForge s16 -> LLVM i16 -> C int16_t
+- Range: -32,768 to 32,767
+- 16-bit storage, good for audio samples and small integers
+- Hardware-accelerated on most platforms
+*/

@@ -1,0 +1,14 @@
+﻿global record Console{
+}
+
+public common letter8 Console.input_letter8()
+public common Text8 Console.input_letter8s(letter_count: sysuint)
+public common Text8 Console.input_word()
+public common Text8 Console.input_line()
+public common Text8 Console.input_all()
+public common sysuint Console.display()
+public common sysuint Console.display_line()
+public common sysuint Console.force_display()
+public common sysuint Console.force_display_line()
+public common sysuint Console.alert()
+public common sysuint Console.alert_line()

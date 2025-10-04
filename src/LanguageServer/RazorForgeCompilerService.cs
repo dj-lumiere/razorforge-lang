@@ -1,0 +1,414 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using Microsoft.Extensions.Logging;
+using Compilers.Shared.Analysis;
+using Compilers.Shared.AST;
+using Compilers.Shared.Lexer;
+using Compilers.RazorForge.Parser;
+using Compilers.RazorForge.Lexer;
+
+namespace RazorForge.LanguageServer
+{
+    /// <summary>
+    /// Implementation of RazorForge compiler services for Language Server
+    /// </summary>
+    public class RazorForgeCompilerService : IRazorForgeCompilerService
+    {
+        private readonly ILogger<RazorForgeCompilerService> _logger;
+        private readonly SemanticAnalyzer _semanticAnalyzer;
+
+        public RazorForgeCompilerService(ILogger<RazorForgeCompilerService> logger,
+            SemanticAnalyzer semanticAnalyzer)
+        {
+            _logger = logger;
+            _semanticAnalyzer = semanticAnalyzer;
+        }
+
+        /// <summary>
+        /// Analyze RazorForge code and return compilation results
+        /// </summary>
+        public CompilationResult AnalyzeCode(string code, string filePath)
+        {
+            try
+            {
+                _logger.LogDebug($"Analyzing code from {filePath}");
+
+                // Tokenize
+                var tokens = Tokenizer.Tokenize(code, Language.RazorForge);
+
+                // Parse
+                var parser = new RazorForgeParser(tokens);
+                var ast = parser.Parse();
+
+                // Semantic analysis
+                var errors = _semanticAnalyzer.Analyze(ast);
+
+                // Extract symbols for completion and navigation
+                var symbols = ExtractSymbols(ast);
+                var symbolsByLine = symbols.GroupBy(s => s.Location.Line)
+                                           .ToDictionary(g => g.Key, g => g.ToList());
+
+                // Generate completion items
+                var completionItems = GenerateCompletionItems(symbols);
+
+                return new CompilationResult
+                {
+                    AST = ast,
+                    Errors = errors,
+                    CompletionItems = completionItems,
+                    SymbolsByLine = symbolsByLine,
+                    IsValid = errors.Count == 0
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Failed to analyze code from {filePath}");
+
+                return new CompilationResult
+                {
+                    Errors = new List<SemanticError>
+                    {
+                        new SemanticError($"Compilation failed: {ex.Message}",
+                            new SourceLocation(0, 0, 0))
+                    },
+                    IsValid = false
+                };
+            }
+        }
+
+        /// <summary>
+        /// Get completion suggestions for position in code
+        /// </summary>
+        public List<CompletionSuggestion> GetCompletions(string code, int line, int column)
+        {
+            var suggestions = new List<CompletionSuggestion>();
+
+            try
+            {
+                // Analyze code to get context
+                var result = AnalyzeCode(code, "temp");
+
+                // Add language keywords
+                suggestions.AddRange(GetKeywordCompletions());
+
+                // Add symbols from current file
+                if (result.AST != null)
+                {
+                    suggestions.AddRange(GetSymbolCompletions(result.AST));
+                }
+
+                // Add built-in types and functions
+                suggestions.AddRange(GetBuiltInCompletions());
+
+                _logger.LogDebug(
+                    $"Generated {suggestions.Count} completion suggestions for line {line}, column {column}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    $"Failed to get completions for line {line}, column {column}");
+            }
+
+            return suggestions;
+        }
+
+        /// <summary>
+        /// Get hover information for symbol at position
+        /// </summary>
+        public HoverInfo? GetHoverInfo(string code, int line, int column)
+        {
+            try
+            {
+                var result = AnalyzeCode(code, "temp");
+
+                if (result.SymbolsByLine.TryGetValue(line, out var symbols))
+                {
+                    // Find symbol at or near the column
+                    var symbol =
+                        symbols
+                           .FirstOrDefault(); // Simplified - would need better position matching
+
+                    if (symbol != null)
+                    {
+                        return new HoverInfo
+                        {
+                            Content = $"**{symbol.Name}**\n\n{symbol.Description}",
+                            Type = symbol.Type,
+                            Documentation = symbol.Description,
+                            Location = symbol.Location
+                        };
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Failed to get hover info for line {line}, column {column}");
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Get all symbols in code for navigation
+        /// </summary>
+        public List<Symbol> GetSymbols(string code)
+        {
+            try
+            {
+                var result = AnalyzeCode(code, "temp");
+                return result.SymbolsByLine
+                             .Values
+                             .SelectMany(s => s)
+                             .ToList();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to extract symbols");
+                return new List<Symbol>();
+            }
+        }
+
+        /// <summary>
+        /// Extract symbols from AST for completion and navigation
+        /// </summary>
+        private List<Symbol> ExtractSymbols(Program ast)
+        {
+            var symbols = new List<Symbol>();
+
+            foreach (var declaration in ast.Declarations)
+            {
+                switch (declaration)
+                {
+                    case FunctionDeclaration func:
+                        symbols.Add(new Symbol
+                        {
+                            Name = func.Name,
+                            Type = func.ReturnType?.ToString() ?? "void",
+                            Description =
+                                $"Function {func.Name}({string.Join(", ", func.Parameters.Select(p => $"{p.Name}: {p.Type}"))})",
+                            Location = func.Location,
+                            Kind = SymbolKind.Function
+                        });
+
+                        // Add parameters as symbols
+                        foreach (var param in func.Parameters)
+                        {
+                            symbols.Add(new Symbol
+                            {
+                                Name = param.Name,
+                                Type = param.Type?.ToString() ?? "unknown",
+                                Description = $"Parameter {param.Name}",
+                                Location = param.Location,
+                                Kind = SymbolKind.Parameter
+                            });
+                        }
+
+                        break;
+
+                    case ClassDeclaration cls:
+                        symbols.Add(new Symbol
+                        {
+                            Name = cls.Name,
+                            Type = "class",
+                            Description = $"Entity {cls.Name}",
+                            Location = cls.Location,
+                            Kind = SymbolKind.Entity
+                        });
+                        break;
+
+                    case StructDeclaration str:
+                        symbols.Add(new Symbol
+                        {
+                            Name = str.Name,
+                            Type = "struct",
+                            Description = $"Record {str.Name}",
+                            Location = str.Location,
+                            Kind = SymbolKind.Record
+                        });
+                        break;
+
+                    case VariableDeclaration var:
+                        symbols.Add(new Symbol
+                        {
+                            Name = var.Name,
+                            Type = var.Type?.ToString() ?? "auto",
+                            Description = $"Variable {var.Name}",
+                            Location = var.Location,
+                            Kind = SymbolKind.Variable
+                        });
+                        break;
+                }
+            }
+
+            return symbols;
+        }
+
+        /// <summary>
+        /// Generate completion items from symbols
+        /// </summary>
+        private List<OmniSharp.Extensions.LanguageServer.Protocol.Models.CompletionItem>
+            GenerateCompletionItems(List<Symbol> symbols)
+        {
+            return symbols.Select(symbol =>
+                               new OmniSharp.Extensions.LanguageServer.Protocol.Models.
+                                   CompletionItem
+                                   {
+                                       Label = symbol.Name,
+                                       Detail = symbol.Type,
+                                       Documentation = symbol.Description,
+                                       Kind = MapSymbolKindToCompletionKind(symbol.Kind)
+                                   })
+                          .ToList();
+        }
+
+        /// <summary>
+        /// Get RazorForge language keyword completions
+        /// </summary>
+        private List<CompletionSuggestion> GetKeywordCompletions()
+        {
+            var keywords = new[]
+            {
+                "recipe", "entity", "record", "variant", "kind", "feature",
+                "let", "var", "preset",
+                "if", "else", "when", "while", "for", "in", "to", "by",
+                "when", "default", "break", "continue", "return",
+                "danger", "external", "import", "export", "using",
+                "true", "false", "none",
+                "s8", "s16", "s32", "s64", "s128",
+                "u8", "u16", "u32", "u64", "u128",
+                "f16", "f32", "f64", "f128",
+                "d32", "d64", "d128",
+                "bool", "letter", "Text", "void", "any", "sysuint"
+            };
+
+            return keywords.Select(keyword => new CompletionSuggestion
+                            {
+                                Label = keyword,
+                                Detail = "keyword",
+                                Documentation = $"RazorForge keyword: {keyword}",
+                                Kind = CompletionKind.Keyword,
+                                InsertText = keyword
+                            })
+                           .ToList();
+        }
+
+        /// <summary>
+        /// Get symbol completions from AST
+        /// </summary>
+        private List<CompletionSuggestion> GetSymbolCompletions(Program ast)
+        {
+            var symbols = ExtractSymbols(ast);
+
+            return symbols.Select(symbol => new CompletionSuggestion
+                           {
+                               Label = symbol.Name,
+                               Detail = symbol.Type,
+                               Documentation = symbol.Description,
+                               Kind = MapSymbolKindToCompletionKindInternal(symbol.Kind),
+                               InsertText = symbol.Name
+                           })
+                          .ToList();
+        }
+
+        /// <summary>
+        /// Get built-in function and type completions
+        /// </summary>
+        private List<CompletionSuggestion> GetBuiltInCompletions()
+        {
+            var builtins = new List<CompletionSuggestion>
+            {
+                new()
+                {
+                    Label = "HeapSlice", Detail = "constructor",
+                    Documentation = "Create a heap-allocated memory slice",
+                    Kind = CompletionKind.Constructor, InsertText = "HeapSlice($1)",
+                    IsSnippet = true
+                },
+                new()
+                {
+                    Label = "StackSlice", Detail = "constructor",
+                    Documentation = "Create a stack-allocated memory slice",
+                    Kind = CompletionKind.Constructor, InsertText = "StackSlice($1)",
+                    IsSnippet = true
+                },
+                new()
+                {
+                    Label = "write_as", Detail = "function",
+                    Documentation = "Write typed data to memory address (danger zone)",
+                    Kind = CompletionKind.Function, InsertText = "write_as<$1>!($2, $3)",
+                    IsSnippet = true
+                },
+                new()
+                {
+                    Label = "read_as", Detail = "function",
+                    Documentation = "Read typed data from memory address (danger zone)",
+                    Kind = CompletionKind.Function, InsertText = "read_as<$1>!($2)",
+                    IsSnippet = true
+                },
+                new()
+                {
+                    Label = "addr_of", Detail = "function",
+                    Documentation = "Get address of variable (danger zone)",
+                    Kind = CompletionKind.Function, InsertText = "addr_of!($1)", IsSnippet = true
+                },
+                new()
+                {
+                    Label = "invalidate", Detail = "function",
+                    Documentation = "Free memory slice (danger zone)",
+                    Kind = CompletionKind.Function, InsertText = "invalidate!($1)",
+                    IsSnippet = true
+                }
+            };
+
+            return builtins;
+        }
+
+        /// <summary>
+        /// Map symbol kinds to LSP completion kinds
+        /// </summary>
+        private OmniSharp.Extensions.LanguageServer.Protocol.Models.CompletionItemKind
+            MapSymbolKindToCompletionKind(SymbolKind symbolKind)
+        {
+            return symbolKind switch
+            {
+                SymbolKind.Function => OmniSharp.Extensions.LanguageServer.Protocol.Models
+                                                .CompletionItemKind.Function,
+                SymbolKind.Variable => OmniSharp.Extensions.LanguageServer.Protocol.Models
+                                                .CompletionItemKind.Variable,
+                SymbolKind.Type => OmniSharp.Extensions.LanguageServer.Protocol.Models
+                                            .CompletionItemKind.TypeParameter,
+                SymbolKind.Entity => OmniSharp.Extensions.LanguageServer.Protocol.Models
+                                              .CompletionItemKind.Class,
+                SymbolKind.Record => OmniSharp.Extensions.LanguageServer.Protocol.Models
+                                              .CompletionItemKind.Struct,
+                SymbolKind.Option => OmniSharp.Extensions.LanguageServer.Protocol.Models
+                                            .CompletionItemKind.Enum,
+                SymbolKind.Property => OmniSharp.Extensions.LanguageServer.Protocol.Models
+                                                .CompletionItemKind.Property,
+                SymbolKind.Method => OmniSharp.Extensions.LanguageServer.Protocol.Models
+                                              .CompletionItemKind.Method,
+                SymbolKind.Parameter => OmniSharp.Extensions.LanguageServer.Protocol.Models
+                                                 .CompletionItemKind.Variable,
+                _ => OmniSharp.Extensions.LanguageServer.Protocol.Models.CompletionItemKind.Text
+            };
+        }
+
+        private CompletionKind MapSymbolKindToCompletionKindInternal(SymbolKind symbolKind)
+        {
+            return symbolKind switch
+            {
+                SymbolKind.Function => CompletionKind.Function,
+                SymbolKind.Variable => CompletionKind.Variable,
+                SymbolKind.Type => CompletionKind.Entity,
+                SymbolKind.Entity => CompletionKind.Entity,
+                SymbolKind.Record => CompletionKind.Record,
+                SymbolKind.Option => CompletionKind.Enum,
+                SymbolKind.Property => CompletionKind.Property,
+                SymbolKind.Method => CompletionKind.Method,
+                SymbolKind.Parameter => CompletionKind.Variable,
+                _ => CompletionKind.Text
+            };
+        }
+    }
+}

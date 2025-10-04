@@ -2,7 +2,7 @@
 # Maps directly to LLVM i32 type for unsigned operations
 
 # Core u32 type definition - maps to LLVM i32
-struct u32 {
+record u32 {
     public value: LlvmNativeI32
 }
 
@@ -15,112 +15,112 @@ preset U32_ONE: u32 = 1_u32
 # Basic arithmetic operations (LLVM intrinsics: add, sub, mul, udiv, urem)
 
 # Addition with overflow checking
-recipe u32.add(my: u32, other: u32) -> u32 {
-    return llvm_intrinsic("llvm.uadd.with.overflow.i32", my, other)
+recipe u32.add(me: u32, other: u32) -> u32 {
+    return llvm_intrinsic("llvm.uadd.with.overflow.i32", me, other)
 }
 
 # Subtraction with overflow checking
-recipe u32.sub(my: u32, other: u32) -> u32 {
-    return llvm_intrinsic("llvm.usub.with.overflow.i32", my, other)
+recipe u32.sub(me: u32, other: u32) -> u32 {
+    return llvm_intrinsic("llvm.usub.with.overflow.i32", me, other)
 }
 
 # Multiplication with overflow checking
-recipe u32.mul(my: u32, other: u32) -> u32 {
-    return llvm_intrinsic("llvm.umul.with.overflow.i32", my, other)
+recipe u32.mul(me: u32, other: u32) -> u32 {
+    return llvm_intrinsic("llvm.umul.with.overflow.i32", me, other)
 }
 
 # Division (unsigned) - maps to LLVM udiv
-recipe u32.floordiv(my: u32, other: u32) -> u32 {
+recipe u32.floordiv(me: u32, other: u32) -> u32 {
     when (other) {
         0 => throw panic("Division by zero"),
-        _ => return llvm_intrinsic("udiv", my, other)
+        _ => return llvm_intrinsic("udiv", me, other)
     }
 }
 
 # Remainder (unsigned) - maps to LLVM urem
-recipe u32.rem(my: u32, other: u32) -> u32 {
+recipe u32.rem(me: u32, other: u32) -> u32 {
     when (other) {
         0 => throw panic("Division by zero"),
-        _ => return llvm_intrinsic("urem", my, other)
+        _ => return llvm_intrinsic("urem", me, other)
     }
 }
 
 # Bitwise operations (direct LLVM mapping)
-recipe u32.and(my: u32, other: u32) -> u32 {
-    return llvm_intrinsic("and", my, other)
+recipe u32.and(me: u32, other: u32) -> u32 {
+    return llvm_intrinsic("and", me, other)
 }
 
-recipe u32.or(my: u32, other: u32) -> u32 {
-    return llvm_intrinsic("or", my, other)
+recipe u32.or(me: u32, other: u32) -> u32 {
+    return llvm_intrinsic("or", me, other)
 }
 
-recipe u32.xor(my: u32, other: u32) -> u32 {
-    return llvm_intrinsic("xor", my, other)
+recipe u32.xor(me: u32, other: u32) -> u32 {
+    return llvm_intrinsic("xor", me, other)
 }
 
-recipe u32.not(my: u32) -> u32 {
-    return llvm_intrinsic("xor", my, 4294967295)
+recipe u32.not(me: u32) -> u32 {
+    return llvm_intrinsic("xor", me, 4294967295)
 }
 
 # Bit shifting operations
-recipe u32.shl(my: u32, bits: u32) -> u32 {
-    return llvm_intrinsic("shl", my, bits)
+recipe u32.shl(me: u32, bits: u32) -> u32 {
+    return llvm_intrinsic("shl", me, bits)
 }
 
-recipe u32.shr(my: u32, bits: u32) -> u32 {
-    return llvm_intrinsic("lshr", my, bits)  # Logical right shift for unsigned
+recipe u32.shr(me: u32, bits: u32) -> u32 {
+    return llvm_intrinsic("lshr", me, bits)  # Logical right shift for unsigned
 }
 
 # Comparison operations (LLVM icmp)
-recipe u32.eq(my: u32, other: u32) -> bool {
-    return llvm_intrinsic("icmp eq", my, other)
+recipe u32.eq(me: u32, other: u32) -> bool {
+    return llvm_intrinsic("icmp eq", me, other)
 }
 
-recipe u32.ne(my: u32, other: u32) -> bool {
-    return llvm_intrinsic("icmp ne", my, other)
+recipe u32.ne(me: u32, other: u32) -> bool {
+    return llvm_intrinsic("icmp ne", me, other)
 }
 
-recipe u32.lt(my: u32, other: u32) -> bool {
-    return llvm_intrinsic("icmp ult", my, other)  # Unsigned less than
+recipe u32.lt(me: u32, other: u32) -> bool {
+    return llvm_intrinsic("icmp ult", me, other)  # Unsigned less than
 }
 
-recipe u32.le(my: u32, other: u32) -> bool {
-    return llvm_intrinsic("icmp ule", my, other)  # Unsigned less equal
+recipe u32.le(me: u32, other: u32) -> bool {
+    return llvm_intrinsic("icmp ule", me, other)  # Unsigned less equal
 }
 
-recipe u32.gt(my: u32, other: u32) -> bool {
-    return llvm_intrinsic("icmp ugt", my, other)  # Unsigned greater than
+recipe u32.gt(me: u32, other: u32) -> bool {
+    return llvm_intrinsic("icmp ugt", me, other)  # Unsigned greater than
 }
 
-recipe u32.ge(my: u32, other: u32) -> bool {
-    return llvm_intrinsic("icmp uge", my, other)  # Unsigned greater equal
+recipe u32.ge(me: u32, other: u32) -> bool {
+    return llvm_intrinsic("icmp uge", me, other)  # Unsigned greater equal
 }
 
 # Math operations
-recipe u32.min(my: u32, other: u32) -> u32 {
-    return if my <= other then my else other
+recipe u32.min(me: u32, other: u32) -> u32 {
+    return if me <= other then me else other
 }
 
-recipe u32.max(my: u32, other: u32) -> u32 {
-    return if my >= other then my else other
+recipe u32.max(me: u32, other: u32) -> u32 {
+    return if me >= other then me else other
 }
 
 # Bit manipulation utilities
-recipe u32.count_leading_zeros(my: u32) -> u32 {
-    return llvm_intrinsic("llvm.ctlz.i32", my, false)
+recipe u32.count_leading_zeros(me: u32) -> u32 {
+    return llvm_intrinsic("llvm.ctlz.i32", me, false)
 }
 
-recipe u32.count_trailing_zeros(my: u32) -> u32 {
-    return llvm_intrinsic("llvm.cttz.i32", my, false)
+recipe u32.count_trailing_zeros(me: u32) -> u32 {
+    return llvm_intrinsic("llvm.cttz.i32", me, false)
 }
 
-recipe u32.count_ones(my: u32) -> u32 {
-    return llvm_intrinsic("llvm.ctpop.i32", my)
+recipe u32.count_ones(me: u32) -> u32 {
+    return llvm_intrinsic("llvm.ctpop.i32", me)
 }
 
 # Byte swapping for endianness conversion
-recipe u32.byte_swap(my: u32) -> u32 {
-    return llvm_intrinsic("llvm.bswap.i32", my)
+recipe u32.byte_swap(me: u32) -> u32 {
+    return llvm_intrinsic("llvm.bswap.i32", me)
 }
 
 # Type conversions to other native types (using constructor syntax)
@@ -188,17 +188,17 @@ recipe Text(from_u32: u32) -> Text {
 }
 
 # Utility functions for bit operations
-recipe u32.is_power_of_two(my: u32) -> bool {
-    return my != 0 and (my & (my - 1)) == 0
+recipe u32.is_power_of_two(me: u32) -> bool {
+    return me != 0 and (me & (me - 1)) == 0
 }
 
-recipe u32.next_power_of_two(my: u32) -> u32 {
-    when (my) {
+recipe u32.next_power_of_two(me: u32) -> u32 {
+    when (me) {
         0 => return 1,
         1 => return 1,
         _ => {
             var power: u32 = 1
-            while power < my {
+            while power < me {
                 power = power << 1
             }
             return power
@@ -207,18 +207,18 @@ recipe u32.next_power_of_two(my: u32) -> u32 {
 }
 
 # Saturating arithmetic (clamps to min/max instead of wrapping)
-recipe u32.saturating_add(my: u32, other: u32) -> u32 {
-    let result = my + other
-    return if result < my then U32_MAX else result  # Overflow check
+recipe u32.saturating_add(me: u32, other: u32) -> u32 {
+    let result = me + other
+    return if result < me then U32_MAX else result  # Overflow check
 }
 
-recipe u32.saturating_sub(my: u32, other: u32) -> u32 {
-    return if my >= other then my - other else U32_ZERO
+recipe u32.saturating_sub(me: u32, other: u32) -> u32 {
+    return if me >= other then me - other else U32_ZERO
 }
 
-recipe u32.saturating_mul(my: u32, other: u32) -> u32 {
-    let result = my * other
-    return if other != 0 and result / other != my then U32_MAX else result
+recipe u32.saturating_mul(me: u32, other: u32) -> u32 {
+    let result = me * other
+    return if other != 0 and result / other != me then U32_MAX else result
 }
 
 /*

@@ -1,0 +1,206 @@
+# RazorForge Standard Library - Memory Management
+# StackSlice: Non-generic stack-allocated contiguous memory slice
+
+import system/memory/native
+
+###
+Stack-allocated memory slice with automatic lifetime management.
+Non-generic structure that can hold any type of data.
+###
+record StackSlice {
+    private address: sysuint
+    private allocated_bytes: sysuint
+
+    ###
+    Creates a new stack slice with specified byte size
+    @param bytes - Number of bytes to allocate on stack
+    @return New StackSlice instance
+    ###
+    public recipe __init__(bytes: sysuint) -> StackSlice {
+        if bytes == 0 {
+            me.starting_address = 0
+            me.allocated_bytes = 0
+            return me
+        }
+
+        me.allocated_bytes = bytes
+
+        # LLVM alloca instruction for stack allocation
+        me.starting_address = stack_alloc!(bytes)
+
+        if me.starting_address == 0 {
+            crash!("Failed to allocate stack memory")
+        }
+
+        return me
+    }
+
+    ###
+    Gets the total allocated bytes
+    @return Number of bytes allocated for this slice
+    ###
+    public recipe size() -> sysuint {
+        return me.allocated_bytes
+    }
+
+    ###
+    Gets the starting memory address
+    @return Memory address where slice data begins
+    ###
+    public recipe address() -> sysuint {
+        return me.starting_address
+    }
+
+    ###
+    Checks if this slice is valid (has allocated memory)
+    @return true if slice has valid memory allocation
+    ###
+    public recipe is_valid() -> bool {
+        return me.starting_address != 0
+    }
+
+    ###
+    Reads raw bytes from the slice
+    @param offset - Byte offset within the slice
+    @param dest - Destination address to copy bytes to
+    @param count - Number of bytes to read
+    ###
+    public recipe read_bytes!(offset: sysuint, dest: sysuint, count: sysuint) {
+        if offset + count > me.allocated_bytes {
+            crash!(f"Read operation would exceed slice bounds")
+        }
+
+        let src_addr = me.starting_address + offset
+        memory_copy!(src_addr, dest, count)
+    }
+
+    ###
+    Writes raw bytes to the slice
+    @param offset - Byte offset within the slice
+    @param src - Source address to copy bytes from
+    @param count - Number of bytes to write
+    ###
+    public recipe write_bytes!(offset: sysuint, src: sysuint, count: sysuint) {
+        if offset + count > me.allocated_bytes {
+            crash!(f"Write operation would exceed slice bounds")
+        }
+
+        let dest_addr = me.starting_address + offset
+        memory_copy!(src, dest_addr, count)
+    }
+
+    ###
+    Reads a typed value from the slice at given offset
+    @param offset - Byte offset within the slice
+    @return Value of type T read from the slice
+    ###
+    public recipe read<T>!(offset: sysuint) -> T {
+        let type_size = sizeof<T>()
+
+        if offset + type_size > me.allocated_bytes {
+            crash!(f"Read would exceed slice bounds")
+        }
+
+        let addr = me.starting_address + offset
+        return memory_read<T>!(addr)
+    }
+
+    ###
+    Writes a typed value to the slice at given offset
+    @param offset - Byte offset within the slice
+    @param value - Value of type T to write to the slice
+    ###
+    public recipe write<T>!(offset: sysuint, value: T) {
+        let type_size = sizeof<T>()
+
+        if offset + type_size > me.allocated_bytes {
+            crash!(f"Write would exceed slice bounds")
+        }
+
+        let addr = me.starting_address + offset
+        memory_write<T>!(addr, value)
+    }
+
+    ###
+    Gets unsafe pointer to data at offset
+    @param offset - Byte offset within the slice
+    @return Raw memory address at the specified offset
+    ###
+    public recipe unsafe_ptr!(offset: sysuint) -> sysuint {
+        return me.starting_address + offset
+    }
+
+    ###
+    Creates a sub-slice view of this slice
+    @param offset - Starting byte offset for sub-slice
+    @param bytes - Number of bytes in sub-slice
+    @return New StackSlice representing the sub-range
+    ###
+    public recipe slice!(offset: sysuint, bytes: sysuint) -> StackSlice {
+        if offset + bytes > me.allocated_bytes {
+            crash!(f"Slice range exceeds bounds")
+        }
+
+        var sub_slice: StackSlice
+        sub_slice.starting_address = me.starting_address + offset
+        sub_slice.allocated_bytes = bytes
+        return sub_slice
+    }
+
+    ###
+    Fills the slice with a byte pattern
+    @param pattern - Byte value to fill the entire slice with
+    ###
+    public recipe fill!(pattern: u8) {
+        memory_fill!(me.starting_address, pattern, me.allocated_bytes)
+    }
+
+    ###
+    Copies data from another slice
+    @param source - Source StackSlice to copy from
+    @param src_offset - Starting offset in source slice
+    @param dest_offset - Starting offset in destination slice
+    @param count - Number of bytes to copy
+    ###
+    public recipe copy_from!(source: StackSlice, src_offset: sysuint,
+                           dest_offset: sysuint, count: sysuint) {
+        if src_offset + count > source.allocated_bytes {
+            crash!("Source range exceeds bounds")
+        }
+
+        if dest_offset + count > me.allocated_bytes {
+            crash!("Destination range exceeds bounds")
+        }
+
+        let src_addr = source.starting_address + src_offset
+        let dest_addr = me.starting_address + dest_offset
+        memory_copy!(src_addr, dest_addr, count)
+    }
+
+    ###
+    Zeros out all memory in the slice
+    ###
+    public recipe zero!() {
+        memory_zero!(me.starting_address, me.allocated_bytes)
+    }
+}
+
+# Native runtime functions for stack operations
+external recipe stack_alloc!(bytes: sysuint) -> sysuint
+external recipe memory_copy!(src: sysuint, dest: sysuint, bytes: sysuint)
+external recipe memory_fill!(address: sysuint, pattern: u8, bytes: sysuint)
+external recipe memory_zero!(address: sysuint, bytes: sysuint)
+external recipe memory_read<T>!(address: sysuint) -> T
+external recipe memory_write<T>!(address: sysuint, value: T)
+external recipe sizeof<T>() -> sysuint
+
+# Danger zone operations - raw memory access without safety checks
+external recipe read_as<T>!(address: sysuint) -> T
+external recipe write_as<T>!(address: sysuint, value: T)
+external recipe volatile_read<T>!(address: sysuint) -> T
+external recipe volatile_write<T>!(address: sysuint, value: T)
+external recipe obtain_as<T>!(object: auto) -> sysuint
+external recipe reveal_as<T>!(address: sysuint) -> T
+external recipe addr_of!(object: auto) -> sysuint
+external recipe invalidate<T>!(object: T)
+external recipe crash!(message: text)

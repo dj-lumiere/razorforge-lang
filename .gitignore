@@ -1,5 +1,36 @@
+# Build outputs
 bin/
 obj/
+build/
 /packages/
-riderModule.iml
 /_ReSharper.Caches/
+
+# IDE files (personal settings)
+.idea/
+.vscode/
+riderModule.iml
+*.sln.DotSettings.user
+
+# Claude Code configuration (personal)
+.claude/
+
+# Compiled/generated files
+*.exe
+*.dll
+*.pdb
+*.ll
+*.out
+*.o
+*.so
+*.dylib
+
+# Temporary/test files
+NewFile*.txt
+temp/
+tmp/
+
+# Personal playground/experimental code
+playground/
+
+# Wiki (managed in separate GitHub repo)
+wiki/

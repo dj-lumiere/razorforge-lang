@@ -1,7 +1,7 @@
 # RazorForge Hijacked<T> - Fundamental memory wrapper
 # Raw memory management with manual control over lifetime
 
-public struct Hijacked<T> {
+public record Hijacked<T> {
     private address: sysuint
 }
 
@@ -9,7 +9,7 @@ public struct Hijacked<T> {
 preset HIJACKED_NULL: sysuint = 0_sysuint
 
 # Create new hijacked memory allocation
-recipe Hijacked.new<T>(data: T) -> Hijacked<T> {
+recipe Hijacked<T>(data: T) -> Hijacked<T> {
     danger! {
         # Allocate memory on heap and store the data
         let addr = allocate_heap_memory<T>(data)
@@ -20,88 +20,88 @@ recipe Hijacked.new<T>(data: T) -> Hijacked<T> {
 }
 
 # Create hijacked wrapper from existing address (unsafe)
-recipe Hijacked.from_address<T>(addr: sysuint) -> Hijacked<T> {
+recipe Hijacked<T>(addr: sysuint) -> Hijacked<T> {
     return Hijacked<T> {
         address: addr
     }
 }
 
 # Get the raw address
-recipe Hijacked.get_address<T>(my: Hijacked<T>) -> sysuint {
-    return my.address
+recipe Hijacked.get_address<T>(me: Hijacked<T>) -> sysuint {
+    return me.address
 }
 
 # Check if hijacked reference is null
-recipe Hijacked.is_null<T>(my: Hijacked<T>) -> bool {
-    return my.address == HIJACKED_NULL
+recipe Hijacked.is_null<T>(me: Hijacked<T>) -> bool {
+    return me.address == HIJACKED_NULL
 }
 
 # Check if hijacked reference is valid (non-null)
-recipe Hijacked.is_valid<T>(my: Hijacked<T>) -> bool {
-    return my.address != HIJACKED_NULL
+recipe Hijacked.is_valid<T>(me: Hijacked<T>) -> bool {
+    return me.address != HIJACKED_NULL
 }
 
 # Get immutable access to the data
-recipe Hijacked.get<T>(my: Hijacked<T>) -> T {
-    when (my.is_null()) {
+recipe Hijacked.get<T>(me: Hijacked<T>) -> T {
+    when (me.is_null()) {
         true => throw panic("Attempted to access null hijacked memory"),
         false => {
             danger {
-                return read_from_address<T>(my.address)
+                return read_from_address<T>(me.address)
             }
         }
     }
 }
 
 # Get mutable access to the data
-recipe Hijacked.get_mut<T>(my: Hijacked<T>) -> T {
-    when (my.is_null()) {
+recipe Hijacked.get_mut<T>(me: Hijacked<T>) -> T {
+    when (me.is_null()) {
         true => throw panic("Attempted to access null hijacked memory"),
         false => {
             danger {
-                return read_from_address<T>(my.address)
+                return read_from_address<T>(me.address)
             }
         }
     }
 }
 
 # Update the data at the address
-recipe Hijacked.set<T>(my: Hijacked<T>, new_data: T) {
-    when (my.is_null()) {
+recipe Hijacked.set<T>(me: Hijacked<T>, new_data: T) {
+    when (me.is_null()) {
         true => throw panic("Attempted to write to null hijacked memory"),
         false => {
             danger {
-                write_to_address<T>(my.address, new_data)
+                write_to_address<T>(me.address, new_data)
             }
         }
     }
 }
 
 # Clone the hijacked reference (shares same memory address)
-recipe Hijacked.clone<T>(my: Hijacked<T>) -> Hijacked<T> {
+recipe Hijacked.clone<T>(me: Hijacked<T>) -> Hijacked<T> {
     return Hijacked<T> {
-        address: my.address
+        address: me.address
     }
 }
 
 # Create a deep copy (allocates new memory with copied data)
-recipe Hijacked.deep_copy<T>(my: Hijacked<T>) -> Hijacked<T> where T: Clone {
-    when (my.is_null()) {
+recipe Hijacked.deep_copy<T>(me: Hijacked<T>) -> Hijacked<T> where T: Clone {
+    when (me.is_null()) {
         true => return Hijacked<T> { address: HIJACKED_NULL },
         false => {
-            let data = my.get()
+            let data = me.get()
             let copied_data = data.clone()
-            return Hijacked.new(copied_data)
+            return Hijacked<T>(copied_data)
         }
     }
 }
 
 # Release/deallocate the memory (dangerous - only call once!)
-recipe Hijacked.release<T>(my: Hijacked<T>) {
-    when (my.is_null()) {
+recipe Hijacked.release<T>(me: Hijacked<T>) {
+    when (me.is_null()) {
         false => {
             danger {
-                deallocate_heap_memory<T>(my.address)
+                deallocate_heap_memory<T>(me.address)
             }
         },
         true => pass  # Already null, nothing to release
@@ -109,7 +109,7 @@ recipe Hijacked.release<T>(my: Hijacked<T>) {
 }
 
 # Reset to null (does not deallocate - use release() first if needed)
-recipe Hijacked.nullify<T>(my: Hijacked<T>) -> Hijacked<T> {
+recipe Hijacked.nullify<T>(me: Hijacked<T>) -> Hijacked<T> {
     return Hijacked<T> {
         address: HIJACKED_NULL
     }
@@ -148,8 +148,8 @@ recipe Hijacked.eq<T>(a: Hijacked<T>, b: Hijacked<T>) -> bool where T: Eq {
     }
 }
 
-# Convert to string representation
-recipe Text<T>(from_hijacked: Hijacked<T>) -> Text where T: ToString {
+# Convert to text representation
+recipe Text<T>(from_hijacked: Hijacked<T>) -> Text where T: ToText {
     when (from_hijacked.is_null()) {
         true => return "Hijacked(null)",
         false => {
@@ -161,23 +161,23 @@ recipe Text<T>(from_hijacked: Hijacked<T>) -> Text where T: ToString {
 }
 
 # Transform the data in place
-recipe Hijacked.transform<T>(my: Hijacked<T>, transform: recipe(T) -> T) {
-    when (my.is_null()) {
+recipe Hijacked.transform<T>(me: Hijacked<T>, transform: recipe(T) -> T) {
+    when (me.is_null()) {
         true => throw panic("Cannot transform null hijacked memory"),
         false => {
-            let current_data = my.get()
+            let current_data = me.get()
             let new_data = transform(current_data)
-            my.set(new_data)
+            me.set(new_data)
         }
     }
 }
 
 # Apply a function to the data and return result
-recipe Hijacked.map<T, U>(my: Hijacked<T>, transform: recipe(T) -> U) -> U {
-    when (my.is_null()) {
+recipe Hijacked.map<T, U>(me: Hijacked<T>, transform: recipe(T) -> U) -> U {
+    when (me.is_null()) {
         true => throw panic("Cannot map over null hijacked memory"),
         false => {
-            let data = my.get()
+            let data = me.get()
             return transform(data)
         }
     }
@@ -185,7 +185,7 @@ recipe Hijacked.map<T, U>(my: Hijacked<T>, transform: recipe(T) -> U) -> U {
 
 # Utility function for ergonomic creation
 recipe hijacked<T>(data: T) -> Hijacked<T> {
-    return Hijacked.new(data)
+    return Hijacked<T>(data)
 }
 
 # Create null hijacked reference

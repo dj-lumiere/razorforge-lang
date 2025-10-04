@@ -1,0 +1,15 @@
+struct MemorySize {
+    private value: sysuint
+
+    public __init__(bytes: sysuint) {
+        me.value = bytes
+    }
+
+    public text(memory_size: MemorySize) {
+        return f"{me.value.u64()} bytes"
+    }
+
+    public add(your: MemorySize) {
+        return me with { me.value = me.value + your.value }
+    }
+}

@@ -2,7 +2,7 @@
 # Maps directly to LLVM i8 type and native machine bytes
 
 # Core s8 type definition - maps to LLVM i8
-struct s8 {
+record s8 {
     public value: LlvmNativeI8
 }
 
@@ -15,114 +15,114 @@ preset S8_ONE: s8 = 1_s8
 # Basic arithmetic operations (LLVM intrinsics: add, sub, mul, sdiv, srem)
 
 # Addition with overflow checking
-recipe s8.add(my: s8, other: s8) -> s8 {
-    return llvm_intrinsic("llvm.sadd.with.overflow.i8", my, other)
+recipe s8.add(me: s8, other: s8) -> s8 {
+    return llvm_intrinsic("llvm.sadd.with.overflow.i8", me, other)
 }
 
 # Subtraction with overflow checking
-recipe s8.sub(my: s8, other: s8) -> s8 {
-    return llvm_intrinsic("llvm.ssub.with.overflow.i8", my, other)
+recipe s8.sub(me: s8, other: s8) -> s8 {
+    return llvm_intrinsic("llvm.ssub.with.overflow.i8", me, other)
 }
 
 # Multiplication with overflow checking
-recipe s8.mul(my: s8, other: s8) -> s8 {
-    return llvm_intrinsic("llvm.smul.with.overflow.i8", my, other)
+recipe s8.mul(me: s8, other: s8) -> s8 {
+    return llvm_intrinsic("llvm.smul.with.overflow.i8", me, other)
 }
 
 # Division (signed) - maps to LLVM sdiv
-recipe s8.floordiv(my: s8, other: s8) -> s8 {
+recipe s8.floordiv(me: s8, other: s8) -> s8 {
     when (other) {
         0 => throw panic("Division by zero"),
-        _ => return llvm_intrinsic("sdiv", my, other)
+        _ => return llvm_intrinsic("sdiv", me, other)
     }
 }
 
 # Remainder (signed) - maps to LLVM srem
-recipe s8.rem(my: s8, other: s8) -> s8 {
+recipe s8.rem(me: s8, other: s8) -> s8 {
     when (other) {
         0 => throw panic("Division by zero"),
-        _ => return llvm_intrinsic("srem", my, other)
+        _ => return llvm_intrinsic("srem", me, other)
     }
 }
 
 # Bitwise operations (direct LLVM mapping)
-recipe s8.and(my: s8, other: s8) -> s8 {
-    return llvm_intrinsic("and", my, other)
+recipe s8.and(me: s8, other: s8) -> s8 {
+    return llvm_intrinsic("and", me, other)
 }
 
-recipe s8.or(my: s8, other: s8) -> s8 {
-    return llvm_intrinsic("or", my, other)
+recipe s8.or(me: s8, other: s8) -> s8 {
+    return llvm_intrinsic("or", me, other)
 }
 
-recipe s8.xor(my: s8, other: s8) -> s8 {
-    return llvm_intrinsic("xor", my, other)
+recipe s8.xor(me: s8, other: s8) -> s8 {
+    return llvm_intrinsic("xor", me, other)
 }
 
-recipe s8.not(my: s8) -> s8 {
-    return llvm_intrinsic("xor", my, -1)
+recipe s8.not(me: s8) -> s8 {
+    return llvm_intrinsic("xor", me, -1)
 }
 
 # Bit shifting operations
-recipe s8.shl(my: s8, bits: s8) -> s8 {
-    return llvm_intrinsic("shl", my, bits)
+recipe s8.shl(me: s8, bits: s8) -> s8 {
+    return llvm_intrinsic("shl", me, bits)
 }
 
-recipe s8.shr(my: s8, bits: s8) -> s8 {
-    return llvm_intrinsic("ashr", my, bits)  # Arithmetic right shift for signed
+recipe s8.shr(me: s8, bits: s8) -> s8 {
+    return llvm_intrinsic("ashr", me, bits)  # Arithmetic right shift for signed
 }
 
 # Comparison operations (LLVM icmp)
-recipe s8.eq(my: s8, other: s8) -> bool {
-    return llvm_intrinsic("icmp eq", my, other)
+recipe s8.eq(me: s8, other: s8) -> bool {
+    return llvm_intrinsic("icmp eq", me, other)
 }
 
-recipe s8.ne(my: s8, other: s8) -> bool {
-    return llvm_intrinsic("icmp ne", my, other)
+recipe s8.ne(me: s8, other: s8) -> bool {
+    return llvm_intrinsic("icmp ne", me, other)
 }
 
-recipe s8.lt(my: s8, other: s8) -> bool {
-    return llvm_intrinsic("icmp slt", my, other)  # Signed less than
+recipe s8.lt(me: s8, other: s8) -> bool {
+    return llvm_intrinsic("icmp slt", me, other)  # Signed less than
 }
 
-recipe s8.le(my: s8, other: s8) -> bool {
-    return llvm_intrinsic("icmp sle", my, other)  # Signed less equal
+recipe s8.le(me: s8, other: s8) -> bool {
+    return llvm_intrinsic("icmp sle", me, other)  # Signed less equal
 }
 
-recipe s8.gt(my: s8, other: s8) -> bool {
-    return llvm_intrinsic("icmp sgt", my, other)  # Signed greater than
+recipe s8.gt(me: s8, other: s8) -> bool {
+    return llvm_intrinsic("icmp sgt", me, other)  # Signed greater than
 }
 
-recipe s8.ge(my: s8, other: s8) -> bool {
-    return llvm_intrinsic("icmp sge", my, other)  # Signed greater equal
+recipe s8.ge(me: s8, other: s8) -> bool {
+    return llvm_intrinsic("icmp sge", me, other)  # Signed greater equal
 }
 
 # Advanced math operations using LLVM intrinsics
-recipe s8.abs(my: s8) -> s8 {
-    when (my) {
-        >= 0 => return my,
-        _ => return -my
+recipe s8.abs(me: s8) -> s8 {
+    when (me) {
+        >= 0 => return me,
+        _ => return -me
     }
 }
 
-recipe s8.min(my: s8, other: s8) -> s8 {
-    return if my <= other then my else other
+recipe s8.min(me: s8, other: s8) -> s8 {
+    return if me <= other then me else other
 }
 
-recipe s8.max(my: s8, other: s8) -> s8 {
-    return if my >= other then my else other
+recipe s8.max(me: s8, other: s8) -> s8 {
+    return if me >= other then me else other
 }
 
 # Bit manipulation utilities
-recipe s8.count_leading_zeros(my: s8) -> s8 {
-    return llvm_intrinsic("llvm.ctlz.i8", my, false)
+recipe s8.count_leading_zeros(me: s8) -> s8 {
+    return llvm_intrinsic("llvm.ctlz.i8", me, false)
 }
 
-recipe s8.count_trailing_zeros(my: s8) -> s8 {
-    return llvm_intrinsic("llvm.cttz.i8", my, false)
+recipe s8.count_trailing_zeros(me: s8) -> s8 {
+    return llvm_intrinsic("llvm.cttz.i8", me, false)
 }
 
-recipe s8.count_ones(my: s8) -> s8 {
-    return llvm_intrinsic("llvm.ctpop.i8", my)
+recipe s8.count_ones(me: s8) -> s8 {
+    return llvm_intrinsic("llvm.ctpop.i8", me)
 }
 
 # No byte swapping for 8-bit values (single byte)

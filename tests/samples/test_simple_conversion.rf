@@ -1,0 +1,3 @@
+func test() -> i8 {
+    return 10i8
+}

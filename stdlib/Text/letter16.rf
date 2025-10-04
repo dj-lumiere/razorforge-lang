@@ -1,7 +1,7 @@
 # RazorForge letter16 (16-bit Unicode character) implementation
 # Basic Multilingual Plane Unicode support for text processing
 
-struct letter16 {
+record letter16 {
     private value: u16
 }
 
@@ -20,35 +20,35 @@ preset LETTER16_LOW_SURROGATE_START: letter16 = letter16(codepoint: 0xDC00)
 preset LETTER16_LOW_SURROGATE_END: letter16 = letter16(codepoint: 0xDFFF)
 
 # Core character properties
-recipe letter16.codepoint(my: letter16) -> u16 {
-    return my.value
+recipe letter16.codepoint(me: letter16) -> u16 {
+    return me.value
 }
 
 recipe letter16(codepoint: u16) -> letter16 {
     return letter16 { value: codepoint }
 }
 
-recipe letter16.is_ascii(my: letter16) -> bool {
-    return my.codepoint() <= 127
+recipe letter16.is_ascii(me: letter16) -> bool {
+    return me.codepoint() <= 127
 }
 
-recipe letter16.is_bmp(my: letter16) -> bool {
+recipe letter16.is_bmp(me: letter16) -> bool {
     return true  # All letter16 are in BMP by definition
 }
 
 # UTF-16 surrogate handling
-recipe letter16.is_surrogate(my: letter16) -> bool {
-    let cp = my.codepoint()
+recipe letter16.is_surrogate(me: letter16) -> bool {
+    let cp = me.codepoint()
     return cp >= 0xD800 and cp <= 0xDFFF
 }
 
-recipe letter16.is_high_surrogate(my: letter16) -> bool {
-    let cp = my.codepoint()
+recipe letter16.is_high_surrogate(me: letter16) -> bool {
+    let cp = me.codepoint()
     return cp >= 0xD800 and cp <= 0xDBFF
 }
 
-recipe letter16.is_low_surrogate(my: letter16) -> bool {
-    let cp = my.codepoint()
+recipe letter16.is_low_surrogate(me: letter16) -> bool {
+    let cp = me.codepoint()
     return cp >= 0xDC00 and cp <= 0xDFFF
 }
 
@@ -65,8 +65,8 @@ recipe letter16.combine_surrogates(high: letter16, low: letter16) -> letter {
 }
 
 # Character classification (Basic Multilingual Plane)
-recipe letter16.is_alphabetic(my: letter16) -> bool {
-    let cp = my.codepoint()
+recipe letter16.is_alphabetic(me: letter16) -> bool {
+    let cp = me.codepoint()
     return (cp >= 0x41 and cp <= 0x5A) or      # A-Z
            (cp >= 0x61 and cp <= 0x7A) or      # a-z
            (cp >= 0xC0 and cp <= 0xFF) or      # Latin Extended
@@ -74,27 +74,27 @@ recipe letter16.is_alphabetic(my: letter16) -> bool {
            (cp >= 0x180 and cp <= 0x24F)       # Latin Extended-B (partial)
 }
 
-recipe letter16.is_numeric(my: letter16) -> bool {
-    let cp = my.codepoint()
+recipe letter16.is_numeric(me: letter16) -> bool {
+    let cp = me.codepoint()
     return cp >= 0x30 and cp <= 0x39  # 0-9 (ASCII digits)
 }
 
-recipe letter16.is_alphanumeric(my: letter16) -> bool {
-    return my.is_alphabetic() or my.is_numeric()
+recipe letter16.is_alphanumeric(me: letter16) -> bool {
+    return me.is_alphabetic() or me.is_numeric()
 }
 
-recipe letter16.is_uppercase(my: letter16) -> bool {
-    let cp = my.codepoint()
+recipe letter16.is_uppercase(me: letter16) -> bool {
+    let cp = me.codepoint()
     return cp >= 0x41 and cp <= 0x5A  # A-Z (ASCII only, simplified)
 }
 
-recipe letter16.is_lowercase(my: letter16) -> bool {
-    let cp = my.codepoint()
+recipe letter16.is_lowercase(me: letter16) -> bool {
+    let cp = me.codepoint()
     return cp >= 0x61 and cp <= 0x7A  # a-z (ASCII only, simplified)
 }
 
-recipe letter16.is_whitespace(my: letter16) -> bool {
-    let cp = my.codepoint()
+recipe letter16.is_whitespace(me: letter16) -> bool {
+    let cp = me.codepoint()
     return cp == 0x20 or      # Space
            cp == 0x09 or      # Tab
            cp == 0x0A or      # Line feed
@@ -107,49 +107,49 @@ recipe letter16.is_whitespace(my: letter16) -> bool {
            cp == 0x2003       # Em space (partial Unicode whitespace)
 }
 
-recipe letter16.is_control(my: letter16) -> bool {
-    let cp = my.codepoint()
+recipe letter16.is_control(me: letter16) -> bool {
+    let cp = me.codepoint()
     return (cp <= 0x1F) or (cp >= 0x7F and cp <= 0x9F)
 }
 
 # Case conversions (ASCII only, simplified)
-recipe letter16.to_uppercase(my: letter16) -> letter16 {
-    when (my.is_lowercase()) {
-        true => return letter16(codepoint: my.codepoint() - 32),
-        false => return my
+recipe letter16.to_uppercase(me: letter16) -> letter16 {
+    when (me.is_lowercase()) {
+        true => return letter16(codepoint: me.codepoint() - 32),
+        false => return me
     }
 }
 
-recipe letter16.to_lowercase(my: letter16) -> letter16 {
-    when (my.is_uppercase()) {
-        true => return letter16(codepoint: my.codepoint() + 32),
-        false => return my
+recipe letter16.to_lowercase(me: letter16) -> letter16 {
+    when (me.is_uppercase()) {
+        true => return letter16(codepoint: me.codepoint() + 32),
+        false => return me
     }
 }
 
 # Comparison operations
-recipe letter16.eq(my: letter16, other: letter16) -> bool {
-    return my.codepoint() == other.codepoint()
+recipe letter16.eq(me: letter16, other: letter16) -> bool {
+    return me.codepoint() == other.codepoint()
 }
 
-recipe letter16.ne(my: letter16, other: letter16) -> bool {
-    return my.codepoint() != other.codepoint()
+recipe letter16.ne(me: letter16, other: letter16) -> bool {
+    return me.codepoint() != other.codepoint()
 }
 
-recipe letter16.lt(my: letter16, other: letter16) -> bool {
-    return my.codepoint() < other.codepoint()
+recipe letter16.lt(me: letter16, other: letter16) -> bool {
+    return me.codepoint() < other.codepoint()
 }
 
-recipe letter16.le(my: letter16, other: letter16) -> bool {
-    return my.codepoint() <= other.codepoint()
+recipe letter16.le(me: letter16, other: letter16) -> bool {
+    return me.codepoint() <= other.codepoint()
 }
 
-recipe letter16.gt(my: letter16, other: letter16) -> bool {
-    return my.codepoint() > other.codepoint()
+recipe letter16.gt(me: letter16, other: letter16) -> bool {
+    return me.codepoint() > other.codepoint()
 }
 
-recipe letter16.ge(my: letter16, other: letter16) -> bool {
-    return my.codepoint() >= other.codepoint()
+recipe letter16.ge(me: letter16, other: letter16) -> bool {
+    return me.codepoint() >= other.codepoint()
 }
 
 # Type conversions
@@ -183,34 +183,34 @@ recipe letter16(from_text16: Text16) -> letter16 {
 }
 
 # Utility recipes
-recipe letter16.is_digit(my: letter16) -> bool {
-    return my.is_numeric()
+recipe letter16.is_digit(me: letter16) -> bool {
+    return me.is_numeric()
 }
 
-recipe letter16.is_letter(my: letter16) -> bool {
-    return my.is_alphabetic()
+recipe letter16.is_letter(me: letter16) -> bool {
+    return me.is_alphabetic()
 }
 
-recipe letter16.digit_value(my: letter16) -> s16 {
-    when (my.is_numeric()) {
-        true => return (my.codepoint() - 0x30) as s16,
+recipe letter16.digit_value(me: letter16) -> s16 {
+    when (me.is_numeric()) {
+        true => return (me.codepoint() - 0x30) as s16,
         false => return -1
     }
 }
 
-recipe letter16.is_printable(my: letter16) -> bool {
-    return not my.is_control() and not my.is_surrogate()
+recipe letter16.is_printable(me: letter16) -> bool {
+    return not me.is_control() and not me.is_surrogate()
 }
 
-recipe letter16.is_cjk(my: letter16) -> bool {
+recipe letter16.is_cjk(me: letter16) -> bool {
     # Basic CJK Unified Ideographs detection (simplified)
-    let cp = my.codepoint()
+    let cp = me.codepoint()
     return (cp >= 0x4E00 and cp <= 0x9FFF) or    # CJK Unified Ideographs
            (cp >= 0x3400 and cp <= 0x4DBF)       # CJK Extension A
 }
 
-recipe letter16.is_latin(my: letter16) -> bool {
-    let cp = my.codepoint()
+recipe letter16.is_latin(me: letter16) -> bool {
+    let cp = me.codepoint()
     return (cp >= 0x0000 and cp <= 0x007F) or    # Basic Latin
            (cp >= 0x0080 and cp <= 0x00FF) or    # Latin-1 Supplement
            (cp >= 0x0100 and cp <= 0x017F) or    # Latin Extended-A

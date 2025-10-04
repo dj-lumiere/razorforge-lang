@@ -39,6 +39,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Folder Include="playground\" />
     <Folder Include="stdlib\Runtime\CompilerService\" />
     <Folder Include="stdlib\Runtime\ObjectHacker\" />
     <Folder Include="stdlib\Runtime\Reflection\" />

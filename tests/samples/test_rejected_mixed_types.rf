@@ -1,0 +1,21 @@
+# Test that mixed-type arithmetic is properly rejected
+
+func test_i8_i32() -> i32 {
+    return 10i8 + 20i32  # Should be rejected
+}
+
+func test_u32_i32() -> i32 {
+    return 100u32 + 50i32  # Should be rejected
+}
+
+func test_f32_i32() -> f32 {
+    return 3.14f32 + 2i32  # Should be rejected  
+}
+
+func test_same_types() -> i32 {
+    return 10i32 + 20i32  # Should be OK
+}
+
+func main() -> i32 {
+    return 0
+}

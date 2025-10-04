@@ -1,0 +1,19 @@
+# Complete RazorForge test program demonstrating all features
+
+func add(a: i32, b: i32) -> i32 {
+    return a + b
+}
+
+func test_arithmetic() -> i32 {
+    # Same-type arithmetic is allowed
+    return 10i32 + 20i32 * 3i32
+}
+
+func test_return_conversion() -> i8 {
+    # Return type casting works
+    return 100i32
+}
+
+func main() -> i32 {
+    return add(5i32, test_arithmetic())
+}
