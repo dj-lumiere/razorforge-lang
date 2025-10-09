@@ -1,7 +1,7 @@
 # RazorForge Watched<T> - Weak reference implementation
 # Allows checking if data is still alive without preventing deallocation
 
-struct Watched<T> {
+record Watched<T> {
     private controller_address: sysuint
     private data_address: sysuint
 }
@@ -12,10 +12,10 @@ recipe Shared<T>.watch(me: Shared<T>) -> Watched<T> {
         var controller = read_as<RefCountController>(controller_address)
         controller.increase_weak_count!()
 
-        return Watched<T> {
+        return Watched<T>(
             controller_address: me.controller_address,
             data_address: me.data_address
-        }
+        )
     }
 }
 
@@ -39,15 +39,15 @@ recipe Watched<T>.upgrade(me: Watched<T>) -> Maybe<Shared<T>> {
     danger! {
         var controller = read_as<RefCountController>(controller_address)
 
-        when (controller.strong_count() > 0) {
-            true => {
+        when controller.strong_count() {
+            > 0 => {
                 controller.increase_strong_count!()
-                return Some(Shared<T> {
+                return Shared<T>(
                     controller_address: me.controller_address,
                     data_address: me.data_address
-                })
+                )
             },
-            false => return None
+            _ => return None
         }
     }
 }
@@ -58,10 +58,10 @@ recipe Watched<T>.watch(me: Watched<T>) -> Watched<T> {
         var controller = read_as<RefCountController>(controller_address)
         controller.increase_weak_count!()
 
-        return Watched<T> {
+        return Watched<T>(
             controller_address: me.controller_address,
             data_address: me.data_address
-        }
+        )
     }
 }
 
@@ -72,7 +72,7 @@ recipe Watched<T>.release!(me: Watched<T>) {
         controller.decrease_weak_count!()
 
         # If both strong and weak counts are 0, deallocate controller
-        when (controller.strong_count() == 0 && controller.weak_count() == 0) {
+        when (controller.strong_count() == 0 and controller.weak_count() == 0) {
             true => invalidate!(controller_address),
             false => pass
         }

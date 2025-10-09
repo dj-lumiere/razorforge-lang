@@ -1,11 +1,11 @@
-func test_add() -> i32 {
+recipe test_add() -> i32 {
     return 10 + 5
 }
 
-func test_mult() -> i32 {
+recipe test_mult() -> i32 {
     return 6 * 7
 }
 
-func main() -> i32 {
+recipe main() -> i32 {
     return 0
 }

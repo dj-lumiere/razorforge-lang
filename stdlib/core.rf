@@ -1,15 +1,15 @@
 # RazorForge Core Standard Library
 # Provides fundamental types and operations
 
-# Memory management functions
-external recipe malloc(size: usys) -> &u8
-external recipe free(ptr: &u8)
-external recipe memcpy(dest: &u8, src: &u8, size: usys) -> &u8
-external recipe memset(ptr: &u8, value: i32, size: usys) -> &u8
+# Memory management functions - C FFI
+external("C") recipe malloc(size: sysuint) -> sysuint
+external("C") recipe free(ptr: sysuint)
+external("C") recipe memcpy(dest: sysuint, src: sysuint, size: sysuint) -> sysuint
+external("C") recipe memset(ptr: sysuint, value: cint, size: sysuint) -> sysuint
 
 # Basic I/O (temporarily using C functions)
-external recipe printf(format: &u8, ...) -> i32
-external recipe scanf(format: &u8, ...) -> i32
+external("C") recipe printf(format: sysuint, ...) -> cint
+external("C") recipe scanf(format: sysuint, ...) -> cint
 
 # Core print function for integers
 recipe print_i32(value: i32) {
@@ -27,7 +27,7 @@ import ErrorHandling.Result
 import ErrorHandling.Maybe
 
 # Basic crash function for unrecoverable errors
-func crash!(message: Text) {
+recipe crash!(message: Text) {
     printf("Program Crashed: %s\n", message)
     # TODO: proper exit mechanism - call system exit
     loop {}

@@ -1,4 +1,4 @@
-# RazorForge Standard Library - Memory Management
+﻿# RazorForge Standard Library - Memory Management
 # StackSlice: Non-generic stack-allocated contiguous memory slice
 
 import system/memory/native
@@ -16,7 +16,7 @@ record StackSlice {
     @param bytes - Number of bytes to allocate on stack
     @return New StackSlice instance
     ###
-    public recipe __init__(bytes: sysuint) -> StackSlice {
+    public recipe __create__(bytes: sysuint) -> StackSlice {
         if bytes == 0 {
             me.starting_address = 0
             me.allocated_bytes = 0
@@ -118,7 +118,7 @@ record StackSlice {
         }
 
         let addr = me.starting_address + offset
-        memory_write<T>!(addr, value)
+        return memory_write<T>!(addr, value)
     }
 
     ###
@@ -186,21 +186,21 @@ record StackSlice {
 }
 
 # Native runtime functions for stack operations
-external recipe stack_alloc!(bytes: sysuint) -> sysuint
-external recipe memory_copy!(src: sysuint, dest: sysuint, bytes: sysuint)
-external recipe memory_fill!(address: sysuint, pattern: u8, bytes: sysuint)
-external recipe memory_zero!(address: sysuint, bytes: sysuint)
-external recipe memory_read<T>!(address: sysuint) -> T
-external recipe memory_write<T>!(address: sysuint, value: T)
-external recipe sizeof<T>() -> sysuint
+external("C") recipe stack_alloc!(bytes: sysuint) -> sysuint
+external("C") recipe memory_copy!(src: sysuint, dest: sysuint, bytes: sysuint)
+external("C") recipe memory_fill!(address: sysuint, pattern: u8, bytes: sysuint)
+external("C") recipe memory_zero!(address: sysuint, bytes: sysuint)
+external("C") recipe memory_read<T>!(address: sysuint) -> T
+external("C") recipe memory_write<T>!(address: sysuint, value: T)
+external("C") recipe sizeof<T>() -> sysuint
 
 # Danger zone operations - raw memory access without safety checks
-external recipe read_as<T>!(address: sysuint) -> T
-external recipe write_as<T>!(address: sysuint, value: T)
-external recipe volatile_read<T>!(address: sysuint) -> T
-external recipe volatile_write<T>!(address: sysuint, value: T)
-external recipe obtain_as<T>!(object: auto) -> sysuint
-external recipe reveal_as<T>!(address: sysuint) -> T
-external recipe addr_of!(object: auto) -> sysuint
-external recipe invalidate<T>!(object: T)
-external recipe crash!(message: text)
+external("C") recipe read_as<T>!(address: sysuint) -> T
+external("C") recipe write_as<T>!(address: sysuint, value: T)
+external("C") recipe volatile_read<T>!(address: sysuint) -> T
+external("C") recipe volatile_write<T>!(address: sysuint, value: T)
+external("C") recipe obtain_as<T>!(object: auto) -> sysuint
+external("C") recipe reveal_as<T>!(address: sysuint) -> T
+external("C") recipe addr_of!(object: auto) -> sysuint
+external("C") recipe invalidate<T>!(object: T)
+external("C") recipe crash!(message: text)

@@ -1,45 +1,45 @@
 // Comprehensive operator and type testing for RazorForge
 
 // Integer arithmetic with various types
-func test_i8_ops() -> i8 {
+recipe test_i8_ops() -> i8 {
     return 10i8 + 20i8 - 5i8 * 2i8
 }
 
-func test_i16_ops() -> i16 {
+recipe test_i16_ops() -> i16 {
     return 1000i16 / 10i16 + 50i16
 }
 
-func test_i32_ops() -> i32 {
+recipe test_i32_ops() -> i32 {
     return 100000i32 * 2i32 - 50000i32
 }
 
-func test_i64_ops() -> i64 {
+recipe test_i64_ops() -> i64 {
     return 123456789i64 % 1000i64
 }
 
-// Unsigned integer arithmetic  
-func test_u8_ops() -> u8 {
+// Unsigned integer arithmetic
+recipe test_u8_ops() -> u8 {
     return 200u8 + 50u8
 }
 
-func test_u16_ops() -> u16 {
+recipe test_u16_ops() -> u16 {
     return 60000u16 - 10000u16
 }
 
-func test_u32_ops() -> u32 {
+recipe test_u32_ops() -> u32 {
     return 4000000000u32 / 2u32
 }
 
-func test_u64_ops() -> u64 {
+recipe test_u64_ops() -> u64 {
     return 9876543210u64 * 2u64
 }
 
 // Floating-point arithmetic
-func test_f32_ops() -> f32 {
+recipe test_f32_ops() -> f32 {
     return 3.14f32 * 2.0f32 + 1.5f32
 }
 
-func test_f64_ops() -> f64 {
+recipe test_f64_ops() -> f64 {
     return 2.71828f64 / 1.4142f64 - 0.5f64
 }
 

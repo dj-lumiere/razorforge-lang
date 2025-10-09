@@ -167,7 +167,7 @@ record StructName {
     Constructor
     @param param - parameter description
     ###
-    public recipe __init__(param: type) -> StructName {
+    public recipe __create__(param: type) -> StructName {
         me.field1 = param
         return me
     }

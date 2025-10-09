@@ -1,38 +1,38 @@
 # Test comparison operator chaining
-func test_chains() -> bool {
+recipe test_chains() -> bool {
     let a = 1i32
-    let b = 5i32 
+    let b = 5i32
     let c = 10i32
     let d = 15i32
-    
+
     # Valid ascending chains
     let ascending1 = a < b < c < d         # Should be: (a < b) and (b < c) and (c < d)
     let ascending2 = a <= b <= c <= d      # Non-strict ascending
     let ascending3 = a < b == b < c        # Mixed with equality (b == b is always true)
     let ascending4 = 0 <= b == 5 < c       # Practical range check
-    
-    # Valid descending chains  
+
+    # Valid descending chains
     let descending1 = d > c > b > a        # Should be: (d > c) and (c > b) and (b > a)
     let descending2 = d >= c >= b >= a     # Non-strict descending
     let descending3 = d > c == c > b       # Mixed with equality
-    
+
     # Valid equality-only chains
     let equality = a == a == a             # All equal
-    
+
     # These should cause parse errors (mixed directions):
     # let invalid1 = a < b > c             # ERROR: mixed < and >
     # let invalid2 = a >= b <= c           # ERROR: mixed >= and <=
     # let invalid3 = a < b == c > d        # ERROR: < then >
-    
+
     return ascending1 and descending1
 }
 
 # Range checking example
-func in_bounds(x: i32, y: i32, width: i32, height: i32) -> bool {
+recipe in_bounds(x: i32, y: i32, width: i32, height: i32) -> bool {
     return 0 <= x < width and 0 <= y < height
 }
 
 # Finding plateau in array
-func find_plateau(prev: i32, curr: i32, next: i32) -> bool {
+recipe find_plateau(prev: i32, curr: i32, next: i32) -> bool {
     return prev < curr == next  # Rising then flat
 }

@@ -1,4 +1,4 @@
-struct Shared<T> {
+record Shared<T> {
     private controller_address: sysuint
     private data_address: sysuint
 }
@@ -9,7 +9,7 @@ recipe T.share!() -> Shared<T> {
         let controller = RefCountController()
         controller.increase_strong_count!()
 
-        # Create Shared struct
+        # Create Shared record
         return Shared<T>(
             controller_address: address_of(controller),
             data_address: address_of(me)

@@ -2,7 +2,7 @@
 # Maps directly to LLVM float type and IEEE 754 binary32 format
 
 # Core f32 type definition - maps to LLVM float
-struct f32 {
+record f32 {
     public value: LlvmNativeFloat
 }
 
@@ -26,82 +26,82 @@ preset F32_LN_10: f32 = 2.3025851
 
 # Addition - maps to LLVM fadd
 recipe f32.add(my: f32, other: f32) -> f32 {
-    llvm_intrinsic("fadd", my, other)
+    return llvm_intrinsic("fadd", my, other)
 }
 
 # Subtraction - maps to LLVM fsub
 recipe f32.sub(my: f32, other: f32) -> f32 {
-    llvm_intrinsic("fsub", my, other)
+    return llvm_intrinsic("fsub", my, other)
 }
 
 # Multiplication - maps to LLVM fmul
 recipe f32.mul(my: f32, other: f32) -> f32 {
-    llvm_intrinsic("fmul", my, other)
+    return llvm_intrinsic("fmul", my, other)
 }
 
 # Division - maps to LLVM fdiv
 recipe f32.div(my: f32, other: f32) -> f32 {
-    llvm_intrinsic("fdiv", my, other)
+    return llvm_intrinsic("fdiv", my, other)
 }
 
 # Remainder - maps to LLVM frem
 recipe f32.rem(my: f32, other: f32) -> f32 {
-    llvm_intrinsic("frem", my, other)
+    return llvm_intrinsic("frem", my, other)
 }
 
 # Comparison operations (LLVM fcmp)
 recipe f32.eq(my: f32, other: f32) -> bool {
-    llvm_intrinsic("fcmp oeq", my, other)  # Ordered equal
+    return llvm_intrinsic("fcmp oeq", my, other)  # Ordered equal
 }
 
 recipe f32.ne(my: f32, other: f32) -> bool {
-    llvm_intrinsic("fcmp one", my, other)  # Ordered not equal
+    return llvm_intrinsic("fcmp one", my, other)  # Ordered not equal
 }
 
 recipe f32.lt(my: f32, other: f32) -> bool {
-    llvm_intrinsic("fcmp olt", my, other)  # Ordered less than
+    return llvm_intrinsic("fcmp olt", my, other)  # Ordered less than
 }
 
 recipe f32.le(my: f32, other: f32) -> bool {
-    llvm_intrinsic("fcmp ole", my, other)  # Ordered less equal
+    return llvm_intrinsic("fcmp ole", my, other)  # Ordered less equal
 }
 
 recipe f32.gt(my: f32, other: f32) -> bool {
-    llvm_intrinsic("fcmp ogt", my, other)  # Ordered greater than
+    return llvm_intrinsic("fcmp ogt", my, other)  # Ordered greater than
 }
 
 recipe f32.ge(my: f32, other: f32) -> bool {
-    llvm_intrinsic("fcmp oge", my, other)  # Ordered greater equal
+    return llvm_intrinsic("fcmp oge", my, other)  # Ordered greater equal
 }
 
 # NaN-aware comparisons
 recipe f32.is_nan(my: f32) -> bool {
-    llvm_intrinsic("fcmp uno", my, my)   # Unordered (NaN check)
+    return llvm_intrinsic("fcmp uno", my, my)   # Unordered (NaN check)
 }
 
 recipe f32.is_finite(my: f32) -> bool {
-    !my.is_nan() && !my.is_infinite()
+    not my.is_nan() and not my.is_infinite()
 }
 
 recipe f32.is_infinite(my: f32) -> bool {
-    my == F32_INFINITY || my == F32_NEG_INFINITY
+    my == F32_INFINITY or my == F32_NEG_INFINITY
 }
 
 # Mathematical functions using LLVM intrinsics
 recipe f32.abs(my: f32) -> f32 {
-    llvm_intrinsic("llvm.fabs.f32", my)
+    return llvm_intrinsic("llvm.fabs.f32", my)
 }
 
 recipe f32.sqrt(my: f32) -> f32 {
-    llvm_intrinsic("llvm.sqrt.f32", my)
+    return llvm_intrinsic("llvm.sqrt.f32", my)
 }
 
 recipe f32.sin(my: f32) -> f32 {
-    llvm_intrinsic("llvm.sin.f32", my)
+    return llvm_intrinsic("llvm.sin.f32", my)
 }
 
 recipe f32.cos(my: f32) -> f32 {
-    llvm_intrinsic("llvm.cos.f32", my)
+    return llvm_intrinsic("llvm.cos.f32", my)
 }
 
 recipe f32.tan(my: f32) -> f32 {
@@ -109,188 +109,188 @@ recipe f32.tan(my: f32) -> f32 {
 }
 
 recipe f32.pow(my: f32, exponent: f32) -> f32 {
-    llvm_intrinsic("llvm.pow.f32", my, exponent)
+    return llvm_intrinsic("llvm.pow.f32", my, exponent)
 }
 
 recipe f32.exp(my: f32) -> f32 {
-    llvm_intrinsic("llvm.exp.f32", my)
+    return llvm_intrinsic("llvm.exp.f32", my)
 }
 
 recipe f32.exp2(my: f32) -> f32 {
-    llvm_intrinsic("llvm.exp2.f32", my)
+    return llvm_intrinsic("llvm.exp2.f32", my)
 }
 
 recipe f32.ln(my: f32) -> f32 {
-    llvm_intrinsic("llvm.log.f32", my)
+    return llvm_intrinsic("llvm.log.f32", my)
 }
 
 recipe f32.log2(my: f32) -> f32 {
-    llvm_intrinsic("llvm.log2.f32", my)
+    return llvm_intrinsic("llvm.log2.f32", my)
 }
 
 recipe f32.log10(my: f32) -> f32 {
-    llvm_intrinsic("llvm.log10.f32", my)
+    return llvm_intrinsic("llvm.log10.f32", my)
 }
 
 # Rounding and truncation
 recipe f32.floor(my: f32) -> f32 {
-    llvm_intrinsic("llvm.floor.f32", my)
+    return llvm_intrinsic("llvm.floor.f32", my)
 }
 
 recipe f32.ceil(my: f32) -> f32 {
-    llvm_intrinsic("llvm.ceil.f32", my)
+    return llvm_intrinsic("llvm.ceil.f32", my)
 }
 
 recipe f32.round(my: f32) -> f32 {
-    llvm_intrinsic("llvm.round.f32", my)
+    return llvm_intrinsic("llvm.round.f32", my)
 }
 
 recipe f32.trunc(my: f32) -> f32 {
-    llvm_intrinsic("llvm.trunc.f32", my)
+    return llvm_intrinsic("llvm.trunc.f32", my)
 }
 
 # Min/Max with proper NaN handling
 recipe f32.min(my: f32, other: f32) -> f32 {
-    llvm_intrinsic("llvm.minnum.f32", my, other)
+    return llvm_intrinsic("llvm.minnum.f32", my, other)
 }
 
 recipe f32.max(my: f32, other: f32) -> f32 {
-    llvm_intrinsic("llvm.maxnum.f32", my, other)
+    return llvm_intrinsic("llvm.maxnum.f32", my, other)
 }
 
 # Fused multiply-add for better precision
 recipe f32.fma(my: f32, mul: f32, add: f32) -> f32 {
-    llvm_intrinsic("llvm.fma.f32", my, mul, add)
+    return llvm_intrinsic("llvm.fma.f32", my, mul, add)
 }
 
 # IEEE 754 bit manipulation
 recipe f32.as_bits(my: f32) -> s32 {
-    llvm_intrinsic("bitcast", my)  # Reinterpret as s32
+    return llvm_intrinsic("bitcast", my)  # Reinterpret as s32
 }
 
 recipe f32(from_bits: BitArray<32>) -> f32 {
-    llvm_intrinsic("bitcast", from_bits)  # Reinterpret BitArray<32> as f32
+    return llvm_intrinsic("bitcast", from_bits)  # Reinterpret BitArray<32> as f32
 }
 
 # Extract IEEE 754 components (binary32: 1 sign + 8 exponent + 23 mantissa)
 recipe f32.extract_sign(my: f32) -> bool {
     let bits = my.as_bits()
-    (bits >> 31) != 0
+    return (bits >> 31) != 0
 }
 
 recipe f32.extract_exponent(my: f32) -> s32 {
     let bits = my.as_bits()
-    (bits >> 23) & 0xFF  # 8 bits
+    return (bits >> 23) & 0xFF  # 8 bits
 }
 
 recipe f32.extract_mantissa(my: f32) -> s32 {
     let bits = my.as_bits()
-    bits & 0x7FFFFF  # 23 bits
+    return bits & 0x7FFFFF  # 23 bits
 }
 
 # Type conversions (using constructor syntax)
 recipe s8(from_f32: f32) -> s8 {
-    llvm_intrinsic("fptosi", from_f32)   # Float to signed int
+    return llvm_intrinsic("fptosi", from_f32)   # Float to signed int
 }
 
 recipe u8(from_f32: f32) -> u8 {
-    llvm_intrinsic("fptoui", from_f32)   # Float to unsigned int
+    return llvm_intrinsic("fptoui", from_f32)   # Float to unsigned int
 }
 
 recipe s16(from_f32: f32) -> s16 {
-    llvm_intrinsic("fptosi", from_f32)   # Float to signed int
+    return llvm_intrinsic("fptosi", from_f32)   # Float to signed int
 }
 
 recipe u16(from_f32: f32) -> u16 {
-    llvm_intrinsic("fptoui", from_f32)   # Float to unsigned int
+    return llvm_intrinsic("fptoui", from_f32)   # Float to unsigned int
 }
 
 recipe s32(from_f32: f32) -> s32 {
-    llvm_intrinsic("fptosi", from_f32)   # Float to signed int
+    return llvm_intrinsic("fptosi", from_f32)   # Float to signed int
 }
 
 recipe u32(from_f32: f32) -> u32 {
-    llvm_intrinsic("fptoui", from_f32)   # Float to unsigned int
+    return llvm_intrinsic("fptoui", from_f32)   # Float to unsigned int
 }
 
 recipe s64(from_f32: f32) -> s64 {
-    llvm_intrinsic("fptosi", from_f32)   # Float to signed int
+    return llvm_intrinsic("fptosi", from_f32)   # Float to signed int
 }
 
 recipe u64(from_f32: f32) -> u64 {
-    llvm_intrinsic("fptoui", from_f32)   # Float to unsigned int
+    return llvm_intrinsic("fptoui", from_f32)   # Float to unsigned int
 }
 
 recipe f16(from_f32: f32) -> f16 {
-    llvm_intrinsic("fptrunc", from_f32)  # Truncate to half precision
+    return llvm_intrinsic("fptrunc", from_f32)  # Truncate to half precision
 }
 
 recipe f64(from_f32: f32) -> f64 {
-    llvm_intrinsic("fpext", from_f32)    # Extend to double precision
+    return llvm_intrinsic("fpext", from_f32)    # Extend to double precision
 }
 
 recipe f128(from_f32: f32) -> f128 {
-    llvm_intrinsic("fpext", from_f32)    # Extend to quad precision
+    return llvm_intrinsic("fpext", from_f32)    # Extend to quad precision
 }
 
 recipe bool(from_f32: f32) -> bool {
-    from_f32 != 0.0
+    return from_f32 != 0.0
 }
 
 # Conversion from other types to f32
 recipe f32(from_s8: s8) -> f32 {
-    llvm_intrinsic("sitofp", from_s8)   # Signed int to float
+    return llvm_intrinsic("sitofp", from_s8)   # Signed int to float
 }
 
 recipe f32(from_u8: u8) -> f32 {
-    llvm_intrinsic("uitofp", from_u8)   # Unsigned int to float
+    return llvm_intrinsic("uitofp", from_u8)   # Unsigned int to float
 }
 
 recipe f32(from_s16: s16) -> f32 {
-    llvm_intrinsic("sitofp", from_s16)   # Signed int to float
+    return llvm_intrinsic("sitofp", from_s16)   # Signed int to float
 }
 
 recipe f32(from_u16: u16) -> f32 {
-    llvm_intrinsic("uitofp", from_u16)   # Unsigned int to float
+    return llvm_intrinsic("uitofp", from_u16)   # Unsigned int to float
 }
 
 recipe f32(from_s32: s32) -> f32 {
-    llvm_intrinsic("sitofp", from_s32)   # Signed int to float
+    return llvm_intrinsic("sitofp", from_s32)   # Signed int to float
 }
 
 recipe f32(from_u32: u32) -> f32 {
-    llvm_intrinsic("uitofp", from_u32)   # Unsigned int to float
+    return llvm_intrinsic("uitofp", from_u32)   # Unsigned int to float
 }
 
 recipe f32(from_s64: s64) -> f32 {
-    llvm_intrinsic("sitofp", from_s64)   # Signed int to float
+    return llvm_intrinsic("sitofp", from_s64)   # Signed int to float
 }
 
 recipe f32(from_u64: u64) -> f32 {
-    llvm_intrinsic("uitofp", from_u64)   # Unsigned int to float
+    return llvm_intrinsic("uitofp", from_u64)   # Unsigned int to float
 }
 
 recipe f32(from_f16: f16) -> f32 {
-    llvm_intrinsic("fpext", from_f16)    # Extend from half precision
+    return llvm_intrinsic("fpext", from_f16)    # Extend from half precision
 }
 
 recipe f32(from_f64: f64) -> f32 {
-    llvm_intrinsic("fptrunc", from_f64)  # Truncate from double precision
+    return llvm_intrinsic("fptrunc", from_f64)  # Truncate from double precision
 }
 
 recipe f32(from_f128: f128) -> f32 {
-    llvm_intrinsic("fptrunc", from_f128) # Truncate from quad precision
+    return llvm_intrinsic("fptrunc", from_f128) # Truncate from quad precision
 }
 
 # Parsing and formatting using constructor syntax
 recipe f32(from_text: Text) -> f32 {
     # Parse Text to f32 using LLVM constant folding when possible
-    0.0  # Placeholder
+    return 0.0  # Placeholder
 }
 
 recipe Text(from_f32: f32, precision: s32) -> Text {
     # Convert f32 to Text representation with specified precision
-    ""  # Placeholder
+    return ""  # Placeholder
 }
 
 # High-performance mathematical operations
@@ -298,27 +298,27 @@ recipe fast_inverse_sqrt(value: f32) -> f32 {
     # Fast inverse square root using bit manipulation (Quake III algorithm)
     let bits = value.as_bits()
     let magic: s32 = 0x5F3759DF  # Magic constant for f32
-    let guess = f32::from_bits(magic - (bits >> 1))
+    let guess = f32.from_bits(magic - (bits >> 1))
 
     # Newton-Raphson refinement
     let half_value = value * 0.5
-    guess * (1.5 - half_value * guess * guess)
+    return guess * (1.5 - half_value * guess * guess)
 }
 
 recipe lerp(a: f32, b: f32, t: f32) -> f32 {
     # Linear interpolation with fused multiply-add
-    a.fma(1.0 - t, b * t)
+    return a.fma(1.0 - t, b * t)
 }
 
 # Numerical computation helpers
 recipe approx_equal(a: f32, b: f32, epsilon: f32) -> bool {
-    (a - b).abs() <= epsilon
+    return (a - b).abs() <= epsilon
 }
 
 recipe next_power_of_two(value: f32) -> f32 {
-    when (value <= 1.0) {
-        1.0,
-        _ => 2.0.pow(value.ln() / F32_LN_2).ceil()
+    when value {
+        <= 1.0 => return 1.0,
+        _ => return 2.0.pow(value.ln() / F32_LN_2).ceil()
     }
 }
 
@@ -331,7 +331,7 @@ recipe f32_vec_add(a: slice<f32>, b: slice<f32>) -> slice<f32> {
         result[i] = a[i] + b[i]
     }
 
-    result
+    return result
 }
 
 recipe f32_vec_dot_product(a: slice<f32>, b: slice<f32>) -> f32 {
@@ -343,7 +343,7 @@ recipe f32_vec_dot_product(a: slice<f32>, b: slice<f32>) -> f32 {
         sum += a[i] * b[i]
     }
 
-    sum
+    return sum
 }
 
 /*
@@ -354,8 +354,8 @@ IEEE 754 Single Precision Format (binary32):
 - Total: 32 bits
 
 Value ranges:
-- Normal numbers: ±1.175494351×10^(-38) to ±3.402823466×10^38
-- Subnormal numbers: ±1.401298464×10^(-45) to ±1.175494211×10^(-38)
+- Normal numbers: ï¿½?.175494351ï¿½?0^(-38) to ï¿½?.402823466ï¿½?0^38
+- Subnormal numbers: ï¿½?.401298464ï¿½?0^(-45) to ï¿½?.175494211ï¿½?0^(-38)
 
 Special values:
 - Zero: exponent = 0, mantissa = 0

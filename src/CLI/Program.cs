@@ -31,7 +31,7 @@ internal class Program
             ? Language.Cake
             : Language.RazorForge;
         LanguageMode mode = language == Language.Cake
-            ? LanguageMode.Sweet
+            ? LanguageMode.Cake
             : LanguageMode.Normal;
 
         Console.WriteLine(value: $"Compiling {sourceFile} as {language} ({mode})...");

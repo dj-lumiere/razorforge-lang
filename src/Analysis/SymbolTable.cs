@@ -147,8 +147,13 @@ public record FunctionSymbol(
     TypeInfo? ReturnType,
     VisibilityModifier Visibility,
     bool IsUsurping = false,
-    List<string>? GenericParameters = null)
-    : Symbol(Name: Name, Type: ReturnType, Visibility: Visibility);
+    List<string>? GenericParameters = null,
+    List<GenericConstraint>? GenericConstraints = null)
+    : Symbol(Name: Name, Type: ReturnType, Visibility: Visibility)
+{
+    /// <summary>true if this function has generic parameters</summary>
+    public bool IsGeneric => GenericParameters != null && GenericParameters.Count > 0;
+}
 
 /// <summary>
 /// Entity symbol
@@ -157,13 +162,27 @@ public record ClassSymbol(
     string Name,
     TypeExpression? BaseClass,
     List<TypeExpression> Interfaces,
-    VisibilityModifier Visibility) : Symbol(Name: Name, Type: null, Visibility: Visibility);
+    VisibilityModifier Visibility,
+    List<string>? GenericParameters = null,
+    List<GenericConstraint>? GenericConstraints = null) : Symbol(Name: Name, Type: null, Visibility: Visibility)
+{
+    /// <summary>true if this entity has generic parameters</summary>
+    public bool IsGeneric => GenericParameters != null && GenericParameters.Count > 0;
+}
 
 /// <summary>
 /// Record symbol
 /// </summary>
-public record StructSymbol(string Name, VisibilityModifier Visibility)
-    : Symbol(Name: Name, Type: null, Visibility: Visibility);
+public record StructSymbol(
+    string Name,
+    VisibilityModifier Visibility,
+    List<string>? GenericParameters = null,
+    List<GenericConstraint>? GenericConstraints = null)
+    : Symbol(Name: Name, Type: null, Visibility: Visibility)
+{
+    /// <summary>true if this record has generic parameters</summary>
+    public bool IsGeneric => GenericParameters != null && GenericParameters.Count > 0;
+}
 
 /// <summary>
 /// Option (enum) symbol
@@ -174,14 +193,30 @@ public record MenuSymbol(string Name, VisibilityModifier Visibility)
 /// <summary>
 /// Variant symbol
 /// </summary>
-public record VariantSymbol(string Name, VisibilityModifier Visibility)
-    : Symbol(Name: Name, Type: null, Visibility: Visibility);
+public record VariantSymbol(
+    string Name,
+    VisibilityModifier Visibility,
+    List<string>? GenericParameters = null,
+    List<GenericConstraint>? GenericConstraints = null)
+    : Symbol(Name: Name, Type: null, Visibility: Visibility)
+{
+    /// <summary>true if this variant has generic parameters</summary>
+    public bool IsGeneric => GenericParameters != null && GenericParameters.Count > 0;
+}
 
 /// <summary>
 /// Feature (trait/interface) symbol
 /// </summary>
-public record FeatureSymbol(string Name, VisibilityModifier Visibility)
-    : Symbol(Name: Name, Type: null, Visibility: Visibility);
+public record FeatureSymbol(
+    string Name,
+    VisibilityModifier Visibility,
+    List<string>? GenericParameters = null,
+    List<GenericConstraint>? GenericConstraints = null)
+    : Symbol(Name: Name, Type: null, Visibility: Visibility)
+{
+    /// <summary>true if this feature has generic parameters</summary>
+    public bool IsGeneric => GenericParameters != null && GenericParameters.Count > 0;
+}
 
 /// <summary>
 /// Type symbol for built-in and defined types
@@ -195,6 +230,8 @@ public record TypeSymbol(string Name, TypeInfo TypeInfo, VisibilityModifier Visi
 /// </summary>
 /// <param name="Name">The type name (e.g., "s32", "f64", "bool", "MyClass")</param>
 /// <param name="IsReference">true if this is a reference type; false for value types</param>
+/// <param name="GenericArguments">Generic type arguments if this is a generic type instantiation (e.g., Array[s32])</param>
+/// <param name="IsGenericParameter">true if this represents a generic type parameter (e.g., T in Array[T])</param>
 /// <remarks>
 /// This record encapsulates type information used throughout semantic analysis.
 /// It provides convenient properties to classify primitive types according to
@@ -208,7 +245,7 @@ public record TypeSymbol(string Name, TypeInfo TypeInfo, VisibilityModifier Visi
 /// <item>Text types: text8, text16, text</item>
 /// </list>
 /// </remarks>
-public record TypeInfo(string Name, bool IsReference)
+public record TypeInfo(string Name, bool IsReference, List<TypeInfo>? GenericArguments = null, bool IsGenericParameter = false)
 {
     /// <summary>true if this is any numeric type (integer, floating point, or decimal)</summary>
     public bool IsNumeric => Name.StartsWith(value: "s") || Name.StartsWith(value: "u") ||
@@ -225,7 +262,34 @@ public record TypeInfo(string Name, bool IsReference)
     /// <summary>true if this is a signed numeric type</summary>
     public bool IsSigned => Name.StartsWith(value: "s") || Name.StartsWith(value: "f") ||
                             Name.StartsWith(value: "d") || Name == "syssint";
+
+    /// <summary>true if this is a generic type (has generic arguments)</summary>
+    public bool IsGeneric => GenericArguments != null && GenericArguments.Count > 0;
+
+    /// <summary>Gets the fully qualified type name including generic arguments (e.g., "Array[s32]")</summary>
+    public string FullName
+    {
+        get
+        {
+            if (!IsGeneric) return Name;
+            var args = string.Join(", ", GenericArguments!.Select(t => t.FullName));
+            return $"{Name}[{args}]";
+        }
+    }
 }
+
+/// <summary>
+/// Generic constraint information for type parameters
+/// </summary>
+/// <param name="ParameterName">The name of the generic type parameter (e.g., "T")</param>
+/// <param name="BaseTypes">List of base type constraints (e.g., where T : IComparable)</param>
+/// <param name="IsValueType">true if constrained to value types (e.g., where T : record)</param>
+/// <param name="IsReferenceType">true if constrained to reference types (e.g., where T : entity)</param>
+public record GenericConstraint(
+    string ParameterName,
+    List<TypeInfo>? BaseTypes = null,
+    bool IsValueType = false,
+    bool IsReferenceType = false);
 
 /// <summary>
 /// Semantic error information

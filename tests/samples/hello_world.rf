@@ -3,22 +3,22 @@ redefinition A as B
 
 # Entities, Records, menus, and Variants in RazorForge
 
-# Entity Example - Reference type with inheritance  
+# Entity Example - Reference type with inheritance
 entity Animal {
     public(family) var species: Text
     private var name: Text
     public(module) var class_name: Text
-    
-    public func __init__(name: Text, species: Text) -> Animal {
+
+    public func create(name: Text, species: Text) -> Animal {
         me.name = name
         me.species = species
         return me
     }
-    
+
     public func speak() -> Text {
         return f"{me.name} makes a sound"
     }
-    
+
     public func get_name() -> Text {
         return me.name
     }
@@ -26,13 +26,13 @@ entity Animal {
 
 entity Dog from Animal {
     public var breed: Text
-    
-    public func __init__(name: Text, breed: Text) -> Dog {
+
+    public func create(name: Text, breed: Text) -> Dog {
         parent(name, "Canine")
         me.breed = breed
         return me
     }
-    
+
     public func speak() -> Text {
         return f"{me.name} barks: Woof!"
     }
@@ -42,11 +42,11 @@ entity Dog from Animal {
 record Point {
     public var x: f64
     public var y: f64
-    
+
     public func distance_from_origin() -> f64 {
         return (me.x * me.x + me.y * me.y).sqrt()
     }
-    
+
     public func translate(dx: f64, dy: f64) -> Point {
         return Point { x: me.x + dx, y: me.y + dy }
     }
@@ -54,18 +54,18 @@ record Point {
 
 record Vector3 {
     public var x: f64
-    public var y: f64  
+    public var y: f64
     public var z: f64
-    
+
     public func magnitude() -> f64 {
         return (me.x * me.x + me.y * me.y + me.z * me.z).sqrt()
     }
-    
+
     public func normalize() -> Vector3 {
         let mag = me.magnitude()
         return Vector3 {
             x: me.x / mag,
-            y: me.y / mag, 
+            y: me.y / mag,
             z: me.z / mag
         }
     }
@@ -76,7 +76,7 @@ choice Color {
     Red,
     Green,
     Blue,
-    
+
     public func to_hex() -> Text {
         when me {
             Color.Red => "#FF0000",
@@ -96,21 +96,21 @@ choice HttpStatus {
 chimera Result<T> {
     Success(T),
     Error(Error),
-    
+
     public func unwrap() -> T {
         when me {
             is Error _ => crash!(f"Unwrap failed: {error}")
             _ => _,
         }
     }
-    
+
     public func is_success() -> bool {
         when me {
             is Error _ => false
             _ => true,
         }
     }
-    
+
     public func map<U>(f: func(T) -> U) -> Result<U> {
         when me {
             is Error e => e
@@ -122,7 +122,7 @@ chimera Result<T> {
 chimera Maybe<T> {
     Valid(T),
     Invalid,
-    
+
     # This will be overridden as ?: operator.
     public func unwrap_or(default: T) -> T {
         when me {
@@ -142,7 +142,7 @@ feature Drawable {
 record Circle {
     public var radius: f64
     public var center: Point
-    
+
     public func area() -> f64 {
         return 3.14159 * me.radius * me.radius
     }
@@ -152,7 +152,7 @@ impl Drawable for Circle {
     func draw() -> Text {
         return f"Circle at ({me.center.x}, {me.center.y}) with radius {me.radius}"
     }
-    
+
     func area() -> f64 {
         return me.area()
     }
@@ -163,14 +163,14 @@ record Buffer<T> {
     private var data: T
     private var capacity: usize
     private var length: usize
-    
-    public func __init__(capacity: usize) -> Buffer<T> {
+
+    public func create(capacity: usize) -> Buffer<T> {
         me.data = HeapSlice<T>(capacity),
         me.capacity = capacity,
         me.length: 0
         return me
     }
-    
+
     public func push!(item: T) {
         if me.length >= me.capacity {
             return Error("Buffer full")
@@ -179,7 +179,7 @@ record Buffer<T> {
         me.length += 1
         return
     }
-    
+
     # This overrides operator [].
     public func get!(index: usize) -> T {
         if index >= me.length {
@@ -194,44 +194,44 @@ func main() {
     # Entity usage
     let dog = Dog("Buddy", "Golden Retriever")
     write_line(dog.speak())
-    
+
     # Record usage
     let point = Point(x: 3.0, y: 4.0)
     let distance = point.distance_from_origin()
     write_line(f"Distance: {distance}")
-    
+
     # kind usage
     let color = Color.Red
     write_line(f"Color: {color.to_hex()}")
-    
+
     # Variant usage
     let success: Result<i32> = 42
     let failure: Result<i32> = Error("Something went wrong")
-    
+
     when success {
         is Error error => println(f"Error: {error}")
         _ => println(f"Got value: {_}"),
     }
-    
+
     # Feature usage
     let circle = Circle(radius: 5.0, center: Point(x: 0.0, y: 0.0))
     write_line(circle.draw())
-    
-    # Generic buffer usage  
+
+    # Generic buffer usage
     var buffer = Buffer<i32>(10)
     buffer.push(1)
     buffer.push(2)
     buffer.push(3)
-    
+
     var value = buffer.try_get(1)
     if value is i32 i {
         write_line(f"Buffer[1] = {i}")
     }
-    
+
     for i in 1 to 10 step 2 {
         write_line(f"{i}")
     }
-    
+
     var t8 = "aa"
     var t82 = t8"aa"
     var t16 = t16"aa"

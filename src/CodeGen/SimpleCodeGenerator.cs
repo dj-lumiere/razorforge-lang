@@ -139,7 +139,7 @@ public class SimpleCodeGenerator : IAstVisitor<string>
             values: node.Parameters.Select(selector: p => $"{p.Name}: {p.Type?.Name ?? "auto"}"));
         string returnStr = node.ReturnType?.Name ?? "void";
 
-        WriteLine(text: $"{visStr}func {node.Name}({paramStr}) -> {returnStr}");
+        WriteLine(text: $"{visStr}recipe {node.Name}({paramStr}) -> {returnStr}");
         WriteLine(text: "{");
         Indent();
 

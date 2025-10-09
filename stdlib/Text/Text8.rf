@@ -1,4 +1,4 @@
 entity Text8 {
-    private List<letter8> letters
+    private letters: List<letter8>
 }
 

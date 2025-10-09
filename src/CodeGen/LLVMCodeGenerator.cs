@@ -54,6 +54,11 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     private bool _hasReturn = false;
     private List<string>? _stringConstants; // Collect string constants for proper emission
 
+    // Generic instantiation tracking for monomorphization
+    private readonly Dictionary<string, List<List<Analysis.TypeInfo>>> _genericInstantiations = new();
+    private readonly Dictionary<string, FunctionDeclaration> _genericFunctionTemplates = new();
+    private readonly List<string> _pendingGenericInstantiations = new();
+
     /// <summary>
     /// Initializes a new LLVM IR code generator for the specified language and mode configuration.
     /// Sets up the internal state required for AST traversal and IR generation.
@@ -127,7 +132,7 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         // Mathematical library function declarations - precision arithmetic support
         _output.AppendLine(value: MathLibrarySupport.GenerateDeclarations());
 
-        // String constants for I/O operations
+        // String constants for I/O operations and error messages
         _output.AppendLine(value: "; String constants");
         _output.AppendLine(
             value:
@@ -135,6 +140,9 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         _output.AppendLine(
             value:
             "@.str_fmt = private unnamed_addr constant [3 x i8] c\"%s\\00\", align 1"); // String format
+        _output.AppendLine(
+            value:
+            "@.str_overflow = private unnamed_addr constant [19 x i8] c\"Arithmetic overflow\\00\", align 1"); // Overflow error
 
         // Process the program AST to generate function definitions and global declarations
         program.Accept(visitor: this);
@@ -181,6 +189,75 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     private string GetNextLabel()
     {
         return $"label{_labelCounter++}";
+    }
+
+    /// <summary>
+    /// Generates a mangled function name for a generic function instantiation.
+    /// Creates unique names by appending type arguments to the base function name.
+    /// </summary>
+    /// <param name="baseName">The original function name</param>
+    /// <param name="typeArgs">List of concrete type arguments for this instantiation</param>
+    /// <returns>Mangled function name (e.g., "swap_s32" for swap&lt;s32&gt;)</returns>
+    /// <remarks>
+    /// Examples:
+    /// - swap&lt;T&gt; with T=s32 -> swap_s32
+    /// - map&lt;K,V&gt; with K=text,V=s32 -> map_text_s32
+    /// - container&lt;Array&lt;s32&gt;&gt; -> container_Array_s32
+    /// </remarks>
+    private string MonomorphizeFunctionName(string baseName, List<Analysis.TypeInfo> typeArgs)
+    {
+        if (typeArgs == null || typeArgs.Count == 0)
+            return baseName;
+
+        var suffix = string.Join("_", typeArgs.Select(t => t.Name.Replace("[", "_").Replace("]", "").Replace(",", "_").Replace(" ", "")));
+        return $"{baseName}_{suffix}";
+    }
+
+    /// <summary>
+    /// Checks if a generic function has already been instantiated with the given type arguments.
+    /// </summary>
+    /// <param name="functionName">The base function name</param>
+    /// <param name="typeArgs">Type arguments to check</param>
+    /// <returns>True if this instantiation already exists, false otherwise</returns>
+    private bool IsAlreadyInstantiated(string functionName, List<Analysis.TypeInfo> typeArgs)
+    {
+        if (!_genericInstantiations.ContainsKey(functionName))
+            return false;
+
+        var existingInstantiations = _genericInstantiations[functionName];
+        foreach (var existing in existingInstantiations)
+        {
+            if (existing.Count != typeArgs.Count)
+                continue;
+
+            bool matches = true;
+            for (int i = 0; i < existing.Count; i++)
+            {
+                if (existing[i].Name != typeArgs[i].Name)
+                {
+                    matches = false;
+                    break;
+                }
+            }
+
+            if (matches)
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Tracks a new generic function instantiation to avoid generating duplicates.
+    /// </summary>
+    /// <param name="functionName">The base function name</param>
+    /// <param name="typeArgs">Type arguments for this instantiation</param>
+    private void TrackInstantiation(string functionName, List<Analysis.TypeInfo> typeArgs)
+    {
+        if (!_genericInstantiations.ContainsKey(functionName))
+            _genericInstantiations[functionName] = new List<List<Analysis.TypeInfo>>();
+
+        _genericInstantiations[functionName].Add(new List<Analysis.TypeInfo>(typeArgs));
     }
 
     /// <summary>
@@ -240,7 +317,35 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             "text" => "i8*", // Null-terminated C string
             "Text" => "i8*", // Alternative capitalization
 
-            _ => "i8*" // Default to pointer for unknown types
+            // C FFI types - Character types
+            "cchar" or "cschar" => "i8", // char, signed char
+            "cuchar" => "i8", // unsigned char (same LLVM type, different signedness)
+            "cwchar" => "i32", // wchar_t (platform-dependent, typically 32-bit)
+            "cchar8" => "i8", // char8_t
+            "cchar16" => "i16", // char16_t
+            "cchar32" => "i32", // char32_t
+
+            // C FFI types - Numeric types
+            "cshort" => "i16", // short
+            "cushort" => "i16", // unsigned short
+            "cint" => "i32", // int
+            "cuint" => "i32", // unsigned int
+            "clong" => "i64", // long (64-bit on x86_64)
+            "culong" => "i64", // unsigned long
+            "cll" => "i64", // long long
+            "cull" => "i64", // unsigned long long
+            "cfloat" => "float", // float
+            "cdouble" => "double", // double
+
+            // C FFI types - Pointer-sized integers
+            "csptr" => "i64", // intptr_t (64-bit on x86_64)
+            "cuptr" => "i64", // uintptr_t (64-bit on x86_64)
+
+            // C FFI types - Special types
+            "cvoid" => "i64", // void (represented as sysuint in RazorForge)
+            "cbool" => "i1", // C bool (_Bool)
+
+            _ => "i8*" // Default to pointer for unknown types (including cptr<T>)
         };
     }
 
@@ -354,9 +459,9 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     /// <strong>Operation Categories:</strong>
     /// <list type="bullet">
     /// <item>Arithmetic: +, -, *, /, % with overflow variants</item>
-    /// <item>Comparison: ==, !=, <, <=, >, >= returning i1 boolean results</item>
-    /// <item>Logical: &&, || with short-circuit evaluation support</item>
-    /// <item>Bitwise: &, |, ^, <<, >> for integer types</item>
+    /// <item>Comparison: ==, !=, &lt;, &lt;=, &gt;, &gt;= returning i1 boolean results</item>
+    /// <item>Logical: &amp;&amp;, || with short-circuit evaluation support</item>
+    /// <item>Bitwise: &amp;, |, ^, &lt;&lt;, &gt;&gt; for integer types</item>
     /// </list>
     /// </remarks>
     public string VisitBinaryExpression(BinaryExpression node)
@@ -395,13 +500,13 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             BinaryOperator.DivideWrap => GetIntegerDivisionOp(typeInfo: leftTypeInfo),
             BinaryOperator.ModuloWrap => GetModuloOp(typeInfo: leftTypeInfo),
 
-            BinaryOperator.AddSaturate => "add", // TODO: Use llvm.sadd.sat intrinsic
-            BinaryOperator.SubtractSaturate => "sub", // TODO: Use llvm.ssub.sat intrinsic  
-            BinaryOperator.MultiplySaturate => "mul", // TODO: Custom saturating multiply
+            BinaryOperator.AddSaturate => "", // Handled separately with intrinsics
+            BinaryOperator.SubtractSaturate => "", // Handled separately with intrinsics
+            BinaryOperator.MultiplySaturate => "", // Handled separately with intrinsics
 
-            BinaryOperator.AddChecked => "add", // TODO: Use llvm.sadd.with.overflow intrinsic
-            BinaryOperator.SubtractChecked => "sub", // TODO: Use llvm.ssub.with.overflow intrinsic
-            BinaryOperator.MultiplyChecked => "mul", // TODO: Use llvm.smul.with.overflow intrinsic
+            BinaryOperator.AddChecked => "", // Handled separately with overflow intrinsics
+            BinaryOperator.SubtractChecked => "", // Handled separately with overflow intrinsics
+            BinaryOperator.MultiplyChecked => "", // Handled separately with overflow intrinsics
 
             BinaryOperator.AddUnchecked => "add", // Regular operations, no overflow checks
             BinaryOperator.SubtractUnchecked => "sub",
@@ -417,6 +522,27 @@ public class LLVMCodeGenerator : IAstVisitor<string>
 
             _ => "add"
         };
+
+        // Handle special overflow operations with LLVM intrinsics
+        if (string.IsNullOrEmpty(op))
+        {
+            // Handle saturating and checked operations
+            switch (node.Operator)
+            {
+                case BinaryOperator.AddSaturate:
+                case BinaryOperator.SubtractSaturate:
+                case BinaryOperator.MultiplySaturate:
+                    return GenerateSaturatingArithmetic(node.Operator, left, right, result, leftTypeInfo, operandType);
+
+                case BinaryOperator.AddChecked:
+                case BinaryOperator.SubtractChecked:
+                case BinaryOperator.MultiplyChecked:
+                    return GenerateCheckedArithmetic(node.Operator, left, right, result, leftTypeInfo, operandType);
+
+                default:
+                    throw new NotSupportedException($"Operator {node.Operator} is not properly configured");
+            }
+        }
 
         // Generate the operation with proper type
         if (op.StartsWith(value: "icmp"))
@@ -434,6 +560,165 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Generates LLVM IR for saturating arithmetic operations using LLVM intrinsics.
+    /// </summary>
+    private string GenerateSaturatingArithmetic(BinaryOperator op, string left, string right,
+        string result, TypeInfo typeInfo, string llvmType)
+    {
+        string intrinsicName = op switch
+        {
+            BinaryOperator.AddSaturate => typeInfo.IsUnsigned ? "llvm.uadd.sat" : "llvm.sadd.sat",
+            BinaryOperator.SubtractSaturate => typeInfo.IsUnsigned ? "llvm.usub.sat" : "llvm.ssub.sat",
+            BinaryOperator.MultiplySaturate => GenerateSaturatingMultiply(left, right, result, typeInfo, llvmType),
+            _ => throw new NotSupportedException($"Saturating operation {op} not supported")
+        };
+
+        // For multiply, the implementation is handled separately
+        if (op == BinaryOperator.MultiplySaturate)
+        {
+            return result;
+        }
+
+        // Generate intrinsic call for add/subtract
+        _output.AppendLine($"  {result} = call {llvmType} @{intrinsicName}.{llvmType}({llvmType} {left}, {llvmType} {right})");
+        _tempTypes[result] = typeInfo;
+        return result;
+    }
+
+    /// <summary>
+    /// Generates saturating multiply using manual overflow detection.
+    /// LLVM doesn't provide a direct saturating multiply intrinsic, so we use overflow detection.
+    /// </summary>
+    private string GenerateSaturatingMultiply(string left, string right, string result,
+        TypeInfo typeInfo, string llvmType)
+    {
+        string overflowTemp = GetNextTemp();
+        string structTemp = GetNextTemp();
+        string valueTemp = GetNextTemp();
+        string didOverflowTemp = GetNextTemp();
+        string maxValueTemp = GetNextTemp();
+        string minValueTemp = GetNextTemp();
+        string saturatedTemp = GetNextTemp();
+
+        string intrinsicName = typeInfo.IsUnsigned ? "llvm.umul.with.overflow" : "llvm.smul.with.overflow";
+
+        // Call overflow intrinsic
+        _output.AppendLine($"  {structTemp} = call {{{llvmType}, i1}} @{intrinsicName}.{llvmType}({llvmType} {left}, {llvmType} {right})");
+        _output.AppendLine($"  {valueTemp} = extractvalue {{{llvmType}, i1}} {structTemp}, 0");
+        _output.AppendLine($"  {didOverflowTemp} = extractvalue {{{llvmType}, i1}} {structTemp}, 1");
+
+        // Get max/min values for saturation
+        (string maxValue, string minValue) = GetSaturationBounds(typeInfo, llvmType);
+
+        // Determine saturation value based on sign of operands if overflow occurred
+        if (typeInfo.IsUnsigned)
+        {
+            // For unsigned: saturate to max value on overflow
+            _output.AppendLine($"  {saturatedTemp} = select i1 {didOverflowTemp}, {llvmType} {maxValue}, {llvmType} {valueTemp}");
+        }
+        else
+        {
+            // For signed: need to check if result should be min or max
+            // If both operands have same sign, overflow goes to max/min in same direction
+            string leftSignTemp = GetNextTemp();
+            string rightSignTemp = GetNextTemp();
+            string sameSigns = GetNextTemp();
+            string satValue = GetNextTemp();
+
+            _output.AppendLine($"  {leftSignTemp} = icmp slt {llvmType} {left}, 0");
+            _output.AppendLine($"  {rightSignTemp} = icmp slt {llvmType} {right}, 0");
+            _output.AppendLine($"  {sameSigns} = icmp eq i1 {leftSignTemp}, {rightSignTemp}");
+
+            // If same signs: both positive -> max, both negative -> max (negative * negative = positive)
+            // If different signs: result should be min (negative)
+            _output.AppendLine($"  {satValue} = select i1 {sameSigns}, {llvmType} {maxValue}, {llvmType} {minValue}");
+            _output.AppendLine($"  {saturatedTemp} = select i1 {didOverflowTemp}, {llvmType} {satValue}, {llvmType} {valueTemp}");
+        }
+
+        _output.AppendLine($"  {result} = add {llvmType} {saturatedTemp}, 0  ; final saturated result");
+        _tempTypes[result] = typeInfo;
+        return result;
+    }
+
+    /// <summary>
+    /// Generates LLVM IR for checked arithmetic operations that trap on overflow.
+    /// </summary>
+    private string GenerateCheckedArithmetic(BinaryOperator op, string left, string right,
+        string result, TypeInfo typeInfo, string llvmType)
+    {
+        string intrinsicName = op switch
+        {
+            BinaryOperator.AddChecked => typeInfo.IsUnsigned ? "llvm.uadd.with.overflow" : "llvm.sadd.with.overflow",
+            BinaryOperator.SubtractChecked => typeInfo.IsUnsigned ? "llvm.usub.with.overflow" : "llvm.ssub.with.overflow",
+            BinaryOperator.MultiplyChecked => typeInfo.IsUnsigned ? "llvm.umul.with.overflow" : "llvm.smul.with.overflow",
+            _ => throw new NotSupportedException($"Checked operation {op} not supported")
+        };
+
+        string structTemp = GetNextTemp();
+        string valueTemp = GetNextTemp();
+        string didOverflowTemp = GetNextTemp();
+        string trapLabel = GetNextLabel();
+        string continueLabel = GetNextLabel();
+
+        // Call overflow intrinsic which returns {result, overflow_flag}
+        _output.AppendLine($"  {structTemp} = call {{{llvmType}, i1}} @{intrinsicName}.{llvmType}({llvmType} {left}, {llvmType} {right})");
+        _output.AppendLine($"  {valueTemp} = extractvalue {{{llvmType}, i1}} {structTemp}, 0");
+        _output.AppendLine($"  {didOverflowTemp} = extractvalue {{{llvmType}, i1}} {structTemp}, 1");
+
+        // Branch on overflow flag
+        _output.AppendLine($"  br i1 {didOverflowTemp}, label %{trapLabel}, label %{continueLabel}");
+
+        // Trap block - call panic/abort on overflow
+        _output.AppendLine($"{trapLabel}:");
+        _output.AppendLine($"  call void @rf_crash(ptr getelementptr inbounds ([19 x i8], [19 x i8]* @.str_overflow, i32 0, i32 0))");
+        _output.AppendLine($"  unreachable");
+
+        // Continue block - normal execution
+        _output.AppendLine($"{continueLabel}:");
+        _output.AppendLine($"  {result} = add {llvmType} {valueTemp}, 0  ; propagate result");
+
+        _tempTypes[result] = typeInfo;
+        return result;
+    }
+
+    /// <summary>
+    /// Gets the saturation bounds (max and min values) for a given type.
+    /// </summary>
+    private (string maxValue, string minValue) GetSaturationBounds(TypeInfo typeInfo, string llvmType)
+    {
+        if (typeInfo.IsUnsigned)
+        {
+            // Unsigned: min = 0, max = 2^bits - 1
+            int bits = GetTypeBitWidth(llvmType);
+            string maxValue = bits switch
+            {
+                8 => "255",
+                16 => "65535",
+                32 => "4294967295",
+                64 => "18446744073709551615",
+                128 => "340282366920938463463374607431768211455",
+                _ => "0"
+            };
+            return (maxValue, "0");
+        }
+        else
+        {
+            // Signed: min = -2^(bits-1), max = 2^(bits-1) - 1
+            int bits = GetTypeBitWidth(llvmType);
+            (string maxValue, string minValue) = bits switch
+            {
+                8 => ("127", "-128"),
+                16 => ("32767", "-32768"),
+                32 => ("2147483647", "-2147483648"),
+                64 => ("9223372036854775807", "-9223372036854775808"),
+                128 => ("170141183460469231731687303715884105727", "-170141183460469231731687303715884105728"),
+                _ => ("0", "0")
+            };
+            return (maxValue, minValue);
+        }
     }
 
     private string GenerateMathLibraryBinaryOp(BinaryExpression node, string left, string right,
@@ -1585,6 +1870,9 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             ? MapRazorForgeTypeToLLVM(razorForgeType: node.ReturnType.Name)
             : "void";
 
+        // Map calling convention to LLVM calling convention attribute
+        string callingConventionAttr = MapCallingConventionToLLVM(node.CallingConvention);
+
         if (node.GenericParameters != null && node.GenericParameters.Count > 0)
         {
             // For generic external functions, we'll need to generate specialized versions
@@ -1594,10 +1882,43 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         }
         else
         {
-            _output.AppendLine(handler: $"declare {returnType} @{node.Name}({paramTypes})");
+            // Emit external declaration with calling convention
+            if (!string.IsNullOrEmpty(callingConventionAttr))
+            {
+                _output.AppendLine(handler: $"declare {callingConventionAttr} {returnType} @{node.Name}({paramTypes})");
+            }
+            else
+            {
+                _output.AppendLine(handler: $"declare {returnType} @{node.Name}({paramTypes})");
+            }
         }
 
         return "";
+    }
+
+    /// <summary>
+    /// Maps RazorForge calling convention names to LLVM calling convention attributes.
+    /// </summary>
+    /// <param name="callingConvention">Calling convention string ("C", "stdcall", "fastcall", etc.)</param>
+    /// <returns>LLVM calling convention attribute or empty string for default</returns>
+    private string MapCallingConventionToLLVM(string? callingConvention)
+    {
+        if (string.IsNullOrEmpty(callingConvention))
+            return ""; // Default C calling convention
+
+        return callingConvention.ToLowerInvariant() switch
+        {
+            "c" => "ccc", // C calling convention (default on most platforms)
+            "stdcall" => "x86_stdcallcc", // Windows stdcall
+            "fastcall" => "x86_fastcallcc", // x86 fastcall
+            "thiscall" => "x86_thiscallcc", // C++ thiscall (MSVC)
+            "vectorcall" => "x86_vectorcallcc", // x86 vectorcall (MSVC)
+            "win64" => "win64cc", // Windows x64 calling convention
+            "sysv64" => "x86_64_sysvcc", // System V AMD64 ABI (Unix/Linux)
+            "aapcs" => "arm_aapcscc", // ARM AAPCS
+            "aapcs_vfp" => "arm_aapcs_vfpcc", // ARM AAPCS with VFP
+            _ => "" // Unknown convention, use default
+        };
     }
 
     private string MapRazorForgeTypeToLLVM(string razorForgeType)
@@ -1624,7 +1945,34 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             "text" => "ptr",
             "HeapSlice" or "StackSlice" => "ptr",
             "void" => "void",
-            _ => "ptr" // Default to pointer for unknown types
+
+            // C FFI types - Character types
+            "cchar" or "cschar" => "i8",
+            "cuchar" => "i8",
+            "cwchar" => "i32",
+            "cchar8" => "i8",
+            "cchar16" => "i16",
+            "cchar32" => "i32",
+
+            // C FFI types - Numeric types
+            "cshort" => "i16",
+            "cushort" => "i16",
+            "cint" => "i32",
+            "cuint" => "i32",
+            "clong" => "i64",
+            "culong" => "i64",
+            "cll" => "i64",
+            "cull" => "i64",
+            "cfloat" => "float",
+            "cdouble" => "double",
+
+            // C FFI types - Pointer types
+            "csptr" => "i64",
+            "cuptr" => "i64",
+            "cvoid" => "i64",
+            "cbool" => "i1",
+
+            _ => "ptr" // Default to pointer for unknown types (including cptr<T>)
         };
     }
 

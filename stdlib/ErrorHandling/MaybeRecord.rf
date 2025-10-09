@@ -1,0 +1,6 @@
+record Maybe<T> {
+    private is_valid: bool
+    private value: T
+
+
+}

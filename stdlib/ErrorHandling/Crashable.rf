@@ -1,2 +1,2 @@
-feature Crashable {
+protocol Crashable {
 }

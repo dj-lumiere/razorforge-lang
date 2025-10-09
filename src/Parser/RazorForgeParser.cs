@@ -65,10 +65,28 @@ public class RazorForgeParser : BaseParser
         // Parse visibility modifier
         VisibilityModifier visibility = ParseVisibilityModifier();
 
-        // External declaration
-        if (visibility == VisibilityModifier.External && Match(type: TokenType.recipe))
+        // External declaration with optional calling convention
+        // Supports: external recipe foo() or external("C") recipe foo()
+        if (visibility == VisibilityModifier.External)
         {
-            return ParseExternalDeclaration();
+            string? callingConvention = null;
+
+            // Check for calling convention: external("C")
+            if (Match(type: TokenType.LeftParen))
+            {
+                if (Check(type: TokenType.TextLiteral))
+                {
+                    Token conventionToken = Advance();
+                    // Remove quotes from the text literal
+                    callingConvention = conventionToken.Text.Trim('"');
+                }
+                Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after calling convention");
+            }
+
+            if (Match(type: TokenType.recipe))
+            {
+                return ParseExternalDeclaration(callingConvention: callingConvention);
+            }
         }
 
         // Variable declarations
@@ -1272,7 +1290,7 @@ public class RazorForgeParser : BaseParser
 
         while (true)
         {
-            // Handle standalone generic function calls like func<T>!(args)
+            // Handle standalone generic function calls like recipe<T>!(args)
             if (expr is IdentifierExpression && Check(type: TokenType.Less))
             {
                 Advance(); // consume '<'
@@ -1515,7 +1533,7 @@ public class RazorForgeParser : BaseParser
             throw new ParseException(message: $"Invalid integer literal: {value}");
         }
 
-        // Float literals  
+        // Float literals
         if (Match(TokenType.Decimal, TokenType.F16Literal, TokenType.F32Literal,
                 TokenType.F64Literal, TokenType.F128Literal, TokenType.D32Literal,
                 TokenType.D64Literal, TokenType.D128Literal))
@@ -1713,7 +1731,7 @@ public class RazorForgeParser : BaseParser
     private LambdaExpression ParseLambdaExpression(SourceLocation location)
     {
         // Parse parameters
-        Consume(type: TokenType.LeftParen, errorMessage: "Expected '(' after 'func' in lambda");
+        Consume(type: TokenType.LeftParen, errorMessage: "Expected '(' after 'recipe' in lambda");
         var parameters = new List<Parameter>();
 
         if (!Check(type: TokenType.RightParen))
@@ -1810,7 +1828,7 @@ public class RazorForgeParser : BaseParser
                      $"Expected Identifier or TypeIdentifier, got {current.Type}.");
     }
 
-    private ExternalDeclaration ParseExternalDeclaration()
+    private ExternalDeclaration ParseExternalDeclaration(string? callingConvention = null)
     {
         SourceLocation
             location =
@@ -1865,8 +1883,12 @@ public class RazorForgeParser : BaseParser
 
         ConsumeStatementTerminator();
 
+        // Default to "C" calling convention if not specified
+        string effectiveCallingConvention = callingConvention ?? "C";
+
         return new ExternalDeclaration(Name: name, GenericParameters: genericParams,
-            Parameters: parameters, ReturnType: returnType, Location: location);
+            Parameters: parameters, ReturnType: returnType,
+            CallingConvention: effectiveCallingConvention, Location: location);
     }
 
     private DangerStatement ParseDangerStatement()

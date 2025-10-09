@@ -32,7 +32,8 @@ public record FunctionDeclaration(
     Statement Body,
     VisibilityModifier Visibility,
     List<string> Attributes, // For decorators like @[everywhere get]
-    SourceLocation Location) : Declaration(Location: Location)
+    SourceLocation Location,
+    List<string>? GenericParameters = null) : Declaration(Location: Location)
 {
     public override T Accept<T>(IAstVisitor<T> visitor)
     {
@@ -278,13 +279,14 @@ public record UsingDeclaration(TypeExpression Type, string Alias, SourceLocation
 /// <param name="GenericParameters">Generic type parameters if the function is generic</param>
 /// <param name="Parameters">Function parameters with types</param>
 /// <param name="ReturnType">Return type of the function (null for void)</param>
+/// <param name="CallingConvention">Calling convention ("C", "stdcall", "fastcall", etc.)</param>
 /// <param name="Location">Source location information</param>
 /// <remarks>
 /// External declarations link RazorForge to native runtime:
 /// <list type="bullet">
-/// <item>external recipe heap_alloc!(bytes: sysuint) -> sysuint</item>
-/// <item>external recipe memory_copy!(src: sysuint, dest: sysuint, bytes: sysuint)</item>
-/// <item>external recipe read_as&lt;T&gt;!(address: sysuint) -> T</item>
+/// <item>external("C") recipe malloc(size: sysuint) -> cptr&lt;cvoid&gt;</item>
+/// <item>external("C") recipe free(ptr: cptr&lt;cvoid&gt;)</item>
+/// <item>external recipe heap_alloc!(bytes: sysuint) -> sysuint (default C convention)</item>
 /// <item>No function body - implementation provided by native runtime</item>
 /// <item>Links to C functions at compile time</item>
 /// </list>
@@ -294,6 +296,7 @@ public record ExternalDeclaration(
     List<string>? GenericParameters,
     List<Parameter> Parameters,
     TypeExpression? ReturnType,
+    string? CallingConvention,
     SourceLocation Location) : Declaration(Location: Location)
 {
     public override T Accept<T>(IAstVisitor<T> visitor)

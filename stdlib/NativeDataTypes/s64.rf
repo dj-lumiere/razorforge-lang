@@ -1,4 +1,4 @@
-# RazorForge s64 (signed 64-bit integer) native type implementation
+﻿# RazorForge s64 (signed 64-bit integer) native type implementation
 # Maps directly to LLVM i64 type and native machine integers
 
 # Core s64 type definition - maps to LLVM i64
@@ -151,13 +151,13 @@ recipe bool(from_s64: s64) -> bool {
 recipe s64(from_text: Text) -> s64 {
     # Parse Text to s64 using LLVM constant folding when possible
     # Implementation would use text parsing logic
-    0  # Placeholder
+    return 0  # Placeholder
 }
 
 recipe Text(from_s64: s64) -> Text {
     # Convert s64 to Text representation
     # Implementation would use formatting logic
-    ""  # Placeholder
+    return ""  # Placeholder
 }
 
 # SIMD operations for vectorized s64 processing
@@ -169,7 +169,7 @@ recipe s64_vec_add(a: slice<s64>, b: slice<s64>) -> slice<s64> {
         result[i] = a[i] + b[i]
     }
 
-    result
+    return result
 }
 
 # Example usage demonstrating LLVM optimizations
@@ -182,7 +182,7 @@ recipe fibonacci_s64(n: s64) -> s64 {
         }
     }
 
-    fib_helper(n, 0, 1)
+    return fib_helper(n, 0, 1)
 }
 
 # Hash function using s64 for high performance

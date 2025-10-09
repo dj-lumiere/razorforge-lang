@@ -47,7 +47,7 @@ record $STRUCT_NAME$ {
     Constructor
     $PARAMS$
     ###
-    public recipe __init__($CONSTRUCTOR_PARAMS$) -> $STRUCT_NAME$ {
+    public recipe __create__($CONSTRUCTOR_PARAMS$) -> $STRUCT_NAME$ {
         $CONSTRUCTOR_BODY$
         return me
     }

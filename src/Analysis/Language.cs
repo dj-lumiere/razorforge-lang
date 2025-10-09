@@ -2,19 +2,19 @@ namespace Compilers.Shared.Analysis;
 
 /// <summary>
 /// Target language specification for the unified RazorForge/Cake compiler.
-/// 
+///
 /// These two languages represent fundamentally different approaches to memory management
 /// and system programming, unified under a single compiler infrastructure:
-/// 
+///
 /// RazorForge: Explicit memory management with 6 wrapper types (Owned, Hijacked, Shared,
 /// Watched, ThreadShared, ThreadWatched, Snatched) organized into color-coded memory groups.
 /// Emphasizes programmer control, zero-cost abstractions, and compile-time safety.
 /// Target use cases: systems programming, embedded development, performance-critical applications.
-/// 
+///
 /// Cake: Automatic reference counting with incremental garbage collection for cycle detection.
 /// Emphasizes programmer productivity, safety by default, and ease of use.
 /// Target use cases: scripting, rapid prototyping, application development, REPL usage.
-/// 
+///
 /// The compiler adapts its semantic analysis, memory model enforcement, and code generation
 /// based on the target language, allowing developers to choose the right tool for their needs.
 /// </summary>
@@ -40,7 +40,7 @@ public enum Language
 /// Language modes provide fine-grained control over safety vs performance tradeoffs
 /// within each language. These modes affect compiler behavior, optimization levels,
 /// and available language features.
-/// 
+///
 /// RazorForge modes control the strictness of memory safety enforcement:
 /// <list type="bullet">
 /// <item>Normal mode provides safe memory management with full safety guarantees</item>
@@ -59,7 +59,7 @@ public enum LanguageMode
 
     /// <summary>
     /// RazorForge Normal Mode: Safe memory management for systems programming.
-    /// 
+    ///
     /// Features:
     /// <list type="bullet">
     /// <item>Full memory safety enforcement with deadref protection</item>
@@ -69,14 +69,14 @@ public enum LanguageMode
     /// <item>Usurping functions controlled and validated</item>
     /// <item>Zero-cost abstractions with compile-time guarantees</item>
     /// </list>
-    /// 
+    ///
     /// Use cases: Production systems code, embedded applications, safety-critical software
     /// </summary>
     Normal,
 
     /// <summary>
     /// RazorForge Danger Mode: Raw embedded programming with great power.
-    /// 
+    ///
     /// Features:
     /// <list type="bullet">
     /// <item>All Normal mode features plus unsafe operations</item>
@@ -86,7 +86,7 @@ public enum LanguageMode
     /// <item>Direct memory manipulation and low-level access</item>
     /// <item>"With great power comes great responsibility" philosophy</item>
     /// </list>
-    /// 
+    ///
     /// Use cases: Embedded systems, device drivers, performance optimization,
     /// interfacing with C code, memory-mapped I/O
     /// </summary>
@@ -95,8 +95,8 @@ public enum LanguageMode
     // === Cake Modes ===
 
     /// <summary>
-    /// Cake Sweet Mode: Quick prototyping with maximum safety and convenience.
-    /// 
+    /// Cake Mode: Quick prototyping with maximum safety and convenience.
+    ///
     /// Features:
     /// <list type="bullet">
     /// <item>Automatic reference counting with transparent management</item>
@@ -106,27 +106,9 @@ public enum LanguageMode
     /// <item>Interactive REPL with live compilation support</item>
     /// <item>Optimized for developer productivity and learning</item>
     /// </list>
-    /// 
+    ///
     /// Use cases: Rapid prototyping, scripting, interactive development,
     /// educational environments, data analysis
     /// </summary>
-    Sweet,
-
-    /// <summary>
-    /// Cake Bitter Mode: Performant scripting with lower-level optimizations.
-    /// 
-    /// Features:
-    /// <list type="bullet">
-    /// <item>All Sweet mode features plus performance optimizations</item>
-    /// <item>AOT compilation with aggressive optimization passes</item>
-    /// <item>Reduced GC overhead with tuned collection strategies</item>
-    /// <item>Access to lower-level APIs and system interfaces</item>
-    /// <item>Optimized data structures and algorithms</item>
-    /// <item>Balance between safety and performance</item>
-    /// </list>
-    /// 
-    /// Use cases: Production scripting, performance-sensitive applications,
-    /// command-line tools, server-side development
-    /// </summary>
-    Bitter
+    Cake
 }

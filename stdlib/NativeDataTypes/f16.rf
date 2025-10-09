@@ -2,7 +2,7 @@
 # Maps directly to LLVM half type and IEEE 754 binary16 format
 
 # Core f16 type definition - maps to LLVM half
-struct f16 {
+record f16 {
     public value: LlvmNativeHalf
 }
 
@@ -26,220 +26,220 @@ preset F16_LN_10: f16 = 2.302734
 
 # Addition - maps to LLVM fadd
 recipe f16.add(my: f16, other: f16) -> f16 {
-    llvm_intrinsic("fadd", my, other)
+    return llvm_intrinsic("fadd", my, other)
 }
 
 # Subtraction - maps to LLVM fsub
 recipe f16.sub(my: f16, other: f16) -> f16 {
-    llvm_intrinsic("fsub", my, other)
+    return llvm_intrinsic("fsub", my, other)
 }
 
 # Multiplication - maps to LLVM fmul
 recipe f16.mul(my: f16, other: f16) -> f16 {
-    llvm_intrinsic("fmul", my, other)
+    return llvm_intrinsic("fmul", my, other)
 }
 
 # Division - maps to LLVM fdiv
 recipe f16.div(my: f16, other: f16) -> f16 {
-    llvm_intrinsic("fdiv", my, other)
+    return llvm_intrinsic("fdiv", my, other)
 }
 
 # Remainder - maps to LLVM frem
 recipe f16.rem(my: f16, other: f16) -> f16 {
-    llvm_intrinsic("frem", my, other)
+    return llvm_intrinsic("frem", my, other)
 }
 
 # Comparison operations (LLVM fcmp)
 recipe f16.eq(my: f16, other: f16) -> bool {
-    llvm_intrinsic("fcmp oeq", my, other)  # Ordered equal
+    return llvm_intrinsic("fcmp oeq", my, other)  # Ordered equal
 }
 
 recipe f16.ne(my: f16, other: f16) -> bool {
-    llvm_intrinsic("fcmp one", my, other)  # Ordered not equal
+    return llvm_intrinsic("fcmp one", my, other)  # Ordered not equal
 }
 
 recipe f16.lt(my: f16, other: f16) -> bool {
-    llvm_intrinsic("fcmp olt", my, other)  # Ordered less than
+    return llvm_intrinsic("fcmp olt", my, other)  # Ordered less than
 }
 
 recipe f16.le(my: f16, other: f16) -> bool {
-    llvm_intrinsic("fcmp ole", my, other)  # Ordered less equal
+    return llvm_intrinsic("fcmp ole", my, other)  # Ordered less equal
 }
 
 recipe f16.gt(my: f16, other: f16) -> bool {
-    llvm_intrinsic("fcmp ogt", my, other)  # Ordered greater than
+    return llvm_intrinsic("fcmp ogt", my, other)  # Ordered greater than
 }
 
 recipe f16.ge(my: f16, other: f16) -> bool {
-    llvm_intrinsic("fcmp oge", my, other)  # Ordered greater equal
+    return llvm_intrinsic("fcmp oge", my, other)  # Ordered greater equal
 }
 
 # NaN-aware comparisons
 recipe f16.is_nan(my: f16) -> bool {
-    llvm_intrinsic("fcmp uno", my, my)   # Unordered (NaN check)
+    return llvm_intrinsic("fcmp uno", my, my)   # Unordered (NaN check)
 }
 
 recipe f16.is_finite(my: f16) -> bool {
-    !my.is_nan() && !my.is_infinite()
+    not my.is_nan() and not my.is_infinite()
 }
 
 recipe f16.is_infinite(my: f16) -> bool {
-    my == F16_INFINITY || my == F16_NEG_INFINITY
+    my == F16_INFINITY or my == F16_NEG_INFINITY
 }
 
 # Mathematical functions using LLVM intrinsics
 recipe f16.abs(my: f16) -> f16 {
-    llvm_intrinsic("llvm.fabs.f16", my)
+    return llvm_intrinsic("llvm.fabs.f16", my)
 }
 
 recipe f16.sqrt(my: f16) -> f16 {
-    llvm_intrinsic("llvm.sqrt.f16", my)
+    return llvm_intrinsic("llvm.sqrt.f16", my)
 }
 
 recipe f16.sin(my: f16) -> f16 {
     # Note: LLVM may not have native f16 sin, promote to f32
     let promoted = f32(my)
-    f16(promoted.sin())
+    return f16(promoted.sin())
 }
 
 recipe f16.cos(my: f16) -> f16 {
     # Note: LLVM may not have native f16 cos, promote to f32
     let promoted = f32(my)
-    f16(promoted.cos())
+    return f16(promoted.cos())
 }
 
 recipe f16.tan(my: f16) -> f16 {
-    my.sin() / my.cos()
+    return my.sin() / my.cos()
 }
 
 recipe f16.pow(my: f16, exponent: f16) -> f16 {
     # Note: LLVM may not have native f16 pow, promote to f32
     let promoted_base = f32(my)
     let promoted_exp = f32(exponent)
-    f16(promoted_base.pow(promoted_exp))
+    return f16(promoted_base.pow(promoted_exp))
 }
 
 recipe f16.exp(my: f16) -> f16 {
     # Note: LLVM may not have native f16 exp, promote to f32
     let promoted = f32(my)
-    f16(promoted.exp())
+    return f16(promoted.exp())
 }
 
 recipe f16.exp2(my: f16) -> f16 {
     # Note: LLVM may not have native f16 exp2, promote to f32
     let promoted = f32(my)
-    f16(promoted.exp2())
+    return f16(promoted.exp2())
 }
 
 recipe f16.ln(my: f16) -> f16 {
     # Note: LLVM may not have native f16 log, promote to f32
     let promoted = f32(my)
-    f16(promoted.ln())
+    return f16(promoted.ln())
 }
 
 recipe f16.log2(my: f16) -> f16 {
     # Note: LLVM may not have native f16 log2, promote to f32
     let promoted = f32(my)
-    f16(promoted.log2())
+    return f16(promoted.log2())
 }
 
 recipe f16.log10(my: f16) -> f16 {
     # Note: LLVM may not have native f16 log10, promote to f32
     let promoted = f32(my)
-    f16(promoted.log10())
+    return f16(promoted.log10())
 }
 
 # Rounding and truncation
 recipe f16.floor(my: f16) -> f16 {
-    llvm_intrinsic("llvm.floor.f16", my)
+    return llvm_intrinsic("llvm.floor.f16", my)
 }
 
 recipe f16.ceil(my: f16) -> f16 {
-    llvm_intrinsic("llvm.ceil.f16", my)
+    return llvm_intrinsic("llvm.ceil.f16", my)
 }
 
 recipe f16.round(my: f16) -> f16 {
-    llvm_intrinsic("llvm.round.f16", my)
+    return llvm_intrinsic("llvm.round.f16", my)
 }
 
 recipe f16.trunc(my: f16) -> f16 {
-    llvm_intrinsic("llvm.trunc.f16", my)
+    return llvm_intrinsic("llvm.trunc.f16", my)
 }
 
 # Min/Max with proper NaN handling
 recipe f16.min(my: f16, other: f16) -> f16 {
-    llvm_intrinsic("llvm.minnum.f16", my, other)
+    return llvm_intrinsic("llvm.minnum.f16", my, other)
 }
 
 recipe f16.max(my: f16, other: f16) -> f16 {
-    llvm_intrinsic("llvm.maxnum.f16", my, other)
+    return llvm_intrinsic("llvm.maxnum.f16", my, other)
 }
 
 # Fused multiply-add for better precision
 recipe f16.fma(my: f16, mul: f16, add: f16) -> f16 {
-    llvm_intrinsic("llvm.fma.f16", my, mul, add)
+    return llvm_intrinsic("llvm.fma.f16", my, mul, add)
 }
 
 # IEEE 754 bit manipulation
 recipe f16.as_bits(my: f16) -> s16 {
-    llvm_intrinsic("bitcast", my)  # Reinterpret as s16
+    return llvm_intrinsic("bitcast", my)  # Reinterpret as s16
 }
 
 recipe f16(from_bits: BitArray<16>) -> f16 {
-    llvm_intrinsic("bitcast", from_bits)  # Reinterpret BitArray<16> as f16
+    return llvm_intrinsic("bitcast", from_bits)  # Reinterpret BitArray<16> as f16
 }
 
 # Extract IEEE 754 components (binary16: 1 sign + 5 exponent + 10 mantissa)
 recipe f16.extract_sign(my: f16) -> bool {
     let bits = my.as_bits()
-    (bits >> 15) != 0
+    return (bits >> 15) != 0
 }
 
 recipe f16.extract_exponent(my: f16) -> s16 {
     let bits = my.as_bits()
-    (bits >> 10) & 0x1F  # 5 bits
+    return (bits >> 10) & 0x1F  # 5 bits
 }
 
 recipe f16.extract_mantissa(my: f16) -> s16 {
     let bits = my.as_bits()
-    bits & 0x3FF  # 10 bits
+    return bits & 0x3FF  # 10 bits
 }
 
 # Type conversions (using constructor syntax)
 recipe s16(from_f16: f16) -> s16 {
-    llvm_intrinsic("fptosi", from_f16)   # Float to signed int
+    return llvm_intrinsic("fptosi", from_f16)   # Float to signed int
 }
 
 recipe u16(from_f16: f16) -> u16 {
-    llvm_intrinsic("fptoui", from_f16)   # Float to unsigned int
+    return llvm_intrinsic("fptoui", from_f16)   # Float to unsigned int
 }
 
 recipe s32(from_f16: f16) -> s32 {
-    llvm_intrinsic("fptosi", from_f16)   # Float to signed int
+    return llvm_intrinsic("fptosi", from_f16)   # Float to signed int
 }
 
 recipe u32(from_f16: f16) -> u32 {
-    llvm_intrinsic("fptoui", from_f16)   # Float to unsigned int
+    return llvm_intrinsic("fptoui", from_f16)   # Float to unsigned int
 }
 
 recipe s64(from_f16: f16) -> s64 {
-    llvm_intrinsic("fptosi", from_f16)   # Float to signed int
+    return llvm_intrinsic("fptosi", from_f16)   # Float to signed int
 }
 
 recipe u64(from_f16: f16) -> u64 {
-    llvm_intrinsic("fptoui", from_f16)   # Float to unsigned int
+    return llvm_intrinsic("fptoui", from_f16)   # Float to unsigned int
 }
 
 recipe f32(from_f16: f16) -> f32 {
-    llvm_intrinsic("fpext", from_f16)    # Extend to single precision
+    return llvm_intrinsic("fpext", from_f16)    # Extend to single precision
 }
 
 recipe f64(from_f16: f16) -> f64 {
-    llvm_intrinsic("fpext", from_f16)    # Extend to double precision
+    return llvm_intrinsic("fpext", from_f16)    # Extend to double precision
 }
 
 recipe f128(from_f16: f16) -> f128 {
-    llvm_intrinsic("fpext", from_f16)    # Extend to quad precision
+    return llvm_intrinsic("fpext", from_f16)    # Extend to quad precision
 }
 
 recipe bool(from_f16: f16) -> bool {
@@ -248,39 +248,39 @@ recipe bool(from_f16: f16) -> bool {
 
 # Conversion from other types to f16
 recipe f16(from_s16: s16) -> f16 {
-    llvm_intrinsic("sitofp", from_s16)   # Signed int to float
+    return llvm_intrinsic("sitofp", from_s16)   # Signed int to float
 }
 
 recipe f16(from_u16: u16) -> f16 {
-    llvm_intrinsic("uitofp", from_u16)   # Unsigned int to float
+    return llvm_intrinsic("uitofp", from_u16)   # Unsigned int to float
 }
 
 recipe f16(from_s32: s32) -> f16 {
-    llvm_intrinsic("sitofp", from_s32)   # Signed int to float
+    return llvm_intrinsic("sitofp", from_s32)   # Signed int to float
 }
 
 recipe f16(from_u32: u32) -> f16 {
-    llvm_intrinsic("uitofp", from_u32)   # Unsigned int to float
+    return llvm_intrinsic("uitofp", from_u32)   # Unsigned int to float
 }
 
 recipe f16(from_s64: s64) -> f16 {
-    llvm_intrinsic("sitofp", from_s64)   # Signed int to float
+    return llvm_intrinsic("sitofp", from_s64)   # Signed int to float
 }
 
 recipe f16(from_u64: u64) -> f16 {
-    llvm_intrinsic("uitofp", from_u64)   # Unsigned int to float
+    return llvm_intrinsic("uitofp", from_u64)   # Unsigned int to float
 }
 
 recipe f16(from_f32: f32) -> f16 {
-    llvm_intrinsic("fptrunc", from_f32)  # Truncate from single precision
+    return llvm_intrinsic("fptrunc", from_f32)  # Truncate from single precision
 }
 
 recipe f16(from_f64: f64) -> f16 {
-    llvm_intrinsic("fptrunc", from_f64)  # Truncate from double precision
+    return llvm_intrinsic("fptrunc", from_f64)  # Truncate from double precision
 }
 
 recipe f16(from_f128: f128) -> f16 {
-    llvm_intrinsic("fptrunc", from_f128) # Truncate from quad precision
+    return llvm_intrinsic("fptrunc", from_f128) # Truncate from quad precision
 }
 
 # Parsing and formatting using constructor syntax
@@ -313,8 +313,8 @@ IEEE 754 Half Precision Format (binary16):
 - Total: 16 bits
 
 Value ranges:
-- Normal numbers: ±1.0 × 2^(-14) to ±(2-2^(-10)) × 2^15 H ±6.1×10^(-5) to ±65504
-- Subnormal numbers: ±2^(-24) to ±(1-2^(-10)) × 2^(-14) H ±5.96×10^(-8) to ±6.09×10^(-5)
+- Normal numbers: ï¿½?.0 ï¿½?2^(-14) to ï¿½?2-2^(-10)) ï¿½?2^15 H ï¿½?.1ï¿½?0^(-5) to ï¿½?5504
+- Subnormal numbers: ï¿½?^(-24) to ï¿½?1-2^(-10)) ï¿½?2^(-14) H ï¿½?.96ï¿½?0^(-8) to ï¿½?.09ï¿½?0^(-5)
 
 Special values:
 - Zero: exponent = 0, mantissa = 0

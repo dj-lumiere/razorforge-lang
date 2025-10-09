@@ -3,51 +3,28 @@
 # These map directly to LLVM intrinsics and C runtime functions
 
 # Memory allocation operations
-external recipe get_heap(size: MemorySize) -> sysuint
-external recipe get_stack(size: MemorySize) -> sysuint
+external("C") recipe get_heap(size: MemorySize) -> sysuint
+external("C") recipe get_stack(size: MemorySize) -> sysuint
 
 # Memory reading operations
-external recipe read_as<T>(address: sysuint) -> T
-external recipe volatile_read<T>(address: sysuint) -> T
+external("C") recipe read_as<T>(address: sysuint) -> T
+external("C") recipe volatile_read_as<T>(address: sysuint) -> T
 
 # Memory writing operations
-external recipe write_as<T>(address: sysuint, value: T)
-external recipe volatile_write<T>(address: sysuint, value: T)
-external recipe write_to_address<T>(address: sysuint, value: T)
+external("C") recipe write_as<T>(address: sysuint, value: T)
+external("C") recipe volatile_write_as<T>(address: sysuint, value: T)
 
 # Address operations
-external recipe addr_of<T>(value: T) -> sysuint
-external recipe address_of<T>(value: T) -> sysuint
+external("C") recipe addr_of<T>(value: T) -> sysuint
 
 # Type punning operations
-external recipe obtain_as<U, T>(value: T) -> cptr<U>
-external recipe reveal_as<U, T>(ptr: cptr<T>) -> U
+external("C") recipe obtain_as<U, T>(value: T) -> sysuint
+external("C") recipe reveal_as<U, T>(ptr: sysuint) -> U
 
 # Memory management
-external recipe allocate_heap_memory<T>(data: T) -> sysuint
-external recipe deallocate_heap_memory<T>(address: sysuint)
-external recipe invalidate!(address: sysuint)
+external("C") recipe invalidate!(address: sysuint)
 
 # Memory utilities
-external recipe copy_memory(dest: sysuint, src: sysuint, size: MemorySize)
-external recipe zero_memory(address: sysuint, size: MemorySize)
-external recipe compare_memory(a: sysuint, b: sysuint, size: MemorySize) -> s32
-
-# Heap allocation with automatic cleanup via `using`
-external recipe c_malloc(size: sysuint) -> cptr<cvoid>
-external recipe c_free(ptr: cptr<cvoid>)
-external recipe c_realloc(ptr: cptr<cvoid>, new_size: sysuint) -> cptr<cvoid>
-
-# Stack allocation (alloca equivalent)
-external recipe alloca(size: sysuint) -> cptr<cvoid>
-
-# Memory barriers and synchronization
-external recipe memory_barrier()
-external recipe compiler_barrier()
-
-# Atomic operations (for future thread safety)
-external recipe atomic_load<T>(address: sysuint) -> T
-external recipe atomic_store<T>(address: sysuint, value: T)
-external recipe atomic_add<T>(address: sysuint, value: T) -> T
-external recipe atomic_sub<T>(address: sysuint, value: T) -> T
-external recipe atomic_compare_exchange<T>(address: sysuint, expected: T, desired: T) -> bool
+external("C") recipe copy_memory(dest: sysuint, src: sysuint, size: MemorySize)
+external("C") recipe zero_memory(address: sysuint, size: MemorySize)
+external("C") recipe compare_memory(a: sysuint, b: sysuint, size: MemorySize) -> s32

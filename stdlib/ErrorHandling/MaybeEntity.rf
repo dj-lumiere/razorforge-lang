@@ -1,0 +1,6 @@
+entity Maybe<T> {
+    private is_valid: bool
+    private actual_address: sysuint
+
+
+}

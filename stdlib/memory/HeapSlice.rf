@@ -1,4 +1,4 @@
-# RazorForge Standard Library - Memory Management
+﻿# RazorForge Standard Library - Memory Management
 # HeapSlice: Non-generic heap-allocated contiguous memory slice
 
 import system/memory/native
@@ -17,7 +17,7 @@ record HeapSlice {
     @param bytes - Number of bytes to allocate on heap
     @return New HeapSlice instance
     ###
-    public recipe __init__(bytes: sysuint) -> HeapSlice {
+    public recipe __create__(bytes: sysuint) -> HeapSlice {
         if bytes == 0 {
             me.starting_address = 0
             me.allocated_bytes = 0
@@ -145,7 +145,7 @@ record HeapSlice {
         }
 
         let addr = me.starting_address + offset
-        memory_write<T>!(addr, value)
+        return memory_write<T>!(addr, value)
     }
 
     ###
@@ -291,23 +291,23 @@ record HeapSlice {
 }
 
 # Native runtime functions for heap operations
-external recipe heap_alloc!(bytes: sysuint) -> sysuint
-external recipe heap_free!(address: sysuint)
-external recipe heap_realloc!(address: sysuint, new_bytes: sysuint) -> sysuint
-external recipe memory_copy!(src: sysuint, dest: sysuint, bytes: sysuint)
-external recipe memory_fill!(address: sysuint, pattern: u8, bytes: sysuint)
-external recipe memory_zero!(address: sysuint, bytes: sysuint)
-external recipe memory_read<T>!(address: sysuint) -> T
-external recipe memory_write<T>!(address: sysuint, value: T)
-external recipe sizeof<T>() -> sysuint
+external("C") recipe heap_alloc!(bytes: sysuint) -> sysuint
+external("C") recipe heap_free!(address: sysuint)
+external("C") recipe heap_realloc!(address: sysuint, new_bytes: sysuint) -> sysuint
+external("C") recipe memory_copy!(src: sysuint, dest: sysuint, bytes: sysuint)
+external("C") recipe memory_fill!(address: sysuint, pattern: u8, bytes: sysuint)
+external("C") recipe memory_zero!(address: sysuint, bytes: sysuint)
+external("C") recipe memory_read<T>!(address: sysuint) -> T
+external("C") recipe memory_write<T>!(address: sysuint, value: T)
+external("C") recipe sizeof<T>() -> sysuint
 
 # Danger zone operations - raw memory access without safety checks
-external recipe read_as<T>!(address: sysuint) -> T
-external recipe write_as<T>!(address: sysuint, value: T)
-external recipe volatile_read<T>!(address: sysuint) -> T
-external recipe volatile_write<T>!(address: sysuint, value: T)
-external recipe obtain_as<T>!(object: auto) -> sysuint
-external recipe reveal_as<T>!(address: sysuint) -> T
-external recipe addr_of!(object: auto) -> sysuint
-external recipe invalidate<T>!(object: T)
-external recipe crash!(message: text)
+external("C") recipe read_as<T>!(address: sysuint) -> T
+external("C") recipe write_as<T>!(address: sysuint, value: T)
+external("C") recipe volatile_read<T>!(address: sysuint) -> T
+external("C") recipe volatile_write<T>!(address: sysuint, value: T)
+external("C") recipe obtain_as<T>!(object: auto) -> sysuint
+external("C") recipe reveal_as<T>!(address: sysuint) -> T
+external("C") recipe addr_of!(object: auto) -> sysuint
+external("C") recipe invalidate<T>!(object: T)
+external("C") recipe crash!(message: text)

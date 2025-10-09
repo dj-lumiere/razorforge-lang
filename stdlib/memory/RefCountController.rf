@@ -1,17 +1,16 @@
 # RazorForge Reference Count Controller
 # Core reference counting mechanism for shared memory management
 
-struct RefCountController {
+entity RefCountController {
     private strong_count: s32
     private weak_count: s32
-}
 
 # Create new reference count controller with initial counts of 0
-recipe RefCountController() -> RefCountController {
-    return RefCountController {
+public recipe __create__() -> RefCountController {
+    return RefCountController(
         strong_count: 0,
         weak_count: 0
-    }
+    )
 }
 
 # Simple non-atomic operations (single-threaded)
@@ -47,4 +46,5 @@ recipe RefCountController.should_deallocate_data(me: RefCountController) -> bool
 
 recipe RefCountController.should_deallocate_controller(me: RefCountController) -> bool {
     return me.strong_count() == 0 and me.weak_count() == 0
+}
 }

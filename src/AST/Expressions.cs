@@ -36,6 +36,11 @@ public abstract record Expression(SourceLocation Location) : AstNode(Location: L
 /// <item>Decimals: d32, d64, d128</item>
 /// <item>Text and characters: letter, text</item>
 /// <item>Booleans: true, false</item>
+/// <item>Duration: h, m, s, ms, us, ns</item>
+/// <item>MemorySize: b, kb, mb, gb, tb
+/// , pb, kbit, mbit, gbit, tbit, pbit
+/// , kib, mib, gib, tib, pib, kibit
+/// , mibit, gibit, tibit, pibit</item>
 /// </list>
 /// </remarks>
 public record LiteralExpression(object Value, TokenType LiteralType, SourceLocation Location)
@@ -85,10 +90,10 @@ public record IdentifierExpression(string Name, SourceLocation Location)
 /// Supports extensive operator categories:
 /// <list type="bullet">
 /// <item>Arithmetic: +, -, *, /, %, ** (with overflow variants)</item>
-/// <item>Comparison: ==, !=, <, <=, >, >=</item>
-/// <item>Logical: &&, ||</item>
+/// <item>Comparison: ==, !=, &lt;, &lt;=, &gt;, &gt;=</item>
+/// <item>Logical: &amp;&amp;, ||</item>
 /// <item>Membership: in, not in, is, is not, follows, not follows</item>
-/// <item>Bitwise: &, |, ^, <<, >></item>
+/// <item>Bitwise: &amp;, |, ^, &lt;&lt;, &gt;&gt;</item>
 /// </list>
 /// </remarks>
 public record BinaryExpression(
@@ -139,7 +144,7 @@ public record UnaryExpression(UnaryOperator Operator, Expression Operand, Source
 /// <remarks>
 /// Supports various call patterns:
 /// <list type="bullet">
-/// <item>Function calls: func(a, b, c)</item>
+/// <item>Function calls: recipe(a, b, c)</item>
 /// <item>Method calls: obj.method(x, y)</item>
 /// <item>Constructor calls: Point(x, y)</item>
 /// <item>Lambda calls: ((x) => x + 1)(42)</item>

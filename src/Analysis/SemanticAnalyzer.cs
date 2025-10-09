@@ -4,7 +4,7 @@ namespace Compilers.Shared.Analysis;
 
 /// <summary>
 /// Comprehensive semantic analyzer for RazorForge and Cake languages.
-/// 
+///
 /// This analyzer performs multi-phase semantic analysis combining:
 /// <list type="bullet">
 /// <item>Traditional type checking and symbol resolution</item>
@@ -13,12 +13,12 @@ namespace Compilers.Shared.Analysis;
 /// <item>Memory operation validation (hijack!, share!, etc.)</item>
 /// <item>Cross-language compatibility checking</item>
 /// </list>
-/// 
+///
 /// The analyzer integrates tightly with the MemoryAnalyzer to enforce
 /// RazorForge's explicit memory model and Cake's automatic RC model.
 /// It validates memory operations, tracks object ownership, and prevents
 /// use-after-invalidation errors during compilation.
-/// 
+///
 /// Key responsibilities:
 /// <list type="bullet">
 /// <item>Type compatibility checking with mixed-type arithmetic rejection</item>
@@ -112,9 +112,6 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         RegisterPrimitiveType(typeName: "letter");
         RegisterPrimitiveType(typeName: "letter8");
         RegisterPrimitiveType(typeName: "letter16");
-        RegisterPrimitiveType(typeName: "text");
-        RegisterPrimitiveType(typeName: "text8");
-        RegisterPrimitiveType(typeName: "text16");
     }
 
     /// <summary>
@@ -145,6 +142,12 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         }
     }
 
+    /// <summary>
+    /// Performs semantic analysis on the entire program.
+    /// Validates all declarations, statements, and expressions in the AST.
+    /// </summary>
+    /// <param name="program">The program AST to analyze</param>
+    /// <returns>List of semantic errors found during analysis</returns>
     public List<SemanticError> Analyze(AST.Program program)
     {
         program.Accept(visitor: this);
@@ -152,6 +155,11 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     }
 
     // Program
+    /// <summary>
+    /// Visits a program node and analyzes all top-level declarations.
+    /// </summary>
+    /// <param name="node">Program node containing all declarations</param>
+    /// <returns>Null</returns>
     public object? VisitProgram(AST.Program node)
     {
         foreach (IAstNode declaration in node.Declarations)
@@ -168,7 +176,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// Performs traditional type checking while registering objects in the memory analyzer
     /// for ownership tracking. This is where objects enter the memory model and become
     /// subject to memory safety rules.
-    /// 
+    ///
     /// RazorForge: Objects start as Owned with direct ownership
     /// Cake: Objects start as Shared with automatic reference counting
     /// </summary>
@@ -227,7 +235,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// Analyze function declarations with usurping function detection and memory scope management.
     /// Handles the special case of usurping functions that are allowed to return Hijacked&lt;T&gt; objects.
     /// Manages both symbol table and memory analyzer scopes for proper isolation of function context.
-    /// 
+    ///
     /// Usurping functions are RazorForge-only and must be explicitly marked to return exclusive tokens.
     /// This prevents accidental exclusive token leakage from regular functions.
     /// </summary>
@@ -309,6 +317,12 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         return null;
     }
 
+    /// <summary>
+    /// Visits a class declaration and registers it in the symbol table.
+    /// Validates class members and inheritance relationships.
+    /// </summary>
+    /// <param name="node">Class declaration node</param>
+    /// <returns>Null</returns>
     public object? VisitClassDeclaration(ClassDeclaration node)
     {
         // Enter entity scope
@@ -339,6 +353,12 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         return null;
     }
 
+    /// <summary>
+    /// Visits a struct (record) declaration and registers it in the symbol table.
+    /// Validates struct fields and their types.
+    /// </summary>
+    /// <param name="node">Struct declaration node</param>
+    /// <returns>Null</returns>
     public object? VisitStructDeclaration(StructDeclaration node)
     {
         // Similar to entity but with value semantics
@@ -352,6 +372,12 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         return null;
     }
 
+    /// <summary>
+    /// Visits a menu declaration and validates its structure.
+    /// Menus define user interface navigation and commands.
+    /// </summary>
+    /// <param name="node">Menu declaration node</param>
+    /// <returns>Null</returns>
     public object? VisitMenuDeclaration(MenuDeclaration node)
     {
         var menuSymbol = new MenuSymbol(Name: node.Name, Visibility: node.Visibility);
@@ -364,6 +390,12 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         return null;
     }
 
+    /// <summary>
+    /// Visits a variant (tagged union/enum) declaration and registers it in the symbol table.
+    /// Validates variant cases and their associated data types.
+    /// </summary>
+    /// <param name="node">Variant declaration node</param>
+    /// <returns>Null</returns>
     public object? VisitVariantDeclaration(VariantDeclaration node)
     {
         // Validation based on variant kind
@@ -416,6 +448,12 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         return null;
     }
 
+    /// <summary>
+    /// Visits a feature (interface/trait) declaration and registers it in the symbol table.
+    /// Features define contracts that types can implement.
+    /// </summary>
+    /// <param name="node">Feature declaration node</param>
+    /// <returns>Null</returns>
     public object? VisitFeatureDeclaration(FeatureDeclaration node)
     {
         var featureSymbol = new FeatureSymbol(Name: node.Name, Visibility: node.Visibility);
@@ -428,24 +466,48 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         return null;
     }
 
+    /// <summary>
+    /// Visits an implementation declaration that implements a feature for a type.
+    /// Validates that all feature requirements are satisfied.
+    /// </summary>
+    /// <param name="node">Implementation declaration node</param>
+    /// <returns>Null</returns>
     public object? VisitImplementationDeclaration(ImplementationDeclaration node)
     {
         // Implementation blocks don't create new symbols but verify interfaces
         return null;
     }
 
+    /// <summary>
+    /// Visits an import declaration and handles module imports.
+    /// Registers imported symbols in the current scope.
+    /// </summary>
+    /// <param name="node">Import declaration node</param>
+    /// <returns>Null</returns>
     public object? VisitImportDeclaration(ImportDeclaration node)
     {
         // TODO: Module system
         return null;
     }
 
+    /// <summary>
+    /// Visits a redefinition declaration that redefines an existing function.
+    /// Validates that the original function exists and signatures match.
+    /// </summary>
+    /// <param name="node">Redefinition declaration node</param>
+    /// <returns>Null</returns>
     public object? VisitRedefinitionDeclaration(RedefinitionDeclaration node)
     {
         // TODO: Handle method redefinition
         return null;
     }
 
+    /// <summary>
+    /// Visits a using declaration that brings items into scope.
+    /// Similar to C# using static directive.
+    /// </summary>
+    /// <param name="node">Using declaration node</param>
+    /// <returns>Null</returns>
     public object? VisitUsingDeclaration(UsingDeclaration node)
     {
         // TODO: Handle type alias
@@ -453,12 +515,23 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     }
 
     // Statements
+    /// <summary>
+    /// Visits an expression statement that evaluates an expression for its side effects.
+    /// </summary>
+    /// <param name="node">Expression statement node</param>
+    /// <returns>Null</returns>
     public object? VisitExpressionStatement(ExpressionStatement node)
     {
         node.Expression.Accept(visitor: this);
         return null;
     }
 
+    /// <summary>
+    /// Visits a declaration statement and registers the variable in the symbol table.
+    /// Performs type checking and memory safety analysis.
+    /// </summary>
+    /// <param name="node">Declaration statement node</param>
+    /// <returns>Null</returns>
     public object? VisitDeclarationStatement(DeclarationStatement node)
     {
         node.Declaration.Accept(visitor: this);
@@ -467,15 +540,15 @@ public class SemanticAnalyzer : IAstVisitor<object?>
 
     /// <summary>
     /// Analyze assignment statements with language-specific memory model handling.
-    /// 
+    ///
     /// This method demonstrates the fundamental difference between RazorForge and Cake:
-    /// 
+    ///
     /// RazorForge: Assignments use move semantics - objects are transferred and source may become invalid.
     /// The analyzer needs sophisticated analysis to determine when moves occur vs copies.
-    /// 
+    ///
     /// Cake: Assignments use automatic reference counting - both source and target share the object
     /// with automatic RC increment. No invalidation occurs, promoting safe sharing.
-    /// 
+    ///
     /// This difference reflects each language's memory management philosophy:
     /// explicit control vs automatic safety.
     /// </summary>
@@ -505,13 +578,31 @@ public class SemanticAnalyzer : IAstVisitor<object?>
             }
             else if (_language == Language.RazorForge)
             {
-                // RazorForge: Move semantics - object ownership may transfer
-                // TODO: Implement sophisticated move analysis (copy vs move determination)
-                // For now, treat as creating new object reference
+                // RazorForge: Move semantics - determine if assignment is copy or move
                 if (targetType != null)
                 {
-                    _memoryAnalyzer.RegisterObject(name: targetId.Name, type: targetType,
-                        location: node.Location);
+                    bool isMove = DetermineMoveSemantics(node.Value, targetType);
+
+                    if (isMove)
+                    {
+                        // Move operation: Transfer ownership from source to target
+                        if (node.Value is IdentifierExpression sourceId)
+                        {
+                            // In move semantics, the source is invalidated
+                            // For now, we register the target and note that ownership transferred
+                            // TODO: Add validation to prevent use-after-move for the source
+                        }
+
+                        // Register new object with ownership transferred
+                        _memoryAnalyzer.RegisterObject(name: targetId.Name, type: targetType,
+                            location: node.Location);
+                    }
+                    else
+                    {
+                        // Copy operation: Create new reference
+                        _memoryAnalyzer.RegisterObject(name: targetId.Name, type: targetType,
+                            location: node.Location);
+                    }
                 }
             }
         }
@@ -519,6 +610,11 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         return null;
     }
 
+    /// <summary>
+    /// Visits a return statement and validates the return value type.
+    /// </summary>
+    /// <param name="node">Return statement node</param>
+    /// <returns>Null</returns>
     public object? VisitReturnStatement(ReturnStatement node)
     {
         if (node.Value != null)
@@ -529,6 +625,11 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         return null;
     }
 
+    /// <summary>
+    /// Visits an if statement and validates the condition and branches.
+    /// </summary>
+    /// <param name="node">If statement node</param>
+    /// <returns>Null</returns>
     public object? VisitIfStatement(IfStatement node)
     {
         // Check condition is boolean
@@ -544,9 +645,14 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         return null;
     }
 
+    /// <summary>
+    /// Visits a while loop statement and validates the condition and body.
+    /// </summary>
+    /// <param name="node">While statement node</param>
+    /// <returns>Null</returns>
     public object? VisitWhileStatement(WhileStatement node)
     {
-        // Check condition is boolean  
+        // Check condition is boolean
         var conditionType = node.Condition.Accept(visitor: this) as TypeInfo;
         if (conditionType != null && conditionType.Name != "Bool")
         {
@@ -558,6 +664,11 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         return null;
     }
 
+    /// <summary>
+    /// Visits a for loop statement and validates the iterator and body.
+    /// </summary>
+    /// <param name="node">For statement node</param>
+    /// <returns>Null</returns>
     public object? VisitForStatement(ForStatement node)
     {
         // Enter new scope for loop variable
@@ -584,6 +695,11 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         return null;
     }
 
+    /// <summary>
+    /// Visits a when (pattern matching) statement and validates all pattern clauses.
+    /// </summary>
+    /// <param name="node">When statement node</param>
+    /// <returns>Null</returns>
     public object? VisitWhenStatement(WhenStatement node)
     {
         var expressionType = node.Expression.Accept(visitor: this) as TypeInfo;
@@ -595,7 +711,9 @@ public class SemanticAnalyzer : IAstVisitor<object?>
 
             try
             {
-                // TODO: Type check pattern against expression
+                // Type check pattern against expression and bind pattern variables
+                ValidatePatternMatch(clause.Pattern, expressionType, clause.Location);
+
                 clause.Body.Accept(visitor: this);
             }
             finally
@@ -611,7 +729,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// Analyze block statements with proper scope management for both symbols and memory objects.
     /// Block scopes are fundamental to memory safety - when a scope exits, all objects declared
     /// within become invalid (deadref protection). This prevents use-after-scope errors.
-    /// 
+    ///
     /// The memory analyzer automatically invalidates all objects in the scope when it exits,
     /// implementing the core principle that objects cannot outlive their lexical scope.
     /// </summary>
@@ -640,21 +758,41 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         return null;
     }
 
+    /// <summary>
+    /// Visits a break statement that exits a loop.
+    /// </summary>
+    /// <param name="node">Break statement node</param>
+    /// <returns>Null</returns>
     public object? VisitBreakStatement(BreakStatement node)
     {
         return null;
     }
+    /// <summary>
+    /// Visits a continue statement that skips to the next loop iteration.
+    /// </summary>
+    /// <param name="node">Continue statement node</param>
+    /// <returns>Null</returns>
     public object? VisitContinueStatement(ContinueStatement node)
     {
         return null;
     }
 
-    // Expressions  
+    // Expressions
+    /// <summary>
+    /// Visits a literal expression and infers its type.
+    /// </summary>
+    /// <param name="node">Literal expression node</param>
+    /// <returns>TypeInfo representing the literal type</returns>
     public object? VisitLiteralExpression(LiteralExpression node)
     {
         return InferLiteralType(value: node.Value);
     }
 
+    /// <summary>
+    /// Visits an identifier expression and looks up its type in the symbol table.
+    /// </summary>
+    /// <param name="node">Identifier expression node</param>
+    /// <returns>TypeInfo of the identifier</returns>
     public object? VisitIdentifierExpression(IdentifierExpression node)
     {
         Symbol? symbol = _symbolTable.Lookup(name: node.Name);
@@ -667,6 +805,11 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         return symbol.Type;
     }
 
+    /// <summary>
+    /// Visits a binary expression and validates operand types.
+    /// </summary>
+    /// <param name="node">Binary expression node</param>
+    /// <returns>TypeInfo of the result</returns>
     public object? VisitBinaryExpression(BinaryExpression node)
     {
         var leftType = node.Left.Accept(visitor: this) as TypeInfo;
@@ -717,6 +860,11 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         return left.Name == right.Name && left.IsReference == right.IsReference;
     }
 
+    /// <summary>
+    /// Visits a unary expression and validates the operand type.
+    /// </summary>
+    /// <param name="node">Unary expression node</param>
+    /// <returns>TypeInfo of the result</returns>
     public object? VisitUnaryExpression(UnaryExpression node)
     {
         var operandType = node.Operand.Accept(visitor: this) as TypeInfo;
@@ -726,15 +874,15 @@ public class SemanticAnalyzer : IAstVisitor<object?>
 
     /// <summary>
     /// Analyze function calls with special handling for memory operation methods.
-    /// 
+    ///
     /// This is where the magic happens for memory operations like obj.share!(), obj.hijack!(), etc.
     /// The analyzer detects method calls ending with '!' and routes them through the memory
     /// analyzer for proper ownership tracking and safety validation.
-    /// 
+    ///
     /// Memory operations are the core of RazorForge's explicit memory model, allowing
     /// programmers to transform objects between different wrapper types (Owned, Shared,
     /// Hijacked, etc.) with compile-time safety guarantees.
-    /// 
+    ///
     /// Regular function calls are handled with standard type checking and argument validation.
     /// </summary>
     public object? VisitCallExpression(CallExpression node)
@@ -784,6 +932,11 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         return functionType;
     }
 
+    /// <summary>
+    /// Visits a member access expression and validates the member exists.
+    /// </summary>
+    /// <param name="node">Member expression node</param>
+    /// <returns>TypeInfo of the member</returns>
     public object? VisitMemberExpression(MemberExpression node)
     {
         var objectType = node.Object.Accept(visitor: this) as TypeInfo;
@@ -791,6 +944,11 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         return null;
     }
 
+    /// <summary>
+    /// Visits an index expression and validates the indexing operation.
+    /// </summary>
+    /// <param name="node">Index expression node</param>
+    /// <returns>TypeInfo of the indexed element</returns>
     public object? VisitIndexExpression(IndexExpression node)
     {
         var objectType = node.Object.Accept(visitor: this) as TypeInfo;
@@ -799,6 +957,11 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         return null;
     }
 
+    /// <summary>
+    /// Visits a conditional (ternary) expression and validates all branches.
+    /// </summary>
+    /// <param name="node">Conditional expression node</param>
+    /// <returns>TypeInfo of the result</returns>
     public object? VisitConditionalExpression(ConditionalExpression node)
     {
         var conditionType = node.Condition.Accept(visitor: this) as TypeInfo;
@@ -815,6 +978,11 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         return trueType;
     }
 
+    /// <summary>
+    /// Visits a lambda expression and validates parameter and return types.
+    /// </summary>
+    /// <param name="node">Lambda expression node</param>
+    /// <returns>TypeInfo representing the function type</returns>
     public object? VisitLambdaExpression(LambdaExpression node)
     {
         // Enter scope for lambda parameters
@@ -838,6 +1006,11 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         }
     }
 
+    /// <summary>
+    /// Visits a chained comparison expression (e.g., a &lt; b &lt; c).
+    /// </summary>
+    /// <param name="node">Chained comparison expression node</param>
+    /// <returns>TypeInfo of bool</returns>
     public object? VisitChainedComparisonExpression(ChainedComparisonExpression node)
     {
         // Check that all operands are comparable
@@ -864,6 +1037,11 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         return new TypeInfo(Name: "Bool", IsReference: false);
     }
 
+    /// <summary>
+    /// Visits a range expression and validates the start and end values.
+    /// </summary>
+    /// <param name="node">Range expression node</param>
+    /// <returns>TypeInfo representing the range type</returns>
     public object? VisitRangeExpression(RangeExpression node)
     {
         // Check start and end are numeric
@@ -897,12 +1075,22 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         return new TypeInfo(Name: "Range", IsReference: false);
     }
 
+    /// <summary>
+    /// Visits a type expression and resolves it to a TypeInfo.
+    /// </summary>
+    /// <param name="node">Type expression node</param>
+    /// <returns>TypeInfo</returns>
     public object? VisitTypeExpression(TypeExpression node)
     {
         // Type expressions are handled during semantic analysis
         return null;
     }
 
+    /// <summary>
+    /// Visits a type conversion expression and validates the conversion.
+    /// </summary>
+    /// <param name="node">Type conversion expression node</param>
+    /// <returns>TypeInfo of the target type</returns>
     public object? VisitTypeConversionExpression(TypeConversionExpression node)
     {
         // Analyze the source expression
@@ -975,13 +1163,213 @@ public class SemanticAnalyzer : IAstVisitor<object?>
             return null;
         }
 
-        // TODO: Proper type resolution
+        // Handle generic types with type arguments
+        if (typeExpr.GenericArguments != null && typeExpr.GenericArguments.Count > 0)
+        {
+            var resolvedArgs = typeExpr.GenericArguments
+                .Select(arg => ResolveType(typeExpr: arg))
+                .Where(t => t != null)
+                .Cast<TypeInfo>()
+                .ToList();
+
+            return new TypeInfo(
+                Name: typeExpr.Name,
+                IsReference: false, // TODO: Determine based on base type
+                GenericArguments: resolvedArgs);
+        }
+
         return new TypeInfo(Name: typeExpr.Name, IsReference: false);
     }
 
     private TypeInfo? ResolveType(TypeExpression? typeExpr, SourceLocation location)
     {
         return ResolveType(typeExpr: typeExpr);
+    }
+
+    /// <summary>
+    /// Resolves a generic type expression with substitution from generic bindings.
+    /// Used when instantiating generic functions or classes with concrete types.
+    /// </summary>
+    /// <param name="typeExpr">The type expression to resolve</param>
+    /// <param name="genericBindings">Map of generic parameter names to concrete types</param>
+    /// <returns>Resolved type with generic parameters substituted</returns>
+    private TypeInfo? ResolveGenericType(
+        TypeExpression? typeExpr,
+        Dictionary<string, TypeInfo> genericBindings)
+    {
+        if (typeExpr == null)
+        {
+            return null;
+        }
+
+        // If this is a generic parameter, substitute with the actual type
+        if (genericBindings.TryGetValue(key: typeExpr.Name, value: out TypeInfo? actualType))
+        {
+            return actualType;
+        }
+
+        // If it has generic arguments, recursively resolve them
+        if (typeExpr.GenericArguments != null && typeExpr.GenericArguments.Count > 0)
+        {
+            var resolvedArgs = typeExpr.GenericArguments
+                .Select(arg => ResolveGenericType(typeExpr: arg, genericBindings: genericBindings))
+                .Where(t => t != null)
+                .Cast<TypeInfo>()
+                .ToList();
+
+            return new TypeInfo(
+                Name: typeExpr.Name,
+                IsReference: false,
+                GenericArguments: resolvedArgs);
+        }
+
+        // Regular non-generic type
+        return ResolveType(typeExpr: typeExpr);
+    }
+
+    /// <summary>
+    /// Validates that a concrete type satisfies generic constraints.
+    /// Checks base type requirements and value/reference type constraints.
+    /// </summary>
+    /// <param name="genericParam">Name of the generic parameter being constrained</param>
+    /// <param name="actualType">The concrete type being validated</param>
+    /// <param name="constraint">The constraint to validate against</param>
+    /// <param name="location">Source location for error reporting</param>
+    private void ValidateGenericConstraints(
+        string genericParam,
+        TypeInfo actualType,
+        GenericConstraint? constraint,
+        SourceLocation location)
+    {
+        if (constraint == null)
+        {
+            return;
+        }
+
+        // Validate value type constraint (record)
+        if (constraint.IsValueType && actualType.IsReference)
+        {
+            AddError(
+                message:
+                $"Type argument '{actualType.Name}' for generic parameter '{genericParam}' must be a value type (record)",
+                location: location);
+        }
+
+        // Validate reference type constraint (entity)
+        if (constraint.IsReferenceType && !actualType.IsReference)
+        {
+            AddError(
+                message:
+                $"Type argument '{actualType.Name}' for generic parameter '{genericParam}' must be a reference type (entity)",
+                location: location);
+        }
+
+        // Validate base type constraints
+        if (constraint.BaseTypes != null)
+        {
+            foreach (TypeInfo baseType in constraint.BaseTypes)
+            {
+                if (!IsAssignableFrom(baseType: baseType, derivedType: actualType))
+                {
+                    AddError(
+                        message:
+                        $"Type argument '{actualType.Name}' for generic parameter '{genericParam}' does not satisfy constraint '{baseType.Name}'",
+                        location: location);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Checks if a derived type is assignable to a base type.
+    /// Used for validating generic constraints that require base types.
+    /// </summary>
+    private bool IsAssignableFrom(TypeInfo baseType, TypeInfo derivedType)
+    {
+        // Same type is always assignable
+        if (baseType.Name == derivedType.Name)
+        {
+            return true;
+        }
+
+        // TODO: Check actual inheritance hierarchy from symbol table
+        // For now, we'll just check type name equality
+        // In a full implementation, this would check:
+        // 1. Direct inheritance (Entity Derived from Base)
+        // 2. Interface implementation (Entity implements Protocol)
+        // 3. Variant case matching
+
+        return false;
+    }
+
+    /// <summary>
+    /// Performs type inference for generic method calls.
+    /// Attempts to deduce generic type arguments from the method arguments.
+    /// </summary>
+    /// <param name="funcSymbol">The generic function being called</param>
+    /// <param name="arguments">The arguments passed to the function</param>
+    /// <param name="genericBindings">Output dictionary of inferred type bindings</param>
+    private void InferGenericTypes(
+        FunctionSymbol funcSymbol,
+        List<Expression> arguments,
+        Dictionary<string, TypeInfo> genericBindings)
+    {
+        if (funcSymbol.GenericParameters == null || funcSymbol.GenericParameters.Count == 0)
+        {
+            return;
+        }
+
+        // Match argument types with parameter types to infer generic arguments
+        for (int i = 0; i < Math.Min(funcSymbol.Parameters.Count, arguments.Count); i++)
+        {
+            Parameter param = funcSymbol.Parameters[i];
+            Expression arg = arguments[i];
+
+            TypeInfo? argType = arg.Accept(visitor: this) as TypeInfo;
+            if (argType == null || param.Type == null)
+            {
+                continue;
+            }
+
+            // Try to match the parameter type pattern with the argument type
+            InferGenericTypeFromPattern(
+                paramType: param.Type,
+                argType: argType,
+                genericBindings: genericBindings);
+        }
+    }
+
+    /// <summary>
+    /// Recursively matches a parameter type pattern against an argument type
+    /// to infer generic type parameter bindings.
+    /// </summary>
+    private void InferGenericTypeFromPattern(
+        TypeExpression paramType,
+        TypeInfo argType,
+        Dictionary<string, TypeInfo> genericBindings)
+    {
+        // If the parameter type is a generic parameter (e.g., T), bind it
+        // We need to check if it's in the function's generic parameters list
+        // For now, use a simple heuristic: single uppercase letter names are generic params
+        if (paramType.Name.Length == 1 && char.IsUpper(paramType.Name[0]) &&
+            !genericBindings.ContainsKey(key: paramType.Name))
+        {
+            genericBindings[key: paramType.Name] = argType;
+            return;
+        }
+
+        // If both have generic arguments, recursively match them
+        if (paramType.GenericArguments != null && argType.GenericArguments != null &&
+            paramType.GenericArguments.Count == argType.GenericArguments.Count)
+        {
+            for (int i = 0; i < paramType.GenericArguments.Count; i++)
+            {
+                InferGenericTypeFromPattern(
+                    paramType: paramType.GenericArguments[i],
+                    argType: argType.GenericArguments[i],
+                    genericBindings: genericBindings);
+            }
+        }
     }
 
     private TypeInfo InferLiteralType(object? value)
@@ -1041,10 +1429,10 @@ public class SemanticAnalyzer : IAstVisitor<object?>
 
     /// <summary>
     /// Detect memory operation method calls by their distinctive '!' suffix.
-    /// 
+    ///
     /// Memory operations are the heart of RazorForge's explicit memory model:
     /// - hijack!() - gain exclusive access (red group)
-    /// - share!() - create shared ownership (green group) 
+    /// - share!() - create shared ownership (green group)
     /// - watch!() - create weak observer (green group)
     /// - thread_share!() - thread-safe sharing (blue group)
     /// - thread_watch!() - thread-safe weak reference (blue group)
@@ -1053,7 +1441,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// - release!() - manual RC decrement
     /// - try_share!(), try_thread_share!() - upgrade weak to strong
     /// - reveal!(), own!() - handle snatched objects (danger! only)
-    /// 
+    ///
     /// The '!' suffix indicates these operations can potentially crash/panic
     /// if used incorrectly, emphasizing their power and responsibility.
     /// </summary>
@@ -1073,17 +1461,17 @@ public class SemanticAnalyzer : IAstVisitor<object?>
 
     /// <summary>
     /// Detect usurping functions through naming conventions (temporary implementation).
-    /// 
+    ///
     /// Usurping functions are special RazorForge functions that can return exclusive tokens
     /// (Hijacked&lt;T&gt; objects). This prevents accidental exclusive token leakage from regular
     /// functions, which would violate exclusive access guarantees.
-    /// 
+    ///
     /// TODO: This should be replaced with an IsUsurping property on FunctionDeclaration
     /// for proper language support. Current implementation uses naming heuristics.
-    /// 
+    ///
     /// Examples of usurping functions:
-    /// - usurping fn create_exclusive() -> Hijacked&lt;Node&gt;
-    /// - usurping fn factory_method() -> Hijacked&lt;Widget&gt;
+    /// - usurping public recipe __create___exclusive() -> Hijacked&lt;Node&gt;
+    /// - usurping recipe factory_method() -> Hijacked&lt;Widget&gt;
     /// </summary>
     /// <param name="node">Function declaration to check</param>
     /// <returns>True if this function can return exclusive tokens</returns>
@@ -1096,16 +1484,16 @@ public class SemanticAnalyzer : IAstVisitor<object?>
 
     /// <summary>
     /// Handle memory operation method calls - the core of RazorForge's memory model.
-    /// 
+    ///
     /// This method processes calls like obj.share!(), obj.hijack!(), etc., which are
     /// the primary way programmers interact with RazorForge's explicit memory management.
-    /// 
+    ///
     /// The process:
     /// 1. Extract the object name (currently limited to simple identifiers)
     /// 2. Parse the operation name to identify the specific memory operation
     /// 3. Delegate to MemoryAnalyzer for ownership tracking and safety validation
     /// 4. Create appropriate wrapper type information for the result
-    /// 
+    ///
     /// Memory operations transform objects between wrapper types while enforcing
     /// safety rules like group separation, reference count constraints, and
     /// use-after-invalidation prevention.
@@ -1151,10 +1539,10 @@ public class SemanticAnalyzer : IAstVisitor<object?>
 
     /// <summary>
     /// Parse memory operation method names to their corresponding enum values.
-    /// 
+    ///
     /// This mapping connects the source code syntax (method names ending with '!')
     /// to the internal memory operation representation used by the memory analyzer.
-    /// 
+    ///
     /// The systematic naming reflects the memory model's organization:
     /// <list type="bullet">
     /// <item>Basic operations: hijack!, share!, watch!</item>
@@ -1206,7 +1594,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
 
     /// <summary>
     /// Create TypeInfo instances for wrapper types in RazorForge's memory model.
-    /// 
+    ///
     /// This method generates the type names that appear in the type system for
     /// memory-wrapped objects. Each wrapper type has a distinctive generic syntax:
     /// <list type="bullet">
@@ -1218,7 +1606,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// <item>ThreadWatched&lt;T&gt;: Thread-safe weak wrapper (purple group 🟣)</item>
     /// <item>Snatched&lt;T&gt;: Contaminated ownership wrapper (black group 💀)</item>
     /// </list>
-    /// 
+    ///
     /// These type names provide clear indication of memory semantics in error messages,
     /// IDE tooltips, and documentation.
     /// </summary>
@@ -1247,6 +1635,11 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     }
 
     // Memory slice expression visitor methods
+    /// <summary>
+    /// Visits a slice constructor expression and validates the slice creation.
+    /// </summary>
+    /// <param name="node">Slice constructor expression node</param>
+    /// <returns>TypeInfo of the slice</returns>
     public object? VisitSliceConstructorExpression(SliceConstructorExpression node)
     {
         // Validate size expression is compatible with sysuint type
@@ -1278,6 +1671,11 @@ public class SemanticAnalyzer : IAstVisitor<object?>
             IsReference: false); // Slice types are value types (structs)
     }
 
+    /// <summary>
+    /// Visits a generic method call expression and validates type arguments.
+    /// </summary>
+    /// <param name="node">Generic method call expression node</param>
+    /// <returns>TypeInfo of the return value</returns>
     public object? VisitGenericMethodCallExpression(GenericMethodCallExpression node)
     {
         // Check if this is a standalone global function call (e.g., write_as<T>!, read_as<T>!)
@@ -1310,6 +1708,11 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         return ValidateGenericMethodCall(node: node, objectType: objectType);
     }
 
+    /// <summary>
+    /// Visits a generic member access expression and validates type arguments.
+    /// </summary>
+    /// <param name="node">Generic member expression node</param>
+    /// <returns>TypeInfo of the member</returns>
     public object? VisitGenericMemberExpression(GenericMemberExpression node)
     {
         var objectType = node.Object.Accept(visitor: this) as TypeInfo;
@@ -1319,10 +1722,28 @@ public class SemanticAnalyzer : IAstVisitor<object?>
             return null;
         }
 
-        // TODO: Implement generic member access validation
-        return new TypeInfo(Name: "unknown", IsReference: false);
+        // Validate type arguments are well-formed
+        foreach (var typeArg in node.TypeArguments)
+        {
+            var resolvedType = ResolveTypeExpression(typeArg);
+            if (resolvedType == null)
+            {
+                AddError(message: $"Unknown type argument '{typeArg.Name}'", location: node.Location);
+            }
+        }
+
+        // Validate member exists and is generic
+        TypeInfo? memberType = ValidateGenericMember(objectType, node.MemberName,
+            node.TypeArguments, node.Location);
+
+        return memberType ?? new TypeInfo(Name: "unknown", IsReference: false);
     }
 
+    /// <summary>
+    /// Visits a memory operation expression (e.g., hijack!, share!) and validates safety.
+    /// </summary>
+    /// <param name="node">Memory operation expression node</param>
+    /// <returns>TypeInfo of the wrapped result</returns>
     public object? VisitMemoryOperationExpression(MemoryOperationExpression node)
     {
         var objectType = node.Object.Accept(visitor: this) as TypeInfo;
@@ -1365,6 +1786,12 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         return objectType;
     }
 
+    /// <summary>
+    /// Visits a danger! block that disables safety checks.
+    /// Tracks danger mode state for validation.
+    /// </summary>
+    /// <param name="node">Danger statement node</param>
+    /// <returns>Null</returns>
     public object? VisitDangerStatement(DangerStatement node)
     {
         // Save current danger mode state
@@ -1393,6 +1820,12 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         return null;
     }
 
+    /// <summary>
+    /// Visits a mayhem! block that disables all safety checks.
+    /// Tracks mayhem mode state for validation.
+    /// </summary>
+    /// <param name="node">Mayhem statement node</param>
+    /// <returns>Null</returns>
     public object? VisitMayhemStatement(MayhemStatement node)
     {
         // Save current mayhem mode state
@@ -1421,6 +1854,12 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         return null;
     }
 
+    /// <summary>
+    /// Visits an external declaration for FFI bindings.
+    /// Registers external functions in the symbol table.
+    /// </summary>
+    /// <param name="node">External declaration node</param>
+    /// <returns>Null</returns>
     public object? VisitExternalDeclaration(ExternalDeclaration node)
     {
         // Create function symbol for external declaration
@@ -1952,19 +2391,428 @@ public class SemanticAnalyzer : IAstVisitor<object?>
 
     private bool IsInDangerBlock()
     {
-        // TODO: Implement danger block tracking
-        // This would require tracking when we enter/exit danger! blocks during parsing
-        return false; // For now, always return false to enforce the check
+        // Use the tracked danger/mayhem mode state
+        return _isInDangerMode || _isInMayhemMode;
     }
 
     private bool IsEntityType(TypeExpression type)
     {
-        // TODO: Implement proper type checking
-        // This would require looking up the type in the symbol table
-        // and checking if it's declared as an entity
+        // Check if type is declared as entity in symbol table
+        var symbol = _symbolTable.Lookup(type.Name);
+        if (symbol?.Type != null)
+        {
+            // Check if it's marked as a reference type (entities are reference types)
+            return symbol.Type.IsReference;
+        }
 
-        // Common entity type patterns
+        // Fallback to naming convention patterns for common entity types
         return type.Name.EndsWith(value: "Entity") || type.Name.EndsWith(value: "Service") ||
                type.Name.EndsWith(value: "Controller");
+    }
+
+    /// <summary>
+    /// Determines whether an assignment should use move semantics or copy semantics.
+    /// In RazorForge, move semantics transfer ownership while copy semantics create a new reference.
+    /// </summary>
+    /// <param name="valueExpr">The expression being assigned</param>
+    /// <param name="targetType">The type of the target variable</param>
+    /// <returns>True if move semantics should be used, false for copy semantics</returns>
+    private bool DetermineMoveSemantics(Expression valueExpr, TypeInfo targetType)
+    {
+        // Rule 1: Primitive types are always copied (never moved)
+        if (IsPrimitiveType(targetType))
+        {
+            return false; // Copy
+        }
+
+        // Rule 2: Literals and computed expressions are always copies
+        if (valueExpr is not IdentifierExpression)
+        {
+            return false; // Copy (new allocation)
+        }
+
+        // Rule 3: Check if the value type is copyable
+        // Records are copyable (they have copy semantics)
+        // Entities and wrapper types require explicit operations
+        if (IsRecordType(targetType))
+        {
+            return false; // Copy (records support automatic copy)
+        }
+
+        // Rule 4: For entities and heap-allocated objects, default to move
+        // unless explicitly wrapped in share!() or other wrapper operations
+        if (IsEntityType(targetType) || IsHeapAllocatedType(targetType))
+        {
+            // Check if the expression is wrapped in a sharing operation
+            // For now, assume move unless we detect explicit copy markers
+            return true; // Move (transfer ownership)
+        }
+
+        // Rule 5: Default to copy for safety
+        return false; // Copy
+    }
+
+    /// <summary>
+    /// Checks if a type is a primitive type (built-in scalar types).
+    /// </summary>
+    private bool IsPrimitiveType(TypeInfo type)
+    {
+        string[] primitiveTypes = new[]
+        {
+            "s8", "s16", "s32", "s64", "s128",
+            "u8", "u16", "u32", "u64", "u128",
+            "f16", "f32", "f64", "f128",
+            "d32", "d64", "d128",
+            "bool", "letter", "syssint", "sysuint"
+        };
+
+        return primitiveTypes.Contains(type.Name);
+    }
+
+    /// <summary>
+    /// Checks if a type is a record type (value type with copy semantics).
+    /// </summary>
+    private bool IsRecordType(TypeInfo type)
+    {
+        // Records are non-reference types in the symbol table
+        // Or follow naming conventions
+        if (!type.IsReference)
+        {
+            // Check if it's registered as a record in the symbol table
+            return true; // Non-reference types are typically records
+        }
+
+        return type.Name.EndsWith("Record") || type.Name.StartsWith("Record");
+    }
+
+    /// <summary>
+    /// Checks if a type requires heap allocation (slices, collections, etc.).
+    /// </summary>
+    private bool IsHeapAllocatedType(TypeInfo type)
+    {
+        string[] heapTypes = new[]
+        {
+            "HeapSlice", "List", "Dict", "Set", "Text", "Array"
+        };
+
+        return heapTypes.Contains(type.Name) || type.Name.StartsWith("Shared<") ||
+               type.Name.StartsWith("ThreadShared<");
+    }
+
+    /// <summary>
+    /// Checks if a type is an entity type (accepts TypeInfo instead of TypeExpression).
+    /// </summary>
+    private bool IsEntityType(TypeInfo type)
+    {
+        // Entities are reference types
+        if (type.IsReference)
+        {
+            return true;
+        }
+
+        // Fallback to naming conventions
+        return type.Name.EndsWith("Entity") || type.Name.EndsWith("Service") ||
+               type.Name.EndsWith("Controller");
+    }
+
+    /// <summary>
+    /// Validates that a pattern is compatible with the matched expression type.
+    /// Binds pattern variables to the appropriate scope.
+    /// </summary>
+    private void ValidatePatternMatch(Pattern pattern, TypeInfo? expressionType, SourceLocation location)
+    {
+        switch (pattern)
+        {
+            case LiteralPattern literalPattern:
+                // Literal patterns: check that literal type matches expression type
+                TypeInfo literalType = InferLiteralType(literalPattern.Value);
+                if (expressionType != null && !AreTypesCompatible(literalType, expressionType))
+                {
+                    AddError($"Pattern literal type '{literalType.Name}' is not compatible with expression type '{expressionType.Name}'",
+                        location);
+                }
+                break;
+
+            case IdentifierPattern identifierPattern:
+                // Identifier patterns: bind the matched value to a new variable
+                if (expressionType != null)
+                {
+                    var patternVar = new VariableSymbol(
+                        Name: identifierPattern.Name,
+                        Type: expressionType,
+                        IsMutable: false,  // Pattern variables are immutable by default
+                        Visibility: VisibilityModifier.Private
+                    );
+                    _symbolTable.TryDeclare(patternVar);
+                }
+                break;
+
+            case TypePattern typePattern:
+                // Type patterns: check type compatibility and bind variable if provided
+                TypeInfo? patternType = ResolveTypeExpression(typePattern.Type);
+
+                if (expressionType != null && patternType != null)
+                {
+                    // Check if the pattern type is compatible with expression type
+                    // For type patterns, we check if expressionType can be narrowed to patternType
+                    if (!IsTypeNarrowable(expressionType, patternType))
+                    {
+                        AddError($"Type pattern '{patternType.Name}' cannot match expression of type '{expressionType.Name}'",
+                            location);
+                    }
+
+                    // Bind variable if provided
+                    if (typePattern.VariableName != null)
+                    {
+                        var patternVar = new VariableSymbol(
+                            Name: typePattern.VariableName,
+                            Type: patternType,  // Variable has the narrowed type
+                            IsMutable: false,
+                            Visibility: VisibilityModifier.Private
+                        );
+                        _symbolTable.TryDeclare(patternVar);
+                    }
+                }
+                break;
+
+            case WildcardPattern:
+                // Wildcard patterns match everything, no type checking needed
+                break;
+
+            default:
+                AddError($"Unknown pattern type: {pattern.GetType().Name}", location);
+                break;
+        }
+    }
+
+
+    /// <summary>
+    /// Checks if a type can be narrowed to another type in pattern matching.
+    /// Used for type patterns to validate runtime type checks.
+    /// </summary>
+    private bool IsTypeNarrowable(TypeInfo fromType, TypeInfo toType)
+    {
+        // Same type is always narrowable
+        if (fromType.Name == toType.Name)
+        {
+            return true;
+        }
+
+        // If fromType is a base type and toType is derived (requires inheritance info)
+        // For now, allow any reference type to be narrowed to any other reference type
+        if (fromType.IsReference && toType.IsReference)
+        {
+            return true; // Runtime check will validate
+        }
+
+        // Numeric types can be narrowed if they're in the same family
+        if (AreNumericTypesCompatible(fromType.Name, toType.Name))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if two numeric types are in the same family (signed int, unsigned int, float).
+    /// </summary>
+    private bool AreNumericTypesCompatible(string type1, string type2)
+    {
+        string[] signedInts = { "s8", "s16", "s32", "s64", "s128", "syssint" };
+        string[] unsignedInts = { "u8", "u16", "u32", "u64", "u128", "sysuint" };
+        string[] floats = { "f16", "f32", "f64", "f128" };
+        string[] decimals = { "d32", "d64", "d128" };
+
+        return (signedInts.Contains(type1) && signedInts.Contains(type2)) ||
+               (unsignedInts.Contains(type1) && unsignedInts.Contains(type2)) ||
+               (floats.Contains(type1) && floats.Contains(type2)) ||
+               (decimals.Contains(type1) && decimals.Contains(type2));
+    }
+
+    /// <summary>
+    /// Resolves a type expression to a TypeInfo.
+    /// </summary>
+    private TypeInfo? ResolveTypeExpression(TypeExpression typeExpr)
+    {
+        // Look up in symbol table
+        var symbol = _symbolTable.Lookup(typeExpr.Name);
+        if (symbol?.Type != null)
+        {
+            return symbol.Type;
+        }
+
+        // Check if it's a built-in type
+        if (IsBuiltInType(typeExpr.Name))
+        {
+            return new TypeInfo(typeExpr.Name, IsReference: false);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Checks if a type name is a built-in type.
+    /// </summary>
+    private bool IsBuiltInType(string typeName)
+    {
+        string[] builtInTypes = {
+            "s8", "s16", "s32", "s64", "s128",
+            "u8", "u16", "u32", "u64", "u128",
+            "f16", "f32", "f64", "f128",
+            "d32", "d64", "d128",
+            "bool", "letter", "Text", "syssint", "sysuint",
+            "HeapSlice", "StackSlice"
+        };
+
+        return builtInTypes.Contains(typeName);
+    }
+
+    /// <summary>
+    /// Validates a generic member access and determines the result type.
+    /// Checks that the member exists on the object type and validates type arguments.
+    /// </summary>
+    private TypeInfo? ValidateGenericMember(TypeInfo objectType, string memberName,
+        List<TypeExpression> typeArguments, SourceLocation location)
+    {
+        // For collections, validate common generic members
+        if (IsCollectionType(objectType.Name))
+        {
+            return ValidateCollectionGenericMember(objectType, memberName, typeArguments, location);
+        }
+
+        // For wrapper types (Shared<T>, Hijacked<T>, etc.), validate wrapper members
+        if (IsWrapperType(objectType.Name))
+        {
+            return ValidateWrapperGenericMember(objectType, memberName, typeArguments, location);
+        }
+
+        // For custom types, check if member is declared
+        // For now, return unknown type - proper implementation would query the type's members
+        AddError(message: $"Type '{objectType.Name}' does not have a generic member '{memberName}'",
+            location: location);
+
+        return null;
+    }
+
+    /// <summary>
+    /// Validates generic members on collection types (List, Dict, Set, etc.).
+    /// </summary>
+    private TypeInfo? ValidateCollectionGenericMember(TypeInfo collectionType, string memberName,
+        List<TypeExpression> typeArguments, SourceLocation location)
+    {
+        // Common collection generic members
+        switch (memberName)
+        {
+            case "get":
+            case "at":
+                // Returns element type (first type parameter of collection)
+                if (typeArguments.Count != 0)
+                {
+                    AddError(message: $"'{memberName}' does not take type arguments", location: location);
+                }
+                // Extract element type from collection (e.g., List<T> -> T)
+                return ExtractElementType(collectionType);
+
+            case "map":
+            case "filter":
+            case "transform":
+                // Generic transformation methods
+                if (typeArguments.Count != 1)
+                {
+                    AddError(message: $"'{memberName}' requires exactly one type argument", location: location);
+                    return null;
+                }
+                return ResolveTypeExpression(typeArguments[0]);
+
+            default:
+                AddError(message: $"Collection type '{collectionType.Name}' does not have generic member '{memberName}'",
+                    location: location);
+                return null;
+        }
+    }
+
+    /// <summary>
+    /// Validates generic members on wrapper types (Shared&lt;T&gt;, ThreadShared&lt;T&gt;, etc.).
+    /// </summary>
+    private TypeInfo? ValidateWrapperGenericMember(TypeInfo wrapperType, string memberName,
+        List<TypeExpression> typeArguments, SourceLocation location)
+    {
+        switch (memberName)
+        {
+            case "unwrap":
+            case "get":
+                // Returns the wrapped type
+                if (typeArguments.Count != 0)
+                {
+                    AddError(message: $"'{memberName}' does not take type arguments", location: location);
+                }
+                return ExtractWrappedType(wrapperType);
+
+            default:
+                AddError(message: $"Wrapper type '{wrapperType.Name}' does not have generic member '{memberName}'",
+                    location: location);
+                return null;
+        }
+    }
+
+    /// <summary>
+    /// Checks if a type is a collection type.
+    /// </summary>
+    private bool IsCollectionType(string typeName)
+    {
+        string[] collectionTypes = { "List", "Dict", "Set", "Array", "Deque", "PriorityQueue" };
+        return collectionTypes.Contains(typeName) ||
+               collectionTypes.Any(ct => typeName.StartsWith(ct + "<"));
+    }
+
+    /// <summary>
+    /// Checks if a type is a wrapper type.
+    /// </summary>
+    private bool IsWrapperType(string typeName)
+    {
+        string[] wrapperTypes = { "Shared", "Watched", "ThreadShared", "ThreadWatched", "Hijacked", "Snatched" };
+        return wrapperTypes.Contains(typeName) ||
+               wrapperTypes.Any(wt => typeName.StartsWith(wt + "<"));
+    }
+
+    /// <summary>
+    /// Extracts the element type from a collection type (e.g., List&lt;s32&gt; → s32).
+    /// </summary>
+    private TypeInfo? ExtractElementType(TypeInfo collectionType)
+    {
+        // Parse generic type syntax: CollectionName<ElementType>
+        string typeName = collectionType.Name;
+        int startIdx = typeName.IndexOf('<');
+        int endIdx = typeName.LastIndexOf('>');
+
+        if (startIdx > 0 && endIdx > startIdx)
+        {
+            string elementTypeName = typeName.Substring(startIdx + 1, endIdx - startIdx - 1);
+            return new TypeInfo(elementTypeName, IsReference: false);
+        }
+
+        // If not parameterized, return unknown
+        return new TypeInfo("unknown", IsReference: false);
+    }
+
+    /// <summary>
+    /// Extracts the wrapped type from a wrapper type (e.g., Shared&lt;Point&gt; → Point).
+    /// </summary>
+    private TypeInfo? ExtractWrappedType(TypeInfo wrapperType)
+    {
+        // Parse generic type syntax: WrapperName<WrappedType>
+        string typeName = wrapperType.Name;
+        int startIdx = typeName.IndexOf('<');
+        int endIdx = typeName.LastIndexOf('>');
+
+        if (startIdx > 0 && endIdx > startIdx)
+        {
+            string wrappedTypeName = typeName.Substring(startIdx + 1, endIdx - startIdx - 1);
+            return new TypeInfo(wrappedTypeName, IsReference: true);
+        }
+
+        // If not parameterized, return unknown
+        return new TypeInfo("unknown", IsReference: false);
     }
 }

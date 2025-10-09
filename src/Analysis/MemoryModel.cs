@@ -5,7 +5,7 @@ namespace Compilers.Shared.Analysis;
 /// <summary>
 /// Memory model support for RazorForge and Cake languages.
 /// Handles ownership tracking, wrapper types, and memory safety analysis.
-/// 
+///
 /// RazorForge uses explicit memory management with 6 wrapper types organized into 3 color-coded groups:
 /// <list type="bullet">
 /// <item>Group 1 (Red): Exclusive borrowing - Hijacked&lt;T&gt;</item>
@@ -13,7 +13,7 @@ namespace Compilers.Shared.Analysis;
 /// <item>Group 3 (Blue/Purple): Multi-threaded RC - ThreadShared&lt;T&gt;, ThreadWatched&lt;T&gt;</item>
 /// <item>Unsafe (Black): Forcibly taken - Snatched&lt;T&gt; (danger! blocks only)</item>
 /// </list>
-/// 
+///
 /// Cake uses automatic reference counting with incremental garbage collection.
 /// </summary>
 /// <summary>
@@ -84,7 +84,7 @@ public enum WrapperType
 public enum MemoryGroup
 {
     /// <summary>
-    /// Group 1: Exclusive borrowing (Red 🔴). 
+    /// Group 1: Exclusive borrowing (Red 🔴).
     /// Contains: Owned, Hijacked. Provides exclusive access to objects.
     /// Cannot coexist with other groups - enforces single-owner semantics.
     /// </summary>
@@ -184,7 +184,7 @@ public record MemoryObject(
         // Group 2: Single-threaded reference counting
         WrapperType.Shared or WrapperType.Watched => MemoryGroup.SingleThreaded,
 
-        // Group 3: Multi-threaded reference counting  
+        // Group 3: Multi-threaded reference counting
         WrapperType.ThreadShared or WrapperType.ThreadWatched => MemoryGroup.MultiThreaded,
 
         // Unsafe: Danger zone
@@ -297,7 +297,7 @@ public record MemoryObject(
 /// Memory operation types corresponding to method calls in RazorForge source code.
 /// Each operation transforms objects between different wrapper types or modifies reference counts.
 /// Operations ending with '!' can potentially crash/panic on invalid use.
-/// 
+///
 /// The operations are grouped by their primary purpose:
 /// <list type="bullet">
 /// <item>Group Transformations: hijack!(), share!(), thread_share!() - change wrapper type</item>
@@ -472,7 +472,7 @@ public record MemoryError(
         /// <summary>
         /// Reference count constraint violation.
         /// Caused by operations that require specific RC values failing those constraints.
-        /// Example: steal!() when RC > 1, or release!() when RC <= 1.
+        /// Example: steal!() when RC &gt; 1, or release!() when RC &lt;= 1.
         /// </summary>
         ReferenceCountError,
 
@@ -531,7 +531,7 @@ public enum FunctionType
     /// Most functions fall into this category and cannot return Hijacked&lt;T&gt;
     /// objects since that would violate exclusive access guarantees.
     /// Can return Owned, Shared, Watched, ThreadShared, ThreadWatched objects.
-    /// Example: fn process_data(data: Node) -&gt; Node
+    /// Example: recipe process_data(data: Node) → Node
     /// </summary>
     Regular,
 
@@ -540,7 +540,7 @@ public enum FunctionType
     /// Special functions explicitly marked as 'usurping' that are allowed
     /// to return exclusive access objects. Used for factory functions or
     /// specialized operations that need to provide exclusive access.
-    /// Example: usurping fn create_exclusive() -&gt; Hijacked&lt;Node&gt;
+    /// Example: usurping public recipe __create___exclusive() → Hijacked&lt;Node&gt;
     /// </summary>
     Usurping
 }
