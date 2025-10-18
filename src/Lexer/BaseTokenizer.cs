@@ -2,12 +2,14 @@ namespace Compilers.Shared.Lexer;
 
 /// <summary>
 /// Abstract base class for lexical analyzers that tokenize source code.
-/// Provides common functionality for scanning and tokenizing text literals, numbers, 
-/// identifiers, and other language constructs. Concrete implementations handle 
+/// Provides common functionality for scanning and tokenizing text literals, numbers,
+/// identifiers, and other language constructs. Concrete implementations handle
 /// language-specific tokenization rules.
 /// </summary>
 public abstract class BaseTokenizer
 {
+    #region Fields and State
+
     /// <summary>The complete source code text being tokenized</summary>
     protected readonly string Source;
 
@@ -32,6 +34,10 @@ public abstract class BaseTokenizer
     /// <summary>List of tokens that have been successfully parsed from the source</summary>
     protected readonly List<Token> Tokens = [];
 
+    #endregion
+
+    #region Initialization and Abstract Methods
+
     /// <summary>
     /// Initializes a new tokenizer with the source code to be tokenized.
     /// </summary>
@@ -55,7 +61,9 @@ public abstract class BaseTokenizer
     /// <returns>A dictionary mapping keyword strings to their corresponding token types</returns>
     protected abstract Dictionary<string, TokenType> GetKeywords();
 
-    // ===== COMMON HELPER METHODS =====
+    #endregion
+
+    #region Character Navigation
 
     /// <summary>
     /// Advances to the next character in the source text and returns the current character.
@@ -130,6 +138,10 @@ public abstract class BaseTokenizer
         return Position >= Source.Length;
     }
 
+    #endregion
+
+    #region Token Management
+
     /// <summary>
     /// Adds a token of the specified type using the text from tokenStart to current position.
     /// </summary>
@@ -151,7 +163,9 @@ public abstract class BaseTokenizer
             Column: TokenStartColumn, Position: TokenStart));
     }
 
-    // ===== COMMON SCANNING METHODS =====
+    #endregion
+
+    #region Number Scanning
 
     /// <summary>
     /// Scans a numeric literal, handling integers, floats, and suffixed numbers.
@@ -283,6 +297,9 @@ public abstract class BaseTokenizer
         }
     }
 
+    #endregion
+
+    #region Character and String Scanning
 
     /// <summary>
     /// Scans a character literal enclosed in single quotes.
@@ -440,78 +457,9 @@ public abstract class BaseTokenizer
         };
     }
 
-    /// <summary>
-    /// Scans a comment, handling both regular (#) and documentation (##) comments.
-    /// Regular comments are ignored, doc comments are tokenized.
-    /// </summary>
-    protected void ScanComment()
-    {
-        if (Peek() == '#' && Peek(offset: 1) == '#')
-        {
-            Advance();
-            Advance();
+    #endregion
 
-            int start = Position;
-            while (Peek() != '\n' && !IsAtEnd())
-            {
-                Advance();
-            }
-
-            string text = Source.Substring(startIndex: start, length: Position - start);
-            AddToken(type: TokenType.DocComment, text: text);
-        }
-        else
-        {
-            while (Peek() != '\n' && !IsAtEnd())
-            {
-                Advance();
-            }
-        }
-    }
-
-    /// <summary>
-    /// Scans an identifier, handling keywords, regular identifiers, and type identifiers.
-    /// Supports trailing ! and ? operators and distinguishes PascalCase from snake_case.
-    /// </summary>
-    protected virtual void ScanIdentifier()
-    {
-        while (IsIdentifierPart(c: Peek()))
-        {
-            Advance();
-        }
-
-        string text = Source.Substring(startIndex: TokenStart, length: Position - TokenStart);
-
-        // Note: ! is handled as a separate token, not part of identifiers
-        // (removed the automatic inclusion of ! in identifier tokens)
-        if (Peek() == '?')
-        {
-            Advance();
-            text += "?";
-
-            if (Peek() == '?')
-            {
-                Advance();
-                text += "?";
-            }
-        }
-
-        Dictionary<string, TokenType> keywords = GetKeywords();
-        if (keywords.TryGetValue(key: text, value: out TokenType type))
-        {
-            AddToken(type: type, text: text);
-            return;
-        }
-
-        if (string.IsNullOrEmpty(value: text))
-        {
-            return;
-        }
-
-        AddToken(type: char.IsUpper(c: text[index: 0])
-            ? TokenType.TypeIdentifier
-            : TokenType.Identifier, text: text);
-    }
+    #region Suffix Mapping Dictionaries
 
     /// <summary>Maps numeric suffixes (s32, f64, etc.) to their corresponding token types</summary>
     protected readonly Dictionary<string, TokenType> _numericSuffixToTokenType = new()
@@ -599,7 +547,9 @@ public abstract class BaseTokenizer
         "text16rf"
     ];
 
-    // ===== HELPER PREDICATES =====
+    #endregion
+
+    #region Helper Predicates
 
     /// <summary>Checks if a character can start an identifier (letter or underscore)</summary>
     /// <param name="c">Character to check</param>
@@ -647,144 +597,86 @@ public abstract class BaseTokenizer
         return _durationSuffixToTokenType.ContainsKey(key: s);
     }
 
-    /// <summary>
-    /// Attempts to parse a text prefix (r, f, t8, etc.) followed by a quoted string.
-    /// Uses the _textPrefixes list to dynamically match valid prefixes.
-    /// </summary>
-    /// <returns>True if a valid text prefix was found and processed</returns>
-    protected bool TryParseTextPrefix()
-    {
-        int startPos = Position - 1; // We already consumed the first character
-        int originalPos = Position;
-        int originalCol = Column;
+    #endregion
 
-        // Backup the first character we already consumed
-        char firstChar = Source[index: startPos];
-        string prefix = firstChar.ToString();
-
-        // Try to build the longest possible prefix
-        while (!IsAtEnd() && char.IsLetterOrDigit(c: Peek()))
-        {
-            string testPrefix = prefix + Peek();
-            if (_textPrefixes.Any(predicate: p => p.StartsWith(value: testPrefix)))
-            {
-                prefix += Advance();
-            }
-            else
-            {
-                break;
-            }
-        }
-
-        // Check if we found a valid prefix
-        if (!_textPrefixToTokenType.ContainsKey(key: prefix))
-        {
-            // Not a valid text prefix, reset and treat as identifier
-            Position = originalPos;
-            Column = originalCol;
-            return false;
-        }
-
-        // Check if this prefix is followed by a quote
-        if (Peek() != '"')
-        {
-            // Not a text prefix, reset and treat as identifier
-            Position = originalPos;
-            Column = originalCol;
-            return false;
-        }
-
-        // Consume the opening quote
-        Advance();
-
-        // Get the token type from the dictionary
-        TokenType tokenType = _textPrefixToTokenType[key: prefix];
-
-        // Determine the properties for scanning
-        bool isRaw = prefix.Contains(value: 'r');
-        bool isFormatted = prefix.Contains(value: 'f');
-
-        // Determine bit width from prefix
-        int bitWidth = 32; // default
-        if (prefix.Contains(value: "text8"))
-        {
-            bitWidth = 8;
-        }
-        else if (prefix.Contains(value: "text16"))
-        {
-            bitWidth = 16;
-        }
-        // text32 is the default, so all other prefixes use 32-bit
-
-        // Scan the string literal with the determined properties and specific token type
-        ScanStringLiteralWithType(isRaw: isRaw, isFormatted: isFormatted, tokenType: tokenType,
-            bitWidth: bitWidth);
-        return true;
-    }
+    #region Comment and Identifier Scanning
 
     /// <summary>
-    /// Scans a text literal with specified properties, determining the appropriate token type.
+    /// Scans a comment, handling both regular (#) and documentation (##) comments.
+    /// Regular comments are ignored, doc comments are tokenized.
     /// </summary>
-    /// <param name="isRaw">Whether the text is raw (no escape processing)</param>
-    /// <param name="isFormatted">Whether the text supports interpolation</param>
-    protected void ScanStringLiteral(bool isRaw, bool isFormatted)
+    protected void ScanComment()
     {
-        TokenType tokenType = (isRaw, isFormatted) switch
+        if (Peek() == '#' && Peek(offset: 1) == '#')
         {
-            (true, true) => TokenType.RawFormattedText,
-            (true, false) => TokenType.RawText,
-            (false, true) => TokenType.FormattedText,
-            _ => TokenType.TextLiteral
-        };
+            Advance();
+            Advance();
 
-        ScanStringLiteralWithType(isRaw: isRaw, isFormatted: isFormatted, tokenType: tokenType,
-            bitWidth: 32); // Default 32-bit for regular text
-    }
-
-    /// <summary>
-    /// Scans a text literal with the specified token type, handling escape sequences and interpolation.
-    /// </summary>
-    /// <param name="isRaw">Whether to process escape sequences</param>
-    /// <param name="isFormatted">Whether the text supports interpolation (for future use)</param>
-    /// <param name="tokenType">The specific token type to create</param>
-    /// <param name="bitWidth">The bit width for Unicode escapes (8, 16, or 32)</param>
-    protected void ScanStringLiteralWithType(bool isRaw, bool isFormatted, TokenType tokenType,
-        int bitWidth = 32)
-    {
-        int startLine = Line;
-        int startColumn = Column;
-        var content = new System.Text.StringBuilder();
-
-        while (!IsAtEnd() && Peek() != '"')
-        {
-            if (Peek() == '\n')
+            int start = Position;
+            while (Peek() != '\n' && !IsAtEnd())
             {
-                content.Append(value: '\n');
                 Advance();
             }
-            else if (!isRaw && Peek() == '\\')
-            {
-                int escapeStart = Position;
-                Advance(); // consume backslash
-                ScanEscapeSequence(bitWidth: bitWidth);
-                content.Append(value: ParseEscapeSequence(escapeStart: escapeStart,
-                    bitWidth: bitWidth));
-            }
-            else
-            {
-                content.Append(value: Advance());
-            }
-        }
 
-        if (IsAtEnd())
+            string text = Source.Substring(startIndex: start, length: Position - start);
+            AddToken(type: TokenType.DocComment, text: text);
+        }
+        else
         {
-            throw new LexerException(
-                message: $"Unterminated text starting at line {startLine}, column {startColumn}");
+            while (Peek() != '\n' && !IsAtEnd())
+            {
+                Advance();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Scans an identifier, handling keywords, regular identifiers, and type identifiers.
+    /// Supports trailing ! and ? operators and distinguishes PascalCase from snake_case.
+    /// </summary>
+    protected virtual void ScanIdentifier()
+    {
+        while (IsIdentifierPart(c: Peek()))
+        {
+            Advance();
         }
 
-        Advance(); // consume closing quote
-        AddToken(type: tokenType, text: content.ToString());
+        string text = Source.Substring(startIndex: TokenStart, length: Position - TokenStart);
+
+        // Note: ! is handled as a separate token, not part of identifiers
+        // (removed the automatic inclusion of ! in identifier tokens)
+        if (Peek() == '?')
+        {
+            Advance();
+            text += "?";
+
+            if (Peek() == '?')
+            {
+                Advance();
+                text += "?";
+            }
+        }
+
+        Dictionary<string, TokenType> keywords = GetKeywords();
+        if (keywords.TryGetValue(key: text, value: out TokenType type))
+        {
+            AddToken(type: type, text: text);
+            return;
+        }
+
+        if (string.IsNullOrEmpty(value: text))
+        {
+            return;
+        }
+
+        AddToken(type: char.IsUpper(c: text[index: 0])
+            ? TokenType.TypeIdentifier
+            : TokenType.Identifier, text: text);
     }
+
+    #endregion
+
+    #region Operator Scanning
 
     /// <summary>
     /// Scans plus-based operators including overflow variants (+%, +^, +!, +?).
@@ -940,4 +832,149 @@ public abstract class BaseTokenizer
             default: AddToken(type: TokenType.Percent); break;
         }
     }
+
+    #endregion
+
+    #region Text Prefix Parsing
+
+    /// <summary>
+    /// Attempts to parse a text prefix (r, f, t8, etc.) followed by a quoted string.
+    /// Uses the _textPrefixes list to dynamically match valid prefixes.
+    /// </summary>
+    /// <returns>True if a valid text prefix was found and processed</returns>
+    protected bool TryParseTextPrefix()
+    {
+        int startPos = Position - 1; // We already consumed the first character
+        int originalPos = Position;
+        int originalCol = Column;
+
+        // Backup the first character we already consumed
+        char firstChar = Source[index: startPos];
+        string prefix = firstChar.ToString();
+
+        // Try to build the longest possible prefix
+        while (!IsAtEnd() && char.IsLetterOrDigit(c: Peek()))
+        {
+            string testPrefix = prefix + Peek();
+            if (_textPrefixes.Any(predicate: p => p.StartsWith(value: testPrefix)))
+            {
+                prefix += Advance();
+            }
+            else
+            {
+                break;
+            }
+        }
+
+        // Check if we found a valid prefix
+        if (!_textPrefixToTokenType.ContainsKey(key: prefix))
+        {
+            // Not a valid text prefix, reset and treat as identifier
+            Position = originalPos;
+            Column = originalCol;
+            return false;
+        }
+
+        // Check if this prefix is followed by a quote
+        if (Peek() != '"')
+        {
+            // Not a text prefix, reset and treat as identifier
+            Position = originalPos;
+            Column = originalCol;
+            return false;
+        }
+
+        // Consume the opening quote
+        Advance();
+
+        // Get the token type from the dictionary
+        TokenType tokenType = _textPrefixToTokenType[key: prefix];
+
+        // Determine the properties for scanning
+        bool isRaw = prefix.Contains(value: 'r');
+        bool isFormatted = prefix.Contains(value: 'f');
+
+        // Determine bit width from prefix
+        int bitWidth = 32; // default
+        if (prefix.Contains(value: "text8"))
+        {
+            bitWidth = 8;
+        }
+        else if (prefix.Contains(value: "text16"))
+        {
+            bitWidth = 16;
+        }
+        // text32 is the default, so all other prefixes use 32-bit
+
+        // Scan the string literal with the determined properties and specific token type
+        ScanStringLiteralWithType(isRaw: isRaw, isFormatted: isFormatted, tokenType: tokenType,
+            bitWidth: bitWidth);
+        return true;
+    }
+
+    /// <summary>
+    /// Scans a text literal with specified properties, determining the appropriate token type.
+    /// </summary>
+    /// <param name="isRaw">Whether the text is raw (no escape processing)</param>
+    /// <param name="isFormatted">Whether the text supports interpolation</param>
+    protected void ScanStringLiteral(bool isRaw, bool isFormatted)
+    {
+        TokenType tokenType = (isRaw, isFormatted) switch
+        {
+            (true, true) => TokenType.RawFormattedText,
+            (true, false) => TokenType.RawText,
+            (false, true) => TokenType.FormattedText,
+            _ => TokenType.TextLiteral
+        };
+
+        ScanStringLiteralWithType(isRaw: isRaw, isFormatted: isFormatted, tokenType: tokenType,
+            bitWidth: 32); // Default 32-bit for regular text
+    }
+
+    /// <summary>
+    /// Scans a text literal with the specified token type, handling escape sequences and interpolation.
+    /// </summary>
+    /// <param name="isRaw">Whether to process escape sequences</param>
+    /// <param name="isFormatted">Whether the text supports interpolation (for future use)</param>
+    /// <param name="tokenType">The specific token type to create</param>
+    /// <param name="bitWidth">The bit width for Unicode escapes (8, 16, or 32)</param>
+    protected void ScanStringLiteralWithType(bool isRaw, bool isFormatted, TokenType tokenType,
+        int bitWidth = 32)
+    {
+        int startLine = Line;
+        int startColumn = Column;
+        var content = new System.Text.StringBuilder();
+
+        while (!IsAtEnd() && Peek() != '"')
+        {
+            if (Peek() == '\n')
+            {
+                content.Append(value: '\n');
+                Advance();
+            }
+            else if (!isRaw && Peek() == '\\')
+            {
+                int escapeStart = Position;
+                Advance(); // consume backslash
+                ScanEscapeSequence(bitWidth: bitWidth);
+                content.Append(value: ParseEscapeSequence(escapeStart: escapeStart,
+                    bitWidth: bitWidth));
+            }
+            else
+            {
+                content.Append(value: Advance());
+            }
+        }
+
+        if (IsAtEnd())
+        {
+            throw new LexerException(
+                message: $"Unterminated text starting at line {startLine}, column {startColumn}");
+        }
+
+        Advance(); // consume closing quote
+        AddToken(type: tokenType, text: content.ToString());
+    }
+
+    #endregion
 }

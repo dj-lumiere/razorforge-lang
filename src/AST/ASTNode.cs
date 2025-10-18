@@ -1,5 +1,7 @@
 namespace Compilers.Shared.AST;
 
+#region Base Interfaces and Types
+
 /// <summary>
 /// Base interface for all Abstract Syntax Tree (AST) nodes.
 /// Provides common functionality for source location tracking and visitor pattern support.
@@ -74,6 +76,10 @@ public abstract record AstNode(SourceLocation Location) : IAstNode
     public abstract T Accept<T>(IAstVisitor<T> visitor);
 }
 
+#endregion
+
+#region Visitor Pattern
+
 /// <summary>
 /// Visitor pattern interface for extensible AST operations.
 /// Enables implementation of various compiler passes, analyzers, and transformations
@@ -100,58 +106,234 @@ public abstract record AstNode(SourceLocation Location) : IAstNode
 public interface IAstVisitor<T>
 {
     // Expression visitor methods - handle all expression node types
+
+    /// <summary>Visits a literal expression node (constants like 42, "hello", true)</summary>
+    /// <param name="node">The literal expression to visit</param>
+    /// <returns>Result of visiting the literal expression</returns>
     T VisitLiteralExpression(LiteralExpression node);
+
+    /// <summary>Visits an identifier expression node (variable/function references)</summary>
+    /// <param name="node">The identifier expression to visit</param>
+    /// <returns>Result of visiting the identifier expression</returns>
     T VisitIdentifierExpression(IdentifierExpression node);
+
+    /// <summary>Visits a binary expression node (operations like a + b, x == y)</summary>
+    /// <param name="node">The binary expression to visit</param>
+    /// <returns>Result of visiting the binary expression</returns>
     T VisitBinaryExpression(BinaryExpression node);
+
+    /// <summary>Visits a unary expression node (operations like -x, !condition)</summary>
+    /// <param name="node">The unary expression to visit</param>
+    /// <returns>Result of visiting the unary expression</returns>
     T VisitUnaryExpression(UnaryExpression node);
+
+    /// <summary>Visits a call expression node (function/method invocations)</summary>
+    /// <param name="node">The call expression to visit</param>
+    /// <returns>Result of visiting the call expression</returns>
     T VisitCallExpression(CallExpression node);
+
+    /// <summary>Visits a member expression node (property/field access like obj.field)</summary>
+    /// <param name="node">The member expression to visit</param>
+    /// <returns>Result of visiting the member expression</returns>
     T VisitMemberExpression(MemberExpression node);
+
+    /// <summary>Visits an index expression node (array/collection access like arr[0])</summary>
+    /// <param name="node">The index expression to visit</param>
+    /// <returns>Result of visiting the index expression</returns>
     T VisitIndexExpression(IndexExpression node);
+
+    /// <summary>Visits a conditional expression node (ternary operator: condition ? true : false)</summary>
+    /// <param name="node">The conditional expression to visit</param>
+    /// <returns>Result of visiting the conditional expression</returns>
     T VisitConditionalExpression(ConditionalExpression node);
+
+    /// <summary>Visits a chained comparison expression node (like 1 &lt; x &lt; 10)</summary>
+    /// <param name="node">The chained comparison expression to visit</param>
+    /// <returns>Result of visiting the chained comparison expression</returns>
     T VisitChainedComparisonExpression(ChainedComparisonExpression node);
+
+    /// <summary>Visits a range expression node (sequences like 0 to 10)</summary>
+    /// <param name="node">The range expression to visit</param>
+    /// <returns>Result of visiting the range expression</returns>
     T VisitRangeExpression(RangeExpression node);
+
+    /// <summary>Visits a lambda expression node (anonymous functions like (x) => x + 1)</summary>
+    /// <param name="node">The lambda expression to visit</param>
+    /// <returns>Result of visiting the lambda expression</returns>
     T VisitLambdaExpression(LambdaExpression node);
+
+    /// <summary>Visits a type expression node (type references like s32, Array[text])</summary>
+    /// <param name="node">The type expression to visit</param>
+    /// <returns>Result of visiting the type expression</returns>
     T VisitTypeExpression(TypeExpression node);
+
+    /// <summary>Visits a type conversion expression node (explicit casts like s32!(x))</summary>
+    /// <param name="node">The type conversion expression to visit</param>
+    /// <returns>Result of visiting the type conversion expression</returns>
     T VisitTypeConversionExpression(TypeConversionExpression node);
 
     // Memory slice expression visitor methods
+
+    /// <summary>Visits a slice constructor expression node (HeapSlice/StackSlice creation)</summary>
+    /// <param name="node">The slice constructor expression to visit</param>
+    /// <returns>Result of visiting the slice constructor expression</returns>
     T VisitSliceConstructorExpression(SliceConstructorExpression node);
+
+    /// <summary>Visits a generic method call expression node (methods with type parameters)</summary>
+    /// <param name="node">The generic method call expression to visit</param>
+    /// <returns>Result of visiting the generic method call expression</returns>
     T VisitGenericMethodCallExpression(GenericMethodCallExpression node);
+
+    /// <summary>Visits a generic member expression node (members with type parameters)</summary>
+    /// <param name="node">The generic member expression to visit</param>
+    /// <returns>Result of visiting the generic member expression</returns>
     T VisitGenericMemberExpression(GenericMemberExpression node);
+
+    /// <summary>Visits a memory operation expression node (operations with ! syntax)</summary>
+    /// <param name="node">The memory operation expression to visit</param>
+    /// <returns>Result of visiting the memory operation expression</returns>
     T VisitMemoryOperationExpression(MemoryOperationExpression node);
 
     // Statement visitor methods - handle all statement node types
+
+    /// <summary>Visits an expression statement node (expressions executed for side effects)</summary>
+    /// <param name="node">The expression statement to visit</param>
+    /// <returns>Result of visiting the expression statement</returns>
     T VisitExpressionStatement(ExpressionStatement node);
+
+    /// <summary>Visits a declaration statement node (declarations in statement context)</summary>
+    /// <param name="node">The declaration statement to visit</param>
+    /// <returns>Result of visiting the declaration statement</returns>
     T VisitDeclarationStatement(DeclarationStatement node);
+
+    /// <summary>Visits an assignment statement node (value assignments like x = 42)</summary>
+    /// <param name="node">The assignment statement to visit</param>
+    /// <returns>Result of visiting the assignment statement</returns>
     T VisitAssignmentStatement(AssignmentStatement node);
+
+    /// <summary>Visits a return statement node (function return with optional value)</summary>
+    /// <param name="node">The return statement to visit</param>
+    /// <returns>Result of visiting the return statement</returns>
     T VisitReturnStatement(ReturnStatement node);
+
+    /// <summary>Visits an if statement node (conditional branching)</summary>
+    /// <param name="node">The if statement to visit</param>
+    /// <returns>Result of visiting the if statement</returns>
     T VisitIfStatement(IfStatement node);
+
+    /// <summary>Visits a while statement node (pre-condition loop)</summary>
+    /// <param name="node">The while statement to visit</param>
+    /// <returns>Result of visiting the while statement</returns>
     T VisitWhileStatement(WhileStatement node);
+
+    /// <summary>Visits a for statement node (iterator loop over collections)</summary>
+    /// <param name="node">The for statement to visit</param>
+    /// <returns>Result of visiting the for statement</returns>
     T VisitForStatement(ForStatement node);
+
+    /// <summary>Visits a block statement node (grouped statements with lexical scope)</summary>
+    /// <param name="node">The block statement to visit</param>
+    /// <returns>Result of visiting the block statement</returns>
     T VisitBlockStatement(BlockStatement node);
+
+    /// <summary>Visits a when statement node (pattern matching statement)</summary>
+    /// <param name="node">The when statement to visit</param>
+    /// <returns>Result of visiting the when statement</returns>
     T VisitWhenStatement(WhenStatement node);
+
+    /// <summary>Visits a break statement node (exits innermost loop)</summary>
+    /// <param name="node">The break statement to visit</param>
+    /// <returns>Result of visiting the break statement</returns>
     T VisitBreakStatement(BreakStatement node);
+
+    /// <summary>Visits a continue statement node (skips to next loop iteration)</summary>
+    /// <param name="node">The continue statement to visit</param>
+    /// <returns>Result of visiting the continue statement</returns>
     T VisitContinueStatement(ContinueStatement node);
+
+    /// <summary>Visits a danger statement node (unsafe block for low-level operations)</summary>
+    /// <param name="node">The danger statement to visit</param>
+    /// <returns>Result of visiting the danger statement</returns>
     T VisitDangerStatement(DangerStatement node);
+
+    /// <summary>Visits a mayhem statement node (ultimate unsafe block for runtime modifications)</summary>
+    /// <param name="node">The mayhem statement to visit</param>
+    /// <returns>Result of visiting the mayhem statement</returns>
     T VisitMayhemStatement(MayhemStatement node);
 
     // Declaration visitor methods - handle all declaration node types
+
+    /// <summary>Visits a variable declaration node (var/let declarations)</summary>
+    /// <param name="node">The variable declaration to visit</param>
+    /// <returns>Result of visiting the variable declaration</returns>
     T VisitVariableDeclaration(VariableDeclaration node);
+
+    /// <summary>Visits a function declaration node (recipe/function definitions)</summary>
+    /// <param name="node">The function declaration to visit</param>
+    /// <returns>Result of visiting the function declaration</returns>
     T VisitFunctionDeclaration(FunctionDeclaration node);
+
+    /// <summary>Visits a class declaration node (entity/class definitions)</summary>
+    /// <param name="node">The class declaration to visit</param>
+    /// <returns>Result of visiting the class declaration</returns>
     T VisitClassDeclaration(ClassDeclaration node);
+
+    /// <summary>Visits a struct declaration node (record/struct definitions)</summary>
+    /// <param name="node">The struct declaration to visit</param>
+    /// <returns>Result of visiting the struct declaration</returns>
     T VisitStructDeclaration(StructDeclaration node);
+
+    /// <summary>Visits a menu declaration node (option/enum definitions)</summary>
+    /// <param name="node">The menu declaration to visit</param>
+    /// <returns>Result of visiting the menu declaration</returns>
     T VisitMenuDeclaration(MenuDeclaration node);
+
+    /// <summary>Visits a variant declaration node (tagged union/algebraic data type definitions)</summary>
+    /// <param name="node">The variant declaration to visit</param>
+    /// <returns>Result of visiting the variant declaration</returns>
     T VisitVariantDeclaration(VariantDeclaration node);
+
+    /// <summary>Visits a feature declaration node (trait/interface definitions)</summary>
+    /// <param name="node">The feature declaration to visit</param>
+    /// <returns>Result of visiting the feature declaration</returns>
     T VisitFeatureDeclaration(FeatureDeclaration node);
+
+    /// <summary>Visits an implementation declaration node (trait/inherent implementations)</summary>
+    /// <param name="node">The implementation declaration to visit</param>
+    /// <returns>Result of visiting the implementation declaration</returns>
     T VisitImplementationDeclaration(ImplementationDeclaration node);
+
+    /// <summary>Visits an import declaration node (module imports)</summary>
+    /// <param name="node">The import declaration to visit</param>
+    /// <returns>Result of visiting the import declaration</returns>
     T VisitImportDeclaration(ImportDeclaration node);
+
+    /// <summary>Visits a redefinition declaration node (symbol aliasing)</summary>
+    /// <param name="node">The redefinition declaration to visit</param>
+    /// <returns>Result of visiting the redefinition declaration</returns>
     T VisitRedefinitionDeclaration(RedefinitionDeclaration node);
+
+    /// <summary>Visits a using declaration node (type aliasing)</summary>
+    /// <param name="node">The using declaration to visit</param>
+    /// <returns>Result of visiting the using declaration</returns>
     T VisitUsingDeclaration(UsingDeclaration node);
+
+    /// <summary>Visits an external declaration node (native function declarations)</summary>
+    /// <param name="node">The external declaration to visit</param>
+    /// <returns>Result of visiting the external declaration</returns>
     T VisitExternalDeclaration(ExternalDeclaration node);
 
     // Program visitor method - handle the root program node
+
+    /// <summary>Visits the root program node (compilation unit)</summary>
+    /// <param name="node">The program node to visit</param>
+    /// <returns>Result of visiting the program</returns>
     T VisitProgram(Program node);
 }
+
+#endregion
+
+#region Root Program Node
 
 /// <summary>
 /// Root node of the Abstract Syntax Tree representing a complete program or compilation unit.
@@ -185,3 +367,5 @@ public record Program(List<IAstNode> Declarations, SourceLocation Location)
         return visitor.VisitProgram(node: this);
     }
 }
+
+#endregion

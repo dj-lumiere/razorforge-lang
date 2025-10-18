@@ -9,6 +9,8 @@ namespace Compilers.RazorForge.Lexer;
 /// </summary>
 public class RazorForgeTokenizer : BaseTokenizer
 {
+    #region Fields and Keywords
+
     /// <summary>Dictionary mapping RazorForge keywords to their corresponding token types</summary>
     private readonly Dictionary<string, TokenType> _keywords = new()
     {
@@ -75,6 +77,10 @@ public class RazorForgeTokenizer : BaseTokenizer
         [key: "waitfor"] = TokenType.Waitfor
     };
 
+    #endregion
+
+    #region Initialization and Core Methods
+
     /// <summary>
     /// Initializes a new RazorForge tokenizer with the source code to tokenize.
     /// </summary>
@@ -111,6 +117,10 @@ public class RazorForgeTokenizer : BaseTokenizer
             Position: Position));
         return Tokens;
     }
+
+    #endregion
+
+    #region Token Scanning
 
     /// <summary>
     /// Scans a single token from the current position in the source code.
@@ -244,6 +254,10 @@ public class RazorForgeTokenizer : BaseTokenizer
         }
     }
 
+    #endregion
+
+    #region RazorForge-Specific Literal Scanning
+
     /// <summary>
     /// Scans a basic RazorForge text literal (without prefix).
     /// In RazorForge, regular text is an alias for text8 (8-bit text).
@@ -329,4 +343,6 @@ public class RazorForgeTokenizer : BaseTokenizer
 
         AddToken(type: tokenType);
     }
+
+    #endregion
 }

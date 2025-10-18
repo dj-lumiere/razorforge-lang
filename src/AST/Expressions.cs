@@ -2,6 +2,8 @@ using Compilers.Shared.Lexer;
 
 namespace Compilers.Shared.AST;
 
+#region Base Expression Types
+
 /// <summary>
 /// Base entity for all expression nodes in the AST.
 /// Expressions are constructs that evaluate to produce values and can be used as operands.
@@ -20,6 +22,10 @@ namespace Compilers.Shared.AST;
 /// </list>
 /// </remarks>
 public abstract record Expression(SourceLocation Location) : AstNode(Location: Location);
+
+#endregion
+
+#region Literal and Identifier Expressions
 
 /// <summary>
 /// Expression representing constant literal values embedded in source code.
@@ -77,6 +83,10 @@ public record IdentifierExpression(string Name, SourceLocation Location)
         return visitor.VisitIdentifierExpression(node: this);
     }
 }
+
+#endregion
+
+#region Operator Expressions
 
 /// <summary>
 /// Expression that combines two operands with a binary operator.
@@ -446,6 +456,10 @@ public enum UnaryOperator
     BitwiseNot
 }
 
+#endregion
+
+#region Function Call and Access Expressions
+
 /// <summary>
 /// Represents a parameter definition for functions, methods, and lambdas.
 /// Includes optional type annotation and default value for flexible parameter handling.
@@ -468,6 +482,10 @@ public record Parameter(
     TypeExpression? Type,
     Expression? DefaultValue,
     SourceLocation Location);
+
+#endregion
+
+#region Type Expressions
 
 /// <summary>
 /// Expression that represents a type reference in type annotations and declarations.
@@ -527,6 +545,10 @@ public record TypeConversionExpression(
         return visitor.VisitTypeConversionExpression(node: this);
     }
 }
+
+#endregion
+
+#region Memory Operation Expressions
 
 /// <summary>
 /// Expression representing memory slice constructor calls (HeapSlice, StackSlice).
@@ -641,3 +663,5 @@ public record MemoryOperationExpression(
         return visitor.VisitMemoryOperationExpression(node: this);
     }
 }
+
+#endregion

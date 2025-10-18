@@ -1,12 +1,27 @@
-﻿namespace Compilers.Shared.Lexer;
+namespace Compilers.Shared.Lexer;
+
+#region Token Type Enumeration
 
 /// <summary>
 /// Defines all possible token types that can be produced by the lexical analyzer.
 /// Each token represents a meaningful unit of source code that the parser can work with.
 /// </summary>
+/// <remarks>
+/// This comprehensive enumeration covers:
+/// <list type="bullet">
+/// <item>Basic literals (integers, decimals, characters, strings)</item>
+/// <item>Typed numeric literals with explicit bit widths</item>
+/// <item>Memory size literals (bytes, kilobytes, etc.)</item>
+/// <item>Duration literals (seconds, milliseconds, etc.)</item>
+/// <item>Keywords for declarations, control flow, and special operations</item>
+/// <item>Operators (arithmetic, comparison, bitwise, assignment)</item>
+/// <item>Delimiters and punctuation</item>
+/// <item>Special tokens (indent, dedent, EOF)</item>
+/// </list>
+/// </remarks>
 public enum TokenType
 {
-    // ===== BASIC LITERALS =====
+    #region Basic Literals
 
     // Cake default number types (arbitrary precision)
     /// <summary>Arbitrary precision integer in Cake - unsuffixed integers (42, 0xFF, 0b1010)</summary>
@@ -34,7 +49,9 @@ public enum TokenType
     /// <summary>Single character literal - default for plain quotes ('a', '\n')</summary>
     LetterLiteral,
 
-    // ===== STRING LITERALS =====
+    #endregion
+
+    #region String Literals
     // Basic 32-bit texts (default)
     /// <summary>Text literal - default for plain quotes ("hello world")</summary>
     TextLiteral,
@@ -73,7 +90,9 @@ public enum TokenType
     /// <summary>16-bit raw formatted text literal with explicit prefix (t16rf"dir: {path}\file")</summary>
     Text16RawFormattedText,
 
-    // ===== TYPED NUMERIC LITERALS =====
+    #endregion
+
+    #region Typed Numeric Literals
     // Signed integers
     /// <summary>8-bit signed integer literal (42i8)</summary>
     S8Literal,
@@ -135,7 +154,9 @@ public enum TokenType
     /// <summary>128-bit decimal literal (3.14d128)</summary>
     D128Literal,
 
-    // ===== MEMORY SIZE LITERALS =====
+    #endregion
+
+    #region Memory Size Literals
     /// <summary>Byte memory size literal (100b)</summary>
     ByteLiteral,
 
@@ -204,7 +225,9 @@ public enum TokenType
     /// <summary>Pebibit memory size literal using binary (1024⁵ bits) (5pibit)</summary>
     PebibitLiteral,
 
-    // ===== DURATION LITERALS =====
+    #endregion
+
+    #region Duration Literals
     /// <summary>Week duration literal (2w)</summary>
     WeekLiteral,
 
@@ -229,15 +252,18 @@ public enum TokenType
     /// <summary>Nanosecond duration literal (50ns)</summary>
     NanosecondLiteral,
 
-    // ===== IDENTIFIERS =====
+    #endregion
+
+    #region Identifiers
     /// <summary>Regular identifier in snake_case, may end with ! (my_var, is_valid!)</summary>
     Identifier,
 
     /// <summary>Type identifier in PascalCase (MyClass, HttpResponse)</summary>
     TypeIdentifier,
 
-    // ===== KEYWORDS =====
-    // Declaration keywords
+    #endregion
+
+    #region Keywords - Declarations
     /// <summary>Function declaration keyword (recipe)</summary>
     recipe,
 
@@ -295,7 +321,9 @@ public enum TokenType
     /// <summary>From clause keyword for inheritance</summary>
     From,
 
-    // Control flow keywords
+    #endregion
+
+    #region Keywords - Control Flow
     /// <summary>Conditional if statement keyword</summary>
     If,
 
@@ -335,11 +363,15 @@ public enum TokenType
     /// <summary>Return statement keyword</summary>
     Return,
 
-    // Module system keywords
+    #endregion
+
+    #region Keywords - Module System
     /// <summary>Import statement keyword</summary>
     Import,
 
-    // Special keywords
+    #endregion
+
+    #region Keywords - Special
     /// <summary>Using statement keyword</summary>
     Using,
 
@@ -384,7 +416,9 @@ public enum TokenType
     /// <summary>Step keyword for Range object(ex, for i in 1 to 10 step 2)</summary>
     Step,
 
-    // Logical keywords
+    #endregion
+
+    #region Keywords - Logical Operators
     /// <summary>Logical AND operator keyword</summary>
     And,
 
@@ -394,7 +428,9 @@ public enum TokenType
     /// <summary>Logical NOT operator keyword</summary>
     Not,
 
-    // Literal keywords
+    #endregion
+
+    #region Keywords - Literals
     /// <summary>Boolean true literal keyword</summary>
     True,
 
@@ -404,8 +440,9 @@ public enum TokenType
     /// <summary>Null/none literal keyword</summary>
     None,
 
-    // ===== OPERATORS =====
-    // Basic arithmetic
+    #endregion
+
+    #region Operators - Basic Arithmetic
     /// <summary>Addition operator (+)</summary>
     Plus,
 
@@ -424,7 +461,9 @@ public enum TokenType
     /// <summary>Integer division operator (//)</summary>
     Divide,
 
-    // Overflow arithmetic operators
+    #endregion
+
+    #region Operators - Overflow Variants
     /// <summary>Wrapping addition operator (+%)</summary>
     PlusWrap,
 
@@ -500,7 +539,9 @@ public enum TokenType
     /// <summary>Checked exponentiation operator (**?)</summary>
     PowerChecked,
 
-    // Comparison operators
+    #endregion
+
+    #region Operators - Comparison
     /// <summary>Equality comparison operator (==)</summary>
     Equal,
 
@@ -519,7 +560,9 @@ public enum TokenType
     /// <summary>Greater than or equal comparison operator (>=)</summary>
     GreaterEqual,
 
-    // Bitwise operators
+    #endregion
+
+    #region Operators - Bitwise
     /// <summary>Bitwise AND or reference operator (&)</summary>
     Ampersand,
 
@@ -538,11 +581,11 @@ public enum TokenType
     /// <summary>Right bit shift operator (>>)</summary>
     RightShift,
 
-    // Assignment operators
+    #endregion
+
+    #region Operators - Assignment and Special
     /// <summary>Assignment operator (=)</summary>
     Assign,
-
-    // Special operators
     /// <summary>Negation or macro operator (!)</summary>
     Bang,
 
@@ -564,8 +607,9 @@ public enum TokenType
     /// <summary>Ternary conditional operator (?:)</summary>
     QuestionColon,
 
-    // ===== DELIMITERS =====
-    // Brackets and braces
+    #endregion
+
+    #region Delimiters - Brackets and Braces
     /// <summary>Left parenthesis delimiter (</summary>
     LeftParen,
 
@@ -584,7 +628,9 @@ public enum TokenType
     /// <summary>Right curly brace delimiter }</summary>
     RightBrace,
 
-    // Punctuation
+    #endregion
+
+    #region Delimiters - Punctuation
     /// <summary>Member access dot operator (.)</summary>
     Dot,
 
@@ -603,7 +649,9 @@ public enum TokenType
     /// <summary>Spread or rest operator (...)</summary>
     DotDotDot,
 
-    // ===== SPECIAL TOKENS =====
+    #endregion
+
+    #region Special Tokens
     /// <summary>Significant newline token (statement terminator)</summary>
     Newline,
 
@@ -629,4 +677,8 @@ public enum TokenType
 
     /// <summary>Unknown or invalid token</summary>
     Unknown
+
+    #endregion
 }
+
+#endregion

@@ -44,6 +44,7 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     private readonly StringBuilder _output;
     private readonly Language _language;
     private readonly LanguageMode _mode;
+    private readonly TargetPlatform _targetPlatform;
     private int _tempCounter;
     private int _labelCounter;
     private readonly Dictionary<string, string> _symbolTypes;
@@ -65,6 +66,7 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     /// </summary>
     /// <param name="language">Target language (RazorForge or Cake) affecting syntax and semantics</param>
     /// <param name="mode">Language mode (Normal/Danger for RazorForge, Sweet/Bitter for Cake)</param>
+    /// <param name="targetPlatform">Target platform (optional, defaults to x86_64 Linux)</param>
     /// <remarks>
     /// The language and mode parameters influence:
     /// <list type="bullet">
@@ -74,10 +76,11 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     /// <item>Generated code optimization level</item>
     /// </list>
     /// </remarks>
-    public LLVMCodeGenerator(Language language, LanguageMode mode)
+    public LLVMCodeGenerator(Language language, LanguageMode mode, TargetPlatform? targetPlatform = null)
     {
         _language = language;
         _mode = mode;
+        _targetPlatform = targetPlatform ?? TargetPlatform.Default();
         _output = new StringBuilder();
         _tempCounter = 0;
         _labelCounter = 0;
@@ -115,10 +118,8 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         // LLVM IR module headers - provide module identification and target configuration
         _output.AppendLine(value: "; ModuleID = 'razorforge'");
         _output.AppendLine(value: "source_filename = \"razorforge.rf\"");
-        _output.AppendLine(
-            value:
-            "target datalayout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128\"");
-        _output.AppendLine(value: "target triple = \"x86_64-pc-linux-gnu\"");
+        _output.AppendLine(value: $"target datalayout = \"{_targetPlatform.DataLayout}\"");
+        _output.AppendLine(value: $"target triple = \"{_targetPlatform.TripleString}\"");
         _output.AppendLine();
 
         // External function declarations - standard library interfaces
@@ -300,9 +301,9 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             "u64" => "i64",
             "u128" => "i128",
 
-            // System-dependent integers (pointer-sized)
-            "syssint" => "i64", // intptr_t - 64-bit on x86_64
-            "sysuint" => "i64", // uintptr_t - 64-bit on x86_64
+            // System-dependent integers (pointer-sized, architecture-dependent)
+            "syssint" => _targetPlatform.GetPointerSizedIntType(), // intptr_t - varies by architecture
+            "sysuint" => _targetPlatform.GetPointerSizedIntType(), // uintptr_t - varies by architecture
 
             // IEEE 754 floating point types
             "f16" => "half", // 16-bit half precision
@@ -320,7 +321,7 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             // C FFI types - Character types
             "cchar" or "cschar" => "i8", // char, signed char
             "cuchar" => "i8", // unsigned char (same LLVM type, different signedness)
-            "cwchar" => "i32", // wchar_t (platform-dependent, typically 32-bit)
+            "cwchar" => _targetPlatform.GetWCharType(), // wchar_t (varies by OS: 32-bit on Unix/Linux, 16-bit on Windows)
             "cchar8" => "i8", // char8_t
             "cchar16" => "i16", // char16_t
             "cchar32" => "i32", // char32_t
@@ -330,19 +331,19 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             "cushort" => "i16", // unsigned short
             "cint" => "i32", // int
             "cuint" => "i32", // unsigned int
-            "clong" => "i64", // long (64-bit on x86_64)
-            "culong" => "i64", // unsigned long
+            "clong" => _targetPlatform.GetLongType(), // long (varies by OS: 64-bit on Unix x86_64, 32-bit on Windows x86_64)
+            "culong" => _targetPlatform.GetLongType(), // unsigned long (varies by OS: 64-bit on Unix x86_64, 32-bit on Windows x86_64)
             "cll" => "i64", // long long
             "cull" => "i64", // unsigned long long
             "cfloat" => "float", // float
             "cdouble" => "double", // double
 
-            // C FFI types - Pointer-sized integers
-            "csptr" => "i64", // intptr_t (64-bit on x86_64)
-            "cuptr" => "i64", // uintptr_t (64-bit on x86_64)
+            // C FFI types - Pointer-sized integers (architecture-dependent)
+            "csptr" => _targetPlatform.GetPointerSizedIntType(), // intptr_t (varies by architecture)
+            "cuptr" => _targetPlatform.GetPointerSizedIntType(), // uintptr_t (varies by architecture)
 
             // C FFI types - Special types
-            "cvoid" => "i64", // void (represented as sysuint in RazorForge)
+            "cvoid" => _targetPlatform.GetPointerSizedIntType(), // void (represented as sysuint in RazorForge)
             "cbool" => "i1", // C bool (_Bool)
 
             _ => "i8*" // Default to pointer for unknown types (including cptr<T>)
@@ -1100,7 +1101,7 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         bool IsFloatingPoint,
         string RazorForgeType = "");
 
-    // Get LLVM type for an expression  
+    // Get LLVM type for an expression
     private string GetExpressionType(Expression expr)
     {
         return GetTypeInfo(expr: expr)
@@ -1288,7 +1289,7 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         return "fdiv";
     }
 
-    // Get appropriate modulo operation based on type  
+    // Get appropriate modulo operation based on type
     private string GetModuloOp(TypeInfo typeInfo)
     {
         if (typeInfo.IsFloatingPoint)
@@ -1512,7 +1513,7 @@ public class LLVMCodeGenerator : IAstVisitor<string>
                 : "fptosi";
         }
 
-        // Handle integer to floating point conversions  
+        // Handle integer to floating point conversions
         if (!sourceType.IsFloatingPoint && targetType.IsFloatingPoint)
         {
             return sourceType.IsUnsigned
@@ -1935,7 +1936,7 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             "u32" => "i32",
             "u64" => "i64",
             "u128" => "i128",
-            "sysuint" or "syssint" => "i64", // Assume 64-bit target
+            "sysuint" or "syssint" => _targetPlatform.GetPointerSizedIntType(), // Architecture-dependent
             "f16" => "half",
             "f32" => "float",
             "f64" => "double",
@@ -1943,13 +1944,13 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             "bool" => "i1",
             "letter" => "i32", // UTF-32
             "text" => "ptr",
-            "HeapSlice" or "StackSlice" => "ptr",
+            "DynamicSlice" or "TemporarySlice" => "ptr",
             "void" => "void",
 
             // C FFI types - Character types
             "cchar" or "cschar" => "i8",
             "cuchar" => "i8",
-            "cwchar" => "i32",
+            "cwchar" => _targetPlatform.GetWCharType(), // OS-dependent
             "cchar8" => "i8",
             "cchar16" => "i16",
             "cchar32" => "i32",
@@ -1959,17 +1960,17 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             "cushort" => "i16",
             "cint" => "i32",
             "cuint" => "i32",
-            "clong" => "i64",
-            "culong" => "i64",
+            "clong" => _targetPlatform.GetLongType(), // OS-dependent
+            "culong" => _targetPlatform.GetLongType(), // OS-dependent
             "cll" => "i64",
             "cull" => "i64",
             "cfloat" => "float",
             "cdouble" => "double",
 
-            // C FFI types - Pointer types
-            "csptr" => "i64",
-            "cuptr" => "i64",
-            "cvoid" => "i64",
+            // C FFI types - Pointer types (architecture-dependent)
+            "csptr" => _targetPlatform.GetPointerSizedIntType(),
+            "cuptr" => _targetPlatform.GetPointerSizedIntType(),
+            "cvoid" => _targetPlatform.GetPointerSizedIntType(),
             "cbool" => "i1",
 
             _ => "ptr" // Default to pointer for unknown types (including cptr<T>)

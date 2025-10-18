@@ -1,5 +1,7 @@
 namespace Compilers.Shared.AST;
 
+#region Base Statement Types
+
 /// <summary>
 /// Base entity for all statement nodes in the AST.
 /// Statements are executable constructs that perform actions but do not produce values.
@@ -16,6 +18,10 @@ namespace Compilers.Shared.AST;
 /// </list>
 /// </remarks>
 public abstract record Statement(SourceLocation Location) : AstNode(Location: Location);
+
+#endregion
+
+#region Simple Statements
 
 /// <summary>
 /// Statement that evaluates an expression for its side effects.
@@ -120,6 +126,10 @@ public record ReturnStatement(Expression? Value, SourceLocation Location)
     /// </summary>
     public Expression? Expression => Value;
 }
+
+#endregion
+
+#region Control Flow Statements
 
 /// <summary>
 /// Conditional statement that executes different code paths based on a boolean condition.
@@ -325,6 +335,10 @@ public record ContinueStatement(SourceLocation Location) : Statement(Location: L
     }
 }
 
+#endregion
+
+#region Pattern Matching
+
 /// <summary>
 /// Base entity for patterns used in when/match statements for structural matching.
 /// Patterns define how to match and destructure values during pattern matching operations.
@@ -395,6 +409,10 @@ public record TypePattern(TypeExpression Type, string? VariableName, SourceLocat
 /// </remarks>
 public record WildcardPattern(SourceLocation Location) : Pattern(Location: Location);
 
+#endregion
+
+#region Unsafe Statements
+
 /// <summary>
 /// Statement representing a danger! block that disables safety checks.
 /// Allows access to unsafe memory operations and bypasses normal language restrictions.
@@ -439,3 +457,5 @@ public record MayhemStatement(BlockStatement Body, SourceLocation Location)
         return visitor.VisitMayhemStatement(node: this);
     }
 }
+
+#endregion

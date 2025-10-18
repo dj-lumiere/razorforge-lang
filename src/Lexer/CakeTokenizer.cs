@@ -9,6 +9,8 @@ namespace Compilers.Cake.Lexer;
 /// </summary>
 public class CakeTokenizer : BaseTokenizer
 {
+    #region Fields and Keywords
+
     /// <summary>Current indentation level (number of spaces from start of line)</summary>
     private int _currentIndentLevel;
 
@@ -87,6 +89,10 @@ public class CakeTokenizer : BaseTokenizer
         [key: "usurping"] = TokenType.Usurping
     };
 
+    #endregion
+
+    #region Initialization and Core Methods
+
     /// <summary>
     /// Initializes a new Cake tokenizer with the source code to tokenize.
     /// </summary>
@@ -132,6 +138,10 @@ public class CakeTokenizer : BaseTokenizer
             Position: Position));
         return Tokens;
     }
+
+    #endregion
+
+    #region Token Scanning
 
     /// <summary>
     /// Scans a single token from the current position, handling Cake-specific indentation rules.
@@ -289,6 +299,10 @@ public class CakeTokenizer : BaseTokenizer
         }
     }
 
+    #endregion
+
+    #region Indentation and Newline Handling
+
     /// <summary>
     /// Handles indentation processing at the beginning of lines, generating indent/dedent tokens.
     /// Manages indentation level tracking and validates consistent spacing.
@@ -408,6 +422,10 @@ public class CakeTokenizer : BaseTokenizer
         };
     }
 
+    #endregion
+
+    #region Cake-Specific Literal Scanning
+
     /// <summary>
     /// Scans a basic Cake text literal (without prefix).
     /// </summary>
@@ -526,6 +544,10 @@ public class CakeTokenizer : BaseTokenizer
         // Otherwise, it's likely a type annotation
         return false;
     }
+
+    #endregion
+
+    #region Overridden Base Methods
 
     protected override void ScanIdentifier()
     {
@@ -677,4 +699,6 @@ public class CakeTokenizer : BaseTokenizer
             AddToken(type: TokenType.Integer);
         }
     }
+
+    #endregion
 }
