@@ -74,7 +74,10 @@ public class RazorForgeTokenizer : BaseTokenizer
         [key: "requires"] = TokenType.Requires,
         [key: "generate"] = TokenType.Generate,
         [key: "suspended"] = TokenType.Suspended,
-        [key: "waitfor"] = TokenType.Waitfor
+        [key: "waitfor"] = TokenType.Waitfor,
+        [key: "usurping"] = TokenType.Usurping,
+        [key: "viewing"] = TokenType.Viewing,
+        [key: "hijacking"] = TokenType.Hijacking
     };
 
     #endregion
@@ -328,6 +331,7 @@ public class RazorForgeTokenizer : BaseTokenizer
     /// Scans a character literal with the specified token type.
     /// </summary>
     /// <param name="tokenType">The type of character literal token</param>
+    /// <param name="bitWidth">The bitwidth for letter in case of unicode letter. It defaults to 32.</param>
     private void ScanCharLiteral(TokenType tokenType, int bitWidth = 32)
     {
         if (Peek() == '\\')

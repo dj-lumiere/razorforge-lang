@@ -678,6 +678,12 @@ public enum TokenType
     Waitfor,
     Usurping,
 
+    /// <summary>Scoped read-only access keyword (viewing obj as v { })</summary>
+    Viewing,
+
+    /// <summary>Scoped exclusive access keyword (hijacking obj as h { })</summary>
+    Hijacking,
+
     /// <summary>End of file marker token</summary>
     Eof,
 
