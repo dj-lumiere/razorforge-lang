@@ -581,7 +581,8 @@ public class SemanticAnalyzer : IAstVisitor<object?>
                 // RazorForge: Move semantics - determine if assignment is copy or move
                 if (targetType != null)
                 {
-                    bool isMove = DetermineMoveSemantics(node.Value, targetType);
+                    bool isMove =
+                        DetermineMoveSemantics(valueExpr: node.Value, targetType: targetType);
 
                     if (isMove)
                     {
@@ -712,7 +713,8 @@ public class SemanticAnalyzer : IAstVisitor<object?>
             try
             {
                 // Type check pattern against expression and bind pattern variables
-                ValidatePatternMatch(clause.Pattern, expressionType, clause.Location);
+                ValidatePatternMatch(pattern: clause.Pattern, expressionType: expressionType,
+                    location: clause.Location);
 
                 clause.Body.Accept(visitor: this);
             }
@@ -1167,13 +1169,12 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         if (typeExpr.GenericArguments != null && typeExpr.GenericArguments.Count > 0)
         {
             var resolvedArgs = typeExpr.GenericArguments
-                .Select(arg => ResolveType(typeExpr: arg))
-                .Where(t => t != null)
-                .Cast<TypeInfo>()
-                .ToList();
+                                       .Select(selector: arg => ResolveType(typeExpr: arg))
+                                       .Where(predicate: t => t != null)
+                                       .Cast<TypeInfo>()
+                                       .ToList();
 
-            return new TypeInfo(
-                Name: typeExpr.Name,
+            return new TypeInfo(Name: typeExpr.Name,
                 IsReference: false, // TODO: Determine based on base type
                 GenericArguments: resolvedArgs);
         }
@@ -1193,8 +1194,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// <param name="typeExpr">The type expression to resolve</param>
     /// <param name="genericBindings">Map of generic parameter names to concrete types</param>
     /// <returns>Resolved type with generic parameters substituted</returns>
-    private TypeInfo? ResolveGenericType(
-        TypeExpression? typeExpr,
+    private TypeInfo? ResolveGenericType(TypeExpression? typeExpr,
         Dictionary<string, TypeInfo> genericBindings)
     {
         if (typeExpr == null)
@@ -1212,14 +1212,13 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         if (typeExpr.GenericArguments != null && typeExpr.GenericArguments.Count > 0)
         {
             var resolvedArgs = typeExpr.GenericArguments
-                .Select(arg => ResolveGenericType(typeExpr: arg, genericBindings: genericBindings))
-                .Where(t => t != null)
-                .Cast<TypeInfo>()
-                .ToList();
+                                       .Select(selector: arg => ResolveGenericType(typeExpr: arg,
+                                            genericBindings: genericBindings))
+                                       .Where(predicate: t => t != null)
+                                       .Cast<TypeInfo>()
+                                       .ToList();
 
-            return new TypeInfo(
-                Name: typeExpr.Name,
-                IsReference: false,
+            return new TypeInfo(Name: typeExpr.Name, IsReference: false,
                 GenericArguments: resolvedArgs);
         }
 
@@ -1235,11 +1234,8 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// <param name="actualType">The concrete type being validated</param>
     /// <param name="constraint">The constraint to validate against</param>
     /// <param name="location">Source location for error reporting</param>
-    private void ValidateGenericConstraints(
-        string genericParam,
-        TypeInfo actualType,
-        GenericConstraint? constraint,
-        SourceLocation location)
+    private void ValidateGenericConstraints(string genericParam, TypeInfo actualType,
+        GenericConstraint? constraint, SourceLocation location)
     {
         if (constraint == null)
         {
@@ -1309,9 +1305,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// <param name="funcSymbol">The generic function being called</param>
     /// <param name="arguments">The arguments passed to the function</param>
     /// <param name="genericBindings">Output dictionary of inferred type bindings</param>
-    private void InferGenericTypes(
-        FunctionSymbol funcSymbol,
-        List<Expression> arguments,
+    private void InferGenericTypes(FunctionSymbol funcSymbol, List<Expression> arguments,
         Dictionary<string, TypeInfo> genericBindings)
     {
         if (funcSymbol.GenericParameters == null || funcSymbol.GenericParameters.Count == 0)
@@ -1320,21 +1314,21 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         }
 
         // Match argument types with parameter types to infer generic arguments
-        for (int i = 0; i < Math.Min(funcSymbol.Parameters.Count, arguments.Count); i++)
+        for (int i = 0;
+             i < Math.Min(val1: funcSymbol.Parameters.Count, val2: arguments.Count);
+             i++)
         {
-            Parameter param = funcSymbol.Parameters[i];
-            Expression arg = arguments[i];
+            Parameter param = funcSymbol.Parameters[index: i];
+            Expression arg = arguments[index: i];
 
-            TypeInfo? argType = arg.Accept(visitor: this) as TypeInfo;
+            var argType = arg.Accept(visitor: this) as TypeInfo;
             if (argType == null || param.Type == null)
             {
                 continue;
             }
 
             // Try to match the parameter type pattern with the argument type
-            InferGenericTypeFromPattern(
-                paramType: param.Type,
-                argType: argType,
+            InferGenericTypeFromPattern(paramType: param.Type, argType: argType,
                 genericBindings: genericBindings);
         }
     }
@@ -1343,15 +1337,13 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// Recursively matches a parameter type pattern against an argument type
     /// to infer generic type parameter bindings.
     /// </summary>
-    private void InferGenericTypeFromPattern(
-        TypeExpression paramType,
-        TypeInfo argType,
+    private void InferGenericTypeFromPattern(TypeExpression paramType, TypeInfo argType,
         Dictionary<string, TypeInfo> genericBindings)
     {
         // If the parameter type is a generic parameter (e.g., T), bind it
         // We need to check if it's in the function's generic parameters list
         // For now, use a simple heuristic: single uppercase letter names are generic params
-        if (paramType.Name.Length == 1 && char.IsUpper(paramType.Name[0]) &&
+        if (paramType.Name.Length == 1 && char.IsUpper(c: paramType.Name[index: 0]) &&
             !genericBindings.ContainsKey(key: paramType.Name))
         {
             genericBindings[key: paramType.Name] = argType;
@@ -1364,10 +1356,8 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         {
             for (int i = 0; i < paramType.GenericArguments.Count; i++)
             {
-                InferGenericTypeFromPattern(
-                    paramType: paramType.GenericArguments[i],
-                    argType: argType.GenericArguments[i],
-                    genericBindings: genericBindings);
+                InferGenericTypeFromPattern(paramType: paramType.GenericArguments[index: i],
+                    argType: argType.GenericArguments[index: i], genericBindings: genericBindings);
             }
         }
     }
@@ -1723,18 +1713,20 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         }
 
         // Validate type arguments are well-formed
-        foreach (var typeArg in node.TypeArguments)
+        foreach (TypeExpression typeArg in node.TypeArguments)
         {
-            var resolvedType = ResolveTypeExpression(typeArg);
+            TypeInfo? resolvedType = ResolveTypeExpression(typeExpr: typeArg);
             if (resolvedType == null)
             {
-                AddError(message: $"Unknown type argument '{typeArg.Name}'", location: node.Location);
+                AddError(message: $"Unknown type argument '{typeArg.Name}'",
+                    location: node.Location);
             }
         }
 
         // Validate member exists and is generic
-        TypeInfo? memberType = ValidateGenericMember(objectType, node.MemberName,
-            node.TypeArguments, node.Location);
+        TypeInfo? memberType = ValidateGenericMember(objectType: objectType,
+            memberName: node.MemberName, typeArguments: node.TypeArguments,
+            location: node.Location);
 
         return memberType ?? new TypeInfo(Name: "unknown", IsReference: false);
     }
@@ -2398,7 +2390,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     private bool IsEntityType(TypeExpression type)
     {
         // Check if type is declared as entity in symbol table
-        var symbol = _symbolTable.Lookup(type.Name);
+        Symbol? symbol = _symbolTable.Lookup(name: type.Name);
         if (symbol?.Type != null)
         {
             // Check if it's marked as a reference type (entities are reference types)
@@ -2420,7 +2412,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     private bool DetermineMoveSemantics(Expression valueExpr, TypeInfo targetType)
     {
         // Rule 1: Primitive types are always copied (never moved)
-        if (IsPrimitiveType(targetType))
+        if (IsPrimitiveType(type: targetType))
         {
             return false; // Copy
         }
@@ -2434,14 +2426,14 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         // Rule 3: Check if the value type is copyable
         // Records are copyable (they have copy semantics)
         // Entities and wrapper types require explicit operations
-        if (IsRecordType(targetType))
+        if (IsRecordType(type: targetType))
         {
             return false; // Copy (records support automatic copy)
         }
 
         // Rule 4: For entities and heap-allocated objects, default to move
         // unless explicitly wrapped in share!() or other wrapper operations
-        if (IsEntityType(targetType) || IsHeapAllocatedType(targetType))
+        if (IsEntityType(type: targetType) || IsHeapAllocatedType(type: targetType))
         {
             // Check if the expression is wrapped in a sharing operation
             // For now, assume move unless we detect explicit copy markers
@@ -2459,14 +2451,30 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     {
         string[] primitiveTypes = new[]
         {
-            "s8", "s16", "s32", "s64", "s128",
-            "u8", "u16", "u32", "u64", "u128",
-            "f16", "f32", "f64", "f128",
-            "d32", "d64", "d128",
-            "bool", "letter", "syssint", "sysuint"
+            "s8",
+            "s16",
+            "s32",
+            "s64",
+            "s128",
+            "u8",
+            "u16",
+            "u32",
+            "u64",
+            "u128",
+            "f16",
+            "f32",
+            "f64",
+            "f128",
+            "d32",
+            "d64",
+            "d128",
+            "bool",
+            "letter",
+            "syssint",
+            "sysuint"
         };
 
-        return primitiveTypes.Contains(type.Name);
+        return primitiveTypes.Contains(value: type.Name);
     }
 
     /// <summary>
@@ -2482,7 +2490,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
             return true; // Non-reference types are typically records
         }
 
-        return type.Name.EndsWith("Record") || type.Name.StartsWith("Record");
+        return type.Name.EndsWith(value: "Record") || type.Name.StartsWith(value: "Record");
     }
 
     /// <summary>
@@ -2492,11 +2500,16 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     {
         string[] heapTypes = new[]
         {
-            "HeapSlice", "List", "Dict", "Set", "Text", "Array"
+            "HeapSlice",
+            "List",
+            "Dict",
+            "Set",
+            "Text",
+            "Array"
         };
 
-        return heapTypes.Contains(type.Name) || type.Name.StartsWith("Shared<") ||
-               type.Name.StartsWith("ThreadShared<");
+        return heapTypes.Contains(value: type.Name) || type.Name.StartsWith(value: "Shared<") ||
+               type.Name.StartsWith(value: "ThreadShared<");
     }
 
     /// <summary>
@@ -2511,68 +2524,72 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         }
 
         // Fallback to naming conventions
-        return type.Name.EndsWith("Entity") || type.Name.EndsWith("Service") ||
-               type.Name.EndsWith("Controller");
+        return type.Name.EndsWith(value: "Entity") || type.Name.EndsWith(value: "Service") ||
+               type.Name.EndsWith(value: "Controller");
     }
 
     /// <summary>
     /// Validates that a pattern is compatible with the matched expression type.
     /// Binds pattern variables to the appropriate scope.
     /// </summary>
-    private void ValidatePatternMatch(Pattern pattern, TypeInfo? expressionType, SourceLocation location)
+    private void ValidatePatternMatch(Pattern pattern, TypeInfo? expressionType,
+        SourceLocation location)
     {
         switch (pattern)
         {
             case LiteralPattern literalPattern:
                 // Literal patterns: check that literal type matches expression type
-                TypeInfo literalType = InferLiteralType(literalPattern.Value);
-                if (expressionType != null && !AreTypesCompatible(literalType, expressionType))
+                TypeInfo literalType = InferLiteralType(value: literalPattern.Value);
+                if (expressionType != null &&
+                    !AreTypesCompatible(left: literalType, right: expressionType))
                 {
-                    AddError($"Pattern literal type '{literalType.Name}' is not compatible with expression type '{expressionType.Name}'",
-                        location);
+                    AddError(
+                        message:
+                        $"Pattern literal type '{literalType.Name}' is not compatible with expression type '{expressionType.Name}'",
+                        location: location);
                 }
+
                 break;
 
             case IdentifierPattern identifierPattern:
                 // Identifier patterns: bind the matched value to a new variable
                 if (expressionType != null)
                 {
-                    var patternVar = new VariableSymbol(
-                        Name: identifierPattern.Name,
+                    var patternVar = new VariableSymbol(Name: identifierPattern.Name,
                         Type: expressionType,
-                        IsMutable: false,  // Pattern variables are immutable by default
-                        Visibility: VisibilityModifier.Private
-                    );
-                    _symbolTable.TryDeclare(patternVar);
+                        IsMutable: false, // Pattern variables are immutable by default
+                        Visibility: VisibilityModifier.Private);
+                    _symbolTable.TryDeclare(symbol: patternVar);
                 }
+
                 break;
 
             case TypePattern typePattern:
                 // Type patterns: check type compatibility and bind variable if provided
-                TypeInfo? patternType = ResolveTypeExpression(typePattern.Type);
+                TypeInfo? patternType = ResolveTypeExpression(typeExpr: typePattern.Type);
 
                 if (expressionType != null && patternType != null)
                 {
                     // Check if the pattern type is compatible with expression type
                     // For type patterns, we check if expressionType can be narrowed to patternType
-                    if (!IsTypeNarrowable(expressionType, patternType))
+                    if (!IsTypeNarrowable(fromType: expressionType, toType: patternType))
                     {
-                        AddError($"Type pattern '{patternType.Name}' cannot match expression of type '{expressionType.Name}'",
-                            location);
+                        AddError(
+                            message:
+                            $"Type pattern '{patternType.Name}' cannot match expression of type '{expressionType.Name}'",
+                            location: location);
                     }
 
                     // Bind variable if provided
                     if (typePattern.VariableName != null)
                     {
-                        var patternVar = new VariableSymbol(
-                            Name: typePattern.VariableName,
-                            Type: patternType,  // Variable has the narrowed type
-                            IsMutable: false,
-                            Visibility: VisibilityModifier.Private
-                        );
-                        _symbolTable.TryDeclare(patternVar);
+                        var patternVar = new VariableSymbol(Name: typePattern.VariableName,
+                            Type: patternType, // Variable has the narrowed type
+                            IsMutable: false, Visibility: VisibilityModifier.Private);
+                        _symbolTable.TryDeclare(symbol: patternVar);
                     }
                 }
+
                 break;
 
             case WildcardPattern:
@@ -2580,7 +2597,8 @@ public class SemanticAnalyzer : IAstVisitor<object?>
                 break;
 
             default:
-                AddError($"Unknown pattern type: {pattern.GetType().Name}", location);
+                AddError(message: $"Unknown pattern type: {pattern.GetType().Name}",
+                    location: location);
                 break;
         }
     }
@@ -2606,7 +2624,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         }
 
         // Numeric types can be narrowed if they're in the same family
-        if (AreNumericTypesCompatible(fromType.Name, toType.Name))
+        if (AreNumericTypesCompatible(type1: fromType.Name, type2: toType.Name))
         {
             return true;
         }
@@ -2619,15 +2637,42 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// </summary>
     private bool AreNumericTypesCompatible(string type1, string type2)
     {
-        string[] signedInts = { "s8", "s16", "s32", "s64", "s128", "syssint" };
-        string[] unsignedInts = { "u8", "u16", "u32", "u64", "u128", "sysuint" };
-        string[] floats = { "f16", "f32", "f64", "f128" };
-        string[] decimals = { "d32", "d64", "d128" };
+        string[] signedInts =
+        {
+            "s8",
+            "s16",
+            "s32",
+            "s64",
+            "s128",
+            "syssint"
+        };
+        string[] unsignedInts =
+        {
+            "u8",
+            "u16",
+            "u32",
+            "u64",
+            "u128",
+            "sysuint"
+        };
+        string[] floats =
+        {
+            "f16",
+            "f32",
+            "f64",
+            "f128"
+        };
+        string[] decimals =
+        {
+            "d32",
+            "d64",
+            "d128"
+        };
 
-        return (signedInts.Contains(type1) && signedInts.Contains(type2)) ||
-               (unsignedInts.Contains(type1) && unsignedInts.Contains(type2)) ||
-               (floats.Contains(type1) && floats.Contains(type2)) ||
-               (decimals.Contains(type1) && decimals.Contains(type2));
+        return signedInts.Contains(value: type1) && signedInts.Contains(value: type2) ||
+               unsignedInts.Contains(value: type1) && unsignedInts.Contains(value: type2) ||
+               floats.Contains(value: type1) && floats.Contains(value: type2) ||
+               decimals.Contains(value: type1) && decimals.Contains(value: type2);
     }
 
     /// <summary>
@@ -2636,16 +2681,16 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     private TypeInfo? ResolveTypeExpression(TypeExpression typeExpr)
     {
         // Look up in symbol table
-        var symbol = _symbolTable.Lookup(typeExpr.Name);
+        Symbol? symbol = _symbolTable.Lookup(name: typeExpr.Name);
         if (symbol?.Type != null)
         {
             return symbol.Type;
         }
 
         // Check if it's a built-in type
-        if (IsBuiltInType(typeExpr.Name))
+        if (IsBuiltInType(typeName: typeExpr.Name))
         {
-            return new TypeInfo(typeExpr.Name, IsReference: false);
+            return new TypeInfo(Name: typeExpr.Name, IsReference: false);
         }
 
         return null;
@@ -2656,16 +2701,35 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// </summary>
     private bool IsBuiltInType(string typeName)
     {
-        string[] builtInTypes = {
-            "s8", "s16", "s32", "s64", "s128",
-            "u8", "u16", "u32", "u64", "u128",
-            "f16", "f32", "f64", "f128",
-            "d32", "d64", "d128",
-            "bool", "letter", "Text", "syssint", "sysuint",
-            "HeapSlice", "StackSlice"
+        string[] builtInTypes =
+        {
+            "s8",
+            "s16",
+            "s32",
+            "s64",
+            "s128",
+            "u8",
+            "u16",
+            "u32",
+            "u64",
+            "u128",
+            "f16",
+            "f32",
+            "f64",
+            "f128",
+            "d32",
+            "d64",
+            "d128",
+            "bool",
+            "letter",
+            "Text",
+            "syssint",
+            "sysuint",
+            "HeapSlice",
+            "StackSlice"
         };
 
-        return builtInTypes.Contains(typeName);
+        return builtInTypes.Contains(value: typeName);
     }
 
     /// <summary>
@@ -2676,20 +2740,23 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         List<TypeExpression> typeArguments, SourceLocation location)
     {
         // For collections, validate common generic members
-        if (IsCollectionType(objectType.Name))
+        if (IsCollectionType(typeName: objectType.Name))
         {
-            return ValidateCollectionGenericMember(objectType, memberName, typeArguments, location);
+            return ValidateCollectionGenericMember(collectionType: objectType,
+                memberName: memberName, typeArguments: typeArguments, location: location);
         }
 
         // For wrapper types (Shared<T>, Hijacked<T>, etc.), validate wrapper members
-        if (IsWrapperType(objectType.Name))
+        if (IsWrapperType(typeName: objectType.Name))
         {
-            return ValidateWrapperGenericMember(objectType, memberName, typeArguments, location);
+            return ValidateWrapperGenericMember(wrapperType: objectType, memberName: memberName,
+                typeArguments: typeArguments, location: location);
         }
 
         // For custom types, check if member is declared
         // For now, return unknown type - proper implementation would query the type's members
-        AddError(message: $"Type '{objectType.Name}' does not have a generic member '{memberName}'",
+        AddError(
+            message: $"Type '{objectType.Name}' does not have a generic member '{memberName}'",
             location: location);
 
         return null;
@@ -2709,10 +2776,12 @@ public class SemanticAnalyzer : IAstVisitor<object?>
                 // Returns element type (first type parameter of collection)
                 if (typeArguments.Count != 0)
                 {
-                    AddError(message: $"'{memberName}' does not take type arguments", location: location);
+                    AddError(message: $"'{memberName}' does not take type arguments",
+                        location: location);
                 }
+
                 // Extract element type from collection (e.g., List<T> -> T)
-                return ExtractElementType(collectionType);
+                return ExtractElementType(collectionType: collectionType);
 
             case "map":
             case "filter":
@@ -2720,13 +2789,17 @@ public class SemanticAnalyzer : IAstVisitor<object?>
                 // Generic transformation methods
                 if (typeArguments.Count != 1)
                 {
-                    AddError(message: $"'{memberName}' requires exactly one type argument", location: location);
+                    AddError(message: $"'{memberName}' requires exactly one type argument",
+                        location: location);
                     return null;
                 }
-                return ResolveTypeExpression(typeArguments[0]);
+
+                return ResolveTypeExpression(typeExpr: typeArguments[index: 0]);
 
             default:
-                AddError(message: $"Collection type '{collectionType.Name}' does not have generic member '{memberName}'",
+                AddError(
+                    message:
+                    $"Collection type '{collectionType.Name}' does not have generic member '{memberName}'",
                     location: location);
                 return null;
         }
@@ -2745,12 +2818,16 @@ public class SemanticAnalyzer : IAstVisitor<object?>
                 // Returns the wrapped type
                 if (typeArguments.Count != 0)
                 {
-                    AddError(message: $"'{memberName}' does not take type arguments", location: location);
+                    AddError(message: $"'{memberName}' does not take type arguments",
+                        location: location);
                 }
-                return ExtractWrappedType(wrapperType);
+
+                return ExtractWrappedType(wrapperType: wrapperType);
 
             default:
-                AddError(message: $"Wrapper type '{wrapperType.Name}' does not have generic member '{memberName}'",
+                AddError(
+                    message:
+                    $"Wrapper type '{wrapperType.Name}' does not have generic member '{memberName}'",
                     location: location);
                 return null;
         }
@@ -2761,9 +2838,17 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// </summary>
     private bool IsCollectionType(string typeName)
     {
-        string[] collectionTypes = { "List", "Dict", "Set", "Array", "Deque", "PriorityQueue" };
-        return collectionTypes.Contains(typeName) ||
-               collectionTypes.Any(ct => typeName.StartsWith(ct + "<"));
+        string[] collectionTypes =
+        {
+            "List",
+            "Dict",
+            "Set",
+            "Array",
+            "Deque",
+            "PriorityQueue"
+        };
+        return collectionTypes.Contains(value: typeName) ||
+               collectionTypes.Any(predicate: ct => typeName.StartsWith(value: ct + "<"));
     }
 
     /// <summary>
@@ -2771,9 +2856,17 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// </summary>
     private bool IsWrapperType(string typeName)
     {
-        string[] wrapperTypes = { "Shared", "Watched", "ThreadShared", "ThreadWatched", "Hijacked", "Snatched" };
-        return wrapperTypes.Contains(typeName) ||
-               wrapperTypes.Any(wt => typeName.StartsWith(wt + "<"));
+        string[] wrapperTypes =
+        {
+            "Shared",
+            "Watched",
+            "ThreadShared",
+            "ThreadWatched",
+            "Hijacked",
+            "Snatched"
+        };
+        return wrapperTypes.Contains(value: typeName) ||
+               wrapperTypes.Any(predicate: wt => typeName.StartsWith(value: wt + "<"));
     }
 
     /// <summary>
@@ -2783,17 +2876,18 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     {
         // Parse generic type syntax: CollectionName<ElementType>
         string typeName = collectionType.Name;
-        int startIdx = typeName.IndexOf('<');
-        int endIdx = typeName.LastIndexOf('>');
+        int startIdx = typeName.IndexOf(value: '<');
+        int endIdx = typeName.LastIndexOf(value: '>');
 
         if (startIdx > 0 && endIdx > startIdx)
         {
-            string elementTypeName = typeName.Substring(startIdx + 1, endIdx - startIdx - 1);
-            return new TypeInfo(elementTypeName, IsReference: false);
+            string elementTypeName =
+                typeName.Substring(startIndex: startIdx + 1, length: endIdx - startIdx - 1);
+            return new TypeInfo(Name: elementTypeName, IsReference: false);
         }
 
         // If not parameterized, return unknown
-        return new TypeInfo("unknown", IsReference: false);
+        return new TypeInfo(Name: "unknown", IsReference: false);
     }
 
     /// <summary>
@@ -2803,16 +2897,17 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     {
         // Parse generic type syntax: WrapperName<WrappedType>
         string typeName = wrapperType.Name;
-        int startIdx = typeName.IndexOf('<');
-        int endIdx = typeName.LastIndexOf('>');
+        int startIdx = typeName.IndexOf(value: '<');
+        int endIdx = typeName.LastIndexOf(value: '>');
 
         if (startIdx > 0 && endIdx > startIdx)
         {
-            string wrappedTypeName = typeName.Substring(startIdx + 1, endIdx - startIdx - 1);
-            return new TypeInfo(wrappedTypeName, IsReference: true);
+            string wrappedTypeName =
+                typeName.Substring(startIndex: startIdx + 1, length: endIdx - startIdx - 1);
+            return new TypeInfo(Name: wrappedTypeName, IsReference: true);
         }
 
         // If not parameterized, return unknown
-        return new TypeInfo("unknown", IsReference: false);
+        return new TypeInfo(Name: "unknown", IsReference: false);
     }
 }

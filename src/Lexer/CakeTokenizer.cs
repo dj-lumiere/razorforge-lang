@@ -239,13 +239,10 @@ public class CakeTokenizer : BaseTokenizer
 
             // Comparison and assignment
             case '=':
-                AddToken(type: Match(expected: '=')
-                    ? Match(expected: '=')
+                AddToken(type: Match(expected: '=') ? Match(expected: '=')
                         ? TokenType.ReferenceEqual
-                        : TokenType.Equal
-                    : Match(expected: '>')
-                        ? TokenType.FatArrow
-                        : TokenType.Assign); break;
+                        : TokenType.Equal :
+                    Match(expected: '>') ? TokenType.FatArrow : TokenType.Assign); break;
             case '!':
                 AddToken(type: Match(expected: '=')
                     ? Match(expected: '=')

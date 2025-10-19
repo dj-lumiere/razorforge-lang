@@ -7,6 +7,7 @@
 #ifdef __cplusplus
 extern "C" {
 
+
 #endif
 
 // libdfp - IEEE 754 decimal floating point operations

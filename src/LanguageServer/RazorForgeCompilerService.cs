@@ -250,17 +250,15 @@ public class RazorForgeCompilerService : IRazorForgeCompilerService
     /// <summary>
     /// Generate completion items from symbols
     /// </summary>
-    private List<OmniSharp.Extensions.LanguageServer.Protocol.Models.CompletionItem>
-        GenerateCompletionItems(List<Symbol> symbols)
+    private List<CompletionItem> GenerateCompletionItems(List<Symbol> symbols)
     {
-        return symbols.Select(selector: symbol =>
-                           new OmniSharp.Extensions.LanguageServer.Protocol.Models.CompletionItem
-                           {
-                               Label = symbol.Name,
-                               Detail = symbol.Type,
-                               Documentation = symbol.Description,
-                               Kind = MapSymbolKindToCompletionKind(symbolKind: symbol.Kind)
-                           })
+        return symbols.Select(selector: symbol => new CompletionItem
+                       {
+                           Label = symbol.Name,
+                           Detail = symbol.Type,
+                           Documentation = symbol.Description,
+                           Kind = MapSymbolKindToCompletionKind(symbolKind: symbol.Kind)
+                       })
                       .ToList();
     }
 
@@ -425,30 +423,20 @@ public class RazorForgeCompilerService : IRazorForgeCompilerService
     /// <summary>
     /// Map symbol kinds to LSP completion kinds
     /// </summary>
-    private OmniSharp.Extensions.LanguageServer.Protocol.Models.CompletionItemKind
-        MapSymbolKindToCompletionKind(SymbolKind symbolKind)
+    private CompletionItemKind MapSymbolKindToCompletionKind(SymbolKind symbolKind)
     {
         return symbolKind switch
         {
-            SymbolKind.Function => OmniSharp.Extensions.LanguageServer.Protocol.Models
-                                            .CompletionItemKind.Function,
-            SymbolKind.Variable => OmniSharp.Extensions.LanguageServer.Protocol.Models
-                                            .CompletionItemKind.Variable,
-            SymbolKind.Type => OmniSharp.Extensions.LanguageServer.Protocol.Models
-                                        .CompletionItemKind.TypeParameter,
-            SymbolKind.Entity => OmniSharp.Extensions.LanguageServer.Protocol.Models
-                                          .CompletionItemKind.Class,
-            SymbolKind.Record => OmniSharp.Extensions.LanguageServer.Protocol.Models
-                                          .CompletionItemKind.Struct,
-            SymbolKind.Option => OmniSharp.Extensions.LanguageServer.Protocol.Models
-                                          .CompletionItemKind.Enum,
-            SymbolKind.Property => OmniSharp.Extensions.LanguageServer.Protocol.Models
-                                            .CompletionItemKind.Property,
-            SymbolKind.Method => OmniSharp.Extensions.LanguageServer.Protocol.Models
-                                          .CompletionItemKind.Method,
-            SymbolKind.Parameter => OmniSharp.Extensions.LanguageServer.Protocol.Models
-                                             .CompletionItemKind.Variable,
-            _ => OmniSharp.Extensions.LanguageServer.Protocol.Models.CompletionItemKind.Text
+            SymbolKind.Function => CompletionItemKind.Function,
+            SymbolKind.Variable => CompletionItemKind.Variable,
+            SymbolKind.Type => CompletionItemKind.TypeParameter,
+            SymbolKind.Entity => CompletionItemKind.Class,
+            SymbolKind.Record => CompletionItemKind.Struct,
+            SymbolKind.Option => CompletionItemKind.Enum,
+            SymbolKind.Property => CompletionItemKind.Property,
+            SymbolKind.Method => CompletionItemKind.Method,
+            SymbolKind.Parameter => CompletionItemKind.Variable,
+            _ => CompletionItemKind.Text
         };
     }
 

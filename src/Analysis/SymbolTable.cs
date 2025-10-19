@@ -164,7 +164,8 @@ public record ClassSymbol(
     List<TypeExpression> Interfaces,
     VisibilityModifier Visibility,
     List<string>? GenericParameters = null,
-    List<GenericConstraint>? GenericConstraints = null) : Symbol(Name: Name, Type: null, Visibility: Visibility)
+    List<GenericConstraint>? GenericConstraints = null)
+    : Symbol(Name: Name, Type: null, Visibility: Visibility)
 {
     /// <summary>true if this entity has generic parameters</summary>
     public bool IsGeneric => GenericParameters != null && GenericParameters.Count > 0;
@@ -245,7 +246,11 @@ public record TypeSymbol(string Name, TypeInfo TypeInfo, VisibilityModifier Visi
 /// <item>Text types: text8, text16, text</item>
 /// </list>
 /// </remarks>
-public record TypeInfo(string Name, bool IsReference, List<TypeInfo>? GenericArguments = null, bool IsGenericParameter = false)
+public record TypeInfo(
+    string Name,
+    bool IsReference,
+    List<TypeInfo>? GenericArguments = null,
+    bool IsGenericParameter = false)
 {
     /// <summary>true if this is any numeric type (integer, floating point, or decimal)</summary>
     public bool IsNumeric => Name.StartsWith(value: "s") || Name.StartsWith(value: "u") ||
@@ -271,8 +276,13 @@ public record TypeInfo(string Name, bool IsReference, List<TypeInfo>? GenericArg
     {
         get
         {
-            if (!IsGeneric) return Name;
-            var args = string.Join(", ", GenericArguments!.Select(t => t.FullName));
+            if (!IsGeneric)
+            {
+                return Name;
+            }
+
+            string args = string.Join(separator: ", ",
+                values: GenericArguments!.Select(selector: t => t.FullName));
             return $"{Name}[{args}]";
         }
     }

@@ -56,7 +56,9 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     private List<string>? _stringConstants; // Collect string constants for proper emission
 
     // Generic instantiation tracking for monomorphization
-    private readonly Dictionary<string, List<List<Analysis.TypeInfo>>> _genericInstantiations = new();
+    private readonly Dictionary<string, List<List<Analysis.TypeInfo>>> _genericInstantiations =
+        new();
+
     private readonly Dictionary<string, FunctionDeclaration> _genericFunctionTemplates = new();
     private readonly List<string> _pendingGenericInstantiations = new();
 
@@ -76,7 +78,8 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     /// <item>Generated code optimization level</item>
     /// </list>
     /// </remarks>
-    public LLVMCodeGenerator(Language language, LanguageMode mode, TargetPlatform? targetPlatform = null)
+    public LLVMCodeGenerator(Language language, LanguageMode mode,
+        TargetPlatform? targetPlatform = null)
     {
         _language = language;
         _mode = mode;
@@ -208,9 +211,15 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     private string MonomorphizeFunctionName(string baseName, List<Analysis.TypeInfo> typeArgs)
     {
         if (typeArgs == null || typeArgs.Count == 0)
+        {
             return baseName;
+        }
 
-        var suffix = string.Join("_", typeArgs.Select(t => t.Name.Replace("[", "_").Replace("]", "").Replace(",", "_").Replace(" ", "")));
+        string suffix = string.Join(separator: "_", values: typeArgs.Select(selector: t => t.Name
+           .Replace(oldValue: "[", newValue: "_")
+           .Replace(oldValue: "]", newValue: "")
+           .Replace(oldValue: ",", newValue: "_")
+           .Replace(oldValue: " ", newValue: "")));
         return $"{baseName}_{suffix}";
     }
 
@@ -222,19 +231,24 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     /// <returns>True if this instantiation already exists, false otherwise</returns>
     private bool IsAlreadyInstantiated(string functionName, List<Analysis.TypeInfo> typeArgs)
     {
-        if (!_genericInstantiations.ContainsKey(functionName))
+        if (!_genericInstantiations.ContainsKey(key: functionName))
+        {
             return false;
+        }
 
-        var existingInstantiations = _genericInstantiations[functionName];
-        foreach (var existing in existingInstantiations)
+        List<List<Analysis.TypeInfo>> existingInstantiations =
+            _genericInstantiations[key: functionName];
+        foreach (List<Analysis.TypeInfo> existing in existingInstantiations)
         {
             if (existing.Count != typeArgs.Count)
+            {
                 continue;
+            }
 
             bool matches = true;
             for (int i = 0; i < existing.Count; i++)
             {
-                if (existing[i].Name != typeArgs[i].Name)
+                if (existing[index: i].Name != typeArgs[index: i].Name)
                 {
                     matches = false;
                     break;
@@ -242,7 +256,9 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             }
 
             if (matches)
+            {
                 return true;
+            }
         }
 
         return false;
@@ -255,10 +271,13 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     /// <param name="typeArgs">Type arguments for this instantiation</param>
     private void TrackInstantiation(string functionName, List<Analysis.TypeInfo> typeArgs)
     {
-        if (!_genericInstantiations.ContainsKey(functionName))
-            _genericInstantiations[functionName] = new List<List<Analysis.TypeInfo>>();
+        if (!_genericInstantiations.ContainsKey(key: functionName))
+        {
+            _genericInstantiations[key: functionName] = new List<List<Analysis.TypeInfo>>();
+        }
 
-        _genericInstantiations[functionName].Add(new List<Analysis.TypeInfo>(typeArgs));
+        _genericInstantiations[key: functionName]
+           .Add(item: new List<Analysis.TypeInfo>(collection: typeArgs));
     }
 
     /// <summary>
@@ -302,8 +321,10 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             "u128" => "i128",
 
             // System-dependent integers (pointer-sized, architecture-dependent)
-            "syssint" => _targetPlatform.GetPointerSizedIntType(), // intptr_t - varies by architecture
-            "sysuint" => _targetPlatform.GetPointerSizedIntType(), // uintptr_t - varies by architecture
+            "syssint" => _targetPlatform
+               .GetPointerSizedIntType(), // intptr_t - varies by architecture
+            "sysuint" => _targetPlatform
+               .GetPointerSizedIntType(), // uintptr_t - varies by architecture
 
             // IEEE 754 floating point types
             "f16" => "half", // 16-bit half precision
@@ -321,7 +342,8 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             // C FFI types - Character types
             "cchar" or "cschar" => "i8", // char, signed char
             "cuchar" => "i8", // unsigned char (same LLVM type, different signedness)
-            "cwchar" => _targetPlatform.GetWCharType(), // wchar_t (varies by OS: 32-bit on Unix/Linux, 16-bit on Windows)
+            "cwchar" => _targetPlatform
+               .GetWCharType(), // wchar_t (varies by OS: 32-bit on Unix/Linux, 16-bit on Windows)
             "cchar8" => "i8", // char8_t
             "cchar16" => "i16", // char16_t
             "cchar32" => "i32", // char32_t
@@ -331,19 +353,24 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             "cushort" => "i16", // unsigned short
             "cint" => "i32", // int
             "cuint" => "i32", // unsigned int
-            "clong" => _targetPlatform.GetLongType(), // long (varies by OS: 64-bit on Unix x86_64, 32-bit on Windows x86_64)
-            "culong" => _targetPlatform.GetLongType(), // unsigned long (varies by OS: 64-bit on Unix x86_64, 32-bit on Windows x86_64)
+            "clong" => _targetPlatform
+               .GetLongType(), // long (varies by OS: 64-bit on Unix x86_64, 32-bit on Windows x86_64)
+            "culong" => _targetPlatform
+               .GetLongType(), // unsigned long (varies by OS: 64-bit on Unix x86_64, 32-bit on Windows x86_64)
             "cll" => "i64", // long long
             "cull" => "i64", // unsigned long long
             "cfloat" => "float", // float
             "cdouble" => "double", // double
 
             // C FFI types - Pointer-sized integers (architecture-dependent)
-            "csptr" => _targetPlatform.GetPointerSizedIntType(), // intptr_t (varies by architecture)
-            "cuptr" => _targetPlatform.GetPointerSizedIntType(), // uintptr_t (varies by architecture)
+            "csptr" => _targetPlatform
+               .GetPointerSizedIntType(), // intptr_t (varies by architecture)
+            "cuptr" => _targetPlatform
+               .GetPointerSizedIntType(), // uintptr_t (varies by architecture)
 
             // C FFI types - Special types
-            "cvoid" => _targetPlatform.GetPointerSizedIntType(), // void (represented as sysuint in RazorForge)
+            "cvoid" => _targetPlatform
+               .GetPointerSizedIntType(), // void (represented as sysuint in RazorForge)
             "cbool" => "i1", // C bool (_Bool)
 
             _ => "i8*" // Default to pointer for unknown types (including cptr<T>)
@@ -525,7 +552,7 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         };
 
         // Handle special overflow operations with LLVM intrinsics
-        if (string.IsNullOrEmpty(op))
+        if (string.IsNullOrEmpty(value: op))
         {
             // Handle saturating and checked operations
             switch (node.Operator)
@@ -533,15 +560,19 @@ public class LLVMCodeGenerator : IAstVisitor<string>
                 case BinaryOperator.AddSaturate:
                 case BinaryOperator.SubtractSaturate:
                 case BinaryOperator.MultiplySaturate:
-                    return GenerateSaturatingArithmetic(node.Operator, left, right, result, leftTypeInfo, operandType);
+                    return GenerateSaturatingArithmetic(op: node.Operator, left: left,
+                        right: right, result: result, typeInfo: leftTypeInfo,
+                        llvmType: operandType);
 
                 case BinaryOperator.AddChecked:
                 case BinaryOperator.SubtractChecked:
                 case BinaryOperator.MultiplyChecked:
-                    return GenerateCheckedArithmetic(node.Operator, left, right, result, leftTypeInfo, operandType);
+                    return GenerateCheckedArithmetic(op: node.Operator, left: left, right: right,
+                        result: result, typeInfo: leftTypeInfo, llvmType: operandType);
 
                 default:
-                    throw new NotSupportedException($"Operator {node.Operator} is not properly configured");
+                    throw new NotSupportedException(
+                        message: $"Operator {node.Operator} is not properly configured");
             }
         }
 
@@ -571,10 +602,16 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     {
         string intrinsicName = op switch
         {
-            BinaryOperator.AddSaturate => typeInfo.IsUnsigned ? "llvm.uadd.sat" : "llvm.sadd.sat",
-            BinaryOperator.SubtractSaturate => typeInfo.IsUnsigned ? "llvm.usub.sat" : "llvm.ssub.sat",
-            BinaryOperator.MultiplySaturate => GenerateSaturatingMultiply(left, right, result, typeInfo, llvmType),
-            _ => throw new NotSupportedException($"Saturating operation {op} not supported")
+            BinaryOperator.AddSaturate => typeInfo.IsUnsigned
+                ? "llvm.uadd.sat"
+                : "llvm.sadd.sat",
+            BinaryOperator.SubtractSaturate => typeInfo.IsUnsigned
+                ? "llvm.usub.sat"
+                : "llvm.ssub.sat",
+            BinaryOperator.MultiplySaturate => GenerateSaturatingMultiply(left: left, right: right,
+                result: result, typeInfo: typeInfo, llvmType: llvmType),
+            _ => throw new NotSupportedException(
+                message: $"Saturating operation {op} not supported")
         };
 
         // For multiply, the implementation is handled separately
@@ -584,8 +621,10 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         }
 
         // Generate intrinsic call for add/subtract
-        _output.AppendLine($"  {result} = call {llvmType} @{intrinsicName}.{llvmType}({llvmType} {left}, {llvmType} {right})");
-        _tempTypes[result] = typeInfo;
+        _output.AppendLine(
+            handler:
+            $"  {result} = call {llvmType} @{intrinsicName}.{llvmType}({llvmType} {left}, {llvmType} {right})");
+        _tempTypes[key: result] = typeInfo;
         return result;
     }
 
@@ -604,21 +643,30 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         string minValueTemp = GetNextTemp();
         string saturatedTemp = GetNextTemp();
 
-        string intrinsicName = typeInfo.IsUnsigned ? "llvm.umul.with.overflow" : "llvm.smul.with.overflow";
+        string intrinsicName = typeInfo.IsUnsigned
+            ? "llvm.umul.with.overflow"
+            : "llvm.smul.with.overflow";
 
         // Call overflow intrinsic
-        _output.AppendLine($"  {structTemp} = call {{{llvmType}, i1}} @{intrinsicName}.{llvmType}({llvmType} {left}, {llvmType} {right})");
-        _output.AppendLine($"  {valueTemp} = extractvalue {{{llvmType}, i1}} {structTemp}, 0");
-        _output.AppendLine($"  {didOverflowTemp} = extractvalue {{{llvmType}, i1}} {structTemp}, 1");
+        _output.AppendLine(
+            handler:
+            $"  {structTemp} = call {{{llvmType}, i1}} @{intrinsicName}.{llvmType}({llvmType} {left}, {llvmType} {right})");
+        _output.AppendLine(
+            handler: $"  {valueTemp} = extractvalue {{{llvmType}, i1}} {structTemp}, 0");
+        _output.AppendLine(
+            handler: $"  {didOverflowTemp} = extractvalue {{{llvmType}, i1}} {structTemp}, 1");
 
         // Get max/min values for saturation
-        (string maxValue, string minValue) = GetSaturationBounds(typeInfo, llvmType);
+        (string maxValue, string minValue) =
+            GetSaturationBounds(typeInfo: typeInfo, llvmType: llvmType);
 
         // Determine saturation value based on sign of operands if overflow occurred
         if (typeInfo.IsUnsigned)
         {
             // For unsigned: saturate to max value on overflow
-            _output.AppendLine($"  {saturatedTemp} = select i1 {didOverflowTemp}, {llvmType} {maxValue}, {llvmType} {valueTemp}");
+            _output.AppendLine(
+                handler:
+                $"  {saturatedTemp} = select i1 {didOverflowTemp}, {llvmType} {maxValue}, {llvmType} {valueTemp}");
         }
         else
         {
@@ -629,18 +677,24 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             string sameSigns = GetNextTemp();
             string satValue = GetNextTemp();
 
-            _output.AppendLine($"  {leftSignTemp} = icmp slt {llvmType} {left}, 0");
-            _output.AppendLine($"  {rightSignTemp} = icmp slt {llvmType} {right}, 0");
-            _output.AppendLine($"  {sameSigns} = icmp eq i1 {leftSignTemp}, {rightSignTemp}");
+            _output.AppendLine(handler: $"  {leftSignTemp} = icmp slt {llvmType} {left}, 0");
+            _output.AppendLine(handler: $"  {rightSignTemp} = icmp slt {llvmType} {right}, 0");
+            _output.AppendLine(
+                handler: $"  {sameSigns} = icmp eq i1 {leftSignTemp}, {rightSignTemp}");
 
             // If same signs: both positive -> max, both negative -> max (negative * negative = positive)
             // If different signs: result should be min (negative)
-            _output.AppendLine($"  {satValue} = select i1 {sameSigns}, {llvmType} {maxValue}, {llvmType} {minValue}");
-            _output.AppendLine($"  {saturatedTemp} = select i1 {didOverflowTemp}, {llvmType} {satValue}, {llvmType} {valueTemp}");
+            _output.AppendLine(
+                handler:
+                $"  {satValue} = select i1 {sameSigns}, {llvmType} {maxValue}, {llvmType} {minValue}");
+            _output.AppendLine(
+                handler:
+                $"  {saturatedTemp} = select i1 {didOverflowTemp}, {llvmType} {satValue}, {llvmType} {valueTemp}");
         }
 
-        _output.AppendLine($"  {result} = add {llvmType} {saturatedTemp}, 0  ; final saturated result");
-        _tempTypes[result] = typeInfo;
+        _output.AppendLine(
+            handler: $"  {result} = add {llvmType} {saturatedTemp}, 0  ; final saturated result");
+        _tempTypes[key: result] = typeInfo;
         return result;
     }
 
@@ -652,10 +706,16 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     {
         string intrinsicName = op switch
         {
-            BinaryOperator.AddChecked => typeInfo.IsUnsigned ? "llvm.uadd.with.overflow" : "llvm.sadd.with.overflow",
-            BinaryOperator.SubtractChecked => typeInfo.IsUnsigned ? "llvm.usub.with.overflow" : "llvm.ssub.with.overflow",
-            BinaryOperator.MultiplyChecked => typeInfo.IsUnsigned ? "llvm.umul.with.overflow" : "llvm.smul.with.overflow",
-            _ => throw new NotSupportedException($"Checked operation {op} not supported")
+            BinaryOperator.AddChecked => typeInfo.IsUnsigned
+                ? "llvm.uadd.with.overflow"
+                : "llvm.sadd.with.overflow",
+            BinaryOperator.SubtractChecked => typeInfo.IsUnsigned
+                ? "llvm.usub.with.overflow"
+                : "llvm.ssub.with.overflow",
+            BinaryOperator.MultiplyChecked => typeInfo.IsUnsigned
+                ? "llvm.umul.with.overflow"
+                : "llvm.smul.with.overflow",
+            _ => throw new NotSupportedException(message: $"Checked operation {op} not supported")
         };
 
         string structTemp = GetNextTemp();
@@ -665,35 +725,44 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         string continueLabel = GetNextLabel();
 
         // Call overflow intrinsic which returns {result, overflow_flag}
-        _output.AppendLine($"  {structTemp} = call {{{llvmType}, i1}} @{intrinsicName}.{llvmType}({llvmType} {left}, {llvmType} {right})");
-        _output.AppendLine($"  {valueTemp} = extractvalue {{{llvmType}, i1}} {structTemp}, 0");
-        _output.AppendLine($"  {didOverflowTemp} = extractvalue {{{llvmType}, i1}} {structTemp}, 1");
+        _output.AppendLine(
+            handler:
+            $"  {structTemp} = call {{{llvmType}, i1}} @{intrinsicName}.{llvmType}({llvmType} {left}, {llvmType} {right})");
+        _output.AppendLine(
+            handler: $"  {valueTemp} = extractvalue {{{llvmType}, i1}} {structTemp}, 0");
+        _output.AppendLine(
+            handler: $"  {didOverflowTemp} = extractvalue {{{llvmType}, i1}} {structTemp}, 1");
 
         // Branch on overflow flag
-        _output.AppendLine($"  br i1 {didOverflowTemp}, label %{trapLabel}, label %{continueLabel}");
+        _output.AppendLine(
+            handler: $"  br i1 {didOverflowTemp}, label %{trapLabel}, label %{continueLabel}");
 
         // Trap block - call panic/abort on overflow
-        _output.AppendLine($"{trapLabel}:");
-        _output.AppendLine($"  call void @rf_crash(ptr getelementptr inbounds ([19 x i8], [19 x i8]* @.str_overflow, i32 0, i32 0))");
-        _output.AppendLine($"  unreachable");
+        _output.AppendLine(handler: $"{trapLabel}:");
+        _output.AppendLine(
+            value:
+            $"  call void @rf_crash(ptr getelementptr inbounds ([19 x i8], [19 x i8]* @.str_overflow, i32 0, i32 0))");
+        _output.AppendLine(value: $"  unreachable");
 
         // Continue block - normal execution
-        _output.AppendLine($"{continueLabel}:");
-        _output.AppendLine($"  {result} = add {llvmType} {valueTemp}, 0  ; propagate result");
+        _output.AppendLine(handler: $"{continueLabel}:");
+        _output.AppendLine(
+            handler: $"  {result} = add {llvmType} {valueTemp}, 0  ; propagate result");
 
-        _tempTypes[result] = typeInfo;
+        _tempTypes[key: result] = typeInfo;
         return result;
     }
 
     /// <summary>
     /// Gets the saturation bounds (max and min values) for a given type.
     /// </summary>
-    private (string maxValue, string minValue) GetSaturationBounds(TypeInfo typeInfo, string llvmType)
+    private (string maxValue, string minValue) GetSaturationBounds(TypeInfo typeInfo,
+        string llvmType)
     {
         if (typeInfo.IsUnsigned)
         {
             // Unsigned: min = 0, max = 2^bits - 1
-            int bits = GetTypeBitWidth(llvmType);
+            int bits = GetTypeBitWidth(llvmType: llvmType);
             string maxValue = bits switch
             {
                 8 => "255",
@@ -708,14 +777,15 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         else
         {
             // Signed: min = -2^(bits-1), max = 2^(bits-1) - 1
-            int bits = GetTypeBitWidth(llvmType);
+            int bits = GetTypeBitWidth(llvmType: llvmType);
             (string maxValue, string minValue) = bits switch
             {
                 8 => ("127", "-128"),
                 16 => ("32767", "-32768"),
                 32 => ("2147483647", "-2147483648"),
                 64 => ("9223372036854775807", "-9223372036854775808"),
-                128 => ("170141183460469231731687303715884105727", "-170141183460469231731687303715884105728"),
+                128 => ("170141183460469231731687303715884105727",
+                    "-170141183460469231731687303715884105728"),
                 _ => ("0", "0")
             };
             return (maxValue, minValue);
@@ -1872,7 +1942,8 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             : "void";
 
         // Map calling convention to LLVM calling convention attribute
-        string callingConventionAttr = MapCallingConventionToLLVM(node.CallingConvention);
+        string callingConventionAttr =
+            MapCallingConventionToLLVM(callingConvention: node.CallingConvention);
 
         if (node.GenericParameters != null && node.GenericParameters.Count > 0)
         {
@@ -1884,9 +1955,11 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         else
         {
             // Emit external declaration with calling convention
-            if (!string.IsNullOrEmpty(callingConventionAttr))
+            if (!string.IsNullOrEmpty(value: callingConventionAttr))
             {
-                _output.AppendLine(handler: $"declare {callingConventionAttr} {returnType} @{node.Name}({paramTypes})");
+                _output.AppendLine(
+                    handler:
+                    $"declare {callingConventionAttr} {returnType} @{node.Name}({paramTypes})");
             }
             else
             {
@@ -1904,8 +1977,10 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     /// <returns>LLVM calling convention attribute or empty string for default</returns>
     private string MapCallingConventionToLLVM(string? callingConvention)
     {
-        if (string.IsNullOrEmpty(callingConvention))
+        if (string.IsNullOrEmpty(value: callingConvention))
+        {
             return ""; // Default C calling convention
+        }
 
         return callingConvention.ToLowerInvariant() switch
         {
@@ -1936,7 +2011,8 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             "u32" => "i32",
             "u64" => "i64",
             "u128" => "i128",
-            "sysuint" or "syssint" => _targetPlatform.GetPointerSizedIntType(), // Architecture-dependent
+            "sysuint" or "syssint" => _targetPlatform
+               .GetPointerSizedIntType(), // Architecture-dependent
             "f16" => "half",
             "f32" => "float",
             "f64" => "double",

@@ -52,6 +52,7 @@ public enum TokenType
     #endregion
 
     #region String Literals
+
     // Basic 32-bit texts (default)
     /// <summary>Text literal - default for plain quotes ("hello world")</summary>
     TextLiteral,
@@ -93,6 +94,7 @@ public enum TokenType
     #endregion
 
     #region Typed Numeric Literals
+
     // Signed integers
     /// <summary>8-bit signed integer literal (42i8)</summary>
     S8Literal,
@@ -157,6 +159,7 @@ public enum TokenType
     #endregion
 
     #region Memory Size Literals
+
     /// <summary>Byte memory size literal (100b)</summary>
     ByteLiteral,
 
@@ -228,6 +231,7 @@ public enum TokenType
     #endregion
 
     #region Duration Literals
+
     /// <summary>Week duration literal (2w)</summary>
     WeekLiteral,
 
@@ -255,6 +259,7 @@ public enum TokenType
     #endregion
 
     #region Identifiers
+
     /// <summary>Regular identifier in snake_case, may end with ! (my_var, is_valid!)</summary>
     Identifier,
 
@@ -264,6 +269,7 @@ public enum TokenType
     #endregion
 
     #region Keywords - Declarations
+
     /// <summary>Function declaration keyword (recipe)</summary>
     Recipe,
 
@@ -324,6 +330,7 @@ public enum TokenType
     #endregion
 
     #region Keywords - Control Flow
+
     /// <summary>Conditional if statement keyword</summary>
     If,
 
@@ -366,12 +373,14 @@ public enum TokenType
     #endregion
 
     #region Keywords - Module System
+
     /// <summary>Import statement keyword</summary>
     Import,
 
     #endregion
 
     #region Keywords - Special
+
     /// <summary>Using statement keyword for resource management (using obj as o { })</summary>
     Using,
 
@@ -426,6 +435,7 @@ public enum TokenType
     #endregion
 
     #region Keywords - Logical Operators
+
     /// <summary>Logical AND operator keyword</summary>
     And,
 
@@ -438,6 +448,7 @@ public enum TokenType
     #endregion
 
     #region Keywords - Literals
+
     /// <summary>Boolean true literal keyword</summary>
     True,
 
@@ -450,6 +461,7 @@ public enum TokenType
     #endregion
 
     #region Operators - Basic Arithmetic
+
     /// <summary>Addition operator (+)</summary>
     Plus,
 
@@ -471,6 +483,7 @@ public enum TokenType
     #endregion
 
     #region Operators - Overflow Variants
+
     /// <summary>Wrapping addition operator (+%)</summary>
     PlusWrap,
 
@@ -549,6 +562,7 @@ public enum TokenType
     #endregion
 
     #region Operators - Comparison
+
     /// <summary>Equality comparison operator (==)</summary>
     Equal,
 
@@ -576,6 +590,7 @@ public enum TokenType
     #endregion
 
     #region Operators - Bitwise
+
     /// <summary>Bitwise AND or reference operator (&)</summary>
     Ampersand,
 
@@ -597,8 +612,10 @@ public enum TokenType
     #endregion
 
     #region Operators - Assignment and Special
+
     /// <summary>Assignment operator (=)</summary>
     Assign,
+
     /// <summary>Negation or macro operator (!)</summary>
     Bang,
 
@@ -623,6 +640,7 @@ public enum TokenType
     #endregion
 
     #region Delimiters - Brackets and Braces
+
     /// <summary>Left parenthesis delimiter (</summary>
     LeftParen,
 
@@ -644,6 +662,7 @@ public enum TokenType
     #endregion
 
     #region Delimiters - Punctuation
+
     /// <summary>Member access dot operator (.)</summary>
     Dot,
 
@@ -665,6 +684,7 @@ public enum TokenType
     #endregion
 
     #region Special Tokens
+
     /// <summary>Significant newline token (statement terminator)</summary>
     Newline,
 

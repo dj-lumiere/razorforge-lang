@@ -78,9 +78,11 @@ public class RazorForgeParser : BaseParser
                 {
                     Token conventionToken = Advance();
                     // Remove quotes from the text literal
-                    callingConvention = conventionToken.Text.Trim('"');
+                    callingConvention = conventionToken.Text.Trim(trimChar: '"');
                 }
-                Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after calling convention");
+
+                Consume(type: TokenType.RightParen,
+                    errorMessage: "Expected ')' after calling convention");
             }
 
             if (Match(type: TokenType.Recipe))
