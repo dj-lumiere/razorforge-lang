@@ -548,6 +548,12 @@ public enum TokenType
     /// <summary>Inequality comparison operator (!=)</summary>
     NotEqual,
 
+    /// <summary>Reference equality comparison operator (===)</summary>
+    ReferenceEqual,
+
+    /// <summary>Reference inequality comparison operator (!==)</summary>
+    ReferenceNotEqual,
+
     /// <summary>Less than comparison operator (<)</summary>
     Less,
 

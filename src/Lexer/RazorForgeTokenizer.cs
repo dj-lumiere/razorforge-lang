@@ -177,7 +177,9 @@ public class RazorForgeTokenizer : BaseTokenizer
                     : TokenType.Colon); break;
             case '!':
                 AddToken(type: Match(expected: '=')
-                    ? TokenType.NotEqual
+                    ? Match(expected: '=')
+                        ? TokenType.ReferenceNotEqual
+                        : TokenType.NotEqual
                     : TokenType.Bang); break;
             case '?':
                 AddToken(type: Match(expected: ':')
@@ -203,7 +205,9 @@ public class RazorForgeTokenizer : BaseTokenizer
 
             // Comparison and assignment
             case '=':
-                AddToken(type: Match(expected: '=') ? TokenType.Equal :
+                AddToken(type: Match(expected: '=') ? Match(expected: '=')
+                        ? TokenType.ReferenceEqual
+                        : TokenType.Equal :
                     Match(expected: '>') ? TokenType.FatArrow : TokenType.Assign); break;
             case '<':
                 AddToken(type: Match(expected: '=') ? TokenType.LessEqual :
