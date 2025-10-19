@@ -236,7 +236,7 @@ public class TokenizerTests
     {
         (string, TokenType)[] keywords = new[]
         {
-            ("recipe", TokenType.recipe),
+            ("recipe", recipe: TokenType.Recipe),
             ("entity", TokenType.Entity),
             ("record", TokenType.Record),
             ("choice", TokenType.Choice),
@@ -432,7 +432,7 @@ public class TokenizerTests
         // Verify the sequence of tokens
         TokenType[] expectedTypes = new[]
         {
-            TokenType.recipe,
+            TokenType.Recipe,
             TokenType.Identifier,
             TokenType.LeftParen,
             TokenType.Identifier,

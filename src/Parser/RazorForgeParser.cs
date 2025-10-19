@@ -83,7 +83,7 @@ public class RazorForgeParser : BaseParser
                 Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after calling convention");
             }
 
-            if (Match(type: TokenType.recipe))
+            if (Match(type: TokenType.Recipe))
             {
                 return ParseExternalDeclaration(callingConvention: callingConvention);
             }
@@ -96,7 +96,7 @@ public class RazorForgeParser : BaseParser
         }
 
         // Function declaration
-        if (Match(type: TokenType.recipe))
+        if (Match(type: TokenType.Recipe))
         {
             return ParseFunctionDeclaration(visibility: visibility);
         }
@@ -571,7 +571,7 @@ public class RazorForgeParser : BaseParser
 
             // Try to parse as function first
             if (Check(type: TokenType.Public) || Check(type: TokenType.Private) ||
-                Check(type: TokenType.recipe))
+                Check(type: TokenType.Recipe))
             {
                 var method = ParseDeclaration() as FunctionDeclaration;
                 if (method != null)
@@ -650,7 +650,7 @@ public class RazorForgeParser : BaseParser
             }
 
             // Parse function signature
-            Consume(type: TokenType.recipe, errorMessage: "Expected 'recipe' in feature method");
+            Consume(type: TokenType.Recipe, errorMessage: "Expected 'recipe' in feature method");
             string methodName = ConsumeIdentifier(errorMessage: "Expected method name");
 
             // Parameters
@@ -1704,7 +1704,7 @@ public class RazorForgeParser : BaseParser
         }
 
         // Lambda expression
-        if (Match(type: TokenType.recipe))
+        if (Match(type: TokenType.Recipe))
         {
             return ParseLambdaExpression(location: location);
         }

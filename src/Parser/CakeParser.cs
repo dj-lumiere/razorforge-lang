@@ -86,7 +86,7 @@ public class CakeParser : BaseParser
         }
 
         // Recipe (function) declaration - using 'recipe' keyword in Cake
-        if (Match(type: TokenType.recipe))
+        if (Match(type: TokenType.Recipe))
         {
             return ParseRecipeDeclaration(visibility: visibility);
         }
@@ -462,7 +462,7 @@ public class CakeParser : BaseParser
 
                 // Check if it's a method (recipe)
                 if (Check(type: TokenType.Public) || Check(type: TokenType.Private) ||
-                    Check(type: TokenType.recipe))
+                    Check(type: TokenType.Recipe))
                 {
                     var method = ParseDeclaration() as FunctionDeclaration;
                     if (method != null)
@@ -551,7 +551,7 @@ public class CakeParser : BaseParser
 
                 // Check if it's a method (recipe)
                 if (Check(type: TokenType.Public) || Check(type: TokenType.Private) ||
-                    Check(type: TokenType.recipe))
+                    Check(type: TokenType.Recipe))
                 {
                     var method = ParseDeclaration() as FunctionDeclaration;
                     if (method != null)
@@ -628,7 +628,7 @@ public class CakeParser : BaseParser
                 }
 
                 // Parse recipe signature
-                Consume(type: TokenType.recipe,
+                Consume(type: TokenType.Recipe,
                     errorMessage: "Expected 'recipe' in feature method");
                 string methodName = ConsumeIdentifier(errorMessage: "Expected method name");
 

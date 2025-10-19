@@ -31,7 +31,7 @@ public class BasicCompilerTests
     {
         (string, TokenType)[] keywords = new[]
         {
-            ("recipe", TokenType.recipe),
+            ("recipe", recipe: TokenType.Recipe),
             ("let", TokenType.Let),
             ("var", TokenType.Var),
             ("if", TokenType.If),

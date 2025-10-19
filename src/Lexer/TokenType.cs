@@ -265,7 +265,7 @@ public enum TokenType
 
     #region Keywords - Declarations
     /// <summary>Function declaration keyword (recipe)</summary>
-    recipe,
+    Recipe,
 
     /// <summary>Entity declaration keyword</summary>
     Entity,
@@ -372,7 +372,7 @@ public enum TokenType
     #endregion
 
     #region Keywords - Special
-    /// <summary>Using statement keyword</summary>
+    /// <summary>Using statement keyword for resource management (using obj as o { })</summary>
     Using,
 
     /// <summary>Type alias as keyword</summary>
@@ -402,12 +402,19 @@ public enum TokenType
     /// <summary>Follows keyword for ordering constraints</summary>
     Follows,
 
-    /// <summary>In keyword for iterating/contains(ex, for i in 1 to 10 step 2)</summary>
+    /// <summary>In keyword for iterating/contains (ex, for i in 1 to 10 step 2)</summary>
     In,
 
+    /// <summary>Not in keyword - negated containment check (notin)</summary>
     NotIn,
+
+    /// <summary>Is not keyword - negated type check (isnot)</summary>
     IsNot,
+
+    /// <summary>Not from keyword - negated inheritance check (notfrom)</summary>
     NotFrom,
+
+    /// <summary>Not follows keyword - negated ordering constraint (notfollows)</summary>
     NotFollows,
 
     /// <summary>To keyword for Range object(ex, for i in 1 to 10 step 2)</summary>
@@ -554,10 +561,10 @@ public enum TokenType
     /// <summary>Reference inequality comparison operator (!==)</summary>
     ReferenceNotEqual,
 
-    /// <summary>Less than comparison operator (<)</summary>
+    /// <summary>Less than comparison operator (&lt;)</summary>
     Less,
 
-    /// <summary>Less than or equal comparison operator (<=)</summary>
+    /// <summary>Less than or equal comparison operator (&lt;=)</summary>
     LessEqual,
 
     /// <summary>Greater than comparison operator (>)</summary>
@@ -661,21 +668,28 @@ public enum TokenType
     /// <summary>Significant newline token (statement terminator)</summary>
     Newline,
 
-    /// <summary>Indentation increase token (Cake language only)</summary>
+    /// <summary>Indentation increment token (Cake language only)</summary>
     Indent,
 
-    /// <summary>Indentation decrease token (Cake language only)</summary>
+    /// <summary>Indentation decrement token (Cake language only)</summary>
     Dedent,
 
     /// <summary>Documentation comment token (##)</summary>
     DocComment,
 
-    /// <summary>requires token</summary>
+    /// <summary>Requires keyword for protocol/interface requirements</summary>
     Requires,
 
+    /// <summary>Generate keyword for coroutine/generator functions</summary>
     Generate,
+
+    /// <summary>Suspended keyword for suspended computation state</summary>
     Suspended,
+
+    /// <summary>Waitfor keyword for awaiting async operations</summary>
     Waitfor,
+
+    /// <summary>Usurping keyword for taking ownership in resource management (usurping obj as u)</summary>
     Usurping,
 
     /// <summary>Scoped read-only access keyword (viewing obj as v { })</summary>
