@@ -77,7 +77,9 @@ public class RazorForgeTokenizer : BaseTokenizer
         [key: "waitfor"] = TokenType.Waitfor,
         [key: "usurping"] = TokenType.Usurping,
         [key: "viewing"] = TokenType.Viewing,
-        [key: "hijacking"] = TokenType.Hijacking
+        [key: "hijacking"] = TokenType.Hijacking,
+        [key: "locking"] = TokenType.Locking,
+        [key: "readlocking"] = TokenType.ReadLocking
     };
 
     #endregion
