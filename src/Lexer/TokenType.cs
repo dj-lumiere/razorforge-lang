@@ -718,11 +718,11 @@ public enum TokenType
     /// <summary>Scoped exclusive access keyword (hijacking obj as h { })</summary>
     Hijacking,
 
-    /// <summary>Thread-safe exclusive lock keyword for ThreadShared (locking ts as l { })</summary>
-    Locking,
+    /// <summary>Thread-safe exclusive lock keyword for ThreadShared (threadhijacking ts as th { })</summary>
+    ThreadHijacking,
 
-    /// <summary>Thread-safe shared read lock keyword for ThreadShared with MultiReadLock policy (readlocking ts as r { })</summary>
-    ReadLocking,
+    /// <summary>Thread-safe shared read lock keyword for ThreadShared with MultiReadLock policy (threadviewing ts as tv { })</summary>
+    ThreadViewing,
 
     /// <summary>End of file marker token</summary>
     Eof,
