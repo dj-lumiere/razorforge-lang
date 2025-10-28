@@ -261,6 +261,26 @@ public interface IAstVisitor<T>
     /// <returns>Result of visiting the mayhem statement</returns>
     T VisitMayhemStatement(MayhemStatement node);
 
+    /// <summary>Visits a viewing statement node (scoped read-only access with temporary steal)</summary>
+    /// <param name="node">The viewing statement to visit</param>
+    /// <returns>Result of visiting the viewing statement</returns>
+    T VisitViewingStatement(ViewingStatement node);
+
+    /// <summary>Visits a hijacking statement node (scoped exclusive access with temporary steal)</summary>
+    /// <param name="node">The hijacking statement to visit</param>
+    /// <returns>Result of visiting the hijacking statement</returns>
+    T VisitHijackingStatement(HijackingStatement node);
+
+    /// <summary>Visits a threadwitnessing statement node (thread-safe scoped read access with temporary steal)</summary>
+    /// <param name="node">The threadwitnessing statement to visit</param>
+    /// <returns>Result of visiting the threadwitnessing statement</returns>
+    T VisitThreadWitnessingStatement(ThreadWitnessingStatement node);
+
+    /// <summary>Visits a threadseizing statement node (thread-safe scoped exclusive access with temporary steal)</summary>
+    /// <param name="node">The threadseizing statement to visit</param>
+    /// <returns>Result of visiting the threadseizing statement</returns>
+    T VisitThreadSeizingStatement(ThreadSeizingStatement node);
+
     // Declaration visitor methods - handle all declaration node types
 
     /// <summary>Visits a variable declaration node (var/let declarations)</summary>

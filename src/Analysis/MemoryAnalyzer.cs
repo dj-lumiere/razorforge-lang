@@ -4,12 +4,12 @@ namespace Compilers.Shared.Analysis;
 
 /// <summary>
 /// Memory safety analyzer for RazorForge and Cake memory models.
-/// 
+///
 /// This analyzer tracks object ownership, validates memory operations, and enforces
 /// memory safety rules throughout the compilation process. It handles the fundamental
 /// differences between RazorForge's explicit memory management and Cake's automatic
 /// reference counting with incremental garbage collection.
-/// 
+///
 /// Key responsibilities:
 /// <list type="bullet">
 /// <item>Track object lifetime and wrapper type transformations</item>
@@ -20,7 +20,7 @@ namespace Compilers.Shared.Analysis;
 /// <item>Manage danger! block exceptions and usurping function rules</item>
 /// <item>Simulate reference counting for steal!() validation</item>
 /// </list>
-/// 
+///
 /// The analyzer maintains a stack of scopes with object tracking, allowing for
 /// proper invalidation when objects go out of scope or are transformed by
 /// memory operations.
@@ -45,12 +45,6 @@ public class MemoryAnalyzer
     /// When a scope exits, all its objects become invalid.
     /// </summary>
     private readonly Stack<Dictionary<string, MemoryObject>> _scopes = new();
-
-    /// <summary>
-    /// List of memory safety errors detected during analysis.
-    /// Contains detailed error information for reporting to the user.
-    /// </summary>
-    private readonly List<MemoryError> _errors = new();
 
     /// <summary>
     /// Whether we're currently inside a danger! block.
@@ -84,7 +78,7 @@ public class MemoryAnalyzer
     /// Get all memory safety errors detected during analysis.
     /// Used by the compiler to report memory safety violations to the user.
     /// </summary>
-    public List<MemoryError> Errors => _errors;
+    public List<MemoryError> Errors { get; } = [];
 
     /// <summary>
     /// Enter a new lexical scope (function, block, loop, etc.).
@@ -105,16 +99,18 @@ public class MemoryAnalyzer
     /// </summary>
     public void ExitScope()
     {
-        if (_scopes.Count > 1)
+        if (_scopes.Count <= 1)
         {
-            Dictionary<string, MemoryObject> scope = _scopes.Pop();
-            // All objects in this scope become invalid (go out of scope)
-            // This is a fundamental safety mechanism preventing access to
-            // objects that have been destroyed by scope exit
-            foreach (MemoryObject obj in scope.Values)
-            {
-                InvalidateObject(name: obj.Name, reason: "scope end", location: obj.Location);
-            }
+            return;
+        }
+
+        Dictionary<string, MemoryObject> scope = _scopes.Pop();
+        // All objects in this scope become invalid (go out of scope)
+        // This is a fundamental safety mechanism preventing access to
+        // objects that have been destroyed by scope exit
+        foreach (MemoryObject obj in scope.Values)
+        {
+            InvalidateObject(name: obj.Name, reason: "scope end", location: obj.Location);
         }
     }
 
@@ -179,7 +175,7 @@ public class MemoryAnalyzer
     /// Register a new object from variable declaration or function return.
     /// This creates a new memory object with appropriate initial wrapper type
     /// based on the target language's memory model.
-    /// 
+    ///
     /// RazorForge: Objects start as Owned with RC=1 (direct ownership)
     /// Cake: Objects start as Shared with automatic RC management
     /// </summary>
@@ -201,13 +197,15 @@ public class MemoryAnalyzer
         currentScope[key: name] = obj;
 
         // Cake automatic reference counting: increment RC when creating non-floating references
-        if (_language == Language.Cake && !isFloating)
+        if (_language != Language.Cake || isFloating)
         {
-            // Simulate automatic RC increment for assignment to variables
-            // Floating literals don't get RC increment until assigned
-            obj = obj with { ReferenceCount = obj.ReferenceCount + 1 };
-            currentScope[key: name] = obj;
+            return;
         }
+
+        // Simulate automatic RC increment for assignment to variables
+        // Floating literals don't get RC increment until assigned
+        obj = obj with { ReferenceCount = obj.ReferenceCount + 1 };
+        currentScope[key: name] = obj;
     }
 
     /// <summary>
@@ -215,7 +213,7 @@ public class MemoryAnalyzer
     /// When assigning one reference to another in Cake, the reference count
     /// is automatically incremented for both the source and target objects.
     /// This simulates Cake's automatic RC management during compilation.
-    /// 
+    ///
     /// Example: let b = a  // RC of 'a' object increases, 'b' points to same object
     /// </summary>
     /// <param name="target">Target variable name receiving the assignment</param>
@@ -264,7 +262,7 @@ public class MemoryAnalyzer
     /// These are the core memory transformation operations like obj.share!(), obj.hijack!(), etc.
     /// Each operation validates the current object state, checks transformation rules,
     /// and returns the new memory object state after the operation.
-    /// 
+    ///
     /// The method enforces key safety rules:
     /// <list type="bullet">
     /// <item>Objects must be valid (unless in danger! block)</item>
@@ -276,9 +274,10 @@ public class MemoryAnalyzer
     /// <param name="objectName">Name of the object being operated on</param>
     /// <param name="operation">The memory operation being performed</param>
     /// <param name="location">Source location for error reporting</param>
+    /// <param name="policy">Locking policy for thread_share!() operation (Mutex or MultiReadLock)</param>
     /// <returns>New memory object state after operation, or null if operation failed</returns>
     public MemoryObject? HandleMemoryOperation(string objectName, MemoryOperation operation,
-        SourceLocation location)
+        SourceLocation location, LockingPolicy? policy = null)
     {
         MemoryObject? obj = GetObject(name: objectName);
         if (obj == null)
@@ -304,7 +303,8 @@ public class MemoryAnalyzer
             MemoryOperation.Hijack => HandleHijack(obj: obj, location: location),
             MemoryOperation.Share => HandleShare(obj: obj, location: location),
             MemoryOperation.Watch => HandleWatch(obj: obj, location: location),
-            MemoryOperation.ThreadShare => HandleThreadShare(obj: obj, location: location),
+            MemoryOperation.ThreadShare => HandleThreadShare(obj: obj, location: location,
+                policy: policy ?? LockingPolicy.Mutex),
             MemoryOperation.ThreadWatch => HandleThreadWatch(obj: obj, location: location),
             MemoryOperation.Steal => HandleSteal(obj: obj, location: location),
             MemoryOperation.Snatch => HandleSnatch(obj: obj, location: location),
@@ -398,11 +398,13 @@ public class MemoryAnalyzer
 
     /// <summary>
     /// Handle thread_share!() operation - transform to thread-safe shared ownership.
-    /// Creates a ThreadShared&lt;T&gt; wrapper with atomic reference counting (Arc).
+    /// Creates a ThreadShared&lt;T, Policy&gt; wrapper with atomic reference counting (Arc).
     /// Safe to pass between threads. If already thread-shared, increments Arc count.
-    /// Similar to Arc&lt;Mutex&lt;T&gt;&gt; in Rust.
+    /// Policy determines synchronization: Mutex (Arc&lt;Mutex&lt;T&gt;&gt;) or MultiReadLock (Arc&lt;RwLock&lt;T&gt;&gt;).
     /// </summary>
-    private MemoryObject? HandleThreadShare(MemoryObject obj, SourceLocation location)
+    /// <param name="policy">Locking policy (Mutex or MultiReadLock)</param>
+    private MemoryObject? HandleThreadShare(MemoryObject obj, SourceLocation location,
+        LockingPolicy policy)
     {
         if (!obj.CanTransformTo(target: WrapperType.ThreadShared, inDangerBlock: _inDangerBlock))
         {
@@ -413,7 +415,16 @@ public class MemoryAnalyzer
 
         if (obj.Wrapper == WrapperType.ThreadShared)
         {
-            // Already thread-shared - increment atomic reference count
+            // Already thread-shared - verify policy matches and increment atomic reference count
+            if (obj.Policy != policy)
+            {
+                AddError(
+                    message:
+                    $"Cannot change locking policy from {obj.Policy} to {policy} on existing ThreadShared object",
+                    location: location, type: MemoryError.MemoryErrorType.InvalidTransformation);
+                return null;
+            }
+
             MemoryObject newObj = obj with { ReferenceCount = obj.ReferenceCount + 1 };
             SetObject(name: obj.Name, obj: newObj);
             return newObj;
@@ -424,14 +435,17 @@ public class MemoryAnalyzer
 
         return obj with
         {
-            Wrapper = WrapperType.ThreadShared, ReferenceCount = 1 // First thread-shared reference
+            Wrapper = WrapperType.ThreadShared,
+            ReferenceCount = 1, // First thread-shared reference
+            Policy = policy // Store the locking policy
         };
     }
 
     /// <summary>
     /// Handle thread_watch!() operation - create thread-safe weak observer.
-    /// Creates a ThreadWatched&lt;T&gt; weak reference for thread-safe observation.
+    /// Creates a ThreadWatched&lt;T, Policy&gt; weak reference for thread-safe observation.
     /// Can only be created from ThreadShared objects. Doesn't affect Arc count.
+    /// Policy is inherited from the parent ThreadShared object.
     /// Used for breaking cycles in multi-threaded environments.
     /// </summary>
     private MemoryObject? HandleThreadWatch(MemoryObject obj, SourceLocation location)
@@ -444,10 +458,12 @@ public class MemoryAnalyzer
         }
 
         // Create thread-safe weak reference - doesn't invalidate source or affect Arc
+        // Policy is inherited from the parent ThreadShared
         return obj with
         {
             Wrapper = WrapperType.ThreadWatched,
-            ReferenceCount = 0 // Weak references don't contribute to Arc
+            ReferenceCount = 0, // Weak references don't contribute to Arc
+            Policy = obj.Policy // Inherit policy from parent ThreadShared
         };
     }
 
@@ -655,13 +671,13 @@ public class MemoryAnalyzer
 
     /// <summary>
     /// Handle container operations like push(), insert(), add() that move objects into containers.
-    /// 
+    ///
     /// RazorForge: Uses move semantics - object is transferred to container and source becomes deadref.
     /// This prevents external mutation after insertion, ensuring container controls access.
-    /// 
+    ///
     /// Cake: Uses automatic reference counting - container shares reference with automatic RC increment.
     /// Original reference remains valid and can be used alongside container reference.
-    /// 
+    ///
     /// This fundamental difference reflects the memory model philosophies of each language.
     /// </summary>
     /// <param name="objectName">Name of object being moved into container</param>
@@ -705,7 +721,7 @@ public class MemoryAnalyzer
     /// Regular functions cannot return exclusive tokens (Hijacked&lt;T&gt;) because
     /// that would violate exclusive access guarantees. Only functions explicitly
     /// marked as 'usurping' are allowed to return exclusive tokens.
-    /// 
+    ///
     /// This prevents accidental exclusive token leakage from normal functions.
     /// </summary>
     /// <param name="returnType">The function's return type to validate</param>
@@ -747,7 +763,7 @@ public class MemoryAnalyzer
     /// </summary>
     /// <param name="name">Variable name to look up</param>
     /// <returns>Memory object for the variable, or null if not found</returns>
-    private MemoryObject? GetObject(string name)
+    public MemoryObject? GetObject(string name)
     {
         // Search from innermost to outermost scope
         foreach (Dictionary<string, MemoryObject> scope in _scopes)
@@ -789,7 +805,7 @@ public class MemoryAnalyzer
     /// Mark an object as invalidated (deadref) with the reason for invalidation.
     /// This is the core mechanism for preventing use-after-invalidation errors.
     /// Once invalidated, objects cannot be used unless in a danger! block.
-    /// 
+    ///
     /// Objects become invalidated through:
     /// <list type="bullet">
     /// <item>Memory operations (hijack!(), share!(), steal!(), etc.)</item>
@@ -826,7 +842,7 @@ public class MemoryAnalyzer
     private void AddError(string message, SourceLocation location,
         MemoryError.MemoryErrorType type)
     {
-        _errors.Add(item: new MemoryError(Message: message, Location: location, Type: type));
+        Errors.Add(item: new MemoryError(Message: message, Location: location, Type: type));
     }
 
     /// <summary>

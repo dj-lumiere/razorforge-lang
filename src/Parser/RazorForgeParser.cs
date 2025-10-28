@@ -205,6 +205,30 @@ public class RazorForgeParser : BaseParser
             return ParseMayhemStatement();
         }
 
+        // Viewing block (scoped read-only access)
+        if (Match(type: TokenType.Viewing))
+        {
+            return ParseViewingStatement();
+        }
+
+        // Hijacking block (scoped exclusive access)
+        if (Match(type: TokenType.Hijacking))
+        {
+            return ParseHijackingStatement();
+        }
+
+        // ThreadWitnessing block (thread-safe scoped read access)
+        if (Match(type: TokenType.ThreadWitnessing))
+        {
+            return ParseThreadWitnessingStatement();
+        }
+
+        // ThreadSeizing block (thread-safe scoped exclusive access)
+        if (Match(type: TokenType.ThreadSeizing))
+        {
+            return ParseThreadSeizingStatement();
+        }
+
         // Block statement
         if (Check(type: TokenType.LeftBrace))
         {
@@ -1915,6 +1939,74 @@ public class RazorForgeParser : BaseParser
         BlockStatement body = ParseBlockStatement();
 
         return new MayhemStatement(Body: body, Location: location);
+    }
+
+    private ViewingStatement ParseViewingStatement()
+    {
+        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
+
+        // Parse source expression: viewing <expr> as <handle>
+        Expression source = ParseExpression();
+
+        Consume(type: TokenType.As, errorMessage: "Expected 'as' after viewing source");
+
+        string handle = ConsumeIdentifier(errorMessage: "Expected handle name after 'as'");
+
+        BlockStatement body = ParseBlockStatement();
+
+        return new ViewingStatement(Source: source, Handle: handle, Body: body,
+            Location: location);
+    }
+
+    private HijackingStatement ParseHijackingStatement()
+    {
+        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
+
+        // Parse source expression: hijacking <expr> as <handle>
+        Expression source = ParseExpression();
+
+        Consume(type: TokenType.As, errorMessage: "Expected 'as' after hijacking source");
+
+        string handle = ConsumeIdentifier(errorMessage: "Expected handle name after 'as'");
+
+        BlockStatement body = ParseBlockStatement();
+
+        return new HijackingStatement(Source: source, Handle: handle, Body: body,
+            Location: location);
+    }
+
+    private ThreadWitnessingStatement ParseThreadWitnessingStatement()
+    {
+        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
+
+        // Parse source expression: threadwitnessing <expr> as <handle>
+        Expression source = ParseExpression();
+
+        Consume(type: TokenType.As, errorMessage: "Expected 'as' after threadwitnessing source");
+
+        string handle = ConsumeIdentifier(errorMessage: "Expected handle name after 'as'");
+
+        BlockStatement body = ParseBlockStatement();
+
+        return new ThreadWitnessingStatement(Source: source, Handle: handle, Body: body,
+            Location: location);
+    }
+
+    private ThreadSeizingStatement ParseThreadSeizingStatement()
+    {
+        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
+
+        // Parse source expression: threadseizing <expr> as <handle>
+        Expression source = ParseExpression();
+
+        Consume(type: TokenType.As, errorMessage: "Expected 'as' after threadseizing source");
+
+        string handle = ConsumeIdentifier(errorMessage: "Expected handle name after 'as'");
+
+        BlockStatement body = ParseBlockStatement();
+
+        return new ThreadSeizingStatement(Source: source, Handle: handle, Body: body,
+            Location: location);
     }
 
     private SliceConstructorExpression ParseSliceConstructor()

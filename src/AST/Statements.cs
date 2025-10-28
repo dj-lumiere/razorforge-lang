@@ -458,4 +458,128 @@ public record MayhemStatement(BlockStatement Body, SourceLocation Location)
     }
 }
 
+/// <summary>
+/// Represents a viewing block statement for scoped read-only access.
+/// Syntax: viewing &lt;expression&gt; as &lt;handle&gt; { &lt;body&gt; }
+/// </summary>
+/// <param name="Source">The expression to view (will be temporarily stolen)</param>
+/// <param name="Handle">The variable name for the Viewed&lt;T&gt; handle</param>
+/// <param name="Body">The block statement to execute with read-only access</param>
+/// <param name="Location">Source location information</param>
+/// <remarks>
+/// Viewing semantics:
+/// <list type="bullet">
+/// <item>Source becomes deadref during scope (temporarily stolen)</item>
+/// <item>Handle provides read-only access (Viewed&lt;T&gt;)</item>
+/// <item>Handle is copyable - can pass to multiple functions</item>
+/// <item>Source is automatically restored when scope exits</item>
+/// <item>Prevents aliasing: can't hijack the source while viewing</item>
+/// </list>
+/// </remarks>
+public record ViewingStatement(
+    Expression Source,
+    string Handle,
+    BlockStatement Body,
+    SourceLocation Location) : Statement(Location: Location)
+{
+    /// <summary>Accepts a visitor for AST traversal and transformation</summary>
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitViewingStatement(node: this);
+    }
+}
+
+/// <summary>
+/// Represents a hijacking block statement for scoped exclusive access (single-threaded).
+/// Syntax: hijacking &lt;expression&gt; as &lt;handle&gt; { &lt;body&gt; }
+/// </summary>
+/// <param name="Source">The expression to hijack (will be temporarily stolen)</param>
+/// <param name="Handle">The variable name for the Hijacked&lt;T&gt; handle</param>
+/// <param name="Body">The block statement to execute with exclusive access</param>
+/// <param name="Location">Source location information</param>
+/// <remarks>
+/// Hijacking semantics:
+/// <list type="bullet">
+/// <item>Source becomes deadref during scope (temporarily stolen)</item>
+/// <item>Handle provides exclusive read/write access (Hijacked&lt;T&gt;)</item>
+/// <item>Handle is NOT copyable - unique access only</item>
+/// <item>Source is automatically restored when scope exits</item>
+/// <item>Prevents aliasing: can't view or hijack the source while hijacking</item>
+/// </list>
+/// </remarks>
+public record HijackingStatement(
+    Expression Source,
+    string Handle,
+    BlockStatement Body,
+    SourceLocation Location) : Statement(Location: Location)
+{
+    /// <summary>Accepts a visitor for AST traversal and transformation</summary>
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitHijackingStatement(node: this);
+    }
+}
+
+/// <summary>
+/// Represents a threadwitnessing block statement for thread-safe scoped read access.
+/// Syntax: threadwitnessing &lt;expression&gt; as &lt;handle&gt; { &lt;body&gt; }
+/// </summary>
+/// <param name="Source">The ThreadShared expression to witness (will be temporarily stolen)</param>
+/// <param name="Handle">The variable name for the thread-safe read handle (ThreadWitnessed&lt;T&gt;)</param>
+/// <param name="Body">The block statement to execute with read access</param>
+/// <param name="Location">Source location information</param>
+/// <remarks>
+/// ThreadWitnessing semantics (for ThreadShared with MultiReadLock policy):
+/// <list type="bullet">
+/// <item>Source becomes deadref during scope (temporarily stolen)</item>
+/// <item>Handle acquires read lock on ThreadShared&lt;T&gt;, producing ThreadWitnessed&lt;T&gt;</item>
+/// <item>Multiple threadwitnessing handles can coexist</item>
+/// <item>Source is automatically restored when scope exits</item>
+/// <item>Blocks threadseizing attempts until released</item>
+/// </list>
+/// </remarks>
+public record ThreadWitnessingStatement(
+    Expression Source,
+    string Handle,
+    BlockStatement Body,
+    SourceLocation Location) : Statement(Location: Location)
+{
+    /// <summary>Accepts a visitor for AST traversal and transformation</summary>
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitThreadWitnessingStatement(node: this);
+    }
+}
+
+/// <summary>
+/// Represents a threadseizing block statement for thread-safe scoped exclusive access.
+/// Syntax: threadseizing &lt;expression&gt; as &lt;handle&gt; { &lt;body&gt; }
+/// </summary>
+/// <param name="Source">The ThreadShared expression to seize (will be temporarily stolen)</param>
+/// <param name="Handle">The variable name for the thread-safe exclusive handle (ThreadSeized&lt;T&gt;)</param>
+/// <param name="Body">The block statement to execute with exclusive access</param>
+/// <param name="Location">Source location information</param>
+/// <remarks>
+/// ThreadSeizing semantics (for ThreadShared&lt;T&gt;):
+/// <list type="bullet">
+/// <item>Source becomes deadref during scope (temporarily stolen)</item>
+/// <item>Handle acquires exclusive lock on ThreadShared&lt;T&gt;, producing ThreadSeized&lt;T&gt;</item>
+/// <item>Blocks all other access (threadwitnessing and threadseizing) until released</item>
+/// <item>Handle is NOT copyable - unique access only</item>
+/// <item>Source is automatically restored when scope exits</item>
+/// </list>
+/// </remarks>
+public record ThreadSeizingStatement(
+    Expression Source,
+    string Handle,
+    BlockStatement Body,
+    SourceLocation Location) : Statement(Location: Location)
+{
+    /// <summary>Accepts a visitor for AST traversal and transformation</summary>
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitThreadSeizingStatement(node: this);
+    }
+}
+
 #endregion

@@ -1513,10 +1513,41 @@ public class SemanticAnalyzer : IAstVisitor<object?>
             return null;
         }
 
+        // Extract policy argument for thread_share!() and thread_watch!()
+        LockingPolicy? policy = null;
+        if (operation == MemoryOperation.ThreadShare)
+        {
+            // thread_share!(Mutex) or thread_share!(MultiReadLock)
+            // For now, accept policy as a simple identifier argument
+            if (arguments.Count > 0 && arguments[index: 0] is IdentifierExpression policyId)
+            {
+                policy = policyId.Name switch
+                {
+                    "Mutex" => LockingPolicy.Mutex,
+                    "MultiReadLock" => LockingPolicy.MultiReadLock,
+                    _ => null
+                };
+
+                if (policy == null)
+                {
+                    AddError(
+                        message:
+                        $"Invalid policy '{policyId.Name}'. Expected 'Mutex' or 'MultiReadLock'",
+                        location: location);
+                    return null;
+                }
+            }
+            else
+            {
+                // Default to Mutex if no policy specified
+                policy = LockingPolicy.Mutex;
+            }
+        }
+
         // CRITICAL: Delegate to memory analyzer for safety validation and ownership tracking
         // This is where all the memory safety magic happens
         MemoryObject? resultObj = _memoryAnalyzer.HandleMemoryOperation(objectName: objId.Name,
-            operation: operation.Value, location: location);
+            operation: operation.Value, location: location, policy: policy);
         if (resultObj == null)
         {
             // Operation failed - error already reported by memory analyzer
@@ -1549,9 +1580,6 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     {
         return operationName switch
         {
-            // Group 1: Exclusive access operations
-            "hijack!" => MemoryOperation.Hijack,
-
             // Group 2: Single-threaded shared access
             "share!" => MemoryOperation.Share,
             "watch!" => MemoryOperation.Watch,
@@ -1565,14 +1593,8 @@ public class SemanticAnalyzer : IAstVisitor<object?>
             // Ownership reclaim operations
             "steal!" => MemoryOperation.Steal,
 
-            // Manual reference counting
-            "release!" => MemoryOperation.Release,
-
             // Unsafe operations (danger! block only)
             "snatch!" => MemoryOperation.Snatch,
-            "reveal!" => MemoryOperation.Reveal,
-            "own!" => MemoryOperation.Own,
-
             _ => null
         };
     }
@@ -1689,7 +1711,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         }
 
         // Check if this is a slice operation
-        if (objectType.Name == "HeapSlice" || objectType.Name == "StackSlice")
+        if (objectType.Name == "DynamicSlice" || objectType.Name == "TemporarySlice")
         {
             return ValidateSliceGenericMethod(node: node, sliceType: objectType);
         }
@@ -2909,5 +2931,225 @@ public class SemanticAnalyzer : IAstVisitor<object?>
 
         // If not parameterized, return unknown
         return new TypeInfo(Name: "unknown", IsReference: false);
+    }
+
+    /// <summary>
+    /// Visits a viewing statement node (scoped read-only access).
+    /// Syntax: viewing &lt;source&gt; as &lt;handle&gt; { ... }
+    /// Creates a temporary Viewed&lt;T&gt; handle with read-only access.
+    /// </summary>
+    public object? VisitViewingStatement(ViewingStatement node)
+    {
+        // Evaluate the source expression to get its type
+        var sourceType = node.Source.Accept(visitor: this) as TypeInfo;
+
+        if (sourceType == null)
+        {
+            AddError(message: "Cannot view expression with unknown type", location: node.Location);
+            return null;
+        }
+
+        // Create a new scope for the viewing block
+        _symbolTable.EnterScope();
+        _memoryAnalyzer.EnterScope();
+
+        try
+        {
+            // Create a Viewed<T> type for the handle
+            var viewedType = new TypeInfo(Name: $"Viewed<{sourceType.Name}>", IsReference: true);
+
+            // Declare the handle variable in the scope
+            var handleSymbol = new VariableSymbol(Name: node.Handle, Type: viewedType,
+                Visibility: VisibilityModifier.Private, IsMutable: false);
+
+            if (!_symbolTable.TryDeclare(symbol: handleSymbol))
+            {
+                AddError(message: $"Handle '{node.Handle}' already declared in this scope",
+                    location: node.Location);
+            }
+
+            // Visit the body with the handle available
+            node.Body.Accept(visitor: this);
+        }
+        finally
+        {
+            // Exit the scope - handle goes out of scope
+            _memoryAnalyzer.ExitScope();
+            _symbolTable.ExitScope();
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Visits a hijacking statement node (scoped exclusive access).
+    /// Syntax: hijacking &lt;source&gt; as &lt;handle&gt; { ... }
+    /// Creates a temporary Hijacked&lt;T&gt; handle with exclusive write access.
+    /// </summary>
+    public object? VisitHijackingStatement(HijackingStatement node)
+    {
+        // Evaluate the source expression to get its type
+        var sourceType = node.Source.Accept(visitor: this) as TypeInfo;
+
+        if (sourceType == null)
+        {
+            AddError(message: "Cannot hijack expression with unknown type",
+                location: node.Location);
+            return null;
+        }
+
+        // Create a new scope for the hijacking block
+        _symbolTable.EnterScope();
+        _memoryAnalyzer.EnterScope();
+
+        try
+        {
+            // Create a Hijacked<T> type for the handle
+            var hijackedType = new TypeInfo(
+                Name: $"Hijacked<{sourceType.Name}>", IsReference: true);
+
+            // Declare the handle variable in the scope
+            var handleSymbol = new VariableSymbol(Name: node.Handle, Type: hijackedType,
+                Visibility: VisibilityModifier.Private, IsMutable: true);
+
+            if (!_symbolTable.TryDeclare(symbol: handleSymbol))
+            {
+                AddError(message: $"Handle '{node.Handle}' already declared in this scope",
+                    location: node.Location);
+            }
+
+            // Visit the body with the handle available
+            node.Body.Accept(visitor: this);
+        }
+        finally
+        {
+            // Exit the scope - handle goes out of scope
+            _memoryAnalyzer.ExitScope();
+            _symbolTable.ExitScope();
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Visits a threadwitnessing statement node (thread-safe scoped read access).
+    /// Syntax: threadwitnessing &lt;source&gt; as &lt;handle&gt; { ... }
+    /// Creates a temporary ThreadWitnessed&lt;T&gt; handle with shared read lock.
+    /// IMPORTANT: Only works with ThreadShared&lt;T, MultiReadLock&gt;, not ThreadShared&lt;T, Mutex&gt;.
+    /// </summary>
+    public object? VisitThreadWitnessingStatement(ThreadWitnessingStatement node)
+    {
+        // Evaluate the source expression to get its type
+        var sourceType = node.Source.Accept(visitor: this) as TypeInfo;
+
+        if (sourceType == null)
+        {
+            AddError(message: "Cannot threadwitness expression with unknown type",
+                location: node.Location);
+            return null;
+        }
+
+        // Extract the source object to check its policy
+        if (node.Source is IdentifierExpression sourceId)
+        {
+            MemoryObject? sourceObj = _memoryAnalyzer.GetObject(name: sourceId.Name);
+            if (sourceObj != null)
+            {
+                // COMPILE-TIME CHECK: threadwitnessing requires MultiReadLock policy
+                if (sourceObj.Wrapper == WrapperType.ThreadShared &&
+                    sourceObj.Policy != LockingPolicy.MultiReadLock)
+                {
+                    AddError(
+                        message: $"threadwitnessing requires ThreadShared<T, MultiReadLock>. " +
+                                 $"Object '{sourceId.Name}' has policy {sourceObj.Policy}. " +
+                                 $"Use threadseizing for exclusive access, or create with MultiReadLock policy.",
+                        location: node.Location);
+                    return null;
+                }
+            }
+        }
+
+        // Create a new scope for the threadwitnessing block
+        _symbolTable.EnterScope();
+        _memoryAnalyzer.EnterScope();
+
+        try
+        {
+            // Create a ThreadWitnessed<T> type for the handle
+            var threadWitnessedType = new TypeInfo(Name: $"ThreadWitnessed<{sourceType.Name}>",
+                IsReference: true);
+
+            // Declare the handle variable in the scope
+            var handleSymbol = new VariableSymbol(Name: node.Handle, Type: threadWitnessedType,
+                Visibility: VisibilityModifier.Private, IsMutable: false);
+
+            if (!_symbolTable.TryDeclare(symbol: handleSymbol))
+            {
+                AddError(message: $"Handle '{node.Handle}' already declared in this scope",
+                    location: node.Location);
+            }
+
+            // Visit the body with the handle available
+            node.Body.Accept(visitor: this);
+        }
+        finally
+        {
+            // Exit the scope - read lock released, handle goes out of scope
+            _memoryAnalyzer.ExitScope();
+            _symbolTable.ExitScope();
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Visits a threadseizing statement node (thread-safe scoped exclusive access).
+    /// Syntax: threadseizing &lt;source&gt; as &lt;handle&gt; { ... }
+    /// Creates a temporary ThreadSeized&lt;T&gt; handle with exclusive write lock.
+    /// Works with both ThreadShared&lt;T, Mutex&gt; and ThreadShared&lt;T, MultiReadLock&gt;.
+    /// </summary>
+    public object? VisitThreadSeizingStatement(ThreadSeizingStatement node)
+    {
+        // Evaluate the source expression to get its type
+        var sourceType = node.Source.Accept(visitor: this) as TypeInfo;
+
+        if (sourceType == null)
+        {
+            AddError(message: "Cannot threadseize expression with unknown type",
+                location: node.Location);
+            return null;
+        }
+
+        // Create a new scope for the threadseizing block
+        _symbolTable.EnterScope();
+        _memoryAnalyzer.EnterScope();
+
+        try
+        {
+            // Create a ThreadSeized<T> type for the handle
+            var threadSeizedType = new TypeInfo(
+                Name: $"ThreadSeized<{sourceType.Name}>", IsReference: true);
+
+            // Declare the handle variable in the scope
+            var handleSymbol = new VariableSymbol(Name: node.Handle, Type: threadSeizedType,
+                Visibility: VisibilityModifier.Private, IsMutable: true);
+
+            if (!_symbolTable.TryDeclare(symbol: handleSymbol))
+            {
+                AddError(message: $"Handle '{node.Handle}' already declared in this scope",
+                    location: node.Location);
+            }
+
+            // Visit the body with the handle available
+            node.Body.Accept(visitor: this);
+        }
+        finally
+        {
+            // Exit the scope - write lock released, handle goes out of scope
+            _memoryAnalyzer.ExitScope();
+            _symbolTable.ExitScope();
+        }
+
+        return null;
     }
 }

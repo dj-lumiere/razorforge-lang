@@ -222,7 +222,7 @@ void volatile_read_bytes(sysuint address, void* output, sysuint bytes)
         return;
     }
     volatile char* src = (volatile char*)address;
-    auto dst = (char*)output;
+    char* dst = (char*)output;
     for (sysuint i = 0; i < bytes; i++)
     {
         dst[i] = src[i];
@@ -239,7 +239,7 @@ void volatile_write_bytes(sysuint address, const void* input, sysuint bytes)
         return;
     }
     volatile char* dst = (volatile char*)address;
-    auto src = (const char*)input;
+    const char* src = (const char*)input;
     for (sysuint i = 0; i < bytes; i++)
     {
         dst[i] = src[i];

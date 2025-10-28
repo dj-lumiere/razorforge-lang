@@ -653,4 +653,32 @@ public class SimpleCodeGenerator : IAstVisitor<string>
         WriteLine(text: sb.ToString());
         return "";
     }
+
+    public string VisitViewingStatement(ViewingStatement node)
+    {
+        // TODO: Implement viewing statement code generation
+        throw new NotImplementedException(
+            message: "viewing statement not yet implemented in simple code generator");
+    }
+
+    public string VisitHijackingStatement(HijackingStatement node)
+    {
+        // TODO: Implement hijacking statement code generation
+        throw new NotImplementedException(
+            message: "hijacking statement not yet implemented in simple code generator");
+    }
+
+    public string VisitThreadWitnessingStatement(ThreadWitnessingStatement node)
+    {
+        // TODO: Implement threadwitnessing statement code generation
+        throw new NotImplementedException(
+            message: "threadwitnessing statement not yet implemented in simple code generator");
+    }
+
+    public string VisitThreadSeizingStatement(ThreadSeizingStatement node)
+    {
+        // TODO: Implement threadseizing statement code generation
+        throw new NotImplementedException(
+            message: "threadseizing statement not yet implemented in simple code generator");
+    }
 }

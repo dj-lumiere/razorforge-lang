@@ -37,6 +37,33 @@ public enum WrapperType
     /// </summary>
     Hijacked,
 
+    /// <summary>
+    /// Scoped read-only access (Viewed&lt;T&gt;). Created by 'viewing' statement.
+    /// Provides temporary read-only access with source invalidation during scope.
+    /// Copyable within scope (can pass to multiple functions).
+    /// Mutations through this handle are compile errors.
+    /// Source automatically restored when scope exits.
+    /// </summary>
+    Viewed,
+
+    /// <summary>
+    /// Thread-safe scoped read-only access (ThreadWitnessed&lt;T&gt;). Created by 'threadwitnessing' statement.
+    /// Acquires read lock on ThreadShared&lt;T, MultiReadLock&gt; for duration of scope.
+    /// Copyable within scope, multiple readers can coexist.
+    /// Mutations through this handle are compile errors.
+    /// Read lock automatically released when scope exits.
+    /// </summary>
+    ThreadWitnessed,
+
+    /// <summary>
+    /// Thread-safe scoped exclusive access (ThreadSeized&lt;T&gt;). Created by 'threadseizing' statement.
+    /// Acquires exclusive lock on ThreadShared&lt;T&gt; for duration of scope.
+    /// NOT copyable - unique access only.
+    /// Allows mutations (exclusive write access).
+    /// Lock automatically released when scope exits.
+    /// </summary>
+    ThreadSeized,
+
     // Group 2 - Single-threaded Reference Counting (Green/Brown 🟢🟤)
     /// <summary>
     /// Shared ownership with interior mutability (Shared&lt;T&gt;).
@@ -113,6 +140,31 @@ public enum MemoryGroup
 }
 
 /// <summary>
+/// Locking policy for ThreadShared and ThreadWatched types.
+/// Determines the synchronization mechanism used for multi-threaded access.
+/// This is a compile-time choice that affects which scoped access operations are allowed.
+/// </summary>
+public enum LockingPolicy
+{
+    /// <summary>
+    /// Pure mutex (Arc&lt;Mutex&lt;T&gt;&gt;) - exclusive access only.
+    /// Performance: ~15-30ns for lock acquisition.
+    /// Allows: threadseizing only (exclusive write access)
+    /// Disallows: threadwitnessing (compile error)
+    /// Use case: Write-heavy workloads
+    /// </summary>
+    Mutex,
+
+    /// <summary>
+    /// Reader-writer lock (Arc&lt;RwLock&lt;T&gt;&gt;) - supports concurrent reads.
+    /// Performance: ~10-20ns for read lock, ~20-35ns for write lock.
+    /// Allows: both threadseizing (exclusive write) and threadwitnessing (shared read)
+    /// Use case: Read-heavy workloads with occasional writes
+    /// </summary>
+    MultiReadLock
+}
+
+/// <summary>
 /// Object lifetime state tracking for memory safety analysis.
 /// Tracks the current accessibility state of objects throughout their lifecycle.
 /// Core principle: invalidated objects cannot be accessed (deadref protection).
@@ -159,6 +211,7 @@ public enum ObjectState
 /// <param name="ReferenceCount">Current reference count (for Shared/ThreadShared types)</param>
 /// <param name="Location">Source location where object was declared</param>
 /// <param name="InvalidatedBy">Reason for invalidation (for error reporting)</param>
+/// <param name="Policy">Locking policy for ThreadShared/ThreadWatched (null for other wrapper types)</param>
 public record MemoryObject(
     string Name,
     TypeInfo BaseType,
@@ -166,7 +219,8 @@ public record MemoryObject(
     ObjectState State,
     int ReferenceCount,
     SourceLocation Location,
-    string? InvalidatedBy = null)
+    string? InvalidatedBy = null,
+    LockingPolicy? Policy = null)
 {
     /// <summary>
     /// Get the memory group for this wrapper type.
@@ -178,20 +232,36 @@ public record MemoryObject(
         // Owned can become any group - it's the starting point
         WrapperType.Owned => MemoryGroup.Exclusive,
 
-        // Group 1: Exclusive access
-        WrapperType.Hijacked => MemoryGroup.Exclusive,
+        // Group 1: Exclusive access and scoped borrows
+        WrapperType.Hijacked or WrapperType.Viewed => MemoryGroup.Exclusive,
 
         // Group 2: Single-threaded reference counting
         WrapperType.Shared or WrapperType.Watched => MemoryGroup.SingleThreaded,
 
-        // Group 3: Multi-threaded reference counting
-        WrapperType.ThreadShared or WrapperType.ThreadWatched => MemoryGroup.MultiThreaded,
+        // Group 3: Multi-threaded reference counting and scoped locks
+        WrapperType.ThreadShared or WrapperType.ThreadWatched or WrapperType.ThreadWitnessed
+            or WrapperType.ThreadSeized => MemoryGroup.MultiThreaded,
 
         // Unsafe: Danger zone
         WrapperType.Snatched => MemoryGroup.Unsafe,
 
         _ => throw new ArgumentException(message: $"Unknown wrapper type: {Wrapper}")
     };
+
+    /// <summary>
+    /// Check if this wrapper type is read-only (prevents mutations).
+    /// Read-only wrappers allow reading but prevent field/index assignment.
+    /// </summary>
+    /// <returns>True if wrapper is read-only, false if mutable</returns>
+    public bool IsReadOnly()
+    {
+        return Wrapper switch
+        {
+            WrapperType.Viewed => true, // viewing X as v { } - read-only
+            WrapperType.ThreadWitnessed => true, // threadwitnessing X as tw { } - read-only lock
+            _ => false // All others allow mutation
+        };
+    }
 
     /// <summary>
     /// Check if this object can be transformed to the target wrapper type.
@@ -275,15 +345,16 @@ public record MemoryObject(
     {
         return wrapper switch
         {
-            // Group 1: Exclusive access
+            // Group 1: Exclusive access and scoped borrows
             WrapperType.Owned => MemoryGroup.Exclusive,
-            WrapperType.Hijacked => MemoryGroup.Exclusive,
+            WrapperType.Hijacked or WrapperType.Viewed => MemoryGroup.Exclusive,
 
             // Group 2: Single-threaded RC
             WrapperType.Shared or WrapperType.Watched => MemoryGroup.SingleThreaded,
 
-            // Group 3: Multi-threaded RC
-            WrapperType.ThreadShared or WrapperType.ThreadWatched => MemoryGroup.MultiThreaded,
+            // Group 3: Multi-threaded RC and scoped locks
+            WrapperType.ThreadShared or WrapperType.ThreadWatched or WrapperType.ThreadWitnessed
+                or WrapperType.ThreadSeized => MemoryGroup.MultiThreaded,
 
             // Unsafe zone
             WrapperType.Snatched => MemoryGroup.Unsafe,
