@@ -48,7 +48,7 @@ proper file associations.
 RazorForge files are associated with C# syntax highlighting, which provides:
 
 - **Keywords**: `recipe`, `record`, `let`, `var`, `danger`, etc.
-- **Memory Operations**: `hijack!`, `share!`, `steal!`, etc. (highlighted in red)
+- **Memory Operations**: `hijacking`, `share!`, `steal!`, etc. (highlighted in red)
 - **Slice Operations**: `size()`, `address()`, `unsafe_ptr!()` (highlighted in cyan)
 - **Danger Zone**: `read_as!`, `write_as!`, `volatile_read!` (highlighted with red background)
 - **Types**: `HeapSlice`, `StackSlice`, `s32`, `sysuint`, etc.
@@ -67,7 +67,7 @@ Type these abbreviations and press Tab to expand:
 
 ### Memory Operations
 
-- `hijack` → `let hijacked = object.hijack!()`
+- `hijack` → `hijacking borrowed from shared:`
 - `share` → `let shared = object.share!()`
 
 ### Functions
@@ -92,7 +92,7 @@ The RazorForge color scheme provides semantic highlighting:
 
 ### RazorForge Colors
 
-- **Memory Operations** (`hijack!`, `share!`): Red (`#FF6B6B`)
+- **Memory Operations** (`hijacking`, `share!`): Red (`#FF6B6B`)
 - **Slice Operations** (`size()`, `address()`): Cyan (`#8BE9FD`)
 - **Danger Operations** (`read_as!`, `write_as!`): Red with dark background
 - **danger! Blocks**: Red text with dark red background and underline

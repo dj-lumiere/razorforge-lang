@@ -122,7 +122,7 @@ recipe main():
 
 ### RazorForge
 
-- **Theatrical Memory Model**: `hijack!`, `share!`, `steal!` - make memory operations visible
+- **Theatrical Memory Model**: `hijacking`, `share!`, `steal!` - make memory operations visible
 - **Zero-Cost Abstractions**: Pay only for what you use
 - **Danger Blocks**: Opt-in unsafe operations for zero-overhead code
 - **Resident Types**: Fixed-size reference types for embedded systems

@@ -134,8 +134,8 @@ recipe test_wrapper_operations() {
     original.write<s64>!(8, 2000)
 
     # Test hijack operation (exclusive access)
-    let hijacked = original.hijack!()
-    write_line("Buffer hijacked successfully")
+    hijacking hijacked from original:
+        write_line("Buffer hijacked successfully")
 
     # Test refer operation (get raw reference)
     let raw_ref = hijacked.refer!()

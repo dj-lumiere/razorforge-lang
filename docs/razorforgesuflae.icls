@@ -9,7 +9,7 @@
 
   <!-- RazorForge specific colors -->
   <attributes>
-    <!-- Memory operations (hijack!, share!, etc.) -->
+    <!-- Memory operations (hijacking, share!, etc.) -->
     <option name="RAZORFORGE.MEMORY_OP">
       <value>
         <option name="FOREGROUND" value="FF6B6B" />

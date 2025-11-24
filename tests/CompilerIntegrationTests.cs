@@ -367,8 +367,9 @@ recipe complex_memory_test() -> s32 {
     }
 
     # Test wrapper operations
-    let hijacked = heap1.hijack!()
-    let raw_ref = hijacked.refer!()
+    let shared = heap1.share!()
+    hijacking hijacked from shared:
+        let raw_ref = hijacked.refer!()
 
     # Test memory operations
     let total_size = heap1.size!() + heap2.size!() + stack1.size!()

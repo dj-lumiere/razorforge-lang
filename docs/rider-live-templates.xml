@@ -61,10 +61,10 @@ Import via: File → Settings → Editor → Live Templates → Import
   </template>
 
   <!-- Memory Operation Templates -->
-  <template name="hijack" value="let $VAR$ = $OBJ$.hijack!()$END$" description="Hijack object" toReformat="true"
+  <template name="hijack" value="hijacking $VAR$ from $OBJ$:$END$" description="Hijack object" toReformat="true"
             toShortenFQNames="true">
-    <variable name="VAR" expression="" defaultValue="hijacked" alwaysStopAt="true"/>
-    <variable name="OBJ" expression="" defaultValue="object" alwaysStopAt="true"/>
+    <variable name="VAR" expression="" defaultValue="borrowed" alwaysStopAt="true"/>
+    <variable name="OBJ" expression="" defaultValue="shared" alwaysStopAt="true"/>
     <context>
       <option name="OTHER" value="true"/>
     </context>
