@@ -123,7 +123,7 @@ recipe main() -> s32 {
     public void TestArrayOperationsProgram()
     {
         string code = @"
-recipe array_sum(arr: HeapSlice, size: s32) -> s32 {
+recipe array_sum(arr: DynamicSlice, size: s32) -> s32 {
     var sum = 0
     for i in 0 to size:
         sum = sum + arr[i]
@@ -131,7 +131,7 @@ recipe array_sum(arr: HeapSlice, size: s32) -> s32 {
 }
 
 recipe main() -> s32 {
-    let numbers = HeapSlice(10)
+    let numbers = DynamicSlice(10)
 
     # Initialize array
     for i in 0 to 10:
@@ -146,7 +146,7 @@ recipe main() -> s32 {
 
         // Should handle memory operations and array access
         Assert.Contains(expectedSubstring: "array_sum", actualString: llvmIr);
-        Assert.Contains(expectedSubstring: "HeapSlice", actualString: llvmIr);
+        Assert.Contains(expectedSubstring: "DynamicSlice", actualString: llvmIr);
     }
 
     [Fact]
@@ -212,8 +212,8 @@ recipe main() -> s32 {
     {
         string code = @"
 recipe memory_test() {
-    let heap_buffer = HeapSlice(1024)
-    let stack_buffer = StackSlice(256)
+    let heap_buffer = DynamicSlice(1024)
+    let stack_buffer = TemporarySlice(256)
 
     # Write to heap buffer
     for i in 0 to 100:
@@ -239,8 +239,8 @@ recipe main() -> s32 {
         string llvmIr = CompileToLLVM(code: code);
 
         // Should handle different memory allocation types
-        Assert.Contains(expectedSubstring: "HeapSlice", actualString: llvmIr);
-        Assert.Contains(expectedSubstring: "StackSlice", actualString: llvmIr);
+        Assert.Contains(expectedSubstring: "DynamicSlice", actualString: llvmIr);
+        Assert.Contains(expectedSubstring: "TemporarySlice", actualString: llvmIr);
     }
 
     [Fact]

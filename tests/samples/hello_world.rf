@@ -165,7 +165,7 @@ record Buffer<T> {
     private var length: usize
 
     public func create(capacity: usize) -> Buffer<T> {
-        me.data = HeapSlice<T>(capacity),
+        me.data = DynamicSlice<T>(capacity),
         me.capacity = capacity,
         me.length: 0
         return me

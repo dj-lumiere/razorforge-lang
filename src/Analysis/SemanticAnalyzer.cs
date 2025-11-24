@@ -72,20 +72,20 @@ public class SemanticAnalyzer : IAstVisitor<object?>
 
     /// <summary>
     /// Initialize built-in types for the RazorForge language.
-    /// Registers standard library types like HeapSlice and StackSlice.
+    /// Registers standard library types like DynamicSlice and TemporarySlice.
     /// </summary>
     private void InitializeBuiltInTypes()
     {
-        // Register HeapSlice record type
-        var heapSliceType = new TypeInfo(Name: "HeapSlice", IsReference: false);
+        // Register DynamicSlice record type
+        var heapSliceType = new TypeInfo(Name: "DynamicSlice", IsReference: false);
         var heapSliceSymbol =
-            new StructSymbol(Name: "HeapSlice", Visibility: VisibilityModifier.Public);
+            new StructSymbol(Name: "DynamicSlice", Visibility: VisibilityModifier.Public);
         _symbolTable.TryDeclare(symbol: heapSliceSymbol);
 
-        // Register StackSlice record type
-        var stackSliceType = new TypeInfo(Name: "StackSlice", IsReference: false);
+        // Register TemporarySlice record type
+        var stackSliceType = new TypeInfo(Name: "TemporarySlice", IsReference: false);
         var stackSliceSymbol =
-            new StructSymbol(Name: "StackSlice", Visibility: VisibilityModifier.Public);
+            new StructSymbol(Name: "TemporarySlice", Visibility: VisibilityModifier.Public);
         _symbolTable.TryDeclare(symbol: stackSliceSymbol);
 
         // Register primitive types
@@ -1666,7 +1666,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
             if (sizeType.IsInteger)
             {
                 // Implicit conversion from any integer type to sysuint for slice sizes
-                // This handles cases like HeapSlice(64) where 64 might be typed as s32, s64, etc.
+                // This handles cases like DynamicSlice(64) where 64 might be typed as s32, s64, etc.
             }
             else
             {
@@ -1769,7 +1769,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         }
 
         // Check if this is a slice operation
-        if (objectType.Name == "HeapSlice" || objectType.Name == "StackSlice")
+        if (objectType.Name == "DynamicSlice" || objectType.Name == "TemporarySlice")
         {
             return ValidateSliceMemoryOperation(node: node, sliceType: objectType);
         }
@@ -2311,7 +2311,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
            .Accept(visitor: this) as TypeInfo;
 
         // Should be a slice type or pointer
-        if (argType?.Name != "HeapSlice" && argType?.Name != "StackSlice" &&
+        if (argType?.Name != "DynamicSlice" && argType?.Name != "TemporarySlice" &&
             argType?.Name != "ptr")
         {
             AddError(message: "invalidate! argument must be a slice or pointer",
@@ -2393,7 +2393,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
            .Accept(visitor: this) as TypeInfo;
 
         // Should be a slice type or pointer
-        if (argType?.Name != "HeapSlice" && argType?.Name != "StackSlice" &&
+        if (argType?.Name != "DynamicSlice" && argType?.Name != "TemporarySlice" &&
             argType?.Name != "ptr")
         {
             AddError(message: "invalidate! argument must be a slice or pointer",
@@ -2522,7 +2522,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     {
         string[] heapTypes = new[]
         {
-            "HeapSlice",
+            "DynamicSlice",
             "List",
             "Dict",
             "Set",
@@ -2747,8 +2747,8 @@ public class SemanticAnalyzer : IAstVisitor<object?>
             "Text",
             "syssint",
             "sysuint",
-            "HeapSlice",
-            "StackSlice"
+            "DynamicSlice",
+            "TemporarySlice"
         };
 
         return builtInTypes.Contains(value: typeName);

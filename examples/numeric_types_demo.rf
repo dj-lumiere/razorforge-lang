@@ -140,7 +140,7 @@ recipe main() -> s64 {
 ### RazorForge Type      -> LLVM Type    -> C Equivalent
 ### s64                  -> i64           -> int64_t
 ### f64                  -> double        -> double
-### HeapSlice/StackSlice -> {i64, i64}     -> struct { size_t starting_address; size_t len; }
+### DynamicSlice/TemporarySlice -> {i64, i64}     -> struct { size_t starting_address; size_t len; }
 ### atomic<s64>          -> atomic i64    -> _Atomic int64_t
 
 ### LLVM Intrinsics Generated:

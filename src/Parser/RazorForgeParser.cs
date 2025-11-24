@@ -1376,7 +1376,7 @@ public class RazorForgeParser : BaseParser
 
                 // Check if this is a slice constructor call
                 if (expr is IdentifierExpression identifier &&
-                    (identifier.Name == "HeapSlice" || identifier.Name == "StackSlice") &&
+                    (identifier.Name == "DynamicSlice" || identifier.Name == "TemporarySlice") &&
                     args.Count == 1)
                 {
                     expr = new SliceConstructorExpression(SliceType: identifier.Name,

@@ -1,8 +1,8 @@
 # RazorForge Compiler Integration Test
 # Tests end-to-end compilation with memory slices, parser, AST, semantic analysis, and LLVM codegen
 
-import stdlib/memory/HeapSlice
-import stdlib/memory/StackSlice
+import stdlib/memory/DynamicSlice
+import stdlib/memory/TemporarySlice
 import system/console/write_line
 
 ###
@@ -11,13 +11,13 @@ Tests basic parsing and compilation of slice constructors
 recipe test_slice_constructors() {
     write_line("=== Testing Slice Constructors ===")
 
-    # Test HeapSlice constructor parsing
-    var heap_buffer = HeapSlice(128)
-    write_line(f"HeapSlice created with size: {heap_buffer.size()}")
+    # Test DynamicSlice constructor parsing
+    var heap_buffer = DynamicSlice(128)
+    write_line(f"DynamicSlice created with size: {heap_buffer.size()}")
 
-    # Test StackSlice constructor parsing
-    var stack_buffer = StackSlice(64)
-    write_line(f"StackSlice created with size: {stack_buffer.size()}")
+    # Test TemporarySlice constructor parsing
+    var stack_buffer = TemporarySlice(64)
+    write_line(f"TemporarySlice created with size: {stack_buffer.size()}")
 
     write_line("Slice constructor test completed\n")
 }
@@ -28,7 +28,7 @@ Tests generic method call parsing and compilation
 recipe test_generic_methods() {
     write_line("=== Testing Generic Methods ===")
 
-    var buffer = HeapSlice(32)
+    var buffer = DynamicSlice(32)
 
     # Test generic write method
     buffer.write<s32>!(0, 42)
@@ -52,7 +52,7 @@ Tests memory operation parsing and compilation
 recipe test_memory_operations() {
     write_line("=== Testing Memory Operations ===")
 
-    var buffer = StackSlice(48)
+    var buffer = TemporarySlice(48)
 
     # Test memory operation methods
     let size = buffer.size!()
@@ -97,7 +97,7 @@ Tests danger block parsing and compilation
 recipe test_danger_blocks() {
     write_line("=== Testing Danger Blocks ===")
 
-    var buffer = HeapSlice(64)
+    var buffer = DynamicSlice(64)
 
     danger! {
         # Test raw memory access in danger block
@@ -129,7 +129,7 @@ Tests memory wrapper operations and safety
 recipe test_wrapper_operations() {
     write_line("=== Testing Wrapper Operations ===")
 
-    var original = HeapSlice(96)
+    var original = DynamicSlice(96)
     original.write<s64>!(0, 1000)
     original.write<s64>!(8, 2000)
 
@@ -151,9 +151,9 @@ recipe test_memory_management() {
     write_line("=== Testing Memory Management ===")
 
     # Create multiple slices
-    var heap1 = HeapSlice(128)
-    var heap2 = HeapSlice(256)
-    var stack1 = StackSlice(64)
+    var heap1 = DynamicSlice(128)
+    var heap2 = DynamicSlice(256)
+    var stack1 = TemporarySlice(64)
 
     # Fill with test data
     for i in 0 to 16 {

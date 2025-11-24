@@ -379,8 +379,8 @@ recipe shadowing() {
     {
         string code = @"
 recipe slice_operations() {
-    let heap_slice = HeapSlice(64)
-    let stack_slice = StackSlice(32)
+    let heap_slice = DynamicSlice(64)
+    let stack_slice = TemporarySlice(32)
 
     heap_slice[0] = 42
     let value = stack_slice[10]
@@ -396,7 +396,7 @@ recipe slice_operations() {
     {
         string code = @"
 recipe invalid_index() {
-    let slice = HeapSlice(64)
+    let slice = DynamicSlice(64)
     slice[""not an index""] = 42  # Invalid index type
 }";
 
@@ -409,7 +409,7 @@ recipe invalid_index() {
     {
         string code = @"
 recipe member_access() {
-    let slice = HeapSlice(64)
+    let slice = DynamicSlice(64)
     let size = slice.size
     let ptr = slice.ptr
 }";

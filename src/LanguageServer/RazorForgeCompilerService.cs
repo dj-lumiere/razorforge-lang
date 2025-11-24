@@ -363,20 +363,20 @@ public class RazorForgeCompilerService : IRazorForgeCompilerService
         {
             new()
             {
-                Label = "HeapSlice",
+                Label = "DynamicSlice",
                 Detail = "constructor",
                 Documentation = "Create a heap-allocated memory slice",
                 Kind = CompletionKind.Constructor,
-                InsertText = "HeapSlice($1)",
+                InsertText = "DynamicSlice($1)",
                 IsSnippet = true
             },
             new()
             {
-                Label = "StackSlice",
+                Label = "TemporarySlice",
                 Detail = "constructor",
                 Documentation = "Create a stack-allocated memory slice",
                 Kind = CompletionKind.Constructor,
-                InsertText = "StackSlice($1)",
+                InsertText = "TemporarySlice($1)",
                 IsSnippet = true
             },
             new()

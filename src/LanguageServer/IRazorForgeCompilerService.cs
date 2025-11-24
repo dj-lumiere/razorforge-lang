@@ -44,7 +44,7 @@ public interface IRazorForgeCompilerService
     ///
     /// Completion sources include:
     /// - RazorForge language keywords (recipe, class, let, etc.)
-    /// - Built-in types and functions (HeapSlice, StackSlice, etc.)
+    /// - Built-in types and functions (DynamicSlice, TemporarySlice, etc.)
     /// - User-defined symbols (functions, variables, types)
     /// - Context-sensitive suggestions based on parsing state
     ///

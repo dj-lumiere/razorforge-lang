@@ -1,23 +1,22 @@
 ﻿# RazorForge Standard Library - Memory Management
-# HeapSlice: Non-generic heap-allocated contiguous memory slice
+# TemporarySlice: Non-generic stack-allocated contiguous memory slice
 
 import system/memory/native
 
 ###
-Heap-allocated memory slice for dynamic data storage.
+Stack-allocated memory slice with automatic lifetime management.
 Non-generic structure that can hold any type of data.
-Reference counting is handled separately by the wrapper type system.
 ###
-record HeapSlice {
-    private starting_address: sysuint
+record TemporarySlice {
+    private address: sysuint
     private allocated_bytes: sysuint
 
     ###
-    Creates a new heap slice with specified byte size
-    @param bytes - Number of bytes to allocate on heap
-    @return New HeapSlice instance
+    Creates a new stack slice with specified byte size
+    @param bytes - Number of bytes to allocate on stack
+    @return New TemporarySlice instance
     ###
-    public recipe __create__(bytes: sysuint) -> HeapSlice {
+    public recipe __create__(bytes: sysuint) -> TemporarySlice {
         if bytes == 0 {
             me.starting_address = 0
             me.allocated_bytes = 0
@@ -26,40 +25,14 @@ record HeapSlice {
 
         me.allocated_bytes = bytes
 
-        # Allocate heap memory
-        me.starting_address = heap_alloc!(bytes)
+        # LLVM alloca instruction for stack allocation
+        me.starting_address = stack_alloc!(bytes)
 
         if me.starting_address == 0 {
-            crash!("Failed to allocate heap memory")
+            crash!("Failed to allocate stack memory")
         }
 
         return me
-    }
-
-    ###
-    Creates a copy of another HeapSlice (shallow copy of data)
-    @param other - Source HeapSlice to copy from
-    @return New HeapSlice with copied data
-    ###
-    public recipe __copy__(other: HeapSlice) -> HeapSlice {
-        if other.allocated_bytes == 0 {
-            return HeapSlice(0)
-        }
-
-        var new_slice = HeapSlice(other.allocated_bytes)
-        memory_copy!(other.starting_address, new_slice.starting_address, other.allocated_bytes)
-        return new_slice
-    }
-
-    ###
-    Destructor that frees heap memory
-    ###
-    public recipe __destroy__() {
-        if me.starting_address != 0 {
-            heap_free!(me.starting_address)
-            me.starting_address = 0
-            me.allocated_bytes = 0
-        }
     }
 
     ###
@@ -158,48 +131,20 @@ record HeapSlice {
     }
 
     ###
-    Creates a sub-slice view of this slice (shares same memory)
+    Creates a sub-slice view of this slice
     @param offset - Starting byte offset for sub-slice
     @param bytes - Number of bytes in sub-slice
-    @return New HeapSlice representing the sub-range
+    @return New TemporarySlice representing the sub-range
     ###
-    public recipe slice!(offset: sysuint, bytes: sysuint) -> HeapSlice {
+    public recipe slice!(offset: sysuint, bytes: sysuint) -> TemporarySlice {
         if offset + bytes > me.allocated_bytes {
             crash!(f"Slice range exceeds bounds")
         }
 
-        var sub_slice: HeapSlice
+        var sub_slice: TemporarySlice
         sub_slice.starting_address = me.starting_address + offset
         sub_slice.allocated_bytes = bytes
         return sub_slice
-    }
-
-    ###
-    Resizes the heap slice (may reallocate memory)
-    @param new_bytes - New size in bytes for the slice
-    @return Reference to this slice after resizing
-    ###
-    public recipe resize!(new_bytes: sysuint) -> HeapSlice {
-        if new_bytes == 0 {
-            me.__destroy__()
-            return me
-        }
-
-        if me.starting_address == 0 {
-            # Was empty, allocate new
-            me.starting_address = heap_alloc!(new_bytes)
-            me.allocated_bytes = new_bytes
-        } else {
-            # Reallocate existing
-            me.starting_address = heap_realloc!(me.starting_address, new_bytes)
-            me.allocated_bytes = new_bytes
-        }
-
-        if me.starting_address == 0 {
-            crash!("Failed to resize heap slice")
-        }
-
-        return me
     }
 
     ###
@@ -211,13 +156,13 @@ record HeapSlice {
     }
 
     ###
-    Copies data from another HeapSlice
-    @param source - Source HeapSlice to copy from
+    Copies data from another slice
+    @param source - Source TemporarySlice to copy from
     @param src_offset - Starting offset in source slice
     @param dest_offset - Starting offset in destination slice
     @param count - Number of bytes to copy
     ###
-    public recipe copy_from!(source: HeapSlice, src_offset: sysuint,
+    public recipe copy_from!(source: TemporarySlice, src_offset: sysuint,
                            dest_offset: sysuint, count: sysuint) {
         if src_offset + count > source.allocated_bytes {
             crash!("Source range exceeds bounds")
@@ -233,67 +178,15 @@ record HeapSlice {
     }
 
     ###
-    Copies from StackSlice to this HeapSlice
-    @param source - Source StackSlice to copy from
-    @param src_offset - Starting offset in source slice
-    @param dest_offset - Starting offset in destination slice
-    @param count - Number of bytes to copy
-    ###
-    public recipe copy_from_stack!(source: StackSlice, src_offset: sysuint,
-                                 dest_offset: sysuint, count: sysuint) {
-        if src_offset + count > source.size() {
-            crash!("Source range exceeds bounds")
-        }
-
-        if dest_offset + count > me.allocated_bytes {
-            crash!("Destination range exceeds bounds")
-        }
-
-        let src_addr = source.address() + src_offset
-        let dest_addr = me.starting_address + dest_offset
-        memory_copy!(src_addr, dest_addr, count)
-    }
-
-    ###
     Zeros out all memory in the slice
     ###
     public recipe zero!() {
         memory_zero!(me.starting_address, me.allocated_bytes)
     }
-
-    ###
-    Transfers ownership from another HeapSlice (moves data)
-    @param other - Source HeapSlice to take ownership from
-    @return Reference to this slice after hijacking
-    ###
-    public recipe hijack!(other: HeapSlice) -> HeapSlice {
-        # Free our current memory
-        me.__destroy__()
-
-        # Take ownership from other
-        me.starting_address = other.starting_address
-        me.allocated_bytes = other.allocated_bytes
-
-        # Clear other to prevent double-free
-        other.starting_address = 0
-        other.allocated_bytes = 0
-
-        return me
-    }
-
-    ###
-    Gets a reference to the raw memory (for wrapper type system)
-    @return Raw memory address for wrapper type operations
-    ###
-    public recipe refer!() -> sysuint {
-        return me.starting_address
-    }
 }
 
-# Native runtime functions for heap operations
-external("C") recipe heap_alloc!(bytes: sysuint) -> sysuint
-external("C") recipe heap_free!(address: sysuint)
-external("C") recipe heap_realloc!(address: sysuint, new_bytes: sysuint) -> sysuint
+# Native runtime functions for stack operations
+external("C") recipe stack_alloc!(bytes: sysuint) -> sysuint
 external("C") recipe memory_copy!(src: sysuint, dest: sysuint, bytes: sysuint)
 external("C") recipe memory_fill!(address: sysuint, pattern: u8, bytes: sysuint)
 external("C") recipe memory_zero!(address: sysuint, bytes: sysuint)

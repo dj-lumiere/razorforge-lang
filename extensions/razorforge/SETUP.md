@@ -54,7 +54,7 @@ In VS Code settings, add:
 ### ✅ Syntax Highlighting
 
 - Keywords (`recipe`, `let`, `if`) should be colored
-- Types (`u32`, `f64`, `HeapSlice`) should be highlighted
+- Types (`u32`, `f64`, `DynamicSlice`) should be highlighted
 - Comments should appear in comment color
 - Strings should be syntax highlighted
 

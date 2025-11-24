@@ -53,7 +53,7 @@ Configure the extension through VS Code settings:
 The extension provides syntax highlighting for:
 
 - Keywords: `recipe`, `class`, `struct`, `let`, `var`, `if`, `while`, etc.
-- Types: `s32`, `u64`, `f32`, `bool`, `string`, `HeapSlice`, etc.
+- Types: `s32`, `u64`, `f32`, `bool`, `string`, `DynamicSlice`, etc.
 - Comments: Line (`//`) and block (`/* */`) comments
 - Strings and literals
 - Operators and punctuation
@@ -67,7 +67,7 @@ The extension provides syntax highlighting for:
 
 **Storage**: `let`, `var`, `const`, `mut`, `auto`
 
-**Memory Types**: `HeapSlice`, `StackSlice`
+**Memory Types**: `DynamicSlice`, `TemporarySlice`
 
 **Danger Zone**: `danger`, `external`, `write_as!`, `read_as!`, `addr_of!`, `invalidate!`
 

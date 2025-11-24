@@ -34,7 +34,7 @@
     {
       "comment": "Types",
       "name": "storage.type.razorforge",
-      "match": "\\b(s8|s16|s32|s64|s128|u8|u16|u32|u64|u128|f16|f32|f64|f128|d32|d64|d128|bool|sysuint|syssint|letter|text|HeapSlice|StackSlice|cptr)\\b"
+      "match": "\\b(s8|s16|s32|s64|s128|u8|u16|u32|u64|u128|f16|f32|f64|f128|d32|d64|d128|bool|sysuint|syssint|letter|text|DynamicSlice|TemporarySlice|cptr)\\b"
     },
     {
       "comment": "Function calls with !",

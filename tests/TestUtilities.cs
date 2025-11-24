@@ -368,7 +368,7 @@ recipe main() -> s32 {
 }";
 
         public static readonly string ArrayOperations = @"
-recipe array_sum(arr: HeapSlice, size: s32) -> s32 {
+recipe array_sum(arr: DynamicSlice, size: s32) -> s32 {
     var sum = 0
     for i in 0 to size:
         sum = sum + arr[i]
@@ -376,7 +376,7 @@ recipe array_sum(arr: HeapSlice, size: s32) -> s32 {
 }
 
 recipe main() -> s32 {
-    let numbers = HeapSlice(10)
+    let numbers = DynamicSlice(10)
 
     for i in 0 to 10:
         numbers[i] = i * i

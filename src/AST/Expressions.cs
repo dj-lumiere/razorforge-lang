@@ -551,17 +551,17 @@ public record TypeConversionExpression(
 #region Memory Operation Expressions
 
 /// <summary>
-/// Expression representing memory slice constructor calls (HeapSlice, StackSlice).
+/// Expression representing memory slice constructor calls (DynamicSlice, TemporarySlice).
 /// Creates new memory slice instances with specified byte sizes.
 /// </summary>
-/// <param name="SliceType">Type of slice to construct ("HeapSlice" or "StackSlice")</param>
+/// <param name="SliceType">Type of slice to construct ("DynamicSlice" or "TemporarySlice")</param>
 /// <param name="SizeExpression">Expression evaluating to the size in bytes</param>
 /// <param name="Location">Source location information</param>
 /// <remarks>
 /// Memory slice constructors create low-level memory management objects:
 /// <list type="bullet">
-/// <item>HeapSlice(64) - allocates 64 bytes on heap</item>
-/// <item>StackSlice(40) - allocates 40 bytes on stack</item>
+/// <item>DynamicSlice(64) - allocates 64 bytes on heap</item>
+/// <item>TemporarySlice(40) - allocates 40 bytes on stack</item>
 /// <item>Size expression must evaluate to sysuint type</item>
 /// <item>Constructor calls trigger runtime allocation functions</item>
 /// </list>

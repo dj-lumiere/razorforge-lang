@@ -55,7 +55,7 @@
       </value>
     </option>
 
-    <!-- Memory slice types (HeapSlice, StackSlice) -->
+    <!-- Memory slice types (DynamicSlice, TemporarySlice) -->
     <option name="RAZORFORGE.SLICE_TYPE">
       <value>
         <option name="FOREGROUND" value="50FA7B" />

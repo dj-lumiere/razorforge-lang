@@ -1,8 +1,8 @@
 # RazorForge Danger Zone Memory Test
 # Tests unsafe memory operations and raw pointer manipulation
 
-import stdlib/memory/StackSlice
-import stdlib/memory/HeapSlice
+import stdlib/memory/TemporarySlice
+import stdlib/memory/DynamicSlice
 import system/console/write_line
 
 ###
@@ -13,7 +13,7 @@ recipe test_raw_memory_access() {
 
     danger! {
         # Create heap memory for testing
-        var buffer = HeapSlice(64)
+        var buffer = DynamicSlice(64)
         let raw_addr = buffer.address()
 
         # Write directly to memory address
@@ -44,7 +44,7 @@ recipe test_volatile_operations() {
 
     danger! {
         # Simulate memory-mapped I/O operations
-        var io_buffer = HeapSlice(16)
+        var io_buffer = DynamicSlice(16)
         let io_base = io_buffer.address()
 
         # Volatile write to "hardware register"
@@ -91,7 +91,7 @@ recipe test_type_punning() {
         write_line(f"As integer bits: 0x{int_bits:x}")
 
         # Test with heap slice
-        var buffer = HeapSlice(16)
+        var buffer = DynamicSlice(16)
 
         # Write different types to same memory
         buffer.write<f64>!(0, 123.456789)
@@ -120,8 +120,8 @@ recipe test_manual_memory_management() {
 
     danger! {
         # Create multiple heap slices
-        var slice1 = HeapSlice(32)
-        var slice2 = HeapSlice(64)
+        var slice1 = DynamicSlice(32)
+        var slice2 = DynamicSlice(64)
 
         # Fill with test data
         for i in 0 to 8 {
@@ -160,8 +160,8 @@ recipe test_danger_slice_operations() {
 
     danger! {
         # Create slices
-        var stack_slice = StackSlice(40)
-        var heap_slice = HeapSlice(40)
+        var stack_slice = TemporarySlice(40)
+        var heap_slice = DynamicSlice(40)
 
         # Bypass bounds checking - write beyond allocated space
         # WARNING: This is undefined behavior in real usage!

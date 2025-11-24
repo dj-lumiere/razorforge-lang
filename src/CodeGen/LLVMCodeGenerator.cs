@@ -1693,12 +1693,12 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         string sizeTemp = node.SizeExpression.Accept(visitor: this);
         string resultTemp = GetNextTemp();
 
-        if (node.SliceType == "HeapSlice")
+        if (node.SliceType == "DynamicSlice")
         {
             // Generate LLVM IR for heap slice construction
             _output.AppendLine(handler: $"  {resultTemp} = call ptr @heap_alloc(i64 {sizeTemp})");
         }
-        else if (node.SliceType == "StackSlice")
+        else if (node.SliceType == "TemporarySlice")
         {
             // Generate LLVM IR for stack slice construction
             _output.AppendLine(handler: $"  {resultTemp} = call ptr @stack_alloc(i64 {sizeTemp})");

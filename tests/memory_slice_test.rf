@@ -1,18 +1,18 @@
 # RazorForge Memory Slice Test
-# Tests StackSlice and HeapSlice functionality with memory operations
+# Tests TemporarySlice and DynamicSlice functionality with memory operations
 
-import stdlib/memory/StackSlice
-import stdlib/memory/HeapSlice
+import stdlib/memory/TemporarySlice
+import stdlib/memory/DynamicSlice
 import system/console/write_line
 
 ###
-Tests basic StackSlice operations on stack memory
+Tests basic TemporarySlice operations on stack memory
 ###
 recipe test_stack_slice() {
-    write_line("=== Testing StackSlice ===")
+    write_line("=== Testing TemporarySlice ===")
 
     # Create a stack slice for 40 bytes (10 s32 integers)
-    var stack_buffer = StackSlice(40)
+    var stack_buffer = TemporarySlice(40)
 
     # Write integers to stack memory
     for i in 0 to 10 {
@@ -35,17 +35,17 @@ recipe test_stack_slice() {
     let unsafe_addr = stack_buffer.unsafe_ptr!(0)
     write_line(f"Stack buffer address: 0x{unsafe_addr:x}")
 
-    write_line("StackSlice test completed\n")
+    write_line("TemporarySlice test completed\n")
 }
 
 ###
-Tests basic HeapSlice operations on heap memory
+Tests basic DynamicSlice operations on heap memory
 ###
 recipe test_heap_slice() {
-    write_line("=== Testing HeapSlice ===")
+    write_line("=== Testing DynamicSlice ===")
 
     # Create a heap slice for 32 bytes (8 f32 floats)
-    var heap_buffer = HeapSlice(32)
+    var heap_buffer = DynamicSlice(32)
 
     # Write float values
     let float_values = [3.14159f, 2.71828f, 1.41421f, 1.61803f,
@@ -76,7 +76,7 @@ recipe test_heap_slice() {
         heap_buffer.write<f32>!(offset, (i as f32) * 100.0f)
     }
 
-    write_line("HeapSlice test completed\n")
+    write_line("DynamicSlice test completed\n")
 }
 
 ###
@@ -86,8 +86,8 @@ recipe test_memory_operations() {
     write_line("=== Testing Memory Operations ===")
 
     # Create both stack and heap buffers
-    var stack_data = StackSlice(20)  # 5 s32 values
-    var heap_data = HeapSlice(20)    # 5 s32 values
+    var stack_data = TemporarySlice(20)  # 5 s32 values
+    var heap_data = DynamicSlice(20)    # 5 s32 values
 
     # Fill stack with data
     for i in 0 to 5 {
@@ -108,7 +108,7 @@ recipe test_memory_operations() {
     }
 
     # Test hijack operation
-    var new_owner = HeapSlice(0)
+    var new_owner = DynamicSlice(0)
     new_owner.hijack!(heap_data)
     write_line(f"After hijack, new owner size: {new_owner.size()}")
     write_line(f"Original heap size: {heap_data.size()}")  # Should be 0
@@ -123,7 +123,7 @@ recipe test_wrapper_operations() {
     write_line("=== Testing Wrapper Operations ===")
 
     # Create heap slice for integers
-    var original = HeapSlice(12)  # 3 s32 values
+    var original = DynamicSlice(12)  # 3 s32 values
     original.write<s32>!(0, 100)
     original.write<s32>!(4, 200)
     original.write<s32>!(8, 300)
@@ -133,7 +133,7 @@ recipe test_wrapper_operations() {
     write_line(f"Raw memory reference: 0x{raw_addr:x}")
 
     # Test memory pattern operations
-    var pattern_buffer = HeapSlice(256)
+    var pattern_buffer = DynamicSlice(256)
     pattern_buffer.fill!(0xAA)  # Fill with alternating bit pattern
 
     let first_byte = pattern_buffer.read<u8>!(0)

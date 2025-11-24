@@ -47,8 +47,8 @@ public class CompilerIntegrationTests
     {
         string code = @"
 recipe test() {
-    var heap_buffer = HeapSlice(64)
-    var stack_buffer = StackSlice(32)
+    var heap_buffer = DynamicSlice(64)
+    var stack_buffer = TemporarySlice(32)
 }";
 
         Program program = ParseCode(code: code);
@@ -83,7 +83,7 @@ recipe test() {
     {
         string code = @"
 recipe test() {
-    var buffer = HeapSlice(64)
+    var buffer = DynamicSlice(64)
     buffer.write<s32>!(0, 42)
     let value = buffer.read<s32>!(0)
 }";
@@ -108,7 +108,7 @@ recipe test() {
     {
         string code = @"
 recipe test() {
-    var buffer = StackSlice(48)
+    var buffer = TemporarySlice(48)
     let size = buffer.size!()
     let addr = buffer.address!()
     let valid = buffer.is_valid!()
@@ -196,7 +196,7 @@ recipe test() {
     {
         string code = @"
 recipe test() {
-    var buffer = HeapSlice(64)
+    var buffer = DynamicSlice(64)
     buffer.write<s32>!(0, 42)
     let value = buffer.read<s32>!(0)
     let size = buffer.size!()
@@ -214,7 +214,7 @@ recipe test() {
     {
         string code = @"
 recipe test() {
-    var buffer = HeapSlice(""invalid_size"")  # Error: size must be sysuint
+    var buffer = DynamicSlice(""invalid_size"")  # Error: size must be sysuint
     buffer.write<s32>!(""invalid_offset"", 42)  # Error: offset must be sysuint
 }";
 
@@ -233,7 +233,7 @@ external recipe heap_alloc!(bytes: sysuint) -> sysuint
 external recipe memory_write_s32!(address: sysuint, offset: sysuint, value: s32)
 
 recipe test() -> s32 {
-    var buffer = HeapSlice(64)
+    var buffer = DynamicSlice(64)
     buffer.write<s32>!(0, 42)
     return 0
 }";
@@ -255,14 +255,14 @@ recipe test() -> s32 {
     public void TestEndToEndCompilerPipeline()
     {
         string code = @"
-import stdlib/memory/HeapSlice
+import stdlib/memory/DynamicSlice
 import system/console/write_line
 
 external recipe heap_alloc!(bytes: sysuint) -> sysuint
 external recipe heap_free!(address: sysuint)
 
 recipe main() -> s32 {
-    var buffer = HeapSlice(128)
+    var buffer = DynamicSlice(128)
 
     # Write some test data
     buffer.write<s32>!(0, 100)
@@ -327,7 +327,7 @@ recipe test() {
     {
         string code = @"
 recipe test() {
-    var buffer = StackSlice(64)
+    var buffer = TemporarySlice(64)
 
     let size = buffer.size!()
     let addr = buffer.address!()
@@ -355,9 +355,9 @@ recipe test() {
         string code = @"
 recipe complex_memory_test() -> s32 {
     # Create multiple slice types
-    var heap1 = HeapSlice(256)
-    var heap2 = HeapSlice(128)
-    var stack1 = StackSlice(64)
+    var heap1 = DynamicSlice(256)
+    var heap2 = DynamicSlice(128)
+    var stack1 = TemporarySlice(64)
 
     # Fill with data using generic methods
     for i in 0 to 8 {

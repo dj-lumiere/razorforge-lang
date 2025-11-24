@@ -51,7 +51,7 @@ RazorForge files are associated with C# syntax highlighting, which provides:
 - **Memory Operations**: `hijacking`, `share!`, `steal!`, etc. (highlighted in red)
 - **Slice Operations**: `size()`, `address()`, `unsafe_ptr!()` (highlighted in cyan)
 - **Danger Zone**: `read_as!`, `write_as!`, `volatile_read!` (highlighted with red background)
-- **Types**: `HeapSlice`, `StackSlice`, `s32`, `sysuint`, etc.
+- **Types**: `DynamicSlice`, `TemporarySlice`, `s32`, `sysuint`, etc.
 - **Comments**: `#` single line, `###` documentation blocks
 
 ## Live Templates Reference
@@ -60,8 +60,8 @@ Type these abbreviations and press Tab to expand:
 
 ### Memory Management
 
-- `heap` → `var buffer = HeapSlice(64)`
-- `stack` → `var buffer = StackSlice(64)`
+- `heap` → `var buffer = DynamicSlice(64)`
+- `stack` → `var buffer = TemporarySlice(64)`
 - `slicewrite` → `buffer.write<s32>!(0, 42)`
 - `sliceread` → `let value = buffer.read<s32>!(0)`
 
@@ -83,7 +83,7 @@ Type these abbreviations and press Tab to expand:
 
 ### Imports
 
-- `importmem` → Import HeapSlice and StackSlice
+- `importmem` → Import DynamicSlice and TemporarySlice
 - `importconsole` → Import write_line
 
 ## Color Scheme Details
@@ -96,7 +96,7 @@ The RazorForge color scheme provides semantic highlighting:
 - **Slice Operations** (`size()`, `address()`): Cyan (`#8BE9FD`)
 - **Danger Operations** (`read_as!`, `write_as!`): Red with dark background
 - **danger! Blocks**: Red text with dark red background and underline
-- **Memory Types** (`HeapSlice`, `StackSlice`): Green (`#50FA7B`)
+- **Memory Types** (`DynamicSlice`, `TemporarySlice`): Green (`#50FA7B`)
 - **External Declarations**: Purple (`#BD93F9`)
 
 ### Suflae Colors (Future)

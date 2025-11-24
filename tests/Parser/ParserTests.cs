@@ -504,8 +504,8 @@ recipe loop_control() {
     {
         string code = @"
 recipe slice_test() {
-    let heap_slice = HeapSlice(64)
-    let stack_slice = StackSlice(32)
+    let heap_slice = DynamicSlice(64)
+    let stack_slice = TemporarySlice(32)
 
     heap_slice[0] = 42
     let value = stack_slice[index]
@@ -525,7 +525,7 @@ recipe slice_test() {
         Assert.NotNull(@object: heapDecl);
         var heapCall = heapDecl.Initializer as CallExpression;
         Assert.NotNull(@object: heapCall);
-        Assert.Equal(expected: "HeapSlice", actual: heapCall.Name);
+        Assert.Equal(expected: "DynamicSlice", actual: heapCall.Name);
 
         var stackDeclStmt = bodyBlock.Statements[index: 1] as DeclarationStatement;
         Assert.NotNull(@object: stackDeclStmt);
@@ -533,7 +533,7 @@ recipe slice_test() {
         Assert.NotNull(@object: stackDecl);
         var stackCall = stackDecl.Initializer as CallExpression;
         Assert.NotNull(@object: stackCall);
-        Assert.Equal(expected: "StackSlice", actual: stackCall.Name);
+        Assert.Equal(expected: "TemporarySlice", actual: stackCall.Name);
     }
 
     [Fact]

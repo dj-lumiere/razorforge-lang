@@ -303,7 +303,7 @@ recipe boolean_logic(a: Bool, b: Bool) -> Bool {
     {
         string code = @"
 recipe slice_test() {
-    let heap_slice = HeapSlice(64)
+    let heap_slice = DynamicSlice(64)
     heap_slice[0] = 42
     let value = heap_slice[0]
 }";
@@ -313,7 +313,7 @@ recipe slice_test() {
         Assert.NotNull(@object: llvmIr);
         // Should have memory allocation and access
         Assert.Contains(expectedSubstring: "call",
-            actualString: llvmIr); // For HeapSlice constructor
+            actualString: llvmIr); // For DynamicSlice constructor
         Assert.Contains(expectedSubstring: "store", actualString: llvmIr); // For slice assignment
         Assert.Contains(expectedSubstring: "load", actualString: llvmIr); // For slice access
     }

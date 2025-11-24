@@ -104,7 +104,7 @@
         },
         {
           "name": "storage.type.memory.razorforge",
-          "match": "\\b(HeapSlice|StackSlice)\\b"
+          "match": "\\b(DynamicSlice|TemporarySlice)\\b"
         }
       ]
     },
