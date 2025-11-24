@@ -3,7 +3,7 @@ using Compilers.Shared.Lexer;
 using Compilers.Shared.Analysis;
 using Compilers.Shared.CodeGen;
 using Compilers.RazorForge.Parser;
-using Compilers.Cake.Parser;
+using Compilers.Suflae.Parser;
 
 namespace Compilers;
 
@@ -15,7 +15,7 @@ internal class Program
         {
             Console.WriteLine(value: "Usage: RazorForge <source-file>");
             Console.WriteLine(
-                value: "  <source-file>: .rf file for RazorForge or .cake file for Cake");
+                value: "  <source-file>: .rf file for RazorForge or .sf file for Suflae");
             return;
         }
 
@@ -27,11 +27,11 @@ internal class Program
         }
 
         string code = File.ReadAllText(path: sourceFile);
-        Language language = sourceFile.EndsWith(value: ".cake")
-            ? Language.Cake
+        Language language = sourceFile.EndsWith(value: ".sf")
+            ? Language.Suflae
             : Language.RazorForge;
-        LanguageMode mode = language == Language.Cake
-            ? LanguageMode.Cake
+        LanguageMode mode = language == Language.Suflae
+            ? LanguageMode.Suflae
             : LanguageMode.Normal;
 
         Console.WriteLine(value: $"Compiling {sourceFile} as {language} ({mode})...");
@@ -46,8 +46,8 @@ internal class Program
 
             // Parse the code
             Console.WriteLine(value: "=== PARSING ===");
-            BaseParser parser = language == Language.Cake
-                ? (BaseParser)new CakeParser(tokens: tokens)
+            BaseParser parser = language == Language.Suflae
+                ? (BaseParser)new SuflaeParser(tokens: tokens)
                 : new RazorForgeParser(tokens: tokens);
             Shared.AST.Program ast = parser.Parse();
             Console.WriteLine(

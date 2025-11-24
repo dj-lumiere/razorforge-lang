@@ -1,4 +1,4 @@
-# RazorForge equivalent of our Cake program
+# RazorForge equivalent of our Suflae program
 import stdlib/core
 
 recipe greet(name: Text) -> Text {

@@ -1,4 +1,4 @@
-# Simple Cake program to test compilation
+# Simple Suflae program to test compilation
 import stdlib/core
 
 recipe greet(name: Text) -> Text:

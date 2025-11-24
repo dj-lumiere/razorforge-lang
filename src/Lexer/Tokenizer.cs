@@ -1,5 +1,5 @@
 using Compilers.Shared.Analysis;
-using Compilers.Cake.Lexer;
+using Compilers.Suflae.Lexer;
 using Compilers.RazorForge.Lexer;
 
 namespace Compilers.Shared.Lexer;
@@ -10,7 +10,7 @@ public static class Tokenizer
     {
         BaseTokenizer tokenizer = language switch
         {
-            Language.Cake => new CakeTokenizer(source: source),
+            Language.Suflae => new SuflaeTokenizer(source: source),
             Language.RazorForge => new RazorForgeTokenizer(source: source),
             _ => throw new ArgumentException(message: $"Unsupported language: {language}")
         };
@@ -20,13 +20,13 @@ public static class Tokenizer
 
     public static bool IsScriptMode(string source, Language language)
     {
-        if (language != Language.Cake)
+        if (language != Language.Suflae)
         {
             return false;
         }
 
-        var cakeTokenizer = new CakeTokenizer(source: source);
-        cakeTokenizer.Tokenize(); // Need to tokenize to detect definitions
-        return cakeTokenizer.IsScriptMode;
+        var suflaeTokenizer = new SuflaeTokenizer(source: source);
+        suflaeTokenizer.Tokenize(); // Need to tokenize to detect definitions
+        return suflaeTokenizer.IsScriptMode;
     }
 }

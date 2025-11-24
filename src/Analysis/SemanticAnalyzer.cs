@@ -3,19 +3,19 @@ using Compilers.Shared.AST;
 namespace Compilers.Shared.Analysis;
 
 /// <summary>
-/// Comprehensive semantic analyzer for RazorForge and Cake languages.
+/// Comprehensive semantic analyzer for RazorForge and Suflae languages.
 ///
 /// This analyzer performs multi-phase semantic analysis combining:
 /// <list type="bullet">
 /// <item>Traditional type checking and symbol resolution</item>
 /// <item>Advanced memory safety analysis with ownership tracking</item>
-/// <item>Language-specific behavior handling (RazorForge vs Cake)</item>
+/// <item>Language-specific behavior handling (RazorForge vs Suflae)</item>
 /// <item>Memory operation validation (hijack!, share!, etc.)</item>
 /// <item>Cross-language compatibility checking</item>
 /// </list>
 ///
 /// The analyzer integrates tightly with the MemoryAnalyzer to enforce
-/// RazorForge's explicit memory model and Cake's automatic RC model.
+/// RazorForge's explicit memory model and Suflae's automatic RC model.
 /// It validates memory operations, tracks object ownership, and prevents
 /// use-after-invalidation errors during compilation.
 ///
@@ -40,7 +40,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// <summary>List of semantic errors found during analysis</summary>
     private readonly List<SemanticError> _errors;
 
-    /// <summary>Target language (RazorForge or Cake) for language-specific behavior</summary>
+    /// <summary>Target language (RazorForge or Suflae) for language-specific behavior</summary>
     private readonly Language _language;
 
     /// <summary>Language mode for additional behavior customization</summary>
@@ -57,7 +57,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// Sets up both traditional semantic analysis and memory model enforcement
     /// based on the target language's memory management strategy.
     /// </summary>
-    /// <param name="language">Target language (RazorForge or Cake)</param>
+    /// <param name="language">Target language (RazorForge or Suflae)</param>
     /// <param name="mode">Language mode for behavior customization</param>
     public SemanticAnalyzer(Language language, LanguageMode mode)
     {
@@ -178,7 +178,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// subject to memory safety rules.
     ///
     /// RazorForge: Objects start as Owned with direct ownership
-    /// Cake: Objects start as Shared with automatic reference counting
+    /// Suflae: Objects start as Shared with automatic reference counting
     /// </summary>
     public object? VisitVariableDeclaration(VariableDeclaration node)
     {
@@ -541,12 +541,12 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// <summary>
     /// Analyze assignment statements with language-specific memory model handling.
     ///
-    /// This method demonstrates the fundamental difference between RazorForge and Cake:
+    /// This method demonstrates the fundamental difference between RazorForge and Suflae:
     ///
     /// RazorForge: Assignments use move semantics - objects are transferred and source may become invalid.
     /// The analyzer needs sophisticated analysis to determine when moves occur vs copies.
     ///
-    /// Cake: Assignments use automatic reference counting - both source and target share the object
+    /// Suflae: Assignments use automatic reference counting - both source and target share the object
     /// with automatic RC increment. No invalidation occurs, promoting safe sharing.
     ///
     /// This difference reflects each language's memory management philosophy:
@@ -569,11 +569,11 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         if (node.Target is IdentifierExpression targetId &&
             node.Value is IdentifierExpression valueId)
         {
-            if (_language == Language.Cake)
+            if (_language == Language.Suflae)
             {
-                // Cake: Automatic reference counting - both variables share the same object
+                // Suflae: Automatic reference counting - both variables share the same object
                 // Source remains valid, RC is incremented, no invalidation occurs
-                _memoryAnalyzer.HandleCakeAssignment(target: targetId.Name, source: valueId.Name,
+                _memoryAnalyzer.HandleSuflaeAssignment(target: targetId.Name, source: valueId.Name,
                     location: node.Location);
             }
             else if (_language == Language.RazorForge)
@@ -1407,7 +1407,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         {
             "I8" or "I16" or "I32" or "I64" or "I128" or "Isys" or "U8" or "U16" or "U32" or "U64"
                 or "U128" or "Usys" or "F16" or "F32" or "F64" or "F128" or "D32" or "D64"
-                or "D128" or "Integer" or "Decimal" => true, // Cake arbitrary precision types
+                or "D128" or "Integer" or "Decimal" => true, // Suflae arbitrary precision types
             _ => false
         };
     }

@@ -66,8 +66,8 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     /// Initializes a new LLVM IR code generator for the specified language and mode configuration.
     /// Sets up the internal state required for AST traversal and IR generation.
     /// </summary>
-    /// <param name="language">Target language (RazorForge or Cake) affecting syntax and semantics</param>
-    /// <param name="mode">Language mode (Normal/Danger for RazorForge, Sweet/Bitter for Cake)</param>
+    /// <param name="language">Target language (RazorForge or Suflae) affecting syntax and semantics</param>
+    /// <param name="mode">Language mode (Normal/Danger for RazorForge, Sweet/Bitter for Suflae)</param>
     /// <param name="targetPlatform">Target platform (optional, defaults to x86_64 Linux)</param>
     /// <remarks>
     /// The language and mode parameters influence:
@@ -1315,8 +1315,8 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             TokenType.D128Literal => "d128",
 
             // Arbitrary precision types
-            TokenType.Integer => "bigint", // Cake arbitrary precision integer
-            TokenType.Decimal => "decimal", // Cake arbitrary precision decimal
+            TokenType.Integer => "bigint", // Suflae arbitrary precision integer
+            TokenType.Decimal => "decimal", // Suflae arbitrary precision decimal
 
             // Default types
             _ => "i32"

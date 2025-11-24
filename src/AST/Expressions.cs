@@ -35,7 +35,7 @@ public abstract record Expression(SourceLocation Location) : AstNode(Location: L
 /// <param name="LiteralType">Token type indicating the specific literal format used</param>
 /// <param name="Location">Source location information</param>
 /// <remarks>
-/// Supports the full range of RazorForge/Cake literal types:
+/// Supports the full range of RazorForge/Suflae literal types:
 /// <list type="bullet">
 /// <item>Integers: s8, s16, s32, s64, s128, syssint, u8, u16, u32, u64, u128, sysuint</item>
 /// <item>Floats: f16, f32, f64, f128</item>

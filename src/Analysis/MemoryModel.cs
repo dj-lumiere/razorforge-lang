@@ -3,7 +3,7 @@ using Compilers.Shared.AST;
 namespace Compilers.Shared.Analysis;
 
 /// <summary>
-/// Memory model support for RazorForge and Cake languages.
+/// Memory model support for RazorForge and Suflae languages.
 /// Handles ownership tracking, wrapper types, and memory safety analysis.
 ///
 /// RazorForge uses explicit memory management with 6 wrapper types organized into 3 color-coded groups:
@@ -14,7 +14,7 @@ namespace Compilers.Shared.Analysis;
 /// <item>Unsafe (Black): Forcibly taken - Snatched&lt;T&gt; (danger! blocks only)</item>
 /// </list>
 ///
-/// Cake uses automatic reference counting with incremental garbage collection.
+/// Suflae uses automatic reference counting with incremental garbage collection.
 /// </summary>
 /// <summary>
 /// Memory wrapper types for RazorForge explicit memory management.
@@ -185,9 +185,9 @@ public enum ObjectState
     Invalidated,
 
     /// <summary>
-    /// Object moved into container (RazorForge) or RC'd (Cake).
+    /// Object moved into container (RazorForge) or RC'd (Suflae).
     /// In RazorForge: object becomes deadref after moving into container.
-    /// In Cake: object remains valid but RC is incremented.
+    /// In Suflae: object remains valid but RC is incremented.
     /// </summary>
     Moved,
 

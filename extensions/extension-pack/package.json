@@ -1,7 +1,7 @@
 {
   "name": "razorforge-extension-pack",
   "displayName": "RazorForge Development Pack",
-  "description": "Complete development environment for RazorForge and Cake languages",
+  "description": "Complete development environment for RazorForge and Suflae languages",
   "version": "0.1.0",
   "publisher": "razorforge",
   "engines": {
@@ -12,14 +12,14 @@
   ],
   "keywords": [
     "razorforge",
-    "cake",
+    "suflae",
     "build automation",
     "systems programming",
     "extension pack"
   ],
   "extensionPack": [
     "razorforge.razorforge-language-support",
-    "razorforge.cake-language-support"
+    "razorforge.sf-language-support"
   ],
   "icon": "icon.png",
   "galleryBanner": {

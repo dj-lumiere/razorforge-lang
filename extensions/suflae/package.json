@@ -1,7 +1,7 @@
 {
-  "name": "cake-language-support",
-  "displayName": "Cake Language Support",
-  "description": "Language support for Cake scripting language with LSP integration",
+  "name": "suflae-language-support",
+  "displayName": "Suflae Language Support",
+  "description": "Language support for Suflae scripting language with LSP integration",
   "version": "0.1.0",
   "publisher": "razorforge",
   "engines": {
@@ -13,58 +13,58 @@
     "Snippets"
   ],
   "keywords": [
-    "cake",
+    "suflae",
     "build automation",
     "scripting",
     "c# build"
   ],
   "main": "./out/extension.js",
   "activationEvents": [
-    "onLanguage:cake"
+    "onLanguage:suflae"
   ],
   "contributes": {
     "languages": [
       {
-        "id": "cake",
+        "id": "suflae",
         "aliases": [
-          "Cake",
-          "cake",
-          "Cake Script"
+          "Suflae",
+          "suflae",
+          "Suflae Script"
         ],
         "extensions": [
-          ".cake"
+          ".sf"
         ],
         "configuration": "./language-configuration.json",
         "icon": {
-          "light": "./icons/cake-light.svg",
-          "dark": "./icons/cake-dark.svg"
+          "light": "./icons/suflae-light.svg",
+          "dark": "./icons/suflae-dark.svg"
         }
       }
     ],
     "grammars": [
       {
-        "language": "cake",
-        "scopeName": "source.cake",
-        "path": "./syntaxes/cake.tmLanguage.json"
+        "language": "suflae",
+        "scopeName": "source.sf",
+        "path": "./syntaxes/suflae.tmLanguage.json"
       }
     ],
     "configuration": {
       "type": "object",
-      "title": "Cake Language Support",
+      "title": "Suflae Language Support",
       "properties": {
-        "cake.languageServer.path": {
+        "suflae.languageServer.path": {
           "type": "string",
           "default": "RazorForge.exe",
-          "description": "Path to the Cake Language Server executable"
+          "description": "Path to the Suflae Language Server executable"
         },
-        "cake.languageServer.args": {
+        "suflae.languageServer.args": {
           "type": "array",
           "default": [
-            "--cake-lsp"
+            "--suflae-lsp"
           ],
-          "description": "Arguments to pass to the Cake Language Server"
+          "description": "Arguments to pass to the Suflae Language Server"
         },
-        "cake.trace.server": {
+        "suflae.trace.server": {
           "type": "string",
           "enum": [
             "off",
@@ -72,39 +72,39 @@
             "verbose"
           ],
           "default": "off",
-          "description": "Traces the communication between VS Code and the Cake language server"
+          "description": "Traces the communication between VS Code and the Suflae language server"
         },
-        "cake.formatOnSave": {
+        "suflae.formatOnSave": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically format Cake files when saving"
+          "description": "Automatically format Suflae files when saving"
         },
-        "cake.autoSync": {
+        "suflae.autoSync": {
           "type": "boolean",
           "default": true,
           "description": "Automatically sync files and restart language server on configuration changes"
         },
-        "cake.razorforgeIntegration": {
+        "suflae.razorforgeIntegration": {
           "type": "boolean",
           "default": true,
           "description": "Enable automatic integration with RazorForge extension"
         },
-        "cake.sharedWorkspace": {
+        "suflae.sharedWorkspace": {
           "type": "boolean",
           "default": true,
           "description": "Share workspace settings with RazorForge extension"
         },
-        "cake.linting.enabled": {
+        "suflae.linting.enabled": {
           "type": "boolean",
           "default": true,
           "description": "Enable real-time linting and code analysis"
         },
-        "cake.formatting.indentSize": {
+        "suflae.formatting.indentSize": {
           "type": "number",
           "default": 4,
           "description": "Number of spaces for indentation"
         },
-        "cake.formatting.insertFinalNewline": {
+        "suflae.formatting.insertFinalNewline": {
           "type": "boolean",
           "default": true,
           "description": "Insert final newline at end of file"
@@ -113,34 +113,34 @@
     },
     "commands": [
       {
-        "command": "cake.newScript",
-        "title": "New Cake Script",
-        "category": "Cake"
+        "command": "suflae.newScript",
+        "title": "New Suflae Script",
+        "category": "Suflae"
       },
       {
-        "command": "cake.restartLanguageServer",
+        "command": "suflae.restartLanguageServer",
         "title": "Restart Language Server",
-        "category": "Cake"
+        "category": "Suflae"
       },
       {
-        "command": "cake.showServerStatus",
+        "command": "suflae.showServerStatus",
         "title": "Show Server Status",
-        "category": "Cake"
+        "category": "Suflae"
       },
       {
-        "command": "cake.formatDocument",
+        "command": "suflae.formatDocument",
         "title": "Format Document",
-        "category": "Cake"
+        "category": "Suflae"
       },
       {
-        "command": "cake.lintDocument",
+        "command": "suflae.lintDocument",
         "title": "Lint Document",
-        "category": "Cake"
+        "category": "Suflae"
       },
       {
-        "command": "cake.syncWithRazorForge",
+        "command": "suflae.syncWithRazorForge",
         "title": "Sync with RazorForge Extension",
-        "category": "Cake"
+        "category": "Suflae"
       }
     ]
   },

@@ -83,15 +83,15 @@
           "default": true,
           "description": "Automatically sync files and restart language server on configuration changes"
         },
-        "razorforge.cakeIntegration": {
+        "razorforge.sfIntegration": {
           "type": "boolean",
           "default": true,
-          "description": "Enable automatic integration with Cake language extension"
+          "description": "Enable automatic integration with Suflae language extension"
         },
         "razorforge.sharedWorkspace": {
           "type": "boolean",
           "default": true,
-          "description": "Share workspace settings between RazorForge and Cake extensions"
+          "description": "Share workspace settings between RazorForge and Suflae extensions"
         },
         "razorforge.linting.enabled": {
           "type": "boolean",
@@ -159,7 +159,7 @@
       },
       {
         "command": "razorforge.createIntegratedProject",
-        "title": "Create Integrated RazorForge + Cake Project",
+        "title": "Create Integrated RazorForge + Suflae Project",
         "category": "RazorForge"
       },
       {

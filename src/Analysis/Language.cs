@@ -1,7 +1,7 @@
 namespace Compilers.Shared.Analysis;
 
 /// <summary>
-/// Target language specification for the unified RazorForge/Cake compiler.
+/// Target language specification for the unified RazorForge/Suflae compiler.
 ///
 /// These two languages represent fundamentally different approaches to memory management
 /// and system programming, unified under a single compiler infrastructure:
@@ -11,7 +11,7 @@ namespace Compilers.Shared.Analysis;
 /// Emphasizes programmer control, zero-cost abstractions, and compile-time safety.
 /// Target use cases: systems programming, embedded development, performance-critical applications.
 ///
-/// Cake: Automatic reference counting with incremental garbage collection for cycle detection.
+/// Suflae: Automatic reference counting with incremental garbage collection for cycle detection.
 /// Emphasizes programmer productivity, safety by default, and ease of use.
 /// Target use cases: scripting, rapid prototyping, application development, REPL usage.
 ///
@@ -29,11 +29,11 @@ public enum Language
     RazorForge,
 
     /// <summary>
-    /// Cake: Automatic memory management with reference counting and incremental GC.
+    /// Suflae: Automatic memory management with reference counting and incremental GC.
     /// Features automatic sharing, transparent reference counting, cycle detection,
     /// and both AOT compilation and live REPL execution. Prioritizes safety and ease of use.
     /// </summary>
-    Cake
+    Suflae
 }
 
 /// <summary>
@@ -47,7 +47,7 @@ public enum Language
 /// <item>Danger mode allows unsafe operations for systems programming and performance</item>
 /// </list>
 ///
-/// Cake modes control the balance between convenience and performance:
+/// Suflae modes control the balance between convenience and performance:
 /// <list type="bullet">
 /// <item>Sweet mode optimizes for developer productivity and rapid iteration</item>
 /// <item>Bitter mode enables lower-level optimizations for performance-critical code</item>
@@ -92,10 +92,10 @@ public enum LanguageMode
     /// </summary>
     Danger,
 
-    // === Cake Modes ===
+    // === Suflae Modes ===
 
     /// <summary>
-    /// Cake Mode: Quick prototyping with maximum safety and convenience.
+    /// Suflae Mode: Quick prototyping with maximum safety and convenience.
     ///
     /// Features:
     /// <list type="bullet">
@@ -110,5 +110,5 @@ public enum LanguageMode
     /// Use cases: Rapid prototyping, scripting, interactive development,
     /// educational environments, data analysis
     /// </summary>
-    Cake
+    Suflae
 }

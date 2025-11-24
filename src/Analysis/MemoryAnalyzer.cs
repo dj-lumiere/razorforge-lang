@@ -3,11 +3,11 @@ using Compilers.Shared.AST;
 namespace Compilers.Shared.Analysis;
 
 /// <summary>
-/// Memory safety analyzer for RazorForge and Cake memory models.
+/// Memory safety analyzer for RazorForge and Suflae memory models.
 ///
 /// This analyzer tracks object ownership, validates memory operations, and enforces
 /// memory safety rules throughout the compilation process. It handles the fundamental
-/// differences between RazorForge's explicit memory management and Cake's automatic
+/// differences between RazorForge's explicit memory management and Suflae's automatic
 /// reference counting with incremental garbage collection.
 ///
 /// Key responsibilities:
@@ -27,7 +27,7 @@ namespace Compilers.Shared.Analysis;
 /// </summary>
 public class MemoryAnalyzer
 {
-    /// <summary>Target language (RazorForge or Cake) - determines memory model behavior</summary>
+    /// <summary>Target language (RazorForge or Suflae) - determines memory model behavior</summary>
     private readonly Language _language;
 
     /// <summary>Language mode for additional behavior customization</summary>
@@ -64,7 +64,7 @@ public class MemoryAnalyzer
     /// Initialize memory analyzer for the specified language and mode.
     /// Creates the global scope and sets up language-specific behavior.
     /// </summary>
-    /// <param name="language">Target language (RazorForge or Cake)</param>
+    /// <param name="language">Target language (RazorForge or Suflae)</param>
     /// <param name="mode">Language mode for additional customization</param>
     public MemoryAnalyzer(Language language, LanguageMode mode)
     {
@@ -123,11 +123,11 @@ public class MemoryAnalyzer
     /// <param name="location">Source location of the danger! block for error reporting</param>
     public void EnterDangerBlock(SourceLocation location)
     {
-        if (_language == Language.Cake)
+        if (_language == Language.Suflae)
         {
-            // Cake does not have danger blocks - it uses automatic memory management
+            // Suflae does not have danger blocks - it uses automatic memory management
             // and doesn't expose unsafe operations to the programmer
-            AddError(message: "Danger blocks are not allowed in Cake", location: location,
+            AddError(message: "Danger blocks are not allowed in Suflae", location: location,
                 type: MemoryError.MemoryErrorType.DangerBlockViolation);
             return;
         }
@@ -145,16 +145,16 @@ public class MemoryAnalyzer
     }
 
     /// <summary>
-    /// Enter a usurping function that is allowed to return exclusive tokens.
+    /// Enter a usurping function allowed to return exclusive tokens.
     /// Usurping functions are special RazorForge functions explicitly marked
     /// as being able to return Hijacked&lt;T&gt; objects. This prevents accidental
     /// exclusive token leakage from regular functions.
     /// </summary>
     public void EnterUsurpingFunction()
     {
-        if (_language == Language.Cake)
+        if (_language == Language.Suflae)
         {
-            // Cake doesn't have usurping functions since it uses automatic
+            // Suflae doesn't have usurping functions since it uses automatic
             // reference counting and doesn't expose exclusive access tokens
             return;
         }
@@ -172,22 +172,22 @@ public class MemoryAnalyzer
     }
 
     /// <summary>
-    /// Register a new object from variable declaration or function return.
-    /// This creates a new memory object with appropriate initial wrapper type
+    /// Register a new object from a variable declaration or function return.
+    /// This creates a new memory object with the appropriate initial wrapper type
     /// based on the target language's memory model.
     ///
     /// RazorForge: Objects start as Owned with RC=1 (direct ownership)
-    /// Cake: Objects start as Shared with automatic RC management
+    /// Suflae: Objects start as Shared with automatic RC management
     /// </summary>
     /// <param name="name">Variable name for the object</param>
     /// <param name="type">Type information for the object</param>
     /// <param name="location">Source location for error reporting</param>
-    /// <param name="isFloating">Whether this is a floating literal/temporary (Cake only)</param>
+    /// <param name="isFloating">Whether this is a floating literal/temporary (Suflae only)</param>
     public void RegisterObject(string name, TypeInfo type, SourceLocation location,
         bool isFloating = false)
     {
-        // Different default wrapper types based on language memory model
-        WrapperType wrapper = _language == Language.Cake
+        // Different default wrapper types based on a language memory model
+        WrapperType wrapper = _language == Language.Suflae
             ? WrapperType.Shared
             : WrapperType.Owned;
         var obj = new MemoryObject(Name: name, BaseType: type, Wrapper: wrapper,
@@ -196,8 +196,8 @@ public class MemoryAnalyzer
         Dictionary<string, MemoryObject> currentScope = _scopes.Peek();
         currentScope[key: name] = obj;
 
-        // Cake automatic reference counting: increment RC when creating non-floating references
-        if (_language != Language.Cake || isFloating)
+        // Suflae automatic reference counting: increment RC when creating non-floating references
+        if (_language != Language.Suflae || isFloating)
         {
             return;
         }
@@ -209,20 +209,20 @@ public class MemoryAnalyzer
     }
 
     /// <summary>
-    /// Handle assignment in Cake with automatic reference counting.
-    /// When assigning one reference to another in Cake, the reference count
+    /// Handle assignment in Suflae with automatic reference counting.
+    /// When assigning one reference to another in Suflae, the reference count
     /// is automatically incremented for both the source and target objects.
-    /// This simulates Cake's automatic RC management during compilation.
+    /// This simulates Suflae's automatic RC management during compilation.
     ///
-    /// Example: let b = a  // RC of 'a' object increases, 'b' points to same object
+    /// Example: let b = a  // RC of 'a' object increases, 'b' points to the same object
     /// </summary>
     /// <param name="target">Target variable name receiving the assignment</param>
     /// <param name="source">Source variable name being assigned from</param>
     /// <param name="location">Source location for error reporting</param>
-    public void HandleCakeAssignment(string target, string source, SourceLocation location)
+    public void HandleSuflaeAssignment(string target, string source, SourceLocation location)
     {
-        // This method only applies to Cake's automatic RC model
-        if (_language != Language.Cake)
+        // This method only applies to Suflae's automatic RC model
+        if (_language != Language.Suflae)
         {
             return;
         }
@@ -242,7 +242,7 @@ public class MemoryAnalyzer
             return;
         }
 
-        // Cake automatic RC management: both source and target share the same object
+        // Suflae automatic RC management: both source and target share the same object
         // with incremented reference count
         MemoryObject newObj = sourceObj with
         {
@@ -335,7 +335,7 @@ public class MemoryAnalyzer
         // Invalidate source to enforce exclusive access - no other references allowed
         InvalidateObject(name: obj.Name, reason: "hijack!()", location: location);
 
-        // Return hijacked object with exclusive access
+        // Return a hijacked object with exclusive access
         return obj with
         {
             Wrapper = WrapperType.Hijacked, ReferenceCount = 1 // Always 1 for exclusive access
@@ -374,26 +374,26 @@ public class MemoryAnalyzer
     }
 
     /// <summary>
-    /// Handle watch!() operation - create weak observer reference.
+    /// Handle watch!() operation - create a weak observer reference.
     /// Creates a Watched&lt;T&gt; weak reference that doesn't prevent object destruction.
     /// Can only be created from Shared objects. Doesn't invalidate source or affect RC.
     /// Used for breaking reference cycles and observing without ownership responsibility.
     /// </summary>
     private MemoryObject? HandleWatch(MemoryObject obj, SourceLocation location)
     {
-        if (obj.Wrapper != WrapperType.Shared)
+        // Create a weak reference - doesn't invalidate source or affect its RC
+        if (obj.Wrapper == WrapperType.Shared)
         {
-            AddError(message: $"Can only watch Shared objects, not {obj.Wrapper}",
-                location: location, type: MemoryError.MemoryErrorType.InvalidTransformation);
-            return null;
+            return obj with
+            {
+                Wrapper = WrapperType.Watched,
+                ReferenceCount = 0 // Weak references don't contribute to RC
+            };
         }
 
-        // Create weak reference - doesn't invalidate source or affect its RC
-        return obj with
-        {
-            Wrapper = WrapperType.Watched,
-            ReferenceCount = 0 // Weak references don't contribute to RC
-        };
+        AddError(message: $"Can only watch Shared objects, not {obj.Wrapper}",
+            location: location, type: MemoryError.MemoryErrorType.InvalidTransformation);
+        return null;
     }
 
     /// <summary>
@@ -450,21 +450,21 @@ public class MemoryAnalyzer
     /// </summary>
     private MemoryObject? HandleThreadWatch(MemoryObject obj, SourceLocation location)
     {
-        if (obj.Wrapper != WrapperType.ThreadShared)
-        {
-            AddError(message: $"Can only thread_watch ThreadShared objects, not {obj.Wrapper}",
-                location: location, type: MemoryError.MemoryErrorType.InvalidTransformation);
-            return null;
-        }
-
         // Create thread-safe weak reference - doesn't invalidate source or affect Arc
         // Policy is inherited from the parent ThreadShared
-        return obj with
+        if (obj.Wrapper == WrapperType.ThreadShared)
         {
-            Wrapper = WrapperType.ThreadWatched,
-            ReferenceCount = 0, // Weak references don't contribute to Arc
-            Policy = obj.Policy // Inherit policy from parent ThreadShared
-        };
+            return obj with
+            {
+                Wrapper = WrapperType.ThreadWatched,
+                ReferenceCount = 0, // Weak references don't contribute to Arc
+                Policy = obj.Policy // Inherit policy from parent ThreadShared
+            };
+        }
+
+        AddError(message: $"Can only thread_watch ThreadShared objects, not {obj.Wrapper}",
+            location: location, type: MemoryError.MemoryErrorType.InvalidTransformation);
+        return null;
     }
 
     /// <summary>
@@ -561,7 +561,7 @@ public class MemoryAnalyzer
             return null;
         }
 
-        // Invalidate this reference and decrement the overall reference count
+        // Invalidate this reference and decrease the overall reference count
         InvalidateObject(name: obj.Name, reason: "release!()", location: location);
 
         return obj with { ReferenceCount = obj.ReferenceCount - 1 };
@@ -575,19 +575,19 @@ public class MemoryAnalyzer
     /// </summary>
     private MemoryObject? HandleTryShare(MemoryObject obj, SourceLocation location)
     {
-        if (obj.Wrapper != WrapperType.Watched)
-        {
-            AddError(message: $"Can only try_share on Watched objects, not {obj.Wrapper}",
-                location: location, type: MemoryError.MemoryErrorType.InvalidTransformation);
-            return null;
-        }
-
         // Try to upgrade weak to strong - in real implementation this could fail
         // if the original object was already destroyed
-        return obj with
+        if (obj.Wrapper == WrapperType.Watched)
         {
-            Wrapper = WrapperType.Shared, ReferenceCount = 1 // New strong reference
-        };
+            return obj with
+            {
+                Wrapper = WrapperType.Shared, ReferenceCount = 1 // New strong reference
+            };
+        }
+
+        AddError(message: $"Can only try_share on Watched objects, not {obj.Wrapper}",
+            location: location, type: MemoryError.MemoryErrorType.InvalidTransformation);
+        return null;
     }
 
     /// <summary>
@@ -675,7 +675,7 @@ public class MemoryAnalyzer
     /// RazorForge: Uses move semantics - object is transferred to container and source becomes deadref.
     /// This prevents external mutation after insertion, ensuring container controls access.
     ///
-    /// Cake: Uses automatic reference counting - container shares reference with automatic RC increment.
+    /// Suflae: Uses automatic reference counting - container shares reference with automatic RC increment.
     /// Original reference remains valid and can be used alongside container reference.
     ///
     /// This fundamental difference reflects the memory model philosophies of each language.
@@ -708,9 +708,9 @@ public class MemoryAnalyzer
             InvalidateObject(name: objectName, reason: $"moved into container '{containerName}'",
                 location: location);
         }
-        else if (_language == Language.Cake)
+        else if (_language == Language.Suflae)
         {
-            // Cake: automatic reference counting - container shares reference
+            // Suflae: automatic reference counting - container shares reference
             MemoryObject newObj = obj with { ReferenceCount = obj.ReferenceCount + 1 };
             SetObject(name: objectName, obj: newObj);
         }
@@ -728,9 +728,9 @@ public class MemoryAnalyzer
     /// <param name="location">Source location for error reporting</param>
     public void ValidateFunctionReturn(TypeInfo returnType, SourceLocation location)
     {
-        if (_language == Language.Cake)
+        if (_language == Language.Suflae)
         {
-            return; // Cake has no usurping functions
+            return; // Suflae has no usurping functions
         }
 
         // Check if return type is Hijacked<T> without usurping declaration

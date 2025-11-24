@@ -418,12 +418,12 @@ public record FunctionSignature(
 
 /// <summary>
 /// Visibility modifiers controlling access to declarations.
-/// Supports both Cake's descriptive keywords and RazorForge's traditional modifiers.
+/// Supports both Suflae's descriptive keywords and RazorForge's traditional modifiers.
 /// </summary>
 /// <remarks>
 /// The visibility system is designed to be intuitive while providing precise control:
 ///
-/// Cake visibility (descriptive):
+/// Suflae visibility (descriptive):
 /// <list type="bullet">
 /// <item>onlyme - Only the declaring entity can access</item>
 /// <item>onlyfamily - Only the declaring entity and its subclasses can access</item>
@@ -444,17 +444,17 @@ public record FunctionSignature(
 /// </remarks>
 public enum VisibilityModifier
 {
-    // Cake descriptive visibility
-    /// <summary>Only accessible within the declaring entity (Cake: onlyme)</summary>
+    // Suflae descriptive visibility
+    /// <summary>Only accessible within the declaring entity (Suflae: onlyme)</summary>
     OnlyMe,
 
-    /// <summary>Accessible within the declaring entity and its subclasses (Cake: onlyfamily)</summary>
+    /// <summary>Accessible within the declaring entity and its subclasses (Suflae: onlyfamily)</summary>
     OnlyFamily,
 
-    /// <summary>Accessible within the same module/package (Cake: onlyhere)</summary>
+    /// <summary>Accessible within the same module/package (Suflae: onlyhere)</summary>
     OnlyHere,
 
-    /// <summary>Accessible from anywhere (Cake: everywhere)</summary>
+    /// <summary>Accessible from anywhere (Suflae: everywhere)</summary>
     Everywhere,
 
     // RazorForge traditional visibility

@@ -22,8 +22,8 @@ indent_size = 4
 indent_style = space
 indent_size = 4
 
-# Cake source files
-[*.cake]
+# Suflae source files
+[*.sf]
 indent_style = space
 indent_size = 4
 

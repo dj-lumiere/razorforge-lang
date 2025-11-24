@@ -2,18 +2,18 @@ using Compilers.Shared.AST;
 using Compilers.Shared.Parser;
 using Compilers.Shared.Lexer;
 
-namespace Compilers.Cake.Parser;
+namespace Compilers.Suflae.Parser;
 
 /// <summary>
-/// Parser for Cake language (indentation-based syntax)
+/// Parser for Suflae language (indentation-based syntax)
 /// Handles Python-like indentation with colons and blocks
 /// </summary>
-public class CakeParser : BaseParser
+public class SuflaeParser : BaseParser
 {
     private readonly Stack<int> _indentationStack = new();
     private int _currentIndentationLevel = 0;
 
-    public CakeParser(List<Token> tokens) : base(tokens: tokens)
+    public SuflaeParser(List<Token> tokens) : base(tokens: tokens)
     {
         _indentationStack.Push(item: 0); // Base indentation level
     }
@@ -85,7 +85,7 @@ public class CakeParser : BaseParser
             return ParseVariableDeclaration(visibility: visibility);
         }
 
-        // Recipe (function) declaration - using 'recipe' keyword in Cake
+        // Recipe (function) declaration - using 'recipe' keyword in Suflae
         if (Match(type: TokenType.Recipe))
         {
             return ParseRecipeDeclaration(visibility: visibility);
@@ -104,7 +104,7 @@ public class CakeParser : BaseParser
 
         if (Match(type: TokenType.Choice))
         {
-            return ParseChoiceDeclaration(visibility: visibility); // choice in Cake
+            return ParseChoiceDeclaration(visibility: visibility); // choice in Suflae
         }
 
         if (Match(type: TokenType.Chimera))
@@ -235,7 +235,7 @@ public class CakeParser : BaseParser
                     Location: GetLocation()), Location: GetLocation());
         }
 
-        // Cake's display statement (equivalent to print/console.log)
+        // Suflae's display statement (equivalent to print/console.log)
         if (Check(type: TokenType.Identifier) && CurrentToken.Text == "display")
         {
             Advance();
@@ -790,7 +790,7 @@ public class CakeParser : BaseParser
 
     private VisibilityModifier ParseVisibilityModifier()
     {
-        // Handle Cake's special visibility syntax: public(family), public(module)
+        // Handle Suflae's special visibility syntax: public(family), public(module)
         if (Match(type: TokenType.Public))
         {
             if (Match(type: TokenType.LeftParen))
@@ -1484,7 +1484,7 @@ public class CakeParser : BaseParser
             throw new ParseException(message: $"Invalid integer literal: {value}");
         }
 
-        // Float literals  
+        // Float literals
         if (Match(TokenType.Decimal, TokenType.F16Literal, TokenType.F32Literal,
                 TokenType.F64Literal, TokenType.F128Literal, TokenType.D32Literal,
                 TokenType.D64Literal, TokenType.D128Literal))
@@ -1507,7 +1507,7 @@ public class CakeParser : BaseParser
             throw new ParseException(message: $"Invalid float literal: {value}");
         }
 
-        // String literals with Cake-specific handling
+        // String literals with Suflae-specific handling
         if (Match(TokenType.TextLiteral, TokenType.FormattedText, TokenType.RawText,
                 TokenType.RawFormattedText, TokenType.Text8Literal, TokenType.Text8FormattedText,
                 TokenType.Text8RawText, TokenType.Text8RawFormattedText, TokenType.Text16Literal,
@@ -1517,7 +1517,7 @@ public class CakeParser : BaseParser
             Token token = PeekToken(offset: -1);
             string value = token.Text;
 
-            // Handle Cake's formatted string literals (f"...")
+            // Handle Suflae's formatted string literals (f"...")
             if (value.StartsWith(value: "f\"") && value.EndsWith(value: "\""))
             {
                 // This is a formatted string like f"{name} says hello"
@@ -1609,13 +1609,13 @@ public class CakeParser : BaseParser
             return new LiteralExpression(Value: '?', LiteralType: token.Type, Location: location);
         }
 
-        // Identifiers and Cake-specific keywords
+        // Identifiers and Suflae-specific keywords
         if (Match(TokenType.Identifier, TokenType.TypeIdentifier))
         {
             string text = PeekToken(offset: -1)
                .Text;
 
-            // Handle Cake's "me" keyword for self-reference
+            // Handle Suflae's "me" keyword for self-reference
             if (text == "me")
             {
                 return new IdentifierExpression(Name: "this",

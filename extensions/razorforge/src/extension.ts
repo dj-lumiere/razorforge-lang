@@ -359,24 +359,24 @@ async function restartLanguageServer() {
 }
 
 /**
- * Sets up automatic integration with Cake extension and shared workspace features.
+ * Sets up automatic integration with Suflae extension and shared workspace features.
  */
 function setupCrossExtensionIntegration(context: vscode.ExtensionContext) {
     const config = vscode.workspace.getConfiguration('razorforge');
-    const cakeIntegrationEnabled = config.get<boolean>('cakeIntegration', true);
+    const suflaeIntegrationEnabled = config.get<boolean>('suflaeIntegration', true);
     const sharedWorkspaceEnabled = config.get<boolean>('sharedWorkspace', true);
 
-    if (!cakeIntegrationEnabled) {
+    if (!suflaeIntegrationEnabled) {
         return;
     }
 
-    // Check if Cake extension is installed
-    const cakeExtension = vscode.extensions.getExtension(
-        'razorforge.cake-language-support'
+    // Check if Suflae extension is installed
+    const suflaeExtension = vscode.extensions.getExtension(
+        'razorforge.sf-language-support'
     );
 
-    if (cakeExtension) {
-        console.log('RazorForge: Cake extension detected, enabling integration...');
+    if (suflaeExtension) {
+        console.log('RazorForge: Suflae extension detected, enabling integration...');
 
         // Set up shared configurations
         if (sharedWorkspaceEnabled) {
@@ -386,7 +386,7 @@ function setupCrossExtensionIntegration(context: vscode.ExtensionContext) {
         // Notify user about integration
         vscode.window
             .showInformationMessage(
-                'RazorForge & Cake integration activated! 🍰⚔️',
+                'RazorForge & Suflae integration activated! 🍰⚔️',
                 'Show Settings'
             )
             .then(selection => {
@@ -398,10 +398,10 @@ function setupCrossExtensionIntegration(context: vscode.ExtensionContext) {
                 }
             });
     } else {
-        // Offer to install Cake extension
+        // Offer to install Suflae extension
         vscode.window
             .showInformationMessage(
-                'Install Cake Language Support for complete RazorForge development experience?',
+                'Install Suflae Language Support for complete RazorForge development experience?',
                 'Install',
                 'Not Now'
             )
@@ -409,20 +409,20 @@ function setupCrossExtensionIntegration(context: vscode.ExtensionContext) {
                 if (selection === 'Install') {
                     vscode.commands.executeCommand(
                         'workbench.extensions.search',
-                        'razorforge.cake-language-support'
+                        'razorforge.sf-language-support'
                     );
                 }
             });
     }
 
-    // Watch for Cake extension installation
+    // Watch for Suflae extension installation
     const extensionChangeHandler = vscode.extensions.onDidChange(() => {
-        const newCakeExtension = vscode.extensions.getExtension(
-            'razorforge.cake-language-support'
+        const newSuflaeExtension = vscode.extensions.getExtension(
+            'razorforge.sf-language-support'
         );
-        if (newCakeExtension && !cakeExtension) {
+        if (newSuflaeExtension && !suflaeExtension) {
             vscode.window.showInformationMessage(
-                'Cake extension installed! Restart VS Code to enable full integration.'
+                'Suflae extension installed! Restart VS Code to enable full integration.'
             );
         }
     });
@@ -431,21 +431,21 @@ function setupCrossExtensionIntegration(context: vscode.ExtensionContext) {
 }
 
 /**
- * Sets up shared configuration between RazorForge and Cake extensions.
+ * Sets up shared configuration between RazorForge and Suflae extensions.
  */
 function setupSharedConfiguration() {
     // Create shared workspace settings
     const workspaceConfig = vscode.workspace.getConfiguration();
 
-    // Share language server settings if they don't exist for Cake
+    // Share language server settings if they don't exist for Suflae
     const razorForgeServerPath = workspaceConfig.get(
         'razorforge.languageServer.path'
     );
-    const cakeServerPath = workspaceConfig.get('cake.languageServer.path');
+    const suflaeServerPath = workspaceConfig.get('suflae.languageServer.path');
 
-    if (razorForgeServerPath && !cakeServerPath) {
+    if (razorForgeServerPath && !suflaeServerPath) {
         workspaceConfig.update(
-            'cake.languageServer.path',
+            'suflae.languageServer.path',
             razorForgeServerPath,
             vscode.ConfigurationTarget.Workspace
         );
@@ -453,23 +453,23 @@ function setupSharedConfiguration() {
 
     // Sync formatting settings
     const razorForgeFormatOnSave = workspaceConfig.get('razorforge.formatOnSave');
-    const cakeFormatOnSave = workspaceConfig.get('cake.formatOnSave');
+    const suflaeFormatOnSave = workspaceConfig.get('suflae.formatOnSave');
 
-    if (razorForgeFormatOnSave !== undefined && cakeFormatOnSave === undefined) {
+    if (razorForgeFormatOnSave !== undefined && suflaeFormatOnSave === undefined) {
         workspaceConfig.update(
-            'cake.formatOnSave',
+            'suflae.formatOnSave',
             razorForgeFormatOnSave,
             vscode.ConfigurationTarget.Workspace
         );
     }
 
     console.log(
-        'RazorForge: Shared configuration synchronized with Cake extension'
+        'RazorForge: Shared configuration synchronized with Suflae extension'
     );
 }
 
 /**
- * Creates an integrated project structure for RazorForge + Cake development.
+ * Creates an integrated project structure for RazorForge + Suflae development.
  */
 async function createIntegratedProject() {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
@@ -495,9 +495,9 @@ recipe main() {
 }`;
         await vscode.workspace.fs.writeFile(sampleRf, Buffer.from(rfContent));
 
-        // Create sample Cake build script
-        const buildScript = vscode.Uri.joinPath(buildFolder, 'build.cake');
-        const cakeContent = `// Cake build script for RazorForge project
+        // Create sample Suflae build script
+        const buildScript = vscode.Uri.joinPath(buildFolder, 'build.sf');
+        const suflaeContent = `// Suflae build script for RazorForge project
 #tool "nuget:?package=RazorForge.Tools"
 
 var target = Argument("target", "Default");
@@ -522,7 +522,7 @@ Task("Default")
     .IsDependentOn("Build");
 
 RunTarget(target);`;
-        await vscode.workspace.fs.writeFile(buildScript, Buffer.from(cakeContent));
+        await vscode.workspace.fs.writeFile(buildScript, Buffer.from(suflaeContent));
 
         // Create workspace configuration
         const vscodePath = vscode.Uri.joinPath(workspaceFolder.uri, '.vscode');
@@ -531,12 +531,12 @@ RunTarget(target);`;
         const settingsPath = vscode.Uri.joinPath(vscodePath, 'settings.json');
         const settings = {
             'razorforge.languageServer.path': 'RazorForge.exe',
-            'cake.languageServer.path': 'RazorForge.exe',
+            'suflae.languageServer.path': 'RazorForge.exe',
             'razorforge.formatOnSave': true,
-            'cake.formatOnSave': true,
+            'suflae.formatOnSave': true,
             'files.associations': {
                 '*.rf': 'razorforge',
-                '*.cake': 'cake',
+                '*.sf': 'suflae',
             },
         };
         await vscode.workspace.fs.writeFile(
@@ -546,7 +546,7 @@ RunTarget(target);`;
 
         vscode.window
             .showInformationMessage(
-                'Integrated RazorForge + Cake project created! 🍰⚔️',
+                'Integrated RazorForge + Suflae project created! 🍰⚔️',
                 'Open Main File'
             )
             .then(selection => {

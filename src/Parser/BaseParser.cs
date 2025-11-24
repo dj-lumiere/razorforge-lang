@@ -1033,7 +1033,7 @@ public abstract class BaseParser
     }
 
     /// <summary>
-    /// Check for unnecessary closing brace (for Cake)
+    /// Check for unnecessary closing brace (for Suflae)
     /// </summary>
     protected void CheckUnnecessaryBrace()
     {
@@ -1041,7 +1041,7 @@ public abstract class BaseParser
         {
             AddWarning(
                 message:
-                "Unnecessary closing brace detected. Cake uses indentation-based scoping, not braces.",
+                "Unnecessary closing brace detected. Suflae uses indentation-based scoping, not braces.",
                 token: CurrentToken, warningCode: WarningCodes.UnnecessaryBraces,
                 severity: WarningSeverity.StyleViolation);
         }

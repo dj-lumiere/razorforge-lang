@@ -20,8 +20,8 @@ namespace Compilers.Shared.CodeGen;
 /// <item>Type information where available</item>
 /// </list>
 ///
-/// This generator respects the target language (RazorForge vs Cake) and
-/// mode (Normal/Danger for RazorForge, Sweet/Bitter for Cake) to produce
+/// This generator respects the target language (RazorForge vs Suflae) and
+/// mode (Normal/Danger for RazorForge, Sweet/Bitter for Suflae) to produce
 /// appropriate output formatting and comments.
 /// </remarks>
 public class SimpleCodeGenerator : IAstVisitor<string>
@@ -29,7 +29,7 @@ public class SimpleCodeGenerator : IAstVisitor<string>
     /// <summary>StringBuilder for accumulating the generated output</summary>
     private readonly StringBuilder _output;
 
-    /// <summary>Target language (RazorForge or Cake)</summary>
+    /// <summary>Target language (RazorForge or Suflae)</summary>
     private readonly Language _language;
 
     /// <summary>Language mode affecting generation behavior</summary>
@@ -41,7 +41,7 @@ public class SimpleCodeGenerator : IAstVisitor<string>
     /// <summary>
     /// Initializes a new simple code generator for the specified language and mode.
     /// </summary>
-    /// <param name="language">The target language (RazorForge or Cake)</param>
+    /// <param name="language">The target language (RazorForge or Suflae)</param>
     /// <param name="mode">The language mode (Normal/Danger or Sweet/Bitter)</param>
     public SimpleCodeGenerator(Language language, LanguageMode mode)
     {

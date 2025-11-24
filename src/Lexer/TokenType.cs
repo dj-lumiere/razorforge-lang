@@ -23,11 +23,11 @@ public enum TokenType
 {
     #region Basic Literals
 
-    // Cake default number types (arbitrary precision)
-    /// <summary>Arbitrary precision integer in Cake - unsuffixed integers (42, 0xFF, 0b1010)</summary>
+    // Suflae default number types (arbitrary precision)
+    /// <summary>Arbitrary precision integer in Suflae - unsuffixed integers (42, 0xFF, 0b1010)</summary>
     Integer,
 
-    /// <summary>Arbitrary precision decimal in Cake - unsuffixed decimals (3.14, 2.718)</summary>
+    /// <summary>Arbitrary precision decimal in Suflae - unsuffixed decimals (3.14, 2.718)</summary>
     Decimal,
 
     /// <summary>Represents the semicolon (;) token in the syntax
@@ -688,10 +688,10 @@ public enum TokenType
     /// <summary>Significant newline token (statement terminator)</summary>
     Newline,
 
-    /// <summary>Indentation increment token (Cake language only)</summary>
+    /// <summary>Indentation increment token (Suflae language only)</summary>
     Indent,
 
-    /// <summary>Indentation decrement token (Cake language only)</summary>
+    /// <summary>Indentation decrement token (Suflae language only)</summary>
     Dedent,
 
     /// <summary>Documentation comment token (##)</summary>

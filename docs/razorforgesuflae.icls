@@ -1,5 +1,5 @@
-<!-- RazorForgeCake.icls - Import via: File → Manage IDE Settings → Import Settings -->
-<scheme name="RazorForge & Cake" version="142" parent_scheme="Dracula">
+<!-- RazorForgeSuflae.icls - Import via: File → Manage IDE Settings → Import Settings -->
+<scheme name="RazorForge & Suflae" version="142" parent_scheme="Dracula">
   <metaInfo>
     <property name="created">2025-08-30T00:00:00</property>
     <property name="ide">Rider</property>
@@ -71,29 +71,18 @@
       </value>
     </option>
 
-    <!-- Cake specific colors -->
+    <!-- Suflae specific colors -->
 
-    <!-- Sweet keywords (recipe, only_me, etc.) -->
-    <option name="CAKE.SWEET_KEYWORD">
+    <!-- Sweet keywords (recipe, suspended, etc.) -->
+    <option name="SUFLAE.SWEET_KEYWORD">
       <value>
         <option name="FOREGROUND" value="FF79C6" />
         <option name="FONT_TYPE" value="1" />
       </value>
     </option>
 
-    <!-- danger! zones (shared) -->
-    <option name="CAKE.DANGER">
-      <value>
-        <option name="FOREGROUND" value="FF0000" />
-        <option name="BACKGROUND" value="3D0000" />
-        <option name="FONT_TYPE" value="1" />
-        <option name="EFFECT_TYPE" value="2" />
-        <option name="EFFECT_COLOR" value="FF0000" />
-      </value>
-    </option>
-
-    <!-- LINQ operations -->
-    <option name="CAKE.LINQ">
+    <!-- Collection operations -->
+    <option name="SUFLAE.COLLECTIONS">
       <value>
         <option name="FOREGROUND" value="50FA7B" />
         <option name="FONT_TYPE" value="2" />

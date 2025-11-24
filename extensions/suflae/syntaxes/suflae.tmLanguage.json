@@ -1,15 +1,15 @@
 {
   "fileTypes": [
-    "cake"
+    "sf"
   ],
-  "name": "Cake",
-  "scopeName": "source.cake",
+  "name": "Suflae",
+  "scopeName": "source.sf",
   "patterns": [
     {
       "include": "#keywords"
     },
     {
-      "include": "#cake-keywords"
+      "include": "#suflae-keywords"
     },
     {
       "include": "#constants"
@@ -36,120 +36,120 @@
       "include": "#attributes"
     },
     {
-      "include": "#cake-tasks"
+      "include": "#suflae-tasks"
     },
     {
-      "include": "#cake-addins"
+      "include": "#suflae-addins"
     },
     {
-      "include": "#cake-tools"
+      "include": "#suflae-tools"
     }
   ],
   "repository": {
     "keywords": {
       "patterns": [
         {
-          "name": "keyword.control.cake",
+          "name": "keyword.control.sf",
           "match": "\\b(if|elif|else|then|unless|when|is|while|for|loop|in|to|step|break|continue|return|throw|from|follows|isnot|notfrom|notin|notfollows)\\b"
         },
         {
-          "name": "keyword.declaration.class.cake",
+          "name": "keyword.declaration.class.sf",
           "match": "\\b(class)\\b"
         },
         {
-          "name": "keyword.declaration.struct.cake",
+          "name": "keyword.declaration.struct.sf",
           "match": "\\b(struct)\\b"
         },
         {
-          "name": "keyword.declaration.cake",
+          "name": "keyword.declaration.sf",
           "match": "\\b(recipe|option|chimera|variant|mutant|feature)\\b"
         },
         {
-          "name": "keyword.storage.cake",
+          "name": "keyword.storage.sf",
           "match": "\\b(let|var|preset|common|danger|mayhem)\\b"
         },
         {
-          "name": "keyword.modifier.cake",
+          "name": "keyword.modifier.sf",
           "match": "\\b(private|public\\(family\\)|public\\(module\\)|public|global|external)\\b"
         },
         {
-          "name": "keyword.self.cake",
+          "name": "keyword.self.sf",
           "match": "\\b(me|parent)\\b"
         },
         {
-          "name": "keyword.logical.cake",
+          "name": "keyword.logical.sf",
           "match": "\\b(and|or|not)\\b"
         },
         {
-          "name": "keyword.other.cake",
+          "name": "keyword.other.sf",
           "match": "\\b(import|define|using|as|pass|with|requires)\\b"
         }
       ]
     },
-    "cake-keywords": {
+    "suflae-keywords": {
       "patterns": [
         {
           "match": "\\b(Task|RunTarget|Argument|EnvironmentVariable|HasArgument|HasEnvironmentVariable|Setup|Teardown|TaskSetup|TaskTeardown|Information|Warning|Error|Verbose|Debug)\\b",
-          "name": "keyword.other.cake"
+          "name": "keyword.other.sf"
         }
       ]
     },
     "constants": {
       "patterns": [
         {
-          "name": "constant.language.cake",
+          "name": "constant.language.sf",
           "match": "\\b(true|false|none|null)\\b"
         }
       ]
     },
-    "cake-tasks": {
+    "suflae-tasks": {
       "patterns": [
         {
           "match": "\\b(Task)\\s*\\(\\s*\"([^\"]+)\"\\s*\\)",
           "captures": {
             "1": {
-              "name": "keyword.other.cake"
+              "name": "keyword.other.sf"
             },
             "2": {
-              "name": "entity.name.function.cake"
+              "name": "entity.name.function.sf"
             }
           }
         },
         {
           "match": "\\.(Description|Does|IsDependentOn|IsDependeeOf|WithCriteria|OnError|Finally|ReportError|ContinueOnError|Defer)\\b",
-          "name": "support.function.cake"
+          "name": "support.function.sf"
         }
       ]
     },
-    "cake-addins": {
+    "suflae-addins": {
       "patterns": [
         {
           "match": "^\\s*(#addin|#tool|#load|#reference|#break)\\b",
-          "name": "keyword.preprocessor.cake"
+          "name": "keyword.preprocessor.sf"
         },
         {
           "match": "(nuget|paket):",
-          "name": "keyword.other.cake"
+          "name": "keyword.other.sf"
         }
       ]
     },
-    "cake-tools": {
+    "suflae-tools": {
       "patterns": [
         {
           "match": "\\b(DotNetCore\\w+|MSBuild|NuGet\\w+|GitVersion|OpenCover|ReportGenerator|XUnit2|NUnit3|VSTest|Chocolatey|ILMerge|SignTool|WiX|InnoSetup|Squirrel|OctopusDeploy|TeamCity|AppVeyor|Jenkins|AzureDevOps|Docker\\w+|Kubernetes\\w+|Terraform\\w+)\\b",
-          "name": "support.class.cake"
+          "name": "support.class.sf"
         }
       ]
     },
     "types": {
       "patterns": [
         {
-          "match": "\\b(ICakeContext|FilePath|DirectoryPath|FilePathCollection|DirectoryPathCollection|ProcessSettings|ToolSettings|Globber|IFileSystem|IEnvironment|IProcessRunner|IRegistry|IToolLocator|ICakeLog|ICakeArguments|ICakeConfiguration|ICakeDataService)\\b",
-          "name": "support.type.cake"
+          "match": "\\b(ISuflaeContext|FilePath|DirectoryPath|FilePathCollection|DirectoryPathCollection|ProcessSettings|ToolSettings|Globber|IFileSystem|IEnvironment|IProcessRunner|IRegistry|IToolLocator|ISuflaeLog|ISuflaeArguments|ISuflaeConfiguration|ISuflaeDataService)\\b",
+          "name": "support.type.sf"
         },
         {
           "match": "\\b(string|int|bool|double|float|decimal|long|short|byte|char|uint|ulong|ushort|sbyte|object|dynamic|var)\\b",
-          "name": "storage.type.cake"
+          "name": "storage.type.sf"
         }
       ]
     },
@@ -158,45 +158,45 @@
         {
           "begin": "\"",
           "end": "\"",
-          "name": "string.quoted.double.cake",
+          "name": "string.quoted.double.sf",
           "patterns": [
             {
               "match": "\\\\.",
-              "name": "constant.character.escape.cake"
+              "name": "constant.character.escape.sf"
             }
           ]
         },
         {
           "begin": "'",
           "end": "'",
-          "name": "string.quoted.single.cake",
+          "name": "string.quoted.single.sf",
           "patterns": [
             {
               "match": "\\\\.",
-              "name": "constant.character.escape.cake"
+              "name": "constant.character.escape.sf"
             }
           ]
         },
         {
           "begin": "@\"",
           "end": "\"",
-          "name": "string.quoted.verbatim.cake",
+          "name": "string.quoted.verbatim.sf",
           "patterns": [
             {
               "match": "\"\"",
-              "name": "constant.character.escape.cake"
+              "name": "constant.character.escape.sf"
             }
           ]
         },
         {
           "begin": "\\$\"",
           "end": "\"",
-          "name": "string.interpolated.cake",
+          "name": "string.interpolated.sf",
           "patterns": [
             {
               "begin": "\\{",
               "end": "\\}",
-              "name": "meta.interpolation.cake",
+              "name": "meta.interpolation.sf",
               "patterns": [
                 {
                   "include": "#keywords"
@@ -211,7 +211,7 @@
             },
             {
               "match": "\\\\.",
-              "name": "constant.character.escape.cake"
+              "name": "constant.character.escape.sf"
             }
           ]
         }
@@ -222,16 +222,16 @@
         {
           "begin": "/\\*",
           "end": "\\*/",
-          "name": "comment.block.cake"
+          "name": "comment.block.sf"
         },
         {
           "match": "#.*$",
-          "name": "comment.line.hash.cake"
+          "name": "comment.line.hash.sf"
         },
         {
           "begin": "///",
           "end": "$",
-          "name": "comment.documentation.cake"
+          "name": "comment.documentation.sf"
         }
       ]
     },
@@ -239,7 +239,7 @@
       "patterns": [
         {
           "match": "\\b(0x[0-9a-fA-F]+|0b[01]+|\\d+(\\.\\d+)?([eE][+-]?\\d+)?[fFdDmM]?)\\b",
-          "name": "constant.numeric.cake"
+          "name": "constant.numeric.sf"
         }
       ]
     },
@@ -247,31 +247,31 @@
       "patterns": [
         {
           "match": "(\\+\\+|--|\\+=|-=|\\*=|/=|%=|&=|\\|=|\\^=|<<=|>>=|\\?\\?=)",
-          "name": "keyword.operator.assignment.cake"
+          "name": "keyword.operator.assignment.sf"
         },
         {
           "match": "(==|!=|<=|>=|<|>)",
-          "name": "keyword.operator.comparison.cake"
+          "name": "keyword.operator.comparison.sf"
         },
         {
           "match": "(&&|\\|\\||!)",
-          "name": "keyword.operator.logical.cake"
+          "name": "keyword.operator.logical.sf"
         },
         {
           "match": "(\\+|-|\\*|/|%)",
-          "name": "keyword.operator.arithmetic.cake"
+          "name": "keyword.operator.arithmetic.sf"
         },
         {
           "match": "(&|\\||\\^|~|<<|>>)",
-          "name": "keyword.operator.bitwise.cake"
+          "name": "keyword.operator.bitwise.sf"
         },
         {
           "match": "(\\?|:)",
-          "name": "keyword.operator.ternary.cake"
+          "name": "keyword.operator.ternary.sf"
         },
         {
           "match": "(=>|->)",
-          "name": "keyword.operator.lambda.cake"
+          "name": "keyword.operator.lambda.sf"
         }
       ]
     },
@@ -279,7 +279,7 @@
       "patterns": [
         {
           "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(?=\\()",
-          "name": "entity.name.function.cake"
+          "name": "entity.name.function.sf"
         }
       ]
     },
@@ -288,11 +288,11 @@
         {
           "begin": "\\[",
           "end": "\\]",
-          "name": "meta.attribute.cake",
+          "name": "meta.attribute.sf",
           "patterns": [
             {
               "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b",
-              "name": "entity.name.type.attribute.cake"
+              "name": "entity.name.type.attribute.sf"
             }
           ]
         }

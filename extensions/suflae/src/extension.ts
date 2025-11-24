@@ -9,12 +9,12 @@ import {
 let client: LanguageClient;
 
 export function activate(context: vscode.ExtensionContext) {
-    console.log('Cake Language Support extension is now active!');
+    console.log('Suflae Language Support extension is now active!');
 
     // Language Server setup
-    const config = vscode.workspace.getConfiguration('cake');
+    const config = vscode.workspace.getConfiguration('suflae');
     const serverPath = config.get<string>('languageServer.path', 'RazorForge.exe');
-    const serverArgs = config.get<string[]>('languageServer.args', ['--cake-lsp']);
+    const serverArgs = config.get<string[]>('languageServer.args', ['--suflae-lsp']);
 
     const serverOptions: ServerOptions = {
         command: serverPath,
@@ -23,15 +23,15 @@ export function activate(context: vscode.ExtensionContext) {
     };
 
     const clientOptions: LanguageClientOptions = {
-        documentSelector: [{scheme: 'file', language: 'cake'}],
+        documentSelector: [{scheme: 'file', language: 'suflae'}],
         synchronize: {
-            fileEvents: vscode.workspace.createFileSystemWatcher('**/.cake')
+            fileEvents: vscode.workspace.createFileSystemWatcher('**/.sf')
         }
     };
 
     client = new LanguageClient(
-        'cakeLanguageServer',
-        'Cake Language Server',
+        'suflaeLanguageServer',
+        'Suflae Language Server',
         serverOptions,
         clientOptions
     );
@@ -51,7 +51,7 @@ export function activate(context: vscode.ExtensionContext) {
     // Setup RazorForge integration
     setupRazorForgeIntegration(context);
 
-    console.log('Cake Language Support activated successfully');
+    console.log('Suflae Language Support activated successfully');
 }
 
 export function deactivate(): Thenable<void> | undefined {
@@ -62,8 +62,8 @@ export function deactivate(): Thenable<void> | undefined {
 }
 
 function registerCommands(context: vscode.ExtensionContext) {
-    // New Cake Script command
-    const newScriptCommand = vscode.commands.registerCommand('cake.newScript', async () => {
+    // New Suflae Script command
+    const newScriptCommand = vscode.commands.registerCommand('suflae.newScript', async () => {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
             vscode.window.showErrorMessage('No workspace folder found');
@@ -71,13 +71,13 @@ function registerCommands(context: vscode.ExtensionContext) {
         }
 
         const fileName = await vscode.window.showInputBox({
-            prompt: 'Enter the name for the new Cake script',
-            placeHolder: 'build.cake'
+            prompt: 'Enter the name for the new Suflae script',
+            placeHolder: 'build.sf'
         });
 
         if (fileName) {
-            const filePath = vscode.Uri.joinPath(workspaceFolder.uri, fileName.endsWith('.cake') ? fileName : `${fileName}.cake`);
-            const template = getCakeTemplate();
+            const filePath = vscode.Uri.joinPath(workspaceFolder.uri, fileName.endsWith('.sf') ? fileName : `${fileName}.sf`);
+            const template = getSuflaeTemplate();
 
             await vscode.workspace.fs.writeFile(filePath, Buffer.from(template, 'utf8'));
             const document = await vscode.workspace.openTextDocument(filePath);
@@ -86,40 +86,40 @@ function registerCommands(context: vscode.ExtensionContext) {
     });
 
     // Restart Language Server command
-    const restartCommand = vscode.commands.registerCommand('cake.restartLanguageServer', async () => {
+    const restartCommand = vscode.commands.registerCommand('suflae.restartLanguageServer', async () => {
         if (client) {
             await client.stop();
             await client.start();
-            vscode.window.showInformationMessage('Cake Language Server restarted');
+            vscode.window.showInformationMessage('Suflae Language Server restarted');
         }
     });
 
     // Show Server Status command
-    const statusCommand = vscode.commands.registerCommand('cake.showServerStatus', () => {
+    const statusCommand = vscode.commands.registerCommand('suflae.showServerStatus', () => {
         const state = client?.state;
         const stateText = state === 1 ? 'Starting' : state === 2 ? 'Running' : state === 3 ? 'Stopped' : 'Unknown';
-        vscode.window.showInformationMessage(`Cake Language Server Status: ${stateText}`);
+        vscode.window.showInformationMessage(`Suflae Language Server Status: ${stateText}`);
     });
 
     // Format Document command
-    const formatCommand = vscode.commands.registerCommand('cake.formatDocument', async () => {
+    const formatCommand = vscode.commands.registerCommand('suflae.formatDocument', async () => {
         const editor = vscode.window.activeTextEditor;
-        if (editor && editor.document.languageId === 'cake') {
+        if (editor && editor.document.languageId === 'suflae') {
             await vscode.commands.executeCommand('editor.action.formatDocument');
         }
     });
 
     // Lint Document command
-    const lintCommand = vscode.commands.registerCommand('cake.lintDocument', async () => {
+    const lintCommand = vscode.commands.registerCommand('suflae.lintDocument', async () => {
         const editor = vscode.window.activeTextEditor;
-        if (editor && editor.document.languageId === 'cake') {
-            await lintCakeDocument(editor.document);
-            vscode.window.showInformationMessage('Cake document linted');
+        if (editor && editor.document.languageId === 'suflae') {
+            await lintSuflaeDocument(editor.document);
+            vscode.window.showInformationMessage('Suflae document linted');
         }
     });
 
     // Sync with RazorForge command
-    const syncCommand = vscode.commands.registerCommand('cake.syncWithRazorForge', async () => {
+    const syncCommand = vscode.commands.registerCommand('suflae.syncWithRazorForge', async () => {
         await syncWithRazorForge();
         vscode.window.showInformationMessage('Synced with RazorForge extension');
     });
@@ -137,27 +137,27 @@ function registerCommands(context: vscode.ExtensionContext) {
 function registerFormattingProviders(context: vscode.ExtensionContext) {
     // Document formatting provider
     const documentFormattingProvider = vscode.languages.registerDocumentFormattingEditProvider(
-        'cake',
+        'suflae',
         {
             provideDocumentFormattingEdits(document: vscode.TextDocument): vscode.TextEdit[] {
-                return formatCakeCode(document, null);
+                return formatSuflaeCode(document, null);
             }
         }
     );
 
     // Range formatting provider
     const rangeFormattingProvider = vscode.languages.registerDocumentRangeFormattingEditProvider(
-        'cake',
+        'suflae',
         {
             provideDocumentRangeFormattingEdits(document: vscode.TextDocument, range: vscode.Range): vscode.TextEdit[] {
-                return formatCakeCode(document, range);
+                return formatSuflaeCode(document, range);
             }
         }
     );
 
     // On-type formatting provider
     const onTypeFormattingProvider = vscode.languages.registerOnTypeFormattingEditProvider(
-        'cake',
+        'suflae',
         {
             provideOnTypeFormattingEdits(document: vscode.TextDocument, position: vscode.Position, ch: string): vscode.TextEdit[] {
                 return formatOnType(document, position, ch);
@@ -174,19 +174,19 @@ function registerFormattingProviders(context: vscode.ExtensionContext) {
 }
 
 function registerLintingFeatures(context: vscode.ExtensionContext) {
-    const diagnosticCollection = vscode.languages.createDiagnosticCollection('cake');
+    const diagnosticCollection = vscode.languages.createDiagnosticCollection('suflae');
     context.subscriptions.push(diagnosticCollection);
 
     // Lint on document open and change
     const lintOnChange = vscode.workspace.onDidChangeTextDocument(async (event) => {
-        if (event.document.languageId === 'cake') {
-            await lintCakeDocument(event.document, diagnosticCollection);
+        if (event.document.languageId === 'suflae') {
+            await lintSuflaeDocument(event.document, diagnosticCollection);
         }
     });
 
     const lintOnOpen = vscode.workspace.onDidOpenTextDocument(async (document) => {
-        if (document.languageId === 'cake') {
-            await lintCakeDocument(document, diagnosticCollection);
+        if (document.languageId === 'suflae') {
+            await lintSuflaeDocument(document, diagnosticCollection);
         }
     });
 
@@ -194,7 +194,7 @@ function registerLintingFeatures(context: vscode.ExtensionContext) {
 }
 
 function setupRazorForgeIntegration(context: vscode.ExtensionContext) {
-    const config = vscode.workspace.getConfiguration('cake');
+    const config = vscode.workspace.getConfiguration('suflae');
     if (!config.get<boolean>('razorforgeIntegration', true)) {
         return;
     }
@@ -243,7 +243,7 @@ function setupRazorForgeIntegration(context: vscode.ExtensionContext) {
 function setupSharedWorkspace(context: vscode.ExtensionContext) {
     // Sync configuration changes between extensions
     const configWatcher = vscode.workspace.onDidChangeConfiguration(async (event) => {
-        if (event.affectsConfiguration('cake') || event.affectsConfiguration('razorforge')) {
+        if (event.affectsConfiguration('suflae') || event.affectsConfiguration('razorforge')) {
             await syncWorkspaceSettings();
         }
     });
@@ -252,15 +252,15 @@ function setupSharedWorkspace(context: vscode.ExtensionContext) {
 }
 
 async function syncWorkspaceSettings() {
-    const cakeConfig = vscode.workspace.getConfiguration('cake');
+    const suflaeConfig = vscode.workspace.getConfiguration('suflae');
     const razorforgeConfig = vscode.workspace.getConfiguration('razorforge');
 
     // Sync formatting settings
-    const cakeIndentSize = cakeConfig.get<number>('formatting.indentSize');
+    const suflaeIndentSize = suflaeConfig.get<number>('formatting.indentSize');
     const razorforgeIndentSize = razorforgeConfig.get<number>('formatting.indentSize');
 
-    if (cakeIndentSize && cakeIndentSize !== razorforgeIndentSize) {
-        await razorforgeConfig.update('formatting.indentSize', cakeIndentSize, vscode.ConfigurationTarget.Workspace);
+    if (suflaeIndentSize && suflaeIndentSize !== razorforgeIndentSize) {
+        await razorforgeConfig.update('formatting.indentSize', suflaeIndentSize, vscode.ConfigurationTarget.Workspace);
     }
 }
 
@@ -269,14 +269,14 @@ async function syncWithRazorForge() {
 
     // Trigger RazorForge extension sync if available
     try {
-        await vscode.commands.executeCommand('razorforge.syncWithCake');
+        await vscode.commands.executeCommand('razorforge.syncWithSuflae');
     } catch (error) {
         console.log('RazorForge sync command not available');
     }
 }
 
-function formatCakeCode(document: vscode.TextDocument, range: vscode.Range | null): vscode.TextEdit[] {
-    const config = vscode.workspace.getConfiguration('cake');
+function formatSuflaeCode(document: vscode.TextDocument, range: vscode.Range | null): vscode.TextEdit[] {
+    const config = vscode.workspace.getConfiguration('suflae');
     const indentSize = config.get<number>('formatting.indentSize', 4);
     const insertFinalNewline = config.get<boolean>('formatting.insertFinalNewline', true);
 
@@ -317,13 +317,13 @@ function formatOnType(document: vscode.TextDocument, position: vscode.Position, 
     if (ch === ';') {
         // Format the current line after semicolon
         const line = document.lineAt(position.line);
-        const formatted = formatCakeCode(document, line.range);
+        const formatted = formatSuflaeCode(document, line.range);
         edits.push(...formatted);
     } else if (ch === '}') {
         // Auto-dedent on closing brace
         const line = document.lineAt(position.line);
         const expectedIndent = calculateExpectedIndent(document, position.line);
-        const config = vscode.workspace.getConfiguration('cake');
+        const config = vscode.workspace.getConfiguration('suflae');
         const indentSize = config.get<number>('formatting.indentSize', 4);
         const expectedWhitespace = ' '.repeat(expectedIndent * indentSize);
 
@@ -357,10 +357,10 @@ function calculateExpectedIndent(document: vscode.TextDocument, lineNumber: numb
     return indent;
 }
 
-async function lintCakeDocument(document: vscode.TextDocument, collection?: vscode.DiagnosticCollection) {
+async function lintSuflaeDocument(document: vscode.TextDocument, collection?: vscode.DiagnosticCollection) {
     if (!collection) return;
 
-    const config = vscode.workspace.getConfiguration('cake');
+    const config = vscode.workspace.getConfiguration('suflae');
     if (!config.get<boolean>('linting.enabled', true)) {
         return;
     }
@@ -371,16 +371,16 @@ async function lintCakeDocument(document: vscode.TextDocument, collection?: vsco
         const line = document.lineAt(i);
         const text = line.text;
 
-        // Check for common Cake script issues
+        // Check for common Suflae script issues
 
         // Missing using statements
-        if (text.includes('Task(') && !document.getText().includes('using Cake.Core;')) {
+        if (text.includes('Task(') && !document.getText().includes('using Suflae.Core;')) {
             const diagnostic = new vscode.Diagnostic(
                 line.range,
-                'Consider adding "using Cake.Core;" for Task definitions',
+                'Consider adding "using Suflae.Core;" for Task definitions',
                 vscode.DiagnosticSeverity.Information
             );
-            diagnostic.source = 'cake';
+            diagnostic.source = 'suflae';
             diagnostic.code = 'missing-using';
             diagnostics.push(diagnostic);
         }
@@ -389,10 +389,10 @@ async function lintCakeDocument(document: vscode.TextDocument, collection?: vsco
         if (text.includes('RunTarget(')) {
             const diagnostic = new vscode.Diagnostic(
                 line.range,
-                'RunTarget is deprecated, use the Cake runner instead',
+                'RunTarget is deprecated, use the Suflae runner instead',
                 vscode.DiagnosticSeverity.Warning
             );
-            diagnostic.source = 'cake';
+            diagnostic.source = 'suflae';
             diagnostic.code = 'deprecated-runtarget';
             diagnostics.push(diagnostic);
         }
@@ -404,7 +404,7 @@ async function lintCakeDocument(document: vscode.TextDocument, collection?: vsco
                 'Consider adding a description to this task',
                 vscode.DiagnosticSeverity.Hint
             );
-            diagnostic.source = 'cake';
+            diagnostic.source = 'suflae';
             diagnostic.code = 'missing-description';
             diagnostics.push(diagnostic);
         }
@@ -414,22 +414,22 @@ async function lintCakeDocument(document: vscode.TextDocument, collection?: vsco
         if (trimmed.includes('//') && !trimmed.startsWith('#')) {
             const diagnostic = new vscode.Diagnostic(
                 line.range,
-                'Cake uses # for comments, not //',
+                'Suflae uses # for comments, not //',
                 vscode.DiagnosticSeverity.Information
             );
-            diagnostic.source = 'cake';
+            diagnostic.source = 'suflae';
             diagnostic.code = 'wrong-comment-syntax';
             diagnostics.push(diagnostic);
         }
 
-        // Check for unnecessary semicolons (Cake uses Python-style syntax)
+        // Check for unnecessary semicolons (Suflae uses Python-style syntax)
         if (trimmed.endsWith(';') && !trimmed.startsWith('#')) {
             const diagnostic = new vscode.Diagnostic(
                 line.range,
-                'Cake does not require semicolons (Python-style syntax)',
+                'Suflae does not require semicolons (Python-style syntax)',
                 vscode.DiagnosticSeverity.Hint
             );
-            diagnostic.source = 'cake';
+            diagnostic.source = 'suflae';
             diagnostic.code = 'unnecessary-semicolon';
             diagnostics.push(diagnostic);
         }
@@ -438,8 +438,8 @@ async function lintCakeDocument(document: vscode.TextDocument, collection?: vsco
     collection.set(document.uri, diagnostics);
 }
 
-function getCakeTemplate(): string {
-    return `# Cake build script with Python-style syntax
+function getSuflaeTemplate(): string {
+    return `# Suflae build script with Python-style syntax
 # No semicolons needed, use # for comments
 
 var target = Argument("target", "Default")

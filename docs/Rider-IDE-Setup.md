@@ -22,12 +22,12 @@ proper file associations.
 
 ### 2. Color Scheme Import
 
-1. Download `docs/razorforgecake.icls`
+1. Download `docs/razorforgesuflae.icls`
 2. Go to `File → Manage IDE Settings → Import Settings`
 3. Select the `.icls` file
 4. Restart Rider
 5. Go to `File → Settings → Editor → Color Scheme`
-6. Select "RazorForge & Cake" scheme
+6. Select "RazorForge & Suflae" scheme
 
 ### 3. Live Templates
 
@@ -99,7 +99,7 @@ The RazorForge color scheme provides semantic highlighting:
 - **Memory Types** (`HeapSlice`, `StackSlice`): Green (`#50FA7B`)
 - **External Declarations**: Purple (`#BD93F9`)
 
-### Cake Colors (Future)
+### Suflae Colors (Future)
 
 - **Keywords**: Pink (`#FF79C6`)
 - **LINQ Operations**: Green (`#50FA7B`)
@@ -191,7 +191,7 @@ record StructName {
 ### Color Scheme Not Applied
 
 1. Verify scheme is imported correctly
-2. Select "RazorForge & Cake" in Color Scheme settings
+2. Select "RazorForge & Suflae" in Color Scheme settings
 3. Restart Rider to apply changes
 
 ## Integration with Build System

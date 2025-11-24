@@ -73,7 +73,7 @@ public record DeclarationStatement(Declaration Declaration, SourceLocation Locat
 
 /// <summary>
 /// Assignment statement that stores a value into a target location.
-/// Represents the assignment operator (=) in both RazorForge and Cake.
+/// Represents the assignment operator (=) in both RazorForge and Suflae.
 /// </summary>
 /// <param name="Target">The left-hand side target to assign to (variable, property, array element)</param>
 /// <param name="Value">The right-hand side expression whose value will be assigned</param>
@@ -133,7 +133,7 @@ public record ReturnStatement(Expression? Value, SourceLocation Location)
 
 /// <summary>
 /// Conditional statement that executes different code paths based on a boolean condition.
-/// Represents if-then-else constructs in both RazorForge and Cake.
+/// Represents if-then-else constructs in both RazorForge and Suflae.
 /// </summary>
 /// <param name="Condition">Boolean expression to evaluate for branching decision</param>
 /// <param name="ThenStatement">Statement to execute when condition is true</param>

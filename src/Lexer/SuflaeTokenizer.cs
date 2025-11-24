@@ -1,13 +1,13 @@
 using Compilers.Shared.Lexer;
 
-namespace Compilers.Cake.Lexer;
+namespace Compilers.Suflae.Lexer;
 
 /// <summary>
-/// Tokenizer implementation for the Cake programming language.
-/// Handles Cake-specific syntax including significant indentation (Python-style blocks),
+/// Tokenizer implementation for the Suflae programming language.
+/// Handles Suflae-specific syntax including significant indentation (Python-style blocks),
 /// colon-based block starters, and indent/dedent tokens for block structure.
 /// </summary>
-public class CakeTokenizer : BaseTokenizer
+public class SuflaeTokenizer : BaseTokenizer
 {
     #region Fields and Keywords
 
@@ -22,7 +22,7 @@ public class CakeTokenizer : BaseTokenizer
 
     private bool _hasDefinitions;
 
-    /// <summary>Dictionary mapping Cake keywords to their corresponding token types</summary>
+    /// <summary>Dictionary mapping Suflae keywords to their corresponding token types</summary>
     private readonly Dictionary<string, TokenType> _keywords = new()
     {
         [key: "recipe"] = TokenType.Recipe,
@@ -94,29 +94,29 @@ public class CakeTokenizer : BaseTokenizer
     #region Initialization and Core Methods
 
     /// <summary>
-    /// Initializes a new Cake tokenizer with the source code to tokenize.
+    /// Initializes a new Suflae tokenizer with the source code to tokenize.
     /// </summary>
-    /// <param name="source">The Cake source code text</param>
-    public CakeTokenizer(string source) : base(source: source)
+    /// <param name="source">The Suflae source code text</param>
+    public SuflaeTokenizer(string source) : base(source: source)
     {
     }
 
     public bool IsScriptMode => !_hasDefinitions;
 
     /// <summary>
-    /// Returns the Cake-specific keyword mappings.
+    /// Returns the Suflae-specific keyword mappings.
     /// </summary>
-    /// <returns>Dictionary of Cake keywords and their token types</returns>
+    /// <returns>Dictionary of Suflae keywords and their token types</returns>
     protected override Dictionary<string, TokenType> GetKeywords()
     {
         return _keywords;
     }
 
     /// <summary>
-    /// Tokenizes the entire Cake source code into a list of tokens.
+    /// Tokenizes the entire Suflae source code into a list of tokens.
     /// Handles significant indentation and generates indent/dedent tokens.
     /// </summary>
-    /// <returns>List of tokens representing the Cake source code</returns>
+    /// <returns>List of tokens representing the Suflae source code</returns>
     public override List<Token> Tokenize()
     {
         while (!IsAtEnd())
@@ -144,7 +144,7 @@ public class CakeTokenizer : BaseTokenizer
     #region Token Scanning
 
     /// <summary>
-    /// Scans a single token from the current position, handling Cake-specific indentation rules.
+    /// Scans a single token from the current position, handling Suflae-specific indentation rules.
     /// </summary>
     private void ScanToken()
     {
@@ -176,7 +176,7 @@ public class CakeTokenizer : BaseTokenizer
 
             // Literals
             case '#': ScanComment(); break;
-            case '"': ScanCakeString(); break;
+            case '"': ScanSuflaeString(); break;
             case '\'': ScanChar(); break;
             case 'l':
                 if (!TryParseLetterPrefix())
@@ -193,7 +193,7 @@ public class CakeTokenizer : BaseTokenizer
 
                 break;
 
-            // Delimiters (no braces in Cake - uses indentation)
+            // Delimiters (no braces in Suflae - uses indentation)
             case '(': AddToken(type: TokenType.LeftParen); break;
             case ')': AddToken(type: TokenType.RightParen); break;
             case '[': AddToken(type: TokenType.LeftBracket); break;
@@ -271,15 +271,15 @@ public class CakeTokenizer : BaseTokenizer
             case '0':
                 if (Match(expected: 'x') || Match(expected: 'X'))
                 {
-                    ScanCakePrefixedNumber(isHex: true);
+                    ScanSuflaePrefixedNumber(isHex: true);
                 }
                 else if (Match(expected: 'b') || Match(expected: 'B'))
                 {
-                    ScanCakePrefixedNumber(isHex: false);
+                    ScanSuflaePrefixedNumber(isHex: false);
                 }
                 else
                 {
-                    ScanCakeNumber();
+                    ScanSuflaeNumber();
                 }
 
                 break;
@@ -288,7 +288,7 @@ public class CakeTokenizer : BaseTokenizer
                 _hasTokenOnLine = true;
                 if (char.IsDigit(c: c))
                 {
-                    ScanCakeNumber();
+                    ScanSuflaeNumber();
                 }
                 else if (IsIdentifierStart(c: c))
                 {
@@ -428,12 +428,12 @@ public class CakeTokenizer : BaseTokenizer
 
     #endregion
 
-    #region Cake-Specific Literal Scanning
+    #region Suflae-Specific Literal Scanning
 
     /// <summary>
-    /// Scans a basic Cake text literal (without prefix).
+    /// Scans a basic Suflae text literal (without prefix).
     /// </summary>
-    private void ScanCakeString()
+    private void ScanSuflaeString()
     {
         ScanStringLiteral(isRaw: false, isFormatted: false);
     }
@@ -572,10 +572,10 @@ public class CakeTokenizer : BaseTokenizer
     }
 
     /// <summary>
-    /// Overrides base number scanning to use Cake's default Integer and Decimal types
+    /// Overrides base number scanning to use Suflae's default Integer and Decimal types
     /// for unsuffixed numbers instead of IntegerLiteral and FloatLiteral.
     /// </summary>
-    protected void ScanCakeNumber()
+    protected void ScanSuflaeNumber()
     {
         while (char.IsDigit(c: Peek()) || Peek() == '_')
         {
@@ -646,7 +646,7 @@ public class CakeTokenizer : BaseTokenizer
         }
         else
         {
-            // Use Cake's default types: Integer for whole numbers, Decimal for floating point
+            // Use Suflae's default types: Integer for whole numbers, Decimal for floating point
             AddToken(type: isFloat
                 ? TokenType.Decimal
                 : TokenType.Integer);
@@ -654,10 +654,10 @@ public class CakeTokenizer : BaseTokenizer
     }
 
     /// <summary>
-    /// Overrides prefixed number scanning to use Cake's Integer type for unsuffixed numbers.
+    /// Overrides prefixed number scanning to use Suflae's Integer type for unsuffixed numbers.
     /// </summary>
     /// <param name="isHex">True if scanning hexadecimal, false if binary</param>
-    protected void ScanCakePrefixedNumber(bool isHex)
+    protected void ScanSuflaePrefixedNumber(bool isHex)
     {
         if (isHex)
         {
@@ -699,7 +699,7 @@ public class CakeTokenizer : BaseTokenizer
         }
         else
         {
-            // Use Cake's default Integer type for unsuffixed hex/binary numbers
+            // Use Suflae's default Integer type for unsuffixed hex/binary numbers
             AddToken(type: TokenType.Integer);
         }
     }

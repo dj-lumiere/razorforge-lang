@@ -1,7 +1,7 @@
 import system/console/write_line
 redefinition A as B
 
-# Entities, Records, Menus, and Variants in Cake
+# Entities, Records, Menus, and Variants in Suflae
 
 # Entity Example - Reference type with inheritance
 entity Animal:

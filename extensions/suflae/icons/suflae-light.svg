@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-    <!-- Cake emoji 🍰 for light theme -->
+    <!-- Suflae emoji 🍰 for light theme -->
 
     <!-- Plate/base -->
     <ellipse cx="12" cy="19" rx="8" ry="2" fill="#E8E8E8" stroke="#D0D0D0" stroke-width="0.5"/>
 
-    <!-- Cake bottom layer -->
+    <!-- Suflae bottom layer -->
     <rect x="6" y="14" width="12" height="5" rx="1" fill="#D2691E" stroke="#CD853F" stroke-width="0.5"/>
 
-    <!-- Cake middle layer -->
+    <!-- Suflae middle layer -->
     <rect x="7" y="11" width="10" height="4" rx="0.5" fill="#F5DEB3" stroke="#DEB887" stroke-width="0.5"/>
 
-    <!-- Cake top layer -->
+    <!-- Suflae top layer -->
     <rect x="8" y="8" width="8" height="4" rx="0.5" fill="#FFE4E1" stroke="#F0E68C" stroke-width="0.5"/>
 
     <!-- Frosting swirls -->

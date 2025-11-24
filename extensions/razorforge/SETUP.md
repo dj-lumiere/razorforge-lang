@@ -60,7 +60,7 @@ In VS Code settings, add:
 
 ### ✅ File Icons
 
-- `.rf` files should show cake+sword emoji icon
+- `.rf` files should show suflae+sword emoji icon
 - Different colors for light/dark themes
 
 ### ✅ LSP Features (if server works)
