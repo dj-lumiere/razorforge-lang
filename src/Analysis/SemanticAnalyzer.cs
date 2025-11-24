@@ -3032,19 +3032,19 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     }
 
     /// <summary>
-    /// Visits a threadwitnessing statement node (thread-safe scoped read access).
-    /// Syntax: threadwitnessing &lt;source&gt; as &lt;handle&gt; { ... }
-    /// Creates a temporary ThreadWitnessed&lt;T&gt; handle with shared read lock.
-    /// IMPORTANT: Only works with ThreadShared&lt;T, MultiReadLock&gt;, not ThreadShared&lt;T, Mutex&gt;.
+    /// Visits a witnessing statement node (thread-safe scoped read access).
+    /// Syntax: witnessing &lt;handle&gt; from &lt;source&gt;: { ... }
+    /// Creates a temporary Witnessed&lt;T&gt; handle with shared read lock.
+    /// IMPORTANT: Only works with Vault&lt;T, MultiReadLock&gt;, not Vault&lt;T, Mutex&gt;.
     /// </summary>
-    public object? VisitThreadWitnessingStatement(ThreadWitnessingStatement node)
+    public object? VisitWitnessingStatement(WitnessingStatement node)
     {
         // Evaluate the source expression to get its type
         var sourceType = node.Source.Accept(visitor: this) as TypeInfo;
 
         if (sourceType == null)
         {
-            AddError(message: "Cannot threadwitness expression with unknown type",
+            AddError(message: "Cannot witness expression with unknown type",
                 location: node.Location);
             return null;
         }
@@ -3055,32 +3055,32 @@ public class SemanticAnalyzer : IAstVisitor<object?>
             MemoryObject? sourceObj = _memoryAnalyzer.GetObject(name: sourceId.Name);
             if (sourceObj != null)
             {
-                // COMPILE-TIME CHECK: threadwitnessing requires MultiReadLock policy
+                // COMPILE-TIME CHECK: witnessing requires MultiReadLock policy
                 if (sourceObj.Wrapper == WrapperType.ThreadShared &&
                     sourceObj.Policy != LockingPolicy.MultiReadLock)
                 {
                     AddError(
-                        message: $"threadwitnessing requires ThreadShared<T, MultiReadLock>. " +
+                        message: $"witnessing requires Vault<T, MultiReadLock>. " +
                                  $"Object '{sourceId.Name}' has policy {sourceObj.Policy}. " +
-                                 $"Use threadseizing for exclusive access, or create with MultiReadLock policy.",
+                                 $"Use seizing for exclusive access, or create with MultiReadLock policy.",
                         location: node.Location);
                     return null;
                 }
             }
         }
 
-        // Create a new scope for the threadwitnessing block
+        // Create a new scope for the witnessing block
         _symbolTable.EnterScope();
         _memoryAnalyzer.EnterScope();
 
         try
         {
-            // Create a ThreadWitnessed<T> type for the handle
-            var threadWitnessedType = new TypeInfo(Name: $"ThreadWitnessed<{sourceType.Name}>",
+            // Create a Witnessed<T> type for the handle
+            var witnessedType = new TypeInfo(Name: $"Witnessed<{sourceType.Name}>",
                 IsReference: true);
 
             // Declare the handle variable in the scope
-            var handleSymbol = new VariableSymbol(Name: node.Handle, Type: threadWitnessedType,
+            var handleSymbol = new VariableSymbol(Name: node.Handle, Type: witnessedType,
                 Visibility: VisibilityModifier.Private, IsMutable: false);
 
             if (!_symbolTable.TryDeclare(symbol: handleSymbol))
@@ -3103,35 +3103,35 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     }
 
     /// <summary>
-    /// Visits a threadseizing statement node (thread-safe scoped exclusive access).
-    /// Syntax: threadseizing &lt;source&gt; as &lt;handle&gt; { ... }
-    /// Creates a temporary ThreadSeized&lt;T&gt; handle with exclusive write lock.
-    /// Works with both ThreadShared&lt;T, Mutex&gt; and ThreadShared&lt;T, MultiReadLock&gt;.
+    /// Visits a seizing statement node (thread-safe scoped exclusive access).
+    /// Syntax: seizing &lt;handle&gt; from &lt;source&gt;: { ... }
+    /// Creates a temporary Seized&lt;T&gt; handle with exclusive write lock.
+    /// Works with both Vault&lt;T, Mutex&gt; and Vault&lt;T, MultiReadLock&gt;.
     /// </summary>
-    public object? VisitThreadSeizingStatement(ThreadSeizingStatement node)
+    public object? VisitSeizingStatement(SeizingStatement node)
     {
         // Evaluate the source expression to get its type
         var sourceType = node.Source.Accept(visitor: this) as TypeInfo;
 
         if (sourceType == null)
         {
-            AddError(message: "Cannot threadseize expression with unknown type",
+            AddError(message: "Cannot seize expression with unknown type",
                 location: node.Location);
             return null;
         }
 
-        // Create a new scope for the threadseizing block
+        // Create a new scope for the seizing block
         _symbolTable.EnterScope();
         _memoryAnalyzer.EnterScope();
 
         try
         {
-            // Create a ThreadSeized<T> type for the handle
-            var threadSeizedType = new TypeInfo(
-                Name: $"ThreadSeized<{sourceType.Name}>", IsReference: true);
+            // Create a Seized<T> type for the handle
+            var seizedType = new TypeInfo(
+                Name: $"Seized<{sourceType.Name}>", IsReference: true);
 
             // Declare the handle variable in the scope
-            var handleSymbol = new VariableSymbol(Name: node.Handle, Type: threadSeizedType,
+            var handleSymbol = new VariableSymbol(Name: node.Handle, Type: seizedType,
                 Visibility: VisibilityModifier.Private, IsMutable: true);
 
             if (!_symbolTable.TryDeclare(symbol: handleSymbol))

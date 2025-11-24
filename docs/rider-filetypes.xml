@@ -19,7 +19,7 @@ Import via: File → Settings → Editor → File Types → Import Schema
 # RazorForge Recipe Template
 # $NAME$
 
-import system/console/write_line
+import system/console/show
 
 ###
 $DESCRIPTION$

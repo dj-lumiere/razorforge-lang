@@ -128,7 +128,7 @@ Import via: File → Settings → Editor → Live Templates → Import
     </context>
   </template>
 
-  <template name="importconsole" value="import system/console/write_line$END$" description="Import console output"
+  <template name="importconsole" value="import system/console/show$END$" description="Import console output"
             toReformat="true" toShortenFQNames="true">
     <context>
       <option name="OTHER" value="true"/>

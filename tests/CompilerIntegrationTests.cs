@@ -256,7 +256,7 @@ recipe test() -> s32 {
     {
         string code = @"
 import stdlib/memory/DynamicSlice
-import system/console/write_line
+import system/console/show
 
 external recipe heap_alloc!(bytes: sysuint) -> sysuint
 external recipe heap_free!(address: sysuint)
@@ -368,8 +368,8 @@ recipe complex_memory_test() -> s32 {
 
     # Test wrapper operations
     let shared = heap1.share!()
-    hijacking hijacked from shared:
-        let raw_ref = hijacked.refer!()
+    danger!:
+        let raw_ptr = heap1.snatch()
 
     # Test memory operations
     let total_size = heap1.size!() + heap2.size!() + stack1.size!()

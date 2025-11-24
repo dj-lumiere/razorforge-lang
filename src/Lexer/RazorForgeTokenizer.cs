@@ -78,8 +78,8 @@ public class RazorForgeTokenizer : BaseTokenizer
         [key: "usurping"] = TokenType.Usurping,
         [key: "viewing"] = TokenType.Viewing,
         [key: "hijacking"] = TokenType.Hijacking,
-        [key: "threadseizing"] = TokenType.ThreadSeizing,
-        [key: "threadwitnessing"] = TokenType.ThreadWitnessing
+        [key: "seizing"] = TokenType.Seizing,
+        [key: "witnessing"] = TokenType.Witnessing
     };
 
     #endregion

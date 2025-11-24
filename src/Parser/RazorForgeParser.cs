@@ -217,16 +217,16 @@ public class RazorForgeParser : BaseParser
             return ParseHijackingStatement();
         }
 
-        // ThreadWitnessing block (thread-safe scoped read access)
-        if (Match(type: TokenType.ThreadWitnessing))
+        // Witnessing block (thread-safe scoped read access)
+        if (Match(type: TokenType.Witnessing))
         {
-            return ParseThreadWitnessingStatement();
+            return ParseWitnessingStatement();
         }
 
-        // ThreadSeizing block (thread-safe scoped exclusive access)
-        if (Match(type: TokenType.ThreadSeizing))
+        // Seizing block (thread-safe scoped exclusive access)
+        if (Match(type: TokenType.Seizing))
         {
-            return ParseThreadSeizingStatement();
+            return ParseSeizingStatement();
         }
 
         // Block statement
@@ -1975,37 +1975,41 @@ public class RazorForgeParser : BaseParser
             Location: location);
     }
 
-    private ThreadWitnessingStatement ParseThreadWitnessingStatement()
+    private WitnessingStatement ParseWitnessingStatement()
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
 
-        // Parse source expression: threadwitnessing <expr> as <handle>
+        // Parse source expression: witnessing <expr> from <handle>
+        string handle = ConsumeIdentifier(errorMessage: "Expected handle name");
+
+        Consume(type: TokenType.From, errorMessage: "Expected 'from' after witnessing handle");
+
         Expression source = ParseExpression();
 
-        Consume(type: TokenType.As, errorMessage: "Expected 'as' after threadwitnessing source");
-
-        string handle = ConsumeIdentifier(errorMessage: "Expected handle name after 'as'");
+        Consume(type: TokenType.Colon, errorMessage: "Expected ':' after witnessing source");
 
         BlockStatement body = ParseBlockStatement();
 
-        return new ThreadWitnessingStatement(Source: source, Handle: handle, Body: body,
+        return new WitnessingStatement(Source: source, Handle: handle, Body: body,
             Location: location);
     }
 
-    private ThreadSeizingStatement ParseThreadSeizingStatement()
+    private SeizingStatement ParseSeizingStatement()
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
 
-        // Parse source expression: threadseizing <expr> as <handle>
+        // Parse source expression: seizing <expr> from <handle>
+        string handle = ConsumeIdentifier(errorMessage: "Expected handle name");
+
+        Consume(type: TokenType.From, errorMessage: "Expected 'from' after seizing handle");
+
         Expression source = ParseExpression();
 
-        Consume(type: TokenType.As, errorMessage: "Expected 'as' after threadseizing source");
-
-        string handle = ConsumeIdentifier(errorMessage: "Expected handle name after 'as'");
+        Consume(type: TokenType.Colon, errorMessage: "Expected ':' after seizing source");
 
         BlockStatement body = ParseBlockStatement();
 
-        return new ThreadSeizingStatement(Source: source, Handle: handle, Body: body,
+        return new SeizingStatement(Source: source, Handle: handle, Body: body,
             Location: location);
     }
 

@@ -95,7 +95,7 @@ function Should-Add-Return {
     }
 
     # Skip function calls that are clearly side-effects (crash!, printf, etc.)
-    if ($Line -match '^\s+(crash|printf|write_line|display_line|memory_copy|memory_fill|memory_zero|heap_free)!?\(') {
+    if ($Line -match '^\s+(crash|printf|show|display|memory_copy|memory_fill|memory_zero|heap_free)!?\(') {
         return $false
     }
 

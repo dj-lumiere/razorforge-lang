@@ -3,13 +3,13 @@
 
 import stdlib/memory/TemporarySlice
 import stdlib/memory/DynamicSlice
-import system/console/write_line
+import system/console/show_line
 
 ###
 Tests direct memory access bypassing safety checks
 ###
 recipe test_raw_memory_access() {
-    write_line("=== Testing Raw Memory Access ===")
+    show_line("=== Testing Raw Memory Access ===")
 
     danger! {
         # Create heap memory for testing
@@ -24,23 +24,23 @@ recipe test_raw_memory_access() {
         let value1 = read_as<s32>!(raw_addr)
         let value2 = read_as<s32>!(raw_addr + 4)
 
-        write_line(f"Raw read value1: 0x{value1:x}")
-        write_line(f"Raw read value2: 0x{value2:x}")
+        show_line(f"Raw read value1: 0x{value1:x}")
+        show_line(f"Raw read value2: 0x{value2:x}")
 
         # Test addr_of operation
         let stack_data: s32 = 42
         let stack_addr = addr_of!(stack_data)
-        write_line(f"Stack variable address: 0x{stack_addr:x}")
+        show_line(f"Stack variable address: 0x{stack_addr:x}")
     }
 
-    write_line("Raw memory access test completed\n")
+    show_line("Raw memory access test completed\n")
 }
 
 ###
 Tests volatile memory operations for hardware access
 ###
 recipe test_volatile_operations() {
-    write_line("=== Testing Volatile Operations ===")
+    show_line("=== Testing Volatile Operations ===")
 
     danger! {
         # Simulate memory-mapped I/O operations
@@ -55,29 +55,29 @@ recipe test_volatile_operations() {
         let status = volatile_read<u32>!(io_base)
         let control = volatile_read<u32>!(io_base + 4)
 
-        write_line(f"Hardware status: 0x{status:x}")
-        write_line(f"Hardware control: 0x{control:x}")
+        show_line(f"Hardware status: 0x{status:x}")
+        show_line(f"Hardware control: 0x{control:x}")
 
         # Test multiple volatile operations in sequence
         for i in 0 to 4 {
             volatile_write<u8>!(io_base + 8 + i, (0xA0 + i) as u8)
         }
 
-        write_line("Volatile register sequence:")
+        show_line("Volatile register sequence:")
         for i in 0 to 4 {
             let reg_val = volatile_read<u8>!(io_base + 8 + i)
-            write_line(f"  reg[{i}] = 0x{reg_val:x}")
+            show_line(f"  reg[{i}] = 0x{reg_val:x}")
         }
     }
 
-    write_line("Volatile operations test completed\n")
+    show_line("Volatile operations test completed\n")
 }
 
 ###
 Tests type punning and pointer casting
 ###
 recipe test_type_punning() {
-    write_line("=== Testing Type Punning ===")
+    show_line("=== Testing Type Punning ===")
 
     danger! {
         # Create a float value
@@ -87,8 +87,8 @@ recipe test_type_punning() {
         let float_addr = addr_of!(float_val)
         let int_bits = read_as<u32>!(float_addr)
 
-        write_line(f"Float value: {float_val}")
-        write_line(f"As integer bits: 0x{int_bits:x}")
+        show_line(f"Float value: {float_val}")
+        show_line(f"As integer bits: 0x{int_bits:x}")
 
         # Test with heap slice
         var buffer = DynamicSlice(16)
@@ -104,19 +104,19 @@ recipe test_type_punning() {
             read_as<u32>!(double_addr + 4)
         ]
 
-        write_line(f"Double as u64: 0x{long_bits:x}")
-        write_line(f"Double as u32[0]: 0x{int_parts[0]:x}")
-        write_line(f"Double as u32[1]: 0x{int_parts[1]:x}")
+        show_line(f"Double as u64: 0x{long_bits:x}")
+        show_line(f"Double as u32[0]: 0x{int_parts[0]:x}")
+        show_line(f"Double as u32[1]: 0x{int_parts[1]:x}")
     }
 
-    write_line("Type punning test completed\n")
+    show_line("Type punning test completed\n")
 }
 
 ###
 Tests manual memory management and invalidation
 ###
 recipe test_manual_memory_management() {
-    write_line("=== Testing Manual Memory Management ===")
+    show_line("=== Testing Manual Memory Management ===")
 
     danger! {
         # Create multiple heap slices
@@ -133,8 +133,8 @@ recipe test_manual_memory_management() {
         let addr1 = slice1.address()
         let addr2 = slice2.address()
 
-        write_line(f"Slice1 address: 0x{addr1:x}")
-        write_line(f"Slice2 address: 0x{addr2:x}")
+        show_line(f"Slice1 address: 0x{addr1:x}")
+        show_line(f"Slice2 address: 0x{addr2:x}")
 
         # Test manual invalidation (dangerous!)
         # This bypasses normal destructor and reference counting
@@ -143,20 +143,20 @@ recipe test_manual_memory_management() {
         # slice1 is now invalid - accessing it would be undefined behavior
         # But we can still work with slice2
         let test_val = slice2.read<s32>!(12)
-        write_line(f"slice2[3] = {test_val}")
+        show_line(f"slice2[3] = {test_val}")
 
         # Force invalidation of remaining memory
         invalidate!(slice2)
     }
 
-    write_line("Manual memory management test completed\n")
+    show_line("Manual memory management test completed\n")
 }
 
 ###
 Tests memory slice operations in danger zone
 ###
 recipe test_danger_slice_operations() {
-    write_line("=== Testing Danger Zone Slice Operations ===")
+    show_line("=== Testing Danger Zone Slice Operations ===")
 
     danger! {
         # Create slices
@@ -165,7 +165,7 @@ recipe test_danger_slice_operations() {
 
         # Bypass bounds checking - write beyond allocated space
         # WARNING: This is undefined behavior in real usage!
-        write_line("Testing bounds bypass (controlled environment):")
+        show_line("Testing bounds bypass (controlled environment):")
 
         # Get raw pointers
         let stack_ptr = stack_slice.unsafe_ptr!(0)
@@ -178,16 +178,16 @@ recipe test_danger_slice_operations() {
         }
 
         # Read back using raw access
-        write_line("Stack data (raw access):")
+        show_line("Stack data (raw access):")
         for i in 0 to 10 {
             let val = read_as<s32>!(stack_ptr + (i * 4))
-            write_line(f"  [{i}] = {val}")
+            show_line(f"  [{i}] = {val}")
         }
 
-        write_line("Heap data (raw access):")
+        show_line("Heap data (raw access):")
         for i in 0 to 10 {
             let val = read_as<s32>!(heap_ptr + (i * 4))
-            write_line(f"  [{i}] = {val}")
+            show_line(f"  [{i}] = {val}")
         }
 
         # Test memory copying between raw addresses
@@ -197,7 +197,7 @@ recipe test_danger_slice_operations() {
         heap_free!(temp_addr)
     }
 
-    write_line("Danger zone slice operations test completed\n")
+    show_line("Danger zone slice operations test completed\n")
 }
 
 ###
@@ -205,10 +205,10 @@ Main test runner
 @return Exit code (0 for success)
 ###
 recipe main() -> s32 {
-    write_line("RazorForge Danger Zone Memory Test Suite")
-    write_line("=======================================")
-    write_line("WARNING: These tests use unsafe operations!")
-    write_line("=========================================\n")
+    show_line("RazorForge Danger Zone Memory Test Suite")
+    show_line("=======================================")
+    show_line("WARNING: These tests use unsafe operations!")
+    show_line("=========================================\n")
 
     test_raw_memory_access()
     test_volatile_operations()
@@ -216,7 +216,7 @@ recipe main() -> s32 {
     test_manual_memory_management()
     test_danger_slice_operations()
 
-    write_line("All danger zone tests completed!")
-    write_line("Note: In production code, avoid danger! blocks unless absolutely necessary.")
+    show_line("All danger zone tests completed!")
+    show_line("Note: In production code, avoid danger! blocks unless absolutely necessary.")
     return 0
 }

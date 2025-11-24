@@ -1,4 +1,4 @@
-import system/console/write_line
+import system/console/show_line
 redefinition A as B
 
 # Entities, Records, Menus, and Variants in Suflae
@@ -97,31 +97,31 @@ Circle follows Drawable:
 recipe main():
     # Entity usage
     var dog = Dog("Buddy", "Golden Retriever")
-    display(dog.speak())
+    show_line(dog.speak())
 
     # Record usage
     var point = Point(x: 3.0, y: 4.0)
     var distance = point.distance_from_origin()
-    display(f"Distance: {distance}")
+    show_line(f"Distance: {distance}")
 
     # Option usage
     var color = Color.Red
-    display(f"Color: {color.to_hex()}")
+    show_line(f"Color: {color.to_hex()}")
 
     # Variant usage
     var success: Result<Integer> = 42
     var failure: Result<Integer> = Error("Something went wrong")
 
     when success:
-        is Error error: display(f"Error: {error}")
-        _: display(f"Got value: {_}")
+        is Error error: show_line(f"Error: {error}")
+        _: show_line(f"Got value: {_}")
 
     # Feature usage
     var circle = Circle(radius: 5.0, center: Point(x: 0.0, y: 0.0))
-    display(circle.draw())
+    show_line(circle.draw())
 
     for i in 1 to 10 step 2:
-        display(i)
+        show_line(i)
 
     var t8 = t8"aa"
     var t16 = t16"aa"

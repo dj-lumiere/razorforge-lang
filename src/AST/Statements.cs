@@ -521,24 +521,24 @@ public record HijackingStatement(
 }
 
 /// <summary>
-/// Represents a threadwitnessing block statement for thread-safe scoped read access.
-/// Syntax: threadwitnessing &lt;expression&gt; as &lt;handle&gt; { &lt;body&gt; }
+/// Represents a witnessing block statement for thread-safe scoped read access.
+/// Syntax: witnessing &lt;handle&gt; from &lt;expression&gt;: { &lt;body&gt; }
 /// </summary>
-/// <param name="Source">The ThreadShared expression to witness (will be temporarily stolen)</param>
-/// <param name="Handle">The variable name for the thread-safe read handle (ThreadWitnessed&lt;T&gt;)</param>
+/// <param name="Source">The Vault expression to witness (will be temporarily stolen)</param>
+/// <param name="Handle">The variable name for the thread-safe read handle (Witnessed&lt;T&gt;)</param>
 /// <param name="Body">The block statement to execute with read access</param>
 /// <param name="Location">Source location information</param>
 /// <remarks>
-/// ThreadWitnessing semantics (for ThreadShared with MultiReadLock policy):
+/// Witnessing semantics (for Vault with MultiReadLock policy):
 /// <list type="bullet">
 /// <item>Source becomes deadref during scope (temporarily stolen)</item>
-/// <item>Handle acquires read lock on ThreadShared&lt;T&gt;, producing ThreadWitnessed&lt;T&gt;</item>
-/// <item>Multiple threadwitnessing handles can coexist</item>
+/// <item>Handle acquires read lock on Vault&lt;T&gt;, producing Witnessed&lt;T&gt;</item>
+/// <item>Multiple witnessing handles can coexist</item>
 /// <item>Source is automatically restored when scope exits</item>
-/// <item>Blocks threadseizing attempts until released</item>
+/// <item>Blocks seizing attempts until released</item>
 /// </list>
 /// </remarks>
-public record ThreadWitnessingStatement(
+public record WitnessingStatement(
     Expression Source,
     string Handle,
     BlockStatement Body,
@@ -547,29 +547,29 @@ public record ThreadWitnessingStatement(
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
     public override T Accept<T>(IAstVisitor<T> visitor)
     {
-        return visitor.VisitThreadWitnessingStatement(node: this);
+        return visitor.VisitWitnessingStatement(node: this);
     }
 }
 
 /// <summary>
-/// Represents a threadseizing block statement for thread-safe scoped exclusive access.
-/// Syntax: threadseizing &lt;expression&gt; as &lt;handle&gt; { &lt;body&gt; }
+/// Represents a seizing block statement for thread-safe scoped exclusive access.
+/// Syntax: seizing &lt;handle&gt; from &lt;expression&gt;: { &lt;body&gt; }
 /// </summary>
-/// <param name="Source">The ThreadShared expression to seize (will be temporarily stolen)</param>
-/// <param name="Handle">The variable name for the thread-safe exclusive handle (ThreadSeized&lt;T&gt;)</param>
+/// <param name="Source">The Vault expression to seize (will be temporarily stolen)</param>
+/// <param name="Handle">The variable name for the thread-safe exclusive handle (Seized&lt;T&gt;)</param>
 /// <param name="Body">The block statement to execute with exclusive access</param>
 /// <param name="Location">Source location information</param>
 /// <remarks>
-/// ThreadSeizing semantics (for ThreadShared&lt;T&gt;):
+/// Seizing semantics (for Vault&lt;T&gt;):
 /// <list type="bullet">
 /// <item>Source becomes deadref during scope (temporarily stolen)</item>
-/// <item>Handle acquires exclusive lock on ThreadShared&lt;T&gt;, producing ThreadSeized&lt;T&gt;</item>
-/// <item>Blocks all other access (threadwitnessing and threadseizing) until released</item>
+/// <item>Handle acquires exclusive lock on Vault&lt;T&gt;, producing Seized&lt;T&gt;</item>
+/// <item>Blocks all other access (witnessing and seizing) until released</item>
 /// <item>Handle is NOT copyable - unique access only</item>
 /// <item>Source is automatically restored when scope exits</item>
 /// </list>
 /// </remarks>
-public record ThreadSeizingStatement(
+public record SeizingStatement(
     Expression Source,
     string Handle,
     BlockStatement Body,
@@ -578,7 +578,7 @@ public record ThreadSeizingStatement(
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
     public override T Accept<T>(IAstVisitor<T> visitor)
     {
-        return visitor.VisitThreadSeizingStatement(node: this);
+        return visitor.VisitSeizingStatement(node: this);
     }
 }
 

@@ -84,7 +84,7 @@ Type these abbreviations and press Tab to expand:
 ### Imports
 
 - `importmem` → Import DynamicSlice and TemporarySlice
-- `importconsole` → Import write_line
+- `importconsole` → Import show
 
 ## Color Scheme Details
 

@@ -3,30 +3,30 @@
 
 import stdlib/memory/DynamicSlice
 import stdlib/memory/TemporarySlice
-import system/console/write_line
+import system/console/show_line
 
 ###
 Tests basic parsing and compilation of slice constructors
 ###
 recipe test_slice_constructors() {
-    write_line("=== Testing Slice Constructors ===")
+    show_line("=== Testing Slice Constructors ===")
 
     # Test DynamicSlice constructor parsing
     var heap_buffer = DynamicSlice(128)
-    write_line(f"DynamicSlice created with size: {heap_buffer.size()}")
+    show_line(f"DynamicSlice created with size: {heap_buffer.size()}")
 
     # Test TemporarySlice constructor parsing
     var stack_buffer = TemporarySlice(64)
-    write_line(f"TemporarySlice created with size: {stack_buffer.size()}")
+    show_line(f"TemporarySlice created with size: {stack_buffer.size()}")
 
-    write_line("Slice constructor test completed\n")
+    show_line("Slice constructor test completed\n")
 }
 
 ###
 Tests generic method call parsing and compilation
 ###
 recipe test_generic_methods() {
-    write_line("=== Testing Generic Methods ===")
+    show_line("=== Testing Generic Methods ===")
 
     var buffer = DynamicSlice(32)
 
@@ -40,17 +40,17 @@ recipe test_generic_methods() {
     let int_val2 = buffer.read<s32>!(4)
     let float_val = buffer.read<f32>!(8)
 
-    write_line(f"Read s32 values: {int_val}, {int_val2}")
-    write_line(f"Read f32 value: {float_val}")
+    show_line(f"Read s32 values: {int_val}, {int_val2}")
+    show_line(f"Read f32 value: {float_val}")
 
-    write_line("Generic method test completed\n")
+    show_line("Generic method test completed\n")
 }
 
 ###
 Tests memory operation parsing and compilation
 ###
 recipe test_memory_operations() {
-    write_line("=== Testing Memory Operations ===")
+    show_line("=== Testing Memory Operations ===")
 
     var buffer = TemporarySlice(48)
 
@@ -60,42 +60,42 @@ recipe test_memory_operations() {
     let valid = buffer.is_valid!()
     let ptr = buffer.unsafe_ptr!(16)
 
-    write_line(f"Buffer size: {size}")
-    write_line(f"Buffer address: 0x{addr:x}")
-    write_line(f"Buffer valid: {valid}")
-    write_line(f"Unsafe ptr at offset 16: 0x{ptr:x}")
+    show_line(f"Buffer size: {size}")
+    show_line(f"Buffer address: 0x{addr:x}")
+    show_line(f"Buffer valid: {valid}")
+    show_line(f"Unsafe ptr at offset 16: 0x{ptr:x}")
 
     # Test sub-slicing
     let sub_buffer = buffer.slice!(8, 32)
-    write_line(f"Sub-slice size: {sub_buffer.size!()}")
+    show_line(f"Sub-slice size: {sub_buffer.size!()}")
 
-    write_line("Memory operation test completed\n")
+    show_line("Memory operation test completed\n")
 }
 
 ###
 Tests external recipe declarations and linking
 ###
 recipe test_external_functions() {
-    write_line("=== Testing External Functions ===")
+    show_line("=== Testing External Functions ===")
 
     # These external functions should be linked from C runtime
     let allocated_ptr = heap_alloc!(256)
-    write_line(f"Heap allocated at: 0x{allocated_ptr:x}")
+    show_line(f"Heap allocated at: 0x{allocated_ptr:x}")
 
     # Test memory operations
     write_as<s64>!(allocated_ptr, 0xDEADBEEFCAFEBABE)
     let read_value = read_as<s64>!(allocated_ptr)
-    write_line(f"Written and read value: 0x{read_value:x}")
+    show_line(f"Written and read value: 0x{read_value:x}")
 
     heap_free!(allocated_ptr)
-    write_line("External recipe test completed\n")
+    show_line("External recipe test completed\n")
 }
 
 ###
 Tests danger block parsing and compilation
 ###
 recipe test_danger_blocks() {
-    write_line("=== Testing Danger Blocks ===")
+    show_line("=== Testing Danger Blocks ===")
 
     var buffer = DynamicSlice(64)
 
@@ -111,23 +111,23 @@ recipe test_danger_blocks() {
         let val1 = read_as<u64>!(raw_addr)
         let val2 = read_as<u64>!(raw_addr + 8)
 
-        write_line(f"Raw read 1: 0x{val1:x}")
-        write_line(f"Raw read 2: 0x{val2:x}")
+        show_line(f"Raw read 1: 0x{val1:x}")
+        show_line(f"Raw read 2: 0x{val2:x}")
 
         # Test addr_of operation
         let local_var: s32 = 999
         let var_addr = addr_of!(local_var)
-        write_line(f"Local variable address: 0x{var_addr:x}")
+        show_line(f"Local variable address: 0x{var_addr:x}")
     }
 
-    write_line("Danger block test completed\n")
+    show_line("Danger block test completed\n")
 }
 
 ###
 Tests memory wrapper operations and safety
 ###
 recipe test_wrapper_operations() {
-    write_line("=== Testing Wrapper Operations ===")
+    show_line("=== Testing Wrapper Operations ===")
 
     var original = DynamicSlice(96)
     original.write<s64>!(0, 1000)
@@ -135,20 +135,21 @@ recipe test_wrapper_operations() {
 
     # Test hijack operation (exclusive access)
     hijacking hijacked from original:
-        write_line("Buffer hijacked successfully")
+        show_line("Buffer hijacked successfully")
 
-    # Test refer operation (get raw reference)
-    let raw_ref = hijacked.refer!()
-    write_line(f"Raw reference: 0x{raw_ref:x}")
+    # Test snatch operation (get raw pointer)
+    danger!:
+        let raw_ptr = original.snatch()
+        show_line(f"Raw pointer: 0x{raw_ptr:x}")
 
-    write_line("Wrapper operation test completed\n")
+    show_line("Wrapper operation test completed\n")
 }
 
 ###
 Tests comprehensive memory management scenarios
 ###
 recipe test_memory_management() {
-    write_line("=== Testing Memory Management ===")
+    show_line("=== Testing Memory Management ===")
 
     # Create multiple slices
     var heap1 = DynamicSlice(128)
@@ -164,20 +165,20 @@ recipe test_memory_management() {
 
     # Test copying between slices
     heap2.copy_from_stack!(stack1, 0, 128, 64)
-    write_line("Copied data from stack to heap")
+    show_line("Copied data from stack to heap")
 
     # Test resizing
     heap1.resize!(256)
-    write_line(f"Resized heap1 to: {heap1.size!()} bytes")
+    show_line(f"Resized heap1 to: {heap1.size!()} bytes")
 
     # Test pattern operations
     heap2.fill!(0xAA)
-    write_line("Filled heap2 with pattern")
+    show_line("Filled heap2 with pattern")
 
     heap2.zero!()
-    write_line("Zeroed heap2")
+    show_line("Zeroed heap2")
 
-    write_line("Memory management test completed\n")
+    show_line("Memory management test completed\n")
 }
 
 ###
@@ -185,10 +186,10 @@ Main test runner that exercises the complete compiler pipeline
 @return Exit code (0 for success, 1 for failure)
 ###
 recipe main() -> s32 {
-    write_line("RazorForge Compiler Integration Test Suite")
-    write_line("==========================================")
-    write_line("Testing: Parser → AST → Semantic Analysis → LLVM IR → Native Runtime")
-    write_line("==========================================\n")
+    show_line("RazorForge Compiler Integration Test Suite")
+    show_line("==========================================")
+    show_line("Testing: Parser → AST → Semantic Analysis → LLVM IR → Native Runtime")
+    show_line("==========================================\n")
 
     # Run all test suites
     test_slice_constructors()
@@ -199,15 +200,15 @@ recipe main() -> s32 {
     test_wrapper_operations()
     test_memory_management()
 
-    write_line("=== All Integration Tests Completed ===")
-    write_line("If you see this message, the entire compiler pipeline is working:")
-    write_line("  ✓ Parser successfully parsed all RazorForge syntax")
-    write_line("  ✓ AST nodes created for all memory slice operations")
-    write_line("  ✓ Semantic analyzer validated memory safety")
-    write_line("  ✓ LLVM code generator emitted valid IR")
-    write_line("  ✓ Native runtime linked and executed successfully")
-    write_line("")
-    write_line("🎉 RazorForge Memory Slice Integration Complete! 🎉")
+    show_line("=== All Integration Tests Completed ===")
+    show_line("If you see this message, the entire compiler pipeline is working:")
+    show_line("  ✓ Parser successfully parsed all RazorForge syntax")
+    show_line("  ✓ AST nodes created for all memory slice operations")
+    show_line("  ✓ Semantic analyzer validated memory safety")
+    show_line("  ✓ LLVM code generator emitted valid IR")
+    show_line("  ✓ Native runtime linked and executed successfully")
+    show_line("")
+    show_line("🎉 RazorForge Memory Slice Integration Complete! 🎉")
 
     return 0
 }

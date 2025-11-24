@@ -668,17 +668,17 @@ public class SimpleCodeGenerator : IAstVisitor<string>
             message: "hijacking statement not yet implemented in simple code generator");
     }
 
-    public string VisitThreadWitnessingStatement(ThreadWitnessingStatement node)
+    public string VisitWitnessingStatement(WitnessingStatement node)
     {
-        // TODO: Implement threadwitnessing statement code generation
+        // TODO: Implement witnessing statement code generation
         throw new NotImplementedException(
-            message: "threadwitnessing statement not yet implemented in simple code generator");
+            message: "witnessing statement not yet implemented in simple code generator");
     }
 
-    public string VisitThreadSeizingStatement(ThreadSeizingStatement node)
+    public string VisitSeizingStatement(SeizingStatement node)
     {
-        // TODO: Implement threadseizing statement code generation
+        // TODO: Implement seizing statement code generation
         throw new NotImplementedException(
-            message: "threadseizing statement not yet implemented in simple code generator");
+            message: "seizing statement not yet implemented in simple code generator");
     }
 }

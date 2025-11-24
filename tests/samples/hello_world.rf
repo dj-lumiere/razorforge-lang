@@ -1,4 +1,4 @@
-import system/console/write_line
+import system/console/show_line
 redefinition A as B
 
 # Entities, Records, menus, and Variants in RazorForge
@@ -193,29 +193,29 @@ record Buffer<T> {
 func main() {
     # Entity usage
     let dog = Dog("Buddy", "Golden Retriever")
-    write_line(dog.speak())
+    show_line(dog.speak())
 
     # Record usage
     let point = Point(x: 3.0, y: 4.0)
     let distance = point.distance_from_origin()
-    write_line(f"Distance: {distance}")
+    show_line(f"Distance: {distance}")
 
     # kind usage
     let color = Color.Red
-    write_line(f"Color: {color.to_hex()}")
+    show_line(f"Color: {color.to_hex()}")
 
     # Variant usage
     let success: Result<i32> = 42
     let failure: Result<i32> = Error("Something went wrong")
 
     when success {
-        is Error error => println(f"Error: {error}")
-        _ => println(f"Got value: {_}"),
+        is Error error => show_line(f"Error: {error}")
+        _ => show_line(f"Got value: {_}"),
     }
 
     # Feature usage
     let circle = Circle(radius: 5.0, center: Point(x: 0.0, y: 0.0))
-    write_line(circle.draw())
+    show_line(circle.draw())
 
     # Generic buffer usage
     var buffer = Buffer<i32>(10)
@@ -225,11 +225,11 @@ func main() {
 
     var value = buffer.try_get(1)
     if value is i32 i {
-        write_line(f"Buffer[1] = {i}")
+        show_line(f"Buffer[1] = {i}")
     }
 
     for i in 1 to 10 step 2 {
-        write_line(f"{i}")
+        show_line(f"{i}")
     }
 
     var t8 = "aa"

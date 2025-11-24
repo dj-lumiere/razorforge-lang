@@ -979,7 +979,7 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         // Special handling for built-in functions
         if (node.Callee is IdentifierExpression id)
         {
-            if (id.Name == "write_line" || id.Name == "println")
+            if (id.Name == "show" || id.Name == "println" || id.Name == "display")
             {
                 if (args.Count > 0)
                 {
@@ -2253,17 +2253,17 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             message: "hijacking statement not yet implemented in LLVM code generator");
     }
 
-    public string VisitThreadWitnessingStatement(ThreadWitnessingStatement node)
+    public string VisitWitnessingStatement(WitnessingStatement node)
     {
-        // TODO: Implement threadwitnessing statement code generation
+        // TODO: Implement witnessing statement code generation
         throw new NotImplementedException(
-            message: "threadwitnessing statement not yet implemented in LLVM code generator");
+            message: "witnessing statement not yet implemented in LLVM code generator");
     }
 
-    public string VisitThreadSeizingStatement(ThreadSeizingStatement node)
+    public string VisitSeizingStatement(SeizingStatement node)
     {
-        // TODO: Implement threadseizing statement code generation
+        // TODO: Implement seizing statement code generation
         throw new NotImplementedException(
-            message: "threadseizing statement not yet implemented in LLVM code generator");
+            message: "seizing statement not yet implemented in LLVM code generator");
     }
 }
