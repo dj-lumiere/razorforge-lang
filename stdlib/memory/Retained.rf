@@ -1,29 +1,29 @@
-record Shared<T> {
+record Retained<T> {
     private controller_address: sysuint
     private data_address: sysuint
 }
 
-recipe T.share!() -> Shared<T> {
+recipe T.retain!() -> Retained<T> {
     danger! {
         # Allocate control block
         let controller = RefCountController()
         controller.increase_strong_count!()
 
-        # Create Shared record
-        return Shared<T>(
+        # Create Retained record
+        return Retained<T>(
             controller_address: address_of(controller),
             data_address: address_of(me)
         )
     }
 }
 
-recipe Shared<T>.Shared<T>(controller_address: sysuint, data_address: sysuint) {
+recipe Retained<T>.Retained<T>(controller_address: sysuint, data_address: sysuint) {
     me.controller_address = controller_address
     me.data_address = data_address
     return me
 }
 
-recipe Shared<T>.share!() -> Shared<T> {
+recipe Retained<T>.retain!() -> Retained<T> {
     danger! {
         var controller = read_as<RefCountController>(controller_address)
         controller.increase_strong_count!()
@@ -31,7 +31,7 @@ recipe Shared<T>.share!() -> Shared<T> {
     return me
 }
 
-recipe Shared<T>.release!() {
+recipe Retained<T>.release!() {
     danger! {
         var controller = read_as<RefCountController>(controller_address)
         controller.decrease_strong_count!()
@@ -52,26 +52,26 @@ recipe Shared<T>.release!() {
     }
 }
 
-recipe Shared<T>.get(me: Shared<T>) -> T {
+recipe Retained<T>.get(me: Retained<T>) -> T {
     danger! {
         return read_as<T>(data_address)
     }
 }
 
-recipe Shared<T>.set(me: Shared<T>, new_data: T) {
+recipe Retained<T>.set(me: Retained<T>, new_data: T) {
     danger! {
         write_to_address<T>(data_address, new_data)
     }
 }
 
-recipe Shared<T>.strong_count(me: Shared<T>) -> s32 {
+recipe Retained<T>.strong_count(me: Retained<T>) -> s32 {
     danger! {
         var controller = read_as<RefCountController>(controller_address)
         return controller.strong_count()
     }
 }
 
-recipe Shared<T>.weak_count(me: Shared<T>) -> s32 {
+recipe Retained<T>.weak_count(me: Retained<T>) -> s32 {
     danger! {
         var controller = read_as<RefCountController>(controller_address)
         return controller.weak_count()

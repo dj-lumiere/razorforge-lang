@@ -1,48 +1,80 @@
-# RazorForge Watched<T> - Weak reference implementation
+# RazorForge Tracked<T> - Weak reference implementation
 # Allows checking if data is still alive without preventing deallocation
+# Works with both Retained<T> and Shared<T, Policy>
 
-record Watched<T> {
+record Tracked<T> {
     private controller_address: sysuint
     private data_address: sysuint
 }
 
-# Create weak reference from Shared<T>
-recipe Shared<T>.watch(me: Shared<T>) -> Watched<T> {
+# Create weak reference from Retained<T>
+recipe Retained<T>.track(me: Retained<T>) -> Tracked<T> {
     danger! {
         var controller = read_as<RefCountController>(controller_address)
         controller.increase_weak_count!()
 
-        return Watched<T>(
+        return Tracked<T>(
             controller_address: me.controller_address,
             data_address: me.data_address
         )
     }
 }
 
-# Constructor for Watched<T>
-recipe Watched<T>.Watched<T>(controller_address: sysuint, data_address: sysuint) -> Watched<T> {
+# Create weak reference from Shared<T, Policy>
+recipe Shared<T, Policy>.track(me: Shared<T, Policy>) -> Tracked<T> {
+    danger! {
+        var controller = read_as<RefCountController>(controller_address)
+        controller.increase_weak_count!()
+
+        return Tracked<T>(
+            controller_address: me.controller_address,
+            data_address: me.data_address
+        )
+    }
+}
+
+# Constructor for Tracked<T>
+recipe Tracked<T>.Tracked<T>(controller_address: sysuint, data_address: sysuint) -> Tracked<T> {
     me.controller_address = controller_address
     me.data_address = data_address
     return me
 }
 
-# Check if the watched data is still alive
-recipe Watched<T>.is_alive(me: Watched<T>) -> bool {
+# Check if the tracked data is still alive
+recipe Tracked<T>.is_alive(me: Tracked<T>) -> bool {
     danger! {
         var controller = read_as<RefCountController>(controller_address)
         return controller.strong_count() > 0
     }
 }
 
-# Try to upgrade weak reference to strong reference
-recipe Watched<T>.upgrade(me: Watched<T>) -> Maybe<Shared<T>> {
+# Try to recover weak reference to strong reference (crashes if dead)
+recipe Tracked<T>.recover!(me: Tracked<T>) -> Retained<T> {
     danger! {
         var controller = read_as<RefCountController>(controller_address)
 
         when controller.strong_count() {
             > 0 => {
                 controller.increase_strong_count!()
-                return Shared<T>(
+                return Retained<T>(
+                    controller_address: me.controller_address,
+                    data_address: me.data_address
+                )
+            },
+            _ => panic("Tracked reference is dead")
+        }
+    }
+}
+
+# Try to recover weak reference to strong reference (returns Maybe)
+recipe Tracked<T>.try_recover(me: Tracked<T>) -> Maybe<Retained<T>> {
+    danger! {
+        var controller = read_as<RefCountController>(controller_address)
+
+        when controller.strong_count() {
+            > 0 => {
+                controller.increase_strong_count!()
+                return Retained<T>(
                     controller_address: me.controller_address,
                     data_address: me.data_address
                 )
@@ -53,12 +85,12 @@ recipe Watched<T>.upgrade(me: Watched<T>) -> Maybe<Shared<T>> {
 }
 
 # Clone the weak reference
-recipe Watched<T>.watch(me: Watched<T>) -> Watched<T> {
+recipe Tracked<T>.track(me: Tracked<T>) -> Tracked<T> {
     danger! {
         var controller = read_as<RefCountController>(controller_address)
         controller.increase_weak_count!()
 
-        return Watched<T>(
+        return Tracked<T>(
             controller_address: me.controller_address,
             data_address: me.data_address
         )
@@ -66,7 +98,7 @@ recipe Watched<T>.watch(me: Watched<T>) -> Watched<T> {
 }
 
 # Release the weak reference
-recipe Watched<T>.release!(me: Watched<T>) {
+recipe Tracked<T>.release!(me: Tracked<T>) {
     danger! {
         var controller = read_as<RefCountController>(controller_address)
         controller.decrease_weak_count!()
@@ -80,14 +112,14 @@ recipe Watched<T>.release!(me: Watched<T>) {
 }
 
 # Get reference counts for debugging
-recipe Watched<T>.strong_count(me: Watched<T>) -> s32 {
+recipe Tracked<T>.strong_count(me: Tracked<T>) -> s32 {
     danger! {
         var controller = read_as<RefCountController>(controller_address)
         return controller.strong_count()
     }
 }
 
-recipe Watched<T>.weak_count(me: Watched<T>) -> s32 {
+recipe Tracked<T>.weak_count(me: Tracked<T>) -> s32 {
     danger! {
         var controller = read_as<RefCountController>(controller_address)
         return controller.weak_count()

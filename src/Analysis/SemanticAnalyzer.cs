@@ -877,13 +877,13 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// <summary>
     /// Analyze function calls with special handling for memory operation methods.
     ///
-    /// This is where the magic happens for memory operations like obj.share!(), obj.hijack!(), etc.
+    /// This is where the magic happens for memory operations like obj.retain!(), obj.share!(), etc.
     /// The analyzer detects method calls ending with '!' and routes them through the memory
     /// analyzer for proper ownership tracking and safety validation.
     ///
     /// Memory operations are the core of RazorForge's explicit memory model, allowing
-    /// programmers to transform objects between different wrapper types (Owned, Shared,
-    /// Hijacked, etc.) with compile-time safety guarantees.
+    /// programmers to transform objects between different wrapper types (Owned, Retained,
+    /// Shared, Hijacked, etc.) with compile-time safety guarantees.
     ///
     /// Regular function calls are handled with standard type checking and argument validation.
     /// </summary>
@@ -1421,16 +1421,19 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// Detect memory operation method calls by their distinctive '!' suffix.
     ///
     /// Memory operations are the heart of RazorForge's explicit memory model:
-    /// - hijack!() - gain exclusive access (red group)
-    /// - share!() - create shared ownership (green group)
-    /// - watch!() - create weak observer (green group)
-    /// - thread_share!() - thread-safe sharing (blue group)
-    /// - thread_watch!() - thread-safe weak reference (blue group)
+    /// - retain!() - create single-threaded RC (green group)
+    /// - share!() - create multi-threaded RC with policy (blue group)
+    /// - track!() - create weak reference (green/blue group)
+    /// - recover!() - upgrade weak to strong (crashes if dead)
+    /// - try_recover() - upgrade weak to strong (returns Maybe)
     /// - steal!() - reclaim ownership when RC=1
     /// - snatch!() - force ownership (danger! only)
     /// - release!() - manual RC decrement
-    /// - try_share!(), try_thread_share!() - upgrade weak to strong
     /// - reveal!(), own!() - handle snatched objects (danger! only)
+    ///
+    /// Scoped access constructs (compile-time borrows):
+    /// - viewing/hijacking - immutable/mutable borrow
+    /// - observing/seizing - runtime-locked immutable/mutable access
     ///
     /// The '!' suffix indicates these operations can potentially crash/panic
     /// if used incorrectly, emphasizing their power and responsibility.
@@ -1475,7 +1478,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// <summary>
     /// Handle memory operation method calls - the core of RazorForge's memory model.
     ///
-    /// This method processes calls like obj.share!(), obj.hijack!(), etc., which are
+    /// This method processes calls like obj.retain!(), obj.share!(), etc., which are
     /// the primary way programmers interact with RazorForge's explicit memory management.
     ///
     /// The process:

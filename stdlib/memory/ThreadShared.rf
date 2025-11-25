@@ -1,3 +1,0 @@
-public record ThreadShared<T> {
-    private address: sysuint
-}

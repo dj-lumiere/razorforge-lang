@@ -274,7 +274,7 @@ public class MemoryAnalyzer
     /// <param name="objectName">Name of the object being operated on</param>
     /// <param name="operation">The memory operation being performed</param>
     /// <param name="location">Source location for error reporting</param>
-    /// <param name="policy">Locking policy for thread_share!() operation (Mutex or MultiReadLock)</param>
+    /// <param name="policy">Locking policy for share!() operation (Mutex or MultiReadLock)</param>
     /// <returns>New memory object state after operation, or null if operation failed</returns>
     public MemoryObject? HandleMemoryOperation(string objectName, MemoryOperation operation,
         SourceLocation location, LockingPolicy? policy = null)
