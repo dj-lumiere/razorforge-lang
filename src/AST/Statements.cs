@@ -521,24 +521,24 @@ public record HijackingStatement(
 }
 
 /// <summary>
-/// Represents a witnessing block statement for thread-safe scoped read access.
-/// Syntax: witnessing &lt;handle&gt; from &lt;expression&gt;: { &lt;body&gt; }
+/// Represents an observing block statement for thread-safe scoped read access.
+/// Syntax: observing &lt;handle&gt; from &lt;expression&gt;: { &lt;body&gt; }
 /// </summary>
-/// <param name="Source">The Vault expression to witness (will be temporarily stolen)</param>
-/// <param name="Handle">The variable name for the thread-safe read handle (Witnessed&lt;T&gt;)</param>
+/// <param name="Source">The Shared expression to observe (will be temporarily stolen)</param>
+/// <param name="Handle">The variable name for the thread-safe read handle (Observed&lt;T&gt;)</param>
 /// <param name="Body">The block statement to execute with read access</param>
 /// <param name="Location">Source location information</param>
 /// <remarks>
-/// Witnessing semantics (for Vault with MultiReadLock policy):
+/// Observing semantics (for Shared with MultiReadLock policy):
 /// <list type="bullet">
 /// <item>Source becomes deadref during scope (temporarily stolen)</item>
-/// <item>Handle acquires read lock on Vault&lt;T&gt;, producing Witnessed&lt;T&gt;</item>
-/// <item>Multiple witnessing handles can coexist</item>
+/// <item>Handle acquires read lock on Shared&lt;T, MultiReadLock&gt;, producing Observed&lt;T&gt;</item>
+/// <item>Multiple observing handles can coexist</item>
 /// <item>Source is automatically restored when scope exits</item>
 /// <item>Blocks seizing attempts until released</item>
 /// </list>
 /// </remarks>
-public record WitnessingStatement(
+public record ObservingStatement(
     Expression Source,
     string Handle,
     BlockStatement Body,
@@ -547,7 +547,7 @@ public record WitnessingStatement(
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
     public override T Accept<T>(IAstVisitor<T> visitor)
     {
-        return visitor.VisitWitnessingStatement(node: this);
+        return visitor.VisitObservingStatement(node: this);
     }
 }
 
@@ -555,16 +555,16 @@ public record WitnessingStatement(
 /// Represents a seizing block statement for thread-safe scoped exclusive access.
 /// Syntax: seizing &lt;handle&gt; from &lt;expression&gt;: { &lt;body&gt; }
 /// </summary>
-/// <param name="Source">The Vault expression to seize (will be temporarily stolen)</param>
+/// <param name="Source">The Shared expression to seize (will be temporarily stolen)</param>
 /// <param name="Handle">The variable name for the thread-safe exclusive handle (Seized&lt;T&gt;)</param>
 /// <param name="Body">The block statement to execute with exclusive access</param>
 /// <param name="Location">Source location information</param>
 /// <remarks>
-/// Seizing semantics (for Vault&lt;T&gt;):
+/// Seizing semantics (for Shared&lt;T, Policy&gt;):
 /// <list type="bullet">
 /// <item>Source becomes deadref during scope (temporarily stolen)</item>
-/// <item>Handle acquires exclusive lock on Vault&lt;T&gt;, producing Seized&lt;T&gt;</item>
-/// <item>Blocks all other access (witnessing and seizing) until released</item>
+/// <item>Handle acquires exclusive lock on Shared&lt;T, Policy&gt;, producing Seized&lt;T&gt;</item>
+/// <item>Blocks all other access (observing and seizing) until released</item>
 /// <item>Handle is NOT copyable - unique access only</item>
 /// <item>Source is automatically restored when scope exits</item>
 /// </list>

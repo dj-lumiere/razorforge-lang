@@ -271,10 +271,10 @@ public interface IAstVisitor<T>
     /// <returns>Result of visiting the hijacking statement</returns>
     T VisitHijackingStatement(HijackingStatement node);
 
-    /// <summary>Visits a witnessing statement node (thread-safe scoped read access with temporary steal)</summary>
-    /// <param name="node">The witnessing statement to visit</param>
-    /// <returns>Result of visiting the witnessing statement</returns>
-    T VisitWitnessingStatement(WitnessingStatement node);
+    /// <summary>Visits an observing statement node (thread-safe scoped read access with temporary steal)</summary>
+    /// <param name="node">The observing statement to visit</param>
+    /// <returns>Result of visiting the observing statement</returns>
+    T VisitObservingStatement(ObservingStatement node);
 
     /// <summary>Visits a seizing statement node (thread-safe scoped exclusive access with temporary steal)</summary>
     /// <param name="node">The seizing statement to visit</param>

@@ -300,17 +300,14 @@ public class MemoryAnalyzer
         // Dispatch to specific operation handlers
         return operation switch
         {
-            MemoryOperation.Hijack => HandleHijack(obj: obj, location: location),
-            MemoryOperation.Share => HandleShare(obj: obj, location: location),
-            MemoryOperation.Watch => HandleWatch(obj: obj, location: location),
-            MemoryOperation.ThreadShare => HandleThreadShare(obj: obj, location: location,
+            MemoryOperation.Retain => HandleRetain(obj: obj, location: location),
+            MemoryOperation.Share => HandleShare(obj: obj, location: location,
                 policy: policy ?? LockingPolicy.Mutex),
-            MemoryOperation.ThreadWatch => HandleThreadWatch(obj: obj, location: location),
+            MemoryOperation.Track => HandleTrack(obj: obj, location: location, policy: policy),
             MemoryOperation.Steal => HandleSteal(obj: obj, location: location),
             MemoryOperation.Snatch => HandleSnatch(obj: obj, location: location),
             MemoryOperation.Release => HandleRelease(obj: obj, location: location),
-            MemoryOperation.TryShare => HandleTryShare(obj: obj, location: location),
-            MemoryOperation.TryThreadShare => HandleTryThreadShare(obj: obj, location: location),
+            MemoryOperation.Recover => HandleRecover(obj: obj, location: location),
             MemoryOperation.Reveal => HandleReveal(obj: obj, location: location),
             MemoryOperation.Own => HandleOwn(obj: obj, location: location),
             _ => throw new ArgumentException(message: $"Unknown memory operation: {operation}")
@@ -343,84 +340,95 @@ public class MemoryAnalyzer
     }
 
     /// <summary>
-    /// Handle share!() operation - transform to shared ownership with reference counting.
-    /// Creates a Shared&lt;T&gt; wrapper that allows multiple mutable references with RC tracking.
-    /// If already shared, increments reference count. Otherwise converts and invalidates source.
+    /// Handle retain!() operation - transform to single-threaded shared ownership with reference counting.
+    /// Creates a Retained&lt;T&gt; wrapper that allows multiple mutable references with RC tracking.
+    /// If already retained, increments reference count. Otherwise converts and invalidates source.
     /// </summary>
-    private MemoryObject? HandleShare(MemoryObject obj, SourceLocation location)
+    private MemoryObject? HandleRetain(MemoryObject obj, SourceLocation location)
     {
-        if (!obj.CanTransformTo(target: WrapperType.Shared, inDangerBlock: _inDangerBlock))
+        if (!obj.CanTransformTo(target: WrapperType.Retained, inDangerBlock: _inDangerBlock))
         {
-            AddError(message: $"Cannot share object of type {obj.Wrapper}", location: location,
+            AddError(message: $"Cannot retain object of type {obj.Wrapper}", location: location,
                 type: MemoryError.MemoryErrorType.InvalidTransformation);
             return null;
         }
 
-        if (obj.Wrapper == WrapperType.Shared)
+        if (obj.Wrapper == WrapperType.Retained)
         {
-            // Already shared - increment reference count for new reference
+            // Already retained - increment reference count for new reference
             MemoryObject newObj = obj with { ReferenceCount = obj.ReferenceCount + 1 };
             SetObject(name: obj.Name, obj: newObj);
             return newObj;
         }
 
-        // Convert to shared ownership, invalidate source (one-time transformation)
-        InvalidateObject(name: obj.Name, reason: "share!()", location: location);
+        // Convert to single-threaded shared ownership, invalidate source (one-time transformation)
+        InvalidateObject(name: obj.Name, reason: "retain!()", location: location);
 
         return obj with
         {
-            Wrapper = WrapperType.Shared, ReferenceCount = 1 // First shared reference
+            Wrapper = WrapperType.Retained, ReferenceCount = 1 // First retained reference
         };
     }
 
     /// <summary>
-    /// Handle watch!() operation - create a weak observer reference.
-    /// Creates a Watched&lt;T&gt; weak reference that doesn't prevent object destruction.
-    /// Can only be created from Shared objects. Doesn't invalidate source or affect RC.
-    /// Used for breaking reference cycles and observing without ownership responsibility.
+    /// Handle track!() operation - create a weak observer reference.
+    /// Creates a Tracked&lt;Retained&lt;T&gt;&gt; or Tracked&lt;Shared&lt;T, Policy&gt;&gt; weak reference.
+    /// Can be created from Retained (single-threaded) or Shared (multi-threaded) objects.
+    /// Doesn't invalidate source or affect RC. Used for breaking reference cycles.
     /// </summary>
-    private MemoryObject? HandleWatch(MemoryObject obj, SourceLocation location)
+    private MemoryObject? HandleTrack(MemoryObject obj, SourceLocation location, LockingPolicy? policy)
     {
         // Create a weak reference - doesn't invalidate source or affect its RC
+        if (obj.Wrapper == WrapperType.Retained)
+        {
+            return obj with
+            {
+                Wrapper = WrapperType.Tracked,
+                ReferenceCount = 0, // Weak references don't contribute to RC
+                Policy = null // Single-threaded, no policy
+            };
+        }
+
         if (obj.Wrapper == WrapperType.Shared)
         {
             return obj with
             {
-                Wrapper = WrapperType.Watched,
-                ReferenceCount = 0 // Weak references don't contribute to RC
+                Wrapper = WrapperType.Tracked,
+                ReferenceCount = 0, // Weak references don't contribute to Arc
+                Policy = obj.Policy // Inherit policy from parent Shared
             };
         }
 
-        AddError(message: $"Can only watch Shared objects, not {obj.Wrapper}",
+        AddError(message: $"Can only track Retained or Shared objects, not {obj.Wrapper}",
             location: location, type: MemoryError.MemoryErrorType.InvalidTransformation);
         return null;
     }
 
     /// <summary>
-    /// Handle thread_share!() operation - transform to thread-safe shared ownership.
-    /// Creates a ThreadShared&lt;T, Policy&gt; wrapper with atomic reference counting (Arc).
-    /// Safe to pass between threads. If already thread-shared, increments Arc count.
-    /// Policy determines synchronization: Mutex (Arc&lt;Mutex&lt;T&gt;&gt;) or MultiReadLock (Arc&lt;RwLock&lt;T&gt;&gt;).
+    /// Handle share!() operation - transform to thread-safe shared ownership.
+    /// Creates a Shared&lt;T, Policy&gt; wrapper with atomic reference counting (Arc).
+    /// Safe to pass between threads. If already shared, increments Arc count.
+    /// Policy determines synchronization: Mutex (Arc&lt;Mutex&lt;T&gt;&gt;), MultiReadLock (Arc&lt;RwLock&lt;T&gt;&gt;), or RejectEdit (Arc&lt;T&gt;).
     /// </summary>
-    /// <param name="policy">Locking policy (Mutex or MultiReadLock)</param>
-    private MemoryObject? HandleThreadShare(MemoryObject obj, SourceLocation location,
+    /// <param name="policy">Locking policy (Mutex, MultiReadLock, or RejectEdit)</param>
+    private MemoryObject? HandleShare(MemoryObject obj, SourceLocation location,
         LockingPolicy policy)
     {
-        if (!obj.CanTransformTo(target: WrapperType.ThreadShared, inDangerBlock: _inDangerBlock))
+        if (!obj.CanTransformTo(target: WrapperType.Shared, inDangerBlock: _inDangerBlock))
         {
-            AddError(message: $"Cannot thread_share object of type {obj.Wrapper}",
+            AddError(message: $"Cannot share object of type {obj.Wrapper}",
                 location: location, type: MemoryError.MemoryErrorType.InvalidTransformation);
             return null;
         }
 
-        if (obj.Wrapper == WrapperType.ThreadShared)
+        if (obj.Wrapper == WrapperType.Shared)
         {
-            // Already thread-shared - verify policy matches and increment atomic reference count
+            // Already shared - verify policy matches and increment atomic reference count
             if (obj.Policy != policy)
             {
                 AddError(
                     message:
-                    $"Cannot change locking policy from {obj.Policy} to {policy} on existing ThreadShared object",
+                    $"Cannot change locking policy from {obj.Policy} to {policy} on existing Shared object",
                     location: location, type: MemoryError.MemoryErrorType.InvalidTransformation);
                 return null;
             }
@@ -431,72 +439,45 @@ public class MemoryAnalyzer
         }
 
         // Convert to thread-safe shared ownership, invalidate source
-        InvalidateObject(name: obj.Name, reason: "thread_share!()", location: location);
+        InvalidateObject(name: obj.Name, reason: "share!()", location: location);
 
         return obj with
         {
-            Wrapper = WrapperType.ThreadShared,
-            ReferenceCount = 1, // First thread-shared reference
+            Wrapper = WrapperType.Shared,
+            ReferenceCount = 1, // First shared reference
             Policy = policy // Store the locking policy
         };
     }
 
     /// <summary>
-    /// Handle thread_watch!() operation - create thread-safe weak observer.
-    /// Creates a ThreadWatched&lt;T, Policy&gt; weak reference for thread-safe observation.
-    /// Can only be created from ThreadShared objects. Doesn't affect Arc count.
-    /// Policy is inherited from the parent ThreadShared object.
-    /// Used for breaking cycles in multi-threaded environments.
-    /// </summary>
-    private MemoryObject? HandleThreadWatch(MemoryObject obj, SourceLocation location)
-    {
-        // Create thread-safe weak reference - doesn't invalidate source or affect Arc
-        // Policy is inherited from the parent ThreadShared
-        if (obj.Wrapper == WrapperType.ThreadShared)
-        {
-            return obj with
-            {
-                Wrapper = WrapperType.ThreadWatched,
-                ReferenceCount = 0, // Weak references don't contribute to Arc
-                Policy = obj.Policy // Inherit policy from parent ThreadShared
-            };
-        }
-
-        AddError(message: $"Can only thread_watch ThreadShared objects, not {obj.Wrapper}",
-            location: location, type: MemoryError.MemoryErrorType.InvalidTransformation);
-        return null;
-    }
-
-    /// <summary>
-    /// Handle steal!() operation - reclaim direct ownership from shared objects.
-    /// Converts Shared/ThreadShared/Hijacked back to direct Owned wrapper.
-    /// Only works when you're the sole owner (RC=1 for shared objects).
+    /// Handle steal!() operation - reclaim direct ownership from RC'd objects.
+    /// Converts Retained/Shared back to direct Owned wrapper.
+    /// Only works when you're the sole owner (RC=1 for RC'd objects).
     /// Used for optimization when you know you're the only reference holder.
     /// </summary>
     private MemoryObject? HandleSteal(MemoryObject obj, SourceLocation location)
     {
-        // Reference count validation for shared objects
+        // Reference count validation for Retained objects
+        if (obj.Wrapper == WrapperType.Retained && obj.ReferenceCount != 1)
+        {
+            AddError(
+                message:
+                $"Cannot steal from Retained object with RC={obj.ReferenceCount} (need RC=1)",
+                location: location, type: MemoryError.MemoryErrorType.ReferenceCountError);
+            return null;
+        }
+
         if (obj.Wrapper == WrapperType.Shared && obj.ReferenceCount != 1)
         {
             AddError(
                 message:
-                $"Cannot steal from Shared object with RC={obj.ReferenceCount} (need RC=1)",
+                $"Cannot steal from Shared object with Arc={obj.ReferenceCount} (need Arc=1)",
                 location: location, type: MemoryError.MemoryErrorType.ReferenceCountError);
             return null;
         }
 
-        if (obj.Wrapper == WrapperType.ThreadShared && obj.ReferenceCount != 1)
-        {
-            AddError(
-                message:
-                $"Cannot steal from ThreadShared object with Arc={obj.ReferenceCount} (need Arc=1)",
-                location: location, type: MemoryError.MemoryErrorType.ReferenceCountError);
-            return null;
-        }
-
-        // Can only steal from shared objects or hijacked objects
-        if (obj.Wrapper != WrapperType.Shared && obj.Wrapper != WrapperType.ThreadShared &&
-            obj.Wrapper != WrapperType.Hijacked)
+        // Can only steal from RC'd objects
+        if (obj.Wrapper != WrapperType.Retained && obj.Wrapper != WrapperType.Shared)
         {
             AddError(message: $"Cannot steal from {obj.Wrapper}", location: location,
                 type: MemoryError.MemoryErrorType.InvalidTransformation);
@@ -545,10 +526,10 @@ public class MemoryAnalyzer
     /// </summary>
     private MemoryObject? HandleRelease(MemoryObject obj, SourceLocation location)
     {
-        if (obj.Wrapper != WrapperType.Shared && obj.Wrapper != WrapperType.ThreadShared)
+        if (obj.Wrapper != WrapperType.Retained && obj.Wrapper != WrapperType.Shared)
         {
             AddError(
-                message: $"Can only release Shared or ThreadShared objects, not {obj.Wrapper}",
+                message: $"Can only release Retained or Shared objects, not {obj.Wrapper}",
                 location: location, type: MemoryError.MemoryErrorType.InvalidTransformation);
             return null;
         }
@@ -568,50 +549,33 @@ public class MemoryAnalyzer
     }
 
     /// <summary>
-    /// Handle try_share!() operation - attempt to upgrade weak to strong reference.
-    /// Tries to convert Watched reference back to Shared reference.
+    /// Handle recover!() / try_recover() operation - upgrade weak to strong reference.
+    /// Tries to convert Tracked reference back to its strong form:
+    ///   - Tracked&lt;Retained&lt;T&gt;&gt; → Retained&lt;T&gt;
+    ///   - Tracked&lt;Shared&lt;T, Policy&gt;&gt; → Shared&lt;T, Policy&gt;
     /// In a real implementation, this could fail if the object was destroyed.
-    /// For analysis purposes, we assume success but real runtime may fail.
+    /// For analysis purposes, we assume success but real runtime may fail (try_recover returns Maybe).
     /// </summary>
-    private MemoryObject? HandleTryShare(MemoryObject obj, SourceLocation location)
+    private MemoryObject? HandleRecover(MemoryObject obj, SourceLocation location)
     {
-        // Try to upgrade weak to strong - in real implementation this could fail
-        // if the original object was already destroyed
-        if (obj.Wrapper == WrapperType.Watched)
-        {
-            return obj with
-            {
-                Wrapper = WrapperType.Shared, ReferenceCount = 1 // New strong reference
-            };
-        }
-
-        AddError(message: $"Can only try_share on Watched objects, not {obj.Wrapper}",
-            location: location, type: MemoryError.MemoryErrorType.InvalidTransformation);
-        return null;
-    }
-
-    /// <summary>
-    /// Handle try_thread_share!() operation - attempt thread-safe weak-to-strong upgrade.
-    /// Tries to convert ThreadWatched reference back to ThreadShared reference.
-    /// Thread-safe version of try_share!() with atomic operations.
-    /// Can fail at runtime if the object was destroyed, but assumed successful for analysis.
-    /// </summary>
-    private MemoryObject? HandleTryThreadShare(MemoryObject obj, SourceLocation location)
-    {
-        if (obj.Wrapper != WrapperType.ThreadWatched)
+        if (obj.Wrapper != WrapperType.Tracked)
         {
             AddError(
-                message: $"Can only try_thread_share on ThreadWatched objects, not {obj.Wrapper}",
+                message: $"Can only recover Tracked objects, not {obj.Wrapper}",
                 location: location, type: MemoryError.MemoryErrorType.InvalidTransformation);
             return null;
         }
 
-        // Try to upgrade thread-weak to thread-strong - could fail at runtime
+        // Try to upgrade weak to strong - in real implementation this could fail
         // if the original object was already destroyed
+        // Determine target type based on Policy (null = Retained, non-null = Shared)
+        WrapperType targetWrapper = obj.Policy == null ? WrapperType.Retained : WrapperType.Shared;
+
         return obj with
         {
-            Wrapper = WrapperType.ThreadShared,
-            ReferenceCount = 1 // New strong thread-shared reference
+            Wrapper = targetWrapper,
+            ReferenceCount = 1, // New strong reference
+            Policy = obj.Policy // Preserve policy for Shared, null for Retained
         };
     }
 
@@ -884,26 +848,20 @@ public class MemoryAnalyzer
         // Validate specific operations
         WrapperType newWrapperType = operation switch
         {
-            MemoryOperation.Hijack => ValidateHijack(obj: memoryObject, location: location,
+            MemoryOperation.Retain => ValidateRetain(obj: memoryObject, location: location,
                 errors: errors),
             MemoryOperation.Share => ValidateShare(obj: memoryObject, location: location,
                 errors: errors),
-            MemoryOperation.Watch => ValidateWatch(obj: memoryObject, location: location,
+            MemoryOperation.Track => ValidateTrack(obj: memoryObject, location: location,
                 errors: errors),
-            MemoryOperation.ThreadShare => ValidateThreadShare(obj: memoryObject,
-                location: location, errors: errors),
-            MemoryOperation.ThreadWatch => ValidateThreadWatch(obj: memoryObject,
-                location: location, errors: errors),
             MemoryOperation.Steal => ValidateSteal(obj: memoryObject, location: location,
                 errors: errors),
             MemoryOperation.Snatch => ValidateSnatch(obj: memoryObject, location: location,
                 errors: errors),
             MemoryOperation.Release => ValidateRelease(obj: memoryObject, location: location,
                 errors: errors),
-            MemoryOperation.TryShare => ValidateTryShare(obj: memoryObject, location: location,
+            MemoryOperation.Recover => ValidateRecover(obj: memoryObject, location: location,
                 errors: errors),
-            MemoryOperation.TryThreadShare => ValidateTryThreadShare(obj: memoryObject,
-                location: location, errors: errors),
             MemoryOperation.Reveal => ValidateReveal(obj: memoryObject, location: location,
                 errors: errors),
             MemoryOperation.Own => ValidateOwn(obj: memoryObject, location: location,
@@ -930,84 +888,69 @@ public class MemoryAnalyzer
         return WrapperType.Hijacked;
     }
 
+    private WrapperType ValidateRetain(MemoryObject obj, SourceLocation location,
+        List<MemoryError> errors)
+    {
+        if (!obj.CanTransformTo(target: WrapperType.Retained, inDangerBlock: _inDangerBlock))
+        {
+            errors.Add(item: new MemoryError(Message: $"Cannot retain object of type {obj.Wrapper}",
+                Location: location, Type: MemoryError.MemoryErrorType.InvalidTransformation));
+            return obj.Wrapper;
+        }
+
+        return WrapperType.Retained;
+    }
+
+    private WrapperType ValidateTrack(MemoryObject obj, SourceLocation location,
+        List<MemoryError> errors)
+    {
+        if (obj.Wrapper != WrapperType.Retained && obj.Wrapper != WrapperType.Shared)
+        {
+            errors.Add(item: new MemoryError(
+                Message: $"Can only track Retained or Shared objects, not {obj.Wrapper}", Location: location,
+                Type: MemoryError.MemoryErrorType.InvalidTransformation));
+            return obj.Wrapper;
+        }
+
+        return WrapperType.Tracked;
+    }
+
     private WrapperType ValidateShare(MemoryObject obj, SourceLocation location,
         List<MemoryError> errors)
     {
         if (!obj.CanTransformTo(target: WrapperType.Shared, inDangerBlock: _inDangerBlock))
         {
-            errors.Add(item: new MemoryError(Message: $"Cannot share object of type {obj.Wrapper}",
-                Location: location, Type: MemoryError.MemoryErrorType.InvalidTransformation));
+            errors.Add(item: new MemoryError(
+                Message: $"Cannot share object of type {obj.Wrapper}", Location: location,
+                Type: MemoryError.MemoryErrorType.InvalidTransformation));
             return obj.Wrapper;
         }
 
         return WrapperType.Shared;
     }
 
-    private WrapperType ValidateWatch(MemoryObject obj, SourceLocation location,
-        List<MemoryError> errors)
-    {
-        if (obj.Wrapper != WrapperType.Shared)
-        {
-            errors.Add(item: new MemoryError(
-                Message: $"Can only watch Shared objects, not {obj.Wrapper}", Location: location,
-                Type: MemoryError.MemoryErrorType.InvalidTransformation));
-            return obj.Wrapper;
-        }
-
-        return WrapperType.Watched;
-    }
-
-    private WrapperType ValidateThreadShare(MemoryObject obj, SourceLocation location,
-        List<MemoryError> errors)
-    {
-        if (!obj.CanTransformTo(target: WrapperType.ThreadShared, inDangerBlock: _inDangerBlock))
-        {
-            errors.Add(item: new MemoryError(
-                Message: $"Cannot thread_share object of type {obj.Wrapper}", Location: location,
-                Type: MemoryError.MemoryErrorType.InvalidTransformation));
-            return obj.Wrapper;
-        }
-
-        return WrapperType.ThreadShared;
-    }
-
-    private WrapperType ValidateThreadWatch(MemoryObject obj, SourceLocation location,
-        List<MemoryError> errors)
-    {
-        if (obj.Wrapper != WrapperType.ThreadShared)
-        {
-            errors.Add(item: new MemoryError(
-                Message: $"Can only thread_watch ThreadShared objects, not {obj.Wrapper}",
-                Location: location, Type: MemoryError.MemoryErrorType.InvalidTransformation));
-            return obj.Wrapper;
-        }
-
-        return WrapperType.ThreadWatched;
-    }
-
     private WrapperType ValidateSteal(MemoryObject obj, SourceLocation location,
         List<MemoryError> errors)
     {
+        if (obj.Wrapper == WrapperType.Retained && obj.ReferenceCount != 1)
+        {
+            errors.Add(item: new MemoryError(
+                Message:
+                $"Cannot steal from Retained object with RC={obj.ReferenceCount} (need RC=1)",
+                Location: location, Type: MemoryError.MemoryErrorType.ReferenceCountError));
+            return obj.Wrapper;
+        }
+
         if (obj.Wrapper == WrapperType.Shared && obj.ReferenceCount != 1)
         {
             errors.Add(item: new MemoryError(
                 Message:
-                $"Cannot steal from Shared object with RC={obj.ReferenceCount} (need RC=1)",
+                $"Cannot steal from Shared object with Arc={obj.ReferenceCount} (need Arc=1)",
                 Location: location, Type: MemoryError.MemoryErrorType.ReferenceCountError));
             return obj.Wrapper;
         }
 
-        if (obj.Wrapper == WrapperType.ThreadShared && obj.ReferenceCount != 1)
-        {
-            errors.Add(item: new MemoryError(
-                Message:
-                $"Cannot steal from ThreadShared object with Arc={obj.ReferenceCount} (need Arc=1)",
-                Location: location, Type: MemoryError.MemoryErrorType.ReferenceCountError));
-            return obj.Wrapper;
-        }
-
-        if (obj.Wrapper != WrapperType.Shared && obj.Wrapper != WrapperType.ThreadShared &&
-            obj.Wrapper != WrapperType.Hijacked)
+        if (obj.Wrapper != WrapperType.Retained && obj.Wrapper != WrapperType.Shared)
         {
             errors.Add(item: new MemoryError(Message: $"Cannot steal from {obj.Wrapper}",
                 Location: location, Type: MemoryError.MemoryErrorType.InvalidTransformation));
@@ -1034,10 +977,10 @@ public class MemoryAnalyzer
     private WrapperType ValidateRelease(MemoryObject obj, SourceLocation location,
         List<MemoryError> errors)
     {
-        if (obj.Wrapper != WrapperType.Shared && obj.Wrapper != WrapperType.ThreadShared)
+        if (obj.Wrapper != WrapperType.Retained && obj.Wrapper != WrapperType.Shared)
         {
             errors.Add(item: new MemoryError(
-                Message: $"Can only release Shared or ThreadShared objects, not {obj.Wrapper}",
+                Message: $"Can only release Retained or Shared objects, not {obj.Wrapper}",
                 Location: location, Type: MemoryError.MemoryErrorType.InvalidTransformation));
             return obj.Wrapper;
         }
@@ -1053,32 +996,19 @@ public class MemoryAnalyzer
         return obj.Wrapper;
     }
 
-    private WrapperType ValidateTryShare(MemoryObject obj, SourceLocation location,
+    private WrapperType ValidateRecover(MemoryObject obj, SourceLocation location,
         List<MemoryError> errors)
     {
-        if (obj.Wrapper != WrapperType.Watched)
+        if (obj.Wrapper != WrapperType.Tracked)
         {
             errors.Add(item: new MemoryError(
-                Message: $"Can only try_share on Watched objects, not {obj.Wrapper}",
+                Message: $"Can only recover Tracked objects, not {obj.Wrapper}",
                 Location: location, Type: MemoryError.MemoryErrorType.InvalidTransformation));
             return obj.Wrapper;
         }
 
-        return WrapperType.Shared;
-    }
-
-    private WrapperType ValidateTryThreadShare(MemoryObject obj, SourceLocation location,
-        List<MemoryError> errors)
-    {
-        if (obj.Wrapper != WrapperType.ThreadWatched)
-        {
-            errors.Add(item: new MemoryError(
-                Message: $"Can only try_thread_share on ThreadWatched objects, not {obj.Wrapper}",
-                Location: location, Type: MemoryError.MemoryErrorType.InvalidTransformation));
-            return obj.Wrapper;
-        }
-
-        return WrapperType.ThreadShared;
+        // Determine target type based on Policy (null = Retained, non-null = Shared)
+        return obj.Policy == null ? WrapperType.Retained : WrapperType.Shared;
     }
 
     private WrapperType ValidateReveal(MemoryObject obj, SourceLocation location,

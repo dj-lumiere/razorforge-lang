@@ -668,11 +668,11 @@ public class SimpleCodeGenerator : IAstVisitor<string>
             message: "hijacking statement not yet implemented in simple code generator");
     }
 
-    public string VisitWitnessingStatement(WitnessingStatement node)
+    public string VisitObservingStatement(ObservingStatement node)
     {
-        // TODO: Implement witnessing statement code generation
+        // TODO: Implement observing statement code generation
         throw new NotImplementedException(
-            message: "witnessing statement not yet implemented in simple code generator");
+            message: "observing statement not yet implemented in simple code generator");
     }
 
     public string VisitSeizingStatement(SeizingStatement node)

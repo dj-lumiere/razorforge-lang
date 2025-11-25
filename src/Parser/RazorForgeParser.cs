@@ -217,10 +217,10 @@ public class RazorForgeParser : BaseParser
             return ParseHijackingStatement();
         }
 
-        // Witnessing block (thread-safe scoped read access)
-        if (Match(type: TokenType.Witnessing))
+        // Observing block (thread-safe scoped read access)
+        if (Match(type: TokenType.Observing))
         {
-            return ParseWitnessingStatement();
+            return ParseObservingStatement();
         }
 
         // Seizing block (thread-safe scoped exclusive access)
@@ -1975,22 +1975,22 @@ public class RazorForgeParser : BaseParser
             Location: location);
     }
 
-    private WitnessingStatement ParseWitnessingStatement()
+    private ObservingStatement ParseObservingStatement()
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
 
-        // Parse source expression: witnessing <expr> from <handle>
+        // Parse source expression: observing <expr> from <handle>
         string handle = ConsumeIdentifier(errorMessage: "Expected handle name");
 
-        Consume(type: TokenType.From, errorMessage: "Expected 'from' after witnessing handle");
+        Consume(type: TokenType.From, errorMessage: "Expected 'from' after observing handle");
 
         Expression source = ParseExpression();
 
-        Consume(type: TokenType.Colon, errorMessage: "Expected ':' after witnessing source");
+        Consume(type: TokenType.Colon, errorMessage: "Expected ':' after observing source");
 
         BlockStatement body = ParseBlockStatement();
 
-        return new WitnessingStatement(Source: source, Handle: handle, Body: body,
+        return new ObservingStatement(Source: source, Handle: handle, Body: body,
             Location: location);
     }
 

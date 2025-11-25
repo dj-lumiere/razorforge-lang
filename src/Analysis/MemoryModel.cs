@@ -8,9 +8,9 @@ namespace Compilers.Shared.Analysis;
 ///
 /// RazorForge uses explicit memory management with 6 wrapper types organized into 3 color-coded groups:
 /// <list type="bullet">
-/// <item>Group 1 (Red): Exclusive borrowing - Hijacked&lt;T&gt;</item>
-/// <item>Group 2 (Green/Brown): Single-threaded RC - Shared&lt;T&gt;, Watched&lt;T&gt;</item>
-/// <item>Group 3 (Blue/Purple): Multi-threaded RC - ThreadShared&lt;T&gt;, ThreadWatched&lt;T&gt;</item>
+/// <item>Group 1 (Red): Exclusive borrowing - Viewed&lt;T&gt;, Hijacked&lt;T&gt;</item>
+/// <item>Group 2 (Green/Brown): Single-threaded RC - Retained&lt;T&gt;, Tracked&lt;Retained&lt;T&gt;&gt;</item>
+/// <item>Group 3 (Blue/Purple): Multi-threaded RC - Shared&lt;T, Policy&gt;, Tracked&lt;Shared&lt;T, Policy&gt;&gt;, Observed&lt;T&gt;, Seized&lt;T&gt;</item>
 /// <item>Unsafe (Black): Forcibly taken - Snatched&lt;T&gt; (danger! blocks only)</item>
 /// </list>
 ///
@@ -47,52 +47,51 @@ public enum WrapperType
     Viewed,
 
     /// <summary>
-    /// Thread-safe scoped read-only access (ThreadWitnessed&lt;T&gt;). Created by 'threadwitnessing' statement.
-    /// Acquires read lock on ThreadShared&lt;T, MultiReadLock&gt; for duration of scope.
+    /// Thread-safe scoped read-only access (Observed&lt;T&gt;). Created by 'observing' statement.
+    /// Acquires read lock on Shared&lt;T, MultiReadLock&gt; for duration of scope.
     /// Copyable within scope, multiple readers can coexist.
     /// Mutations through this handle are compile errors.
     /// Read lock automatically released when scope exits.
     /// </summary>
-    ThreadWitnessed,
+    Observed,
 
     /// <summary>
-    /// Thread-safe scoped exclusive access (ThreadSeized&lt;T&gt;). Created by 'threadseizing' statement.
-    /// Acquires exclusive lock on ThreadShared&lt;T&gt; for duration of scope.
+    /// Thread-safe scoped exclusive access (Seized&lt;T&gt;). Created by 'seizing' statement.
+    /// Acquires exclusive lock on Shared&lt;T, Policy&gt; for duration of scope.
     /// NOT copyable - unique access only.
     /// Allows mutations (exclusive write access).
     /// Lock automatically released when scope exits.
     /// </summary>
-    ThreadSeized,
+    Seized,
 
     // Group 2 - Single-threaded Reference Counting (Green/Brown 🟢🟤)
     /// <summary>
-    /// Shared ownership with interior mutability (Shared&lt;T&gt;).
+    /// Single-threaded shared ownership with interior mutability (Retained&lt;T&gt;).
     /// Multiple references can exist (RC > 1). Provides shared mutable access
     /// through reference counting similar to Rc&lt;RefCell&lt;T&gt;&gt; in Rust.
+    /// Created via retain!() operation.
     /// </summary>
-    Shared,
+    Retained,
 
     /// <summary>
-    /// Weak observer (Watched&lt;T&gt;). Does not prevent object destruction.
-    /// Can observe shared objects without affecting reference count.
-    /// Must use try_share!() to upgrade to strong reference.
+    /// Weak observer wrapper - can track either Retained or Shared.
+    /// Single-threaded: Tracked&lt;Retained&lt;T&gt;&gt; - does not prevent object destruction
+    /// Multi-threaded: Tracked&lt;Shared&lt;T, Policy&gt;&gt; - thread-safe weak reference
+    /// Must use try_recover() to upgrade to strong reference:
+    ///   - Tracked&lt;Retained&lt;T&gt;&gt; → Maybe&lt;Retained&lt;T&gt;&gt;
+    ///   - Tracked&lt;Shared&lt;T, Policy&gt;&gt; → Maybe&lt;Shared&lt;T, Policy&gt;&gt;
+    /// Created via track!() operation on Retained&lt;T&gt; or Shared&lt;T, Policy&gt;.
     /// </summary>
-    Watched,
+    Tracked,
 
     // Group 3 - Thread-Safe Reference Counting (Blue/Purple 🔵🟣)
     /// <summary>
-    /// Thread-safe shared ownership (ThreadShared&lt;T&gt;).
+    /// Thread-safe shared ownership (Shared&lt;T, Policy&gt;).
     /// Multiple references across threads (Arc > 1). Provides thread-safe
-    /// shared mutable access through atomic reference counting and mutex.
+    /// shared mutable access through atomic reference counting and locking policy.
+    /// Created via share!() operation with explicit policy (Mutex, MultiReadLock, or RejectEdit).
     /// </summary>
-    ThreadShared,
-
-    /// <summary>
-    /// Thread-safe weak observer (ThreadWatched&lt;T&gt;).
-    /// Thread-safe weak reference that doesn't prevent destruction.
-    /// Can observe thread-shared objects across thread boundaries.
-    /// </summary>
-    ThreadWatched,
+    Shared,
 
     // Unsafe (Black 💀)
     /// <summary>
@@ -119,15 +118,18 @@ public enum MemoryGroup
 
     /// <summary>
     /// Group 2: Single-threaded reference counting (Green/Brown 🟢🟤).
-    /// Contains: Shared, Watched. Allows multiple references within single thread.
+    /// Contains: Retained, Tracked. Allows multiple references within single thread.
     /// Uses RC (reference counting) similar to Rc&lt;RefCell&lt;T&gt;&gt; in Rust.
+    /// Types: Retained&lt;T&gt;, Tracked&lt;Retained&lt;T&gt;&gt;
     /// </summary>
     SingleThreaded = 2,
 
     /// <summary>
     /// Group 3: Multi-threaded reference counting (Blue/Purple 🔵🟣).
-    /// Contains: ThreadShared, ThreadWatched. Thread-safe shared ownership.
-    /// Uses Arc (atomic reference counting) similar to Arc&lt;Mutex&lt;T&gt;&gt; in Rust.
+    /// Contains: Shared, Observed, Seized. Thread-safe shared ownership.
+    /// Note: Tracked can also belong to this group when tracking Shared&lt;T, Policy&gt;.
+    /// Uses Arc (atomic reference counting) similar to Arc&lt;Mutex&lt;T&gt;&gt; or Arc&lt;RwLock&lt;T&gt;&gt; in Rust.
+    /// Types: Shared&lt;T, Policy&gt;, Tracked&lt;Shared&lt;T, Policy&gt;&gt;, Observed&lt;T&gt;, Seized&lt;T&gt;
     /// </summary>
     MultiThreaded = 3,
 
@@ -140,7 +142,7 @@ public enum MemoryGroup
 }
 
 /// <summary>
-/// Locking policy for ThreadShared and ThreadWatched types.
+/// Locking policy for Shared&lt;T, Policy&gt; and Tracked&lt;Shared&lt;T, Policy&gt;&gt; types.
 /// Determines the synchronization mechanism used for multi-threaded access.
 /// This is a compile-time choice that affects which scoped access operations are allowed.
 /// </summary>
@@ -149,8 +151,8 @@ public enum LockingPolicy
     /// <summary>
     /// Pure mutex (Arc&lt;Mutex&lt;T&gt;&gt;) - exclusive access only.
     /// Performance: ~15-30ns for lock acquisition.
-    /// Allows: threadseizing only (exclusive write access)
-    /// Disallows: threadwitnessing (compile error)
+    /// Allows: seizing only (exclusive write access)
+    /// Disallows: observing (compile error)
     /// Use case: Write-heavy workloads
     /// </summary>
     Mutex,
@@ -158,7 +160,7 @@ public enum LockingPolicy
     /// <summary>
     /// Reader-writer lock (Arc&lt;RwLock&lt;T&gt;&gt;) - supports concurrent reads.
     /// Performance: ~10-20ns for read lock, ~20-35ns for write lock.
-    /// Allows: both threadseizing (exclusive write) and threadwitnessing (shared read)
+    /// Allows: both seizing (exclusive write) and observing (shared read)
     /// Use case: Read-heavy workloads with occasional writes
     /// </summary>
     MultiReadLock
@@ -179,7 +181,7 @@ public enum ObjectState
 
     /// <summary>
     /// Object has been invalidated (deadref). Cannot be accessed anymore.
-    /// Caused by: memory operations (share!, hijack!, etc.), scope exit, or explicit invalidation.
+    /// Caused by: memory operations (retain!, hijack!, etc.), scope exit, or explicit invalidation.
     /// Attempting to use invalidated objects results in compile-time error.
     /// </summary>
     Invalidated,
@@ -206,12 +208,12 @@ public enum ObjectState
 /// </summary>
 /// <param name="Name">Variable name that holds reference to this object</param>
 /// <param name="BaseType">The underlying type of the object (e.g., Node, List&lt;i32&gt;)</param>
-/// <param name="Wrapper">Current wrapper type (Owned, Shared, Hijacked, etc.)</param>
+/// <param name="Wrapper">Current wrapper type (Owned, Retained, Hijacked, Shared, etc.)</param>
 /// <param name="State">Current object state (Valid, Invalidated, Moved, Dangerous)</param>
-/// <param name="ReferenceCount">Current reference count (for Shared/ThreadShared types)</param>
+/// <param name="ReferenceCount">Current reference count (for Retained/Shared types)</param>
 /// <param name="Location">Source location where object was declared</param>
 /// <param name="InvalidatedBy">Reason for invalidation (for error reporting)</param>
-/// <param name="Policy">Locking policy for ThreadShared/ThreadWatched (null for other wrapper types)</param>
+/// <param name="Policy">Locking policy for Shared&lt;T, Policy&gt;/Tracked&lt;Shared&lt;T, Policy&gt;&gt; (null for other wrapper types)</param>
 public record MemoryObject(
     string Name,
     TypeInfo BaseType,
@@ -226,6 +228,8 @@ public record MemoryObject(
     /// Get the memory group for this wrapper type.
     /// Used to enforce the core rule: cannot mix operations between different groups.
     /// Owned objects can become any group, but once transformed, they're locked to that group.
+    /// Note: Tracked can belong to either SingleThreaded or MultiThreaded group depending on
+    /// what it's tracking (Retained vs Shared), determined by Policy presence.
     /// </summary>
     public MemoryGroup Group => Wrapper switch
     {
@@ -236,11 +240,13 @@ public record MemoryObject(
         WrapperType.Hijacked or WrapperType.Viewed => MemoryGroup.Exclusive,
 
         // Group 2: Single-threaded reference counting
-        WrapperType.Shared or WrapperType.Watched => MemoryGroup.SingleThreaded,
+        WrapperType.Retained => MemoryGroup.SingleThreaded,
+
+        // Tracked belongs to Group 2 if tracking Retained (no Policy), Group 3 if tracking Shared (has Policy)
+        WrapperType.Tracked => Policy == null ? MemoryGroup.SingleThreaded : MemoryGroup.MultiThreaded,
 
         // Group 3: Multi-threaded reference counting and scoped locks
-        WrapperType.ThreadShared or WrapperType.ThreadWatched or WrapperType.ThreadWitnessed
-            or WrapperType.ThreadSeized => MemoryGroup.MultiThreaded,
+        WrapperType.Shared or WrapperType.Observed or WrapperType.Seized => MemoryGroup.MultiThreaded,
 
         // Unsafe: Danger zone
         WrapperType.Snatched => MemoryGroup.Unsafe,
@@ -258,7 +264,7 @@ public record MemoryObject(
         return Wrapper switch
         {
             WrapperType.Viewed => true, // viewing X as v { } - read-only
-            WrapperType.ThreadWitnessed => true, // threadwitnessing X as tw { } - read-only lock
+            WrapperType.Observed => true, // observing X as o { } - read-only lock
             _ => false // All others allow mutation
         };
     }
@@ -300,31 +306,27 @@ public record MemoryObject(
             (WrapperType.Hijacked, WrapperType.Hijacked) => false,
 
             // === Within Group 2 (Single-threaded RC) ===
-            // Creating multiple shared references increments RC
-            (WrapperType.Shared, WrapperType.Shared) => true,
-            // Create weak reference from shared (doesn't invalidate source)
-            (WrapperType.Shared, WrapperType.Watched) => true,
-            // Upgrade weak to strong via try_share!() (if object still exists)
-            (WrapperType.Watched, WrapperType.Shared) => true,
+            // Creating multiple Retained references increments RC
+            (WrapperType.Retained, WrapperType.Retained) => true,
+            // Create weak reference from Retained (doesn't invalidate source)
+            (WrapperType.Retained, WrapperType.Tracked) => true,
+            // Upgrade weak to strong via try_recover() (if object still exists)
+            (WrapperType.Tracked, WrapperType.Retained) => true,
             // Multiple weak references are allowed
-            (WrapperType.Watched, WrapperType.Watched) => true,
+            (WrapperType.Tracked, WrapperType.Tracked) => true,
 
             // === Within Group 3 (Multi-threaded RC) ===
-            // Creating multiple thread-shared references increments Arc
-            (WrapperType.ThreadShared, WrapperType.ThreadShared) => true,
-            // Create weak reference from thread-shared
-            (WrapperType.ThreadShared, WrapperType.ThreadWatched) => true,
-            // Upgrade weak to strong via try_thread_share!()
-            (WrapperType.ThreadWatched, WrapperType.ThreadShared) => true,
-            // Multiple weak references are allowed
-            (WrapperType.ThreadWatched, WrapperType.ThreadWatched) => true,
+            // Creating multiple Shared references increments Arc
+            (WrapperType.Shared, WrapperType.Shared) => true,
+            // Create weak reference from Shared
+            (WrapperType.Shared, WrapperType.Tracked) => true,
+            // Upgrade weak to strong via try_recover()
+            (WrapperType.Tracked, WrapperType.Shared) => true,
 
             // === steal!() operations - reclaim direct ownership ===
             // Can only steal when you're the sole owner (RC = 1)
+            (WrapperType.Retained, WrapperType.Owned) => ReferenceCount == 1,
             (WrapperType.Shared, WrapperType.Owned) => ReferenceCount == 1,
-            (WrapperType.ThreadShared, WrapperType.Owned) => ReferenceCount == 1,
-            // Can always steal from hijacked (exclusive access guaranteed)
-            (WrapperType.Hijacked, WrapperType.Owned) => true,
 
             // === Cross-group transformations are forbidden ===
             // This prevents mixing different memory management strategies
@@ -338,6 +340,8 @@ public record MemoryObject(
     /// <summary>
     /// Helper method to get memory group for any wrapper type.
     /// Used for cross-group validation and transformation rules.
+    /// Note: Tracked can belong to either Group 2 or Group 3, but this method
+    /// cannot determine which without Policy info. Callers should use the Group property instead.
     /// </summary>
     /// <param name="wrapper">The wrapper type to get group for</param>
     /// <returns>The memory group this wrapper belongs to</returns>
@@ -350,11 +354,14 @@ public record MemoryObject(
             WrapperType.Hijacked or WrapperType.Viewed => MemoryGroup.Exclusive,
 
             // Group 2: Single-threaded RC
-            WrapperType.Shared or WrapperType.Watched => MemoryGroup.SingleThreaded,
+            WrapperType.Retained => MemoryGroup.SingleThreaded,
+
+            // Tracked: Ambiguous without Policy - default to SingleThreaded
+            // (Callers should use instance Group property for accurate determination)
+            WrapperType.Tracked => MemoryGroup.SingleThreaded,
 
             // Group 3: Multi-threaded RC and scoped locks
-            WrapperType.ThreadShared or WrapperType.ThreadWatched or WrapperType.ThreadWitnessed
-                or WrapperType.ThreadSeized => MemoryGroup.MultiThreaded,
+            WrapperType.Shared or WrapperType.Observed or WrapperType.Seized => MemoryGroup.MultiThreaded,
 
             // Unsafe zone
             WrapperType.Snatched => MemoryGroup.Unsafe,
@@ -371,60 +378,45 @@ public record MemoryObject(
 ///
 /// The operations are grouped by their primary purpose:
 /// <list type="bullet">
-/// <item>Group Transformations: hijack!(), share!(), thread_share!() - change wrapper type</item>
-/// <item>Weak References: watch!(), thread_watch!() - create non-owning references</item>
+/// <item>Group Transformations: retain!(), share!() - change wrapper type</item>
+/// <item>Weak References: track!() - create non-owning references</item>
 /// <item>Ownership Reclaim: steal!() - get back direct ownership when RC = 1</item>
 /// <item>RC Management: release!() - manually decrement reference count</item>
-/// <item>Weak Upgrades: try_share!(), try_thread_share!() - upgrade weak to strong (can fail)</item>
+/// <item>Weak Upgrades: try_recover() - upgrade weak to strong (can fail)</item>
 /// <item>Unsafe Operations: snatch!(), reveal!(), own!() - danger! block only</item>
 /// </list>
 /// </summary>
 public enum MemoryOperation
 {
     /// <summary>
-    /// hijack!() - Transform to exclusive access (Hijacked&lt;T&gt;).
-    /// Creates exclusive mutable access by invalidating the source object.
-    /// Only one Hijacked reference can exist at a time (exclusive ownership).
-    /// Use case: When you need guaranteed exclusive write access.
+    /// retain!() - Transform to single-threaded shared ownership (Retained&lt;T&gt;).
+    /// Creates reference-counted shared access with interior mutability.
+    /// Multiple Retained references can coexist, each with RC tracking.
+    /// Use case: When multiple references within single thread need mutable access.
     /// </summary>
-    Hijack,
+    Retain,
 
     /// <summary>
-    /// share!() - Transform to shared ownership (Shared&lt;T&gt;).
-    /// Creates reference-counted shared access with interior mutability.
-    /// Multiple Shared references can coexist, each with RC tracking.
-    /// Use case: When multiple references need mutable access to same object.
+    /// share!() - Transform to thread-safe shared ownership (Shared&lt;T, Policy&gt;).
+    /// Creates atomic reference-counted shared access across threads.
+    /// Requires explicit locking policy (Mutex, MultiReadLock, or RejectEdit).
+    /// Use case: Sharing mutable objects across thread boundaries.
     /// </summary>
     Share,
 
     /// <summary>
-    /// watch!() - Create weak reference (Watched&lt;T&gt;).
+    /// track!() - Create weak reference (Tracked&lt;Retained&lt;T&gt;&gt; or Tracked&lt;Shared&lt;T, Policy&gt;&gt;).
     /// Creates observer reference that doesn't prevent object destruction.
     /// Weak references don't contribute to reference count (RC = 0).
+    /// Can be used with both Retained (single-threaded) and Shared (multi-threaded).
     /// Use case: Breaking cycles, observing without ownership responsibility.
     /// </summary>
-    Watch,
-
-    /// <summary>
-    /// thread_share!() - Transform to thread-safe shared (ThreadShared&lt;T&gt;).
-    /// Creates atomic reference-counted shared access across threads.
-    /// Uses Arc (atomic reference count) similar to Arc&lt;Mutex&lt;T&gt;&gt; in Rust.
-    /// Use case: Sharing mutable objects across thread boundaries.
-    /// </summary>
-    ThreadShare,
-
-    /// <summary>
-    /// thread_watch!() - Create thread-safe weak reference (ThreadWatched&lt;T&gt;).
-    /// Creates thread-safe observer that doesn't prevent destruction.
-    /// Can observe ThreadShared objects without affecting Arc count.
-    /// Use case: Thread-safe cycle breaking and observation.
-    /// </summary>
-    ThreadWatch,
+    Track,
 
     /// <summary>
     /// steal!() - Reclaim direct ownership (back to Owned), requires RC = 1.
     /// Only works when you're the sole owner of a shared object.
-    /// Converts Shared/ThreadShared/Hijacked back to direct ownership.
+    /// Converts Retained/Shared back to direct ownership.
     /// Use case: Optimizing access when you know you're the only owner.
     /// </summary>
     Steal,
@@ -446,20 +438,15 @@ public enum MemoryOperation
     Release,
 
     /// <summary>
-    /// try_share!() - Attempt to upgrade weak to strong reference.
-    /// Tries to convert Watched reference back to Shared reference.
-    /// Can fail if the original object was already destroyed.
-    /// Use case: Safe upgrade from observer to participant.
+    /// recover!() / try_recover() - Upgrade weak to strong reference.
+    /// Converts Tracked reference back to its strong form:
+    ///   - recover!(): Tracked&lt;Retained&lt;T&gt;&gt; → Retained&lt;T&gt; (crashes if deallocated)
+    ///   - try_recover(): Tracked&lt;Retained&lt;T&gt;&gt; → Maybe&lt;Retained&lt;T&gt;&gt; (returns None if deallocated)
+    ///   - recover!(): Tracked&lt;Shared&lt;T, Policy&gt;&gt; → Shared&lt;T, Policy&gt; (crashes if deallocated)
+    ///   - try_recover(): Tracked&lt;Shared&lt;T, Policy&gt;&gt; → Maybe&lt;Shared&lt;T, Policy&gt;&gt; (returns None if deallocated)
+    /// Use case: Upgrade from observer to participant (try_ variant is safer).
     /// </summary>
-    TryShare,
-
-    /// <summary>
-    /// try_thread_share!() - Attempt to upgrade thread-weak to thread-strong.
-    /// Tries to convert ThreadWatched reference back to ThreadShared.
-    /// Thread-safe version of try_share!() with atomic operations.
-    /// Use case: Safe thread-safe upgrade from observer to participant.
-    /// </summary>
-    TryThreadShare,
+    Recover,
 
     /// <summary>
     /// reveal!() - Access snatched object (danger! only).
@@ -501,21 +488,21 @@ public record MemoryError(
         /// <summary>
         /// Attempt to use an object that has been invalidated (deadref protection).
         /// Caused by using objects after memory operations invalidated them.
-        /// Example: using 'obj' after 'obj.share!()' invalidated it.
+        /// Example: using 'obj' after 'obj.retain!()' invalidated it.
         /// </summary>
         UseAfterInvalidation,
 
         /// <summary>
         /// Attempt to mix objects from different memory groups outside danger! blocks.
         /// Prevents unsafe aliasing by enforcing group separation.
-        /// Example: trying to share a Hijacked object with a Shared object.
+        /// Example: trying to share a Retained object with a Shared object.
         /// </summary>
         MixedMemoryGroups,
 
         /// <summary>
         /// Invalid transformation between wrapper types.
         /// Caused by attempting disallowed wrapper type conversions.
-        /// Example: trying to hijack an already-hijacked object.
+        /// Example: trying to create hijacking statement on an already-hijacked object.
         /// </summary>
         InvalidTransformation,
 
@@ -528,8 +515,8 @@ public record MemoryError(
 
         /// <summary>
         /// Violation of usurping function rules.
-        /// Caused by non-usurping functions trying to return Hijacked&lt;T&gt;.
-        /// Example: regular function returning exclusive token without usurping declaration.
+        /// Caused by non-usurping functions trying to return tokens from scoped statements.
+        /// Example: regular function returning Hijacked&lt;T&gt; token without usurping declaration.
         /// </summary>
         UsurpingViolation,
 
@@ -550,7 +537,7 @@ public record MemoryError(
         /// <summary>
         /// Thread safety violation.
         /// Caused by improper use of single-threaded objects across thread boundaries.
-        /// Example: passing Shared&lt;T&gt; to another thread instead of ThreadShared&lt;T&gt;.
+        /// Example: passing Retained&lt;T&gt; to another thread instead of Shared&lt;T, Policy&gt;.
         /// </summary>
         ThreadSafetyViolation
     }
@@ -574,20 +561,20 @@ public enum ContainerSemantics
     Owned,
 
     /// <summary>
-    /// Container holds shared references with automatic RC management.
+    /// Container holds single-threaded shared references with automatic RC management.
     /// Objects maintain their reference count and can be accessed from
-    /// multiple locations. Container increments RC on insertion.
-    /// Example: SharedVector&lt;Node&gt; shares references to nodes.
+    /// multiple locations within the same thread. Container increments RC on insertion.
+    /// Example: RetainedVector&lt;Node&gt; shares Retained references to nodes.
     /// </summary>
-    Shared,
+    Retained,
 
     /// <summary>
     /// Container holds thread-safe references with atomic RC management.
-    /// Similar to Shared but with thread-safe atomic operations.
+    /// Similar to Retained but with thread-safe atomic operations.
     /// Can be safely passed between threads while maintaining memory safety.
-    /// Example: ThreadSafeVector&lt;Node&gt; for concurrent access patterns.
+    /// Example: SharedVector&lt;Node&gt; for concurrent access patterns with Shared&lt;Node, Policy&gt;.
     /// </summary>
-    ThreadSafe
+    Shared
 }
 
 /// <summary>
@@ -598,19 +585,19 @@ public enum ContainerSemantics
 public enum FunctionType
 {
     /// <summary>
-    /// Regular function - cannot return exclusive tokens.
-    /// Most functions fall into this category and cannot return Hijacked&lt;T&gt;
-    /// objects since that would violate exclusive access guarantees.
-    /// Can return Owned, Shared, Watched, ThreadShared, ThreadWatched objects.
+    /// Regular function - cannot return scoped statement tokens.
+    /// Most functions fall into this category and cannot return Hijacked&lt;T&gt;,
+    /// Viewed&lt;T&gt;, Observed&lt;T&gt;, or Seized&lt;T&gt; since these are scoped tokens.
+    /// Can return Owned, Retained, Tracked, Shared objects.
     /// Example: recipe process_data(data: Node) → Node
     /// </summary>
     Regular,
 
     /// <summary>
-    /// Usurping function - can return Hijacked&lt;T&gt; (exclusive tokens).
+    /// Usurping function - can return scoped tokens (Hijacked&lt;T&gt;, etc.).
     /// Special functions explicitly marked as 'usurping' that are allowed
-    /// to return exclusive access objects. Used for factory functions or
-    /// specialized operations that need to provide exclusive access.
+    /// to return tokens from scoped statements. Used for factory functions or
+    /// specialized operations that need to provide scoped access.
     /// Example: usurping public recipe __create___exclusive() → Hijacked&lt;Node&gt;
     /// </summary>
     Usurping

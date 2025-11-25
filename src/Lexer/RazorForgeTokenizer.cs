@@ -79,7 +79,7 @@ public class RazorForgeTokenizer : BaseTokenizer
         [key: "viewing"] = TokenType.Viewing,
         [key: "hijacking"] = TokenType.Hijacking,
         [key: "seizing"] = TokenType.Seizing,
-        [key: "witnessing"] = TokenType.Witnessing
+        [key: "observing"] = TokenType.Observing
     };
 
     #endregion

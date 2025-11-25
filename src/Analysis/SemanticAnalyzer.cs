@@ -1513,9 +1513,9 @@ public class SemanticAnalyzer : IAstVisitor<object?>
             return null;
         }
 
-        // Extract policy argument for thread_share!() and thread_watch!()
+        // Extract policy argument for share!()
         LockingPolicy? policy = null;
-        if (operation == MemoryOperation.ThreadShare)
+        if (operation == MemoryOperation.Share)
         {
             // thread_share!(Mutex) or thread_share!(MultiReadLock)
             // For now, accept policy as a simple identifier argument
@@ -1580,15 +1580,14 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     {
         return operationName switch
         {
-            // Group 2: Single-threaded shared access
-            "share!" => MemoryOperation.Share,
-            "watch!" => MemoryOperation.Watch,
-            "try_share!" => MemoryOperation.TryShare,
+            // Group 2: Single-threaded reference counting
+            "retain!" => MemoryOperation.Retain,
+            "track!" => MemoryOperation.Track,
+            "try_recover" => MemoryOperation.Recover,
+            "recover!" => MemoryOperation.Recover,
 
-            // Group 3: Multi-threaded shared access
-            "thread_share!" => MemoryOperation.ThreadShare,
-            "thread_watch!" => MemoryOperation.ThreadWatch,
-            "try_thread_share!" => MemoryOperation.TryThreadShare,
+            // Group 3: Multi-threaded reference counting
+            "share!" => MemoryOperation.Share,
 
             // Ownership reclaim operations
             "steal!" => MemoryOperation.Steal,
@@ -1634,10 +1633,9 @@ public class SemanticAnalyzer : IAstVisitor<object?>
 
             // Memory wrapper types with generic syntax
             WrapperType.Hijacked => $"Hijacked<{baseType.Name}>", // Exclusive access 🔴
-            WrapperType.Shared => $"Shared<{baseType.Name}>", // Shared ownership 🟢
-            WrapperType.Watched => $"Watched<{baseType.Name}>", // Weak observer 🟤
-            WrapperType.ThreadShared => $"ThreadShared<{baseType.Name}>", // Thread-safe shared 🔵
-            WrapperType.ThreadWatched => $"ThreadWatched<{baseType.Name}>", // Thread-safe weak 🟣
+            WrapperType.Retained => $"Retained<{baseType.Name}>", // Single-threaded RC 🟢
+            WrapperType.Tracked => $"Tracked<{baseType.Name}>", // Weak observer 🟤
+            WrapperType.Shared => $"Shared<{baseType.Name}>", // Thread-safe shared 🔵
             WrapperType.Snatched => $"Snatched<{baseType.Name}>", // Contaminated ownership 💀
 
             _ => baseType.Name
@@ -3032,19 +3030,19 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     }
 
     /// <summary>
-    /// Visits a witnessing statement node (thread-safe scoped read access).
-    /// Syntax: witnessing &lt;handle&gt; from &lt;source&gt;: { ... }
-    /// Creates a temporary Witnessed&lt;T&gt; handle with shared read lock.
-    /// IMPORTANT: Only works with Vault&lt;T, MultiReadLock&gt;, not Vault&lt;T, Mutex&gt;.
+    /// Visits an observing statement node (thread-safe scoped read access).
+    /// Syntax: observing &lt;handle&gt; from &lt;source&gt;: { ... }
+    /// Creates a temporary Observed&lt;T&gt; handle with shared read lock.
+    /// IMPORTANT: Only works with Shared&lt;T, MultiReadLock&gt;, not Shared&lt;T, Mutex&gt;.
     /// </summary>
-    public object? VisitWitnessingStatement(WitnessingStatement node)
+    public object? VisitObservingStatement(ObservingStatement node)
     {
         // Evaluate the source expression to get its type
         var sourceType = node.Source.Accept(visitor: this) as TypeInfo;
 
         if (sourceType == null)
         {
-            AddError(message: "Cannot witness expression with unknown type",
+            AddError(message: "Cannot observe expression with unknown type",
                 location: node.Location);
             return null;
         }
@@ -3055,12 +3053,12 @@ public class SemanticAnalyzer : IAstVisitor<object?>
             MemoryObject? sourceObj = _memoryAnalyzer.GetObject(name: sourceId.Name);
             if (sourceObj != null)
             {
-                // COMPILE-TIME CHECK: witnessing requires MultiReadLock policy
-                if (sourceObj.Wrapper == WrapperType.ThreadShared &&
+                // COMPILE-TIME CHECK: observing requires MultiReadLock policy
+                if (sourceObj.Wrapper == WrapperType.Shared &&
                     sourceObj.Policy != LockingPolicy.MultiReadLock)
                 {
                     AddError(
-                        message: $"witnessing requires Vault<T, MultiReadLock>. " +
+                        message: $"observing requires Shared<T, MultiReadLock>. " +
                                  $"Object '{sourceId.Name}' has policy {sourceObj.Policy}. " +
                                  $"Use seizing for exclusive access, or create with MultiReadLock policy.",
                         location: node.Location);
@@ -3069,7 +3067,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
             }
         }
 
-        // Create a new scope for the witnessing block
+        // Create a new scope for the observing block
         _symbolTable.EnterScope();
         _memoryAnalyzer.EnterScope();
 
