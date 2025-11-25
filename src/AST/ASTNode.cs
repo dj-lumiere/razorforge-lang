@@ -261,22 +261,22 @@ public interface IAstVisitor<T>
     /// <returns>Result of visiting the mayhem statement</returns>
     T VisitMayhemStatement(MayhemStatement node);
 
-    /// <summary>Visits a viewing statement node (scoped read-only access with temporary steal)</summary>
+    /// <summary>Visits a viewing statement node (scoped read-only access)</summary>
     /// <param name="node">The viewing statement to visit</param>
     /// <returns>Result of visiting the viewing statement</returns>
     T VisitViewingStatement(ViewingStatement node);
 
-    /// <summary>Visits a hijacking statement node (scoped exclusive access with temporary steal)</summary>
+    /// <summary>Visits a hijacking statement node (scoped exclusive access)</summary>
     /// <param name="node">The hijacking statement to visit</param>
     /// <returns>Result of visiting the hijacking statement</returns>
     T VisitHijackingStatement(HijackingStatement node);
 
-    /// <summary>Visits an observing statement node (thread-safe scoped read access with temporary steal)</summary>
+    /// <summary>Visits an observing statement node (thread-safe scoped read access)</summary>
     /// <param name="node">The observing statement to visit</param>
     /// <returns>Result of visiting the observing statement</returns>
     T VisitObservingStatement(ObservingStatement node);
 
-    /// <summary>Visits a seizing statement node (thread-safe scoped exclusive access with temporary steal)</summary>
+    /// <summary>Visits a seizing statement node (thread-safe scoped exclusive access)</summary>
     /// <param name="node">The seizing statement to visit</param>
     /// <returns>Result of visiting the seizing statement</returns>
     T VisitSeizingStatement(SeizingStatement node);

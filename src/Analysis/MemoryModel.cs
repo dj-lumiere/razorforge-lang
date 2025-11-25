@@ -277,8 +277,7 @@ public record MemoryObject(
     /// Implements the core transformation rules of the RazorForge memory model:
     /// 1. Objects must be Valid (unless in danger block)
     /// 2. Cannot mix between memory groups (except in danger block)
-    /// 3. steal!() only works when RC = 1
-    /// 4. Some transformations increment RC rather than invalidating
+    /// 3. Some transformations increment RC rather than invalidating
     /// </summary>
     /// <param name="target">The target wrapper type to transform to</param>
     /// <param name="inDangerBlock">Whether we're in a danger! block (allows unsafe operations)</param>
@@ -325,11 +324,6 @@ public record MemoryObject(
             (WrapperType.Shared, WrapperType.Tracked) => true,
             // Upgrade weak to strong via try_recover()
             (WrapperType.Tracked, WrapperType.Shared) => true,
-
-            // === steal!() operations - reclaim direct ownership ===
-            // Can only steal when you're the sole owner (RC = 1)
-            (WrapperType.Retained, WrapperType.Owned) => ReferenceCount == 1,
-            (WrapperType.Shared, WrapperType.Owned) => ReferenceCount == 1,
 
             // === Cross-group transformations are forbidden ===
             // This prevents mixing different memory management strategies
@@ -384,7 +378,6 @@ public record MemoryObject(
 /// <list type="bullet">
 /// <item>Group Transformations: retain!(), share!() - change wrapper type</item>
 /// <item>Weak References: track!() - create non-owning references</item>
-/// <item>Ownership Reclaim: steal!() - get back direct ownership when RC = 1</item>
 /// <item>RC Management: release!() - manually decrement reference count</item>
 /// <item>Weak Upgrades: try_recover() - upgrade weak to strong (can fail)</item>
 /// <item>Unsafe Operations: snatch!(), reveal!(), own!() - danger! block only</item>
@@ -416,14 +409,6 @@ public enum MemoryOperation
     /// Use case: Breaking cycles, observing without ownership responsibility.
     /// </summary>
     Track,
-
-    /// <summary>
-    /// steal!() - Reclaim direct ownership (back to Owned), requires RC = 1.
-    /// Only works when you're the sole owner of a shared object.
-    /// Converts Retained/Shared back to direct ownership.
-    /// Use case: Optimizing access when you know you're the only owner.
-    /// </summary>
-    Steal,
 
     /// <summary>
     /// snatch!() - Force ownership ignoring RC (danger! only).
@@ -536,7 +521,7 @@ public record MemoryError(
         /// <summary>
         /// Reference count constraint violation.
         /// Caused by operations that require specific RC values failing those constraints.
-        /// Example: steal!() when RC &gt; 1, or release!() when RC &lt;= 1.
+        /// Example: release!() when RC &lt;= 1.
         /// </summary>
         ReferenceCountError,
 

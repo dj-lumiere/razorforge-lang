@@ -18,7 +18,7 @@ namespace Compilers.Shared.Analysis;
 /// <item>Detect use-after-invalidation errors (deadref protection)</item>
 /// <item>Handle scope-based invalidation and cleanup</item>
 /// <item>Manage danger! block exceptions and usurping function rules</item>
-/// <item>Simulate reference counting for steal!() validation</item>
+/// <item>Simulate reference counting for memory operation validation</item>
 /// </list>
 ///
 /// The analyzer maintains a stack of scopes with object tracking, allowing for
@@ -304,7 +304,6 @@ public class MemoryAnalyzer
             MemoryOperation.Share => HandleShare(obj: obj, location: location,
                 policy: policy ?? LockingPolicy.Mutex),
             MemoryOperation.Track => HandleTrack(obj: obj, location: location, policy: policy),
-            MemoryOperation.Steal => HandleSteal(obj: obj, location: location),
             MemoryOperation.Snatch => HandleSnatch(obj: obj, location: location),
             MemoryOperation.Release => HandleRelease(obj: obj, location: location),
             MemoryOperation.Recover => HandleRecover(obj: obj, location: location),
@@ -446,50 +445,6 @@ public class MemoryAnalyzer
             Wrapper = WrapperType.Shared,
             ReferenceCount = 1, // First shared reference
             Policy = policy // Store the locking policy
-        };
-    }
-
-    /// <summary>
-    /// Handle steal!() operation - reclaim direct ownership from RC'd objects.
-    /// Converts Retained/Shared back to direct Owned wrapper.
-    /// Only works when you're the sole owner (RC=1 for RC'd objects).
-    /// Used for optimization when you know you're the only reference holder.
-    /// </summary>
-    private MemoryObject? HandleSteal(MemoryObject obj, SourceLocation location)
-    {
-        // Reference count validation for Retained objects
-        if (obj.Wrapper == WrapperType.Retained && obj.ReferenceCount != 1)
-        {
-            AddError(
-                message:
-                $"Cannot steal from Retained object with RC={obj.ReferenceCount} (need RC=1)",
-                location: location, type: MemoryError.MemoryErrorType.ReferenceCountError);
-            return null;
-        }
-
-        if (obj.Wrapper == WrapperType.Shared && obj.ReferenceCount != 1)
-        {
-            AddError(
-                message:
-                $"Cannot steal from Shared object with Arc={obj.ReferenceCount} (need Arc=1)",
-                location: location, type: MemoryError.MemoryErrorType.ReferenceCountError);
-            return null;
-        }
-
-        // Can only steal from RC'd objects
-        if (obj.Wrapper != WrapperType.Retained && obj.Wrapper != WrapperType.Shared)
-        {
-            AddError(message: $"Cannot steal from {obj.Wrapper}", location: location,
-                type: MemoryError.MemoryErrorType.InvalidTransformation);
-            return null;
-        }
-
-        // Invalidate source reference, return direct ownership
-        InvalidateObject(name: obj.Name, reason: "steal!()", location: location);
-
-        return obj with
-        {
-            Wrapper = WrapperType.Owned, ReferenceCount = 1 // Direct ownership always has RC=1
         };
     }
 
@@ -772,7 +727,7 @@ public class MemoryAnalyzer
     ///
     /// Objects become invalidated through:
     /// <list type="bullet">
-    /// <item>Memory operations (hijack!(), share!(), steal!(), etc.)</item>
+    /// <item>Memory operations (hijack!(), share!(), retain!(), etc.)</item>
     /// <item>Scope exit (automatic cleanup)</item>
     /// <item>Container moves (RazorForge only)</item>
     /// <item>Manual release operations</item>
@@ -854,8 +809,6 @@ public class MemoryAnalyzer
                 errors: errors),
             MemoryOperation.Track => ValidateTrack(obj: memoryObject, location: location,
                 errors: errors),
-            MemoryOperation.Steal => ValidateSteal(obj: memoryObject, location: location,
-                errors: errors),
             MemoryOperation.Snatch => ValidateSnatch(obj: memoryObject, location: location,
                 errors: errors),
             MemoryOperation.Release => ValidateRelease(obj: memoryObject, location: location,
@@ -927,37 +880,6 @@ public class MemoryAnalyzer
         }
 
         return WrapperType.Shared;
-    }
-
-    private WrapperType ValidateSteal(MemoryObject obj, SourceLocation location,
-        List<MemoryError> errors)
-    {
-        if (obj.Wrapper == WrapperType.Retained && obj.ReferenceCount != 1)
-        {
-            errors.Add(item: new MemoryError(
-                Message:
-                $"Cannot steal from Retained object with RC={obj.ReferenceCount} (need RC=1)",
-                Location: location, Type: MemoryError.MemoryErrorType.ReferenceCountError));
-            return obj.Wrapper;
-        }
-
-        if (obj.Wrapper == WrapperType.Shared && obj.ReferenceCount != 1)
-        {
-            errors.Add(item: new MemoryError(
-                Message:
-                $"Cannot steal from Shared object with Arc={obj.ReferenceCount} (need Arc=1)",
-                Location: location, Type: MemoryError.MemoryErrorType.ReferenceCountError));
-            return obj.Wrapper;
-        }
-
-        if (obj.Wrapper != WrapperType.Retained && obj.Wrapper != WrapperType.Shared)
-        {
-            errors.Add(item: new MemoryError(Message: $"Cannot steal from {obj.Wrapper}",
-                Location: location, Type: MemoryError.MemoryErrorType.InvalidTransformation));
-            return obj.Wrapper;
-        }
-
-        return WrapperType.Owned;
     }
 
     private WrapperType ValidateSnatch(MemoryObject obj, SourceLocation location,

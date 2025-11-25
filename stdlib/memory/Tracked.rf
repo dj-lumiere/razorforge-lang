@@ -1,19 +1,28 @@
 # RazorForge Tracked<T> - Weak reference implementation
 # Allows checking if data is still alive without preventing deallocation
 # Works with both Retained<T> and Shared<T, Policy>
+# Zero-cost: Type parameter T encodes whether single or multi-threaded
 
+# Base generic record - works for Tracked<Retained<T>> (2 fields)
 record Tracked<T> {
     private controller_address: sysuint
     private data_address: sysuint
 }
 
+# Specialized for Tracked<Shared<T, Policy>> (3 fields needed)
+record Tracked<Shared<T, Policy>> {
+    private controller_address: sysuint
+    private data_address: sysuint
+    private lock_address: sysuint
+}
+
 # Create weak reference from Retained<T>
-recipe Retained<T>.track(me: Retained<T>) -> Tracked<T> {
+recipe Retained<T>.track(me: Retained<T>) -> Tracked<Retained<T>> {
     danger! {
         var controller = read_as<RefCountController>(controller_address)
         controller.increase_weak_count!()
 
-        return Tracked<T>(
+        return Tracked<Retained<T>>(
             controller_address: me.controller_address,
             data_address: me.data_address
         )
@@ -21,22 +30,31 @@ recipe Retained<T>.track(me: Retained<T>) -> Tracked<T> {
 }
 
 # Create weak reference from Shared<T, Policy>
-recipe Shared<T, Policy>.track(me: Shared<T, Policy>) -> Tracked<T> {
+recipe Shared<T, Policy>.track(me: Shared<T, Policy>) -> Tracked<Shared<T, Policy>> {
     danger! {
-        var controller = read_as<RefCountController>(controller_address)
+        var controller = read_as<ThreadReferenceCounter>(controller_address)
         controller.increase_weak_count!()
 
-        return Tracked<T>(
+        return Tracked<Shared<T, Policy>>(
             controller_address: me.controller_address,
-            data_address: me.data_address
+            data_address: me.data_address,
+            lock_address: me.lock_address
         )
     }
 }
 
-# Constructor for Tracked<T>
-recipe Tracked<T>.Tracked<T>(controller_address: sysuint, data_address: sysuint) -> Tracked<T> {
+# Constructor for Tracked<Retained<T>>
+recipe Tracked<Retained<T>>.Tracked<Retained<T>>(controller_address: sysuint, data_address: sysuint) -> Tracked<Retained<T>> {
     me.controller_address = controller_address
     me.data_address = data_address
+    return me
+}
+
+# Constructor for Tracked<Shared<T, Policy>>
+recipe Tracked<Shared<T, Policy>>.Tracked<Shared<T, Policy>>(controller_address: sysuint, data_address: sysuint, lock_address: sysuint) -> Tracked<Shared<T, Policy>> {
+    me.controller_address = controller_address
+    me.data_address = data_address
+    me.lock_address = lock_address
     return me
 }
 
@@ -48,8 +66,8 @@ recipe Tracked<T>.is_alive(me: Tracked<T>) -> bool {
     }
 }
 
-# Try to recover weak reference to strong reference (crashes if dead)
-recipe Tracked<T>.recover!(me: Tracked<T>) -> Retained<T> {
+# Recover Tracked<Retained<T>> to Retained<T> (crashes if dead)
+recipe Tracked<Retained<T>>.recover!(me: Tracked<Retained<T>>) -> Retained<T> {
     danger! {
         var controller = read_as<RefCountController>(controller_address)
 
@@ -66,8 +84,8 @@ recipe Tracked<T>.recover!(me: Tracked<T>) -> Retained<T> {
     }
 }
 
-# Try to recover weak reference to strong reference (returns Maybe)
-recipe Tracked<T>.try_recover(me: Tracked<T>) -> Maybe<Retained<T>> {
+# Recover Tracked<Retained<T>> to Retained<T> (returns Maybe)
+recipe Tracked<Retained<T>>.try_recover(me: Tracked<Retained<T>>) -> Maybe<Retained<T>> {
     danger! {
         var controller = read_as<RefCountController>(controller_address)
 
@@ -77,6 +95,44 @@ recipe Tracked<T>.try_recover(me: Tracked<T>) -> Maybe<Retained<T>> {
                 return Retained<T>(
                     controller_address: me.controller_address,
                     data_address: me.data_address
+                )
+            },
+            _ => return None
+        }
+    }
+}
+
+# Recover Tracked<Shared<T, Policy>> to Shared<T, Policy> (crashes if dead)
+recipe Tracked<Shared<T, Policy>>.recover!(me: Tracked<Shared<T, Policy>>) -> Shared<T, Policy> {
+    danger! {
+        var controller = read_as<ThreadReferenceCounter>(controller_address)
+
+        when controller.strong_count() {
+            > 0 => {
+                controller.increase_strong_count!()
+                return Shared<T, Policy>(
+                    controller_address: me.controller_address,
+                    data_address: me.data_address,
+                    lock_address: me.lock_address
+                )
+            },
+            _ => panic("Tracked reference is dead")
+        }
+    }
+}
+
+# Recover Tracked<Shared<T, Policy>> to Shared<T, Policy> (returns Maybe)
+recipe Tracked<Shared<T, Policy>>.try_recover(me: Tracked<Shared<T, Policy>>) -> Maybe<Shared<T, Policy>> {
+    danger! {
+        var controller = read_as<ThreadReferenceCounter>(controller_address)
+
+        when controller.strong_count() {
+            > 0 => {
+                controller.increase_strong_count!()
+                return Shared<T, Policy>(
+                    controller_address: me.controller_address,
+                    data_address: me.data_address,
+                    lock_address: me.lock_address
                 )
             },
             _ => return None

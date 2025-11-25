@@ -1426,7 +1426,6 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// - track!() - create weak reference (green/blue group)
     /// - recover!() - upgrade weak to strong (crashes if dead)
     /// - try_recover() - upgrade weak to strong (returns Maybe)
-    /// - steal!() - reclaim ownership when RC=1
     /// - snatch!() - force ownership (danger! only)
     /// - release!() - manual RC decrement
     /// - reveal!(), own!() - handle snatched objects (danger! only)
@@ -1445,7 +1444,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         return methodName switch
         {
             // Core memory transformation operations
-            "hijack!" or "share!" or "watch!" or "thread_share!" or "thread_watch!" or "steal!"
+            "hijack!" or "share!" or "watch!" or "thread_share!" or "thread_watch!"
                 or "snatch!" or "release!" or "try_share!" or "try_thread_share!" or "reveal!"
                 or "own!" => true,
             _ => false
@@ -1571,7 +1570,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// <list type="bullet">
     /// <item>Basic operations: hijack!, share!, watch!</item>
     /// <item>Thread-safe variants: thread_share!, thread_watch!</item>
-    /// <item>Ownership operations: steal!, snatch!, own!</item>
+    /// <item>Ownership operations: snatch!, own!</item>
     /// <item>RC management: release!</item>
     /// <item>Weak upgrades: try_share!, try_thread_share!</item>
     /// <item>Unsafe access: reveal!</item>
@@ -1591,9 +1590,6 @@ public class SemanticAnalyzer : IAstVisitor<object?>
 
             // Group 3: Multi-threaded reference counting
             "share!" => MemoryOperation.Share,
-
-            // Ownership reclaim operations
-            "steal!" => MemoryOperation.Steal,
 
             // Unsafe operations (danger! block only)
             "snatch!" => MemoryOperation.Snatch,

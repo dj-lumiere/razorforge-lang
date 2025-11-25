@@ -48,7 +48,7 @@ proper file associations.
 RazorForge files are associated with C# syntax highlighting, which provides:
 
 - **Keywords**: `recipe`, `record`, `let`, `var`, `danger`, etc.
-- **Memory Operations**: `hijacking`, `share!`, `steal!`, etc. (highlighted in red)
+- **Memory Operations**: `hijacking`, `share!`, `retain!`, etc. (highlighted in red)
 - **Slice Operations**: `size()`, `address()`, `unsafe_ptr!()` (highlighted in cyan)
 - **Danger Zone**: `read_as!`, `write_as!`, `volatile_read!` (highlighted with red background)
 - **Types**: `DynamicSlice`, `TemporarySlice`, `s32`, `sysuint`, etc.

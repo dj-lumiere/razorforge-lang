@@ -14,7 +14,7 @@
     {
       "comment": "Memory operations",
       "name": "keyword.operator.memory.razorforge",
-      "match": "\\b(hijack|refer|reveal|share|watch|steal|snatch|release|try_share|try_thread_share|thread_share|thread_watch|size|address|is_valid|unsafe_ptr|slice|resize|fill|copy_from|copy_from_stack|zero|seize|own)\\b(!)?",
+      "match": "\\b(hijack|refer|reveal|share|watch|snatch|release|try_share|try_thread_share|thread_share|thread_watch|size|address|is_valid|unsafe_ptr|slice|resize|fill|copy_from|copy_from_stack|zero|seize|own)\\b(!)?",
       "captures": {
         "2": {
           "name": "keyword.operator.bang.razorforge"
