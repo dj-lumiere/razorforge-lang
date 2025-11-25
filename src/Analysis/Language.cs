@@ -6,8 +6,8 @@ namespace Compilers.Shared.Analysis;
 /// These two languages represent fundamentally different approaches to memory management
 /// and system programming, unified under a single compiler infrastructure:
 ///
-/// RazorForge: Explicit memory management with 6 wrapper types (Owned, Hijacked, Shared,
-/// Watched, ThreadShared, ThreadWatched, Snatched) organized into color-coded memory groups.
+/// RazorForge: Explicit memory management with 6 wrapper types (Owned, Hijacked, Retained,
+/// Tracked, Shared, Snatched) organized into color-coded memory groups.
 /// Emphasizes programmer control, zero-cost abstractions, and compile-time safety.
 /// Target use cases: systems programming, embedded development, performance-critical applications.
 ///

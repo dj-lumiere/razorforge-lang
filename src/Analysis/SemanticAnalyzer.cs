@@ -1611,10 +1611,9 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// <list type="bullet">
     /// <item>Owned: Direct type name (Node, List&lt;s32&gt;)</item>
     /// <item>Hijacked&lt;T&gt;: Exclusive access wrapper (red group 🔴)</item>
-    /// <item>Shared&lt;T&gt;: Shared ownership wrapper (green group 🟢)</item>
-    /// <item>Watched&lt;T&gt;: Weak observer wrapper (brown group 🟤)</item>
-    /// <item>ThreadShared&lt;T&gt;: Thread-safe shared wrapper (blue group 🔵)</item>
-    /// <item>ThreadWatched&lt;T&gt;: Thread-safe weak wrapper (purple group 🟣)</item>
+    /// <item>Retained&lt;T&gt;: Single-threaded shared ownership wrapper (green group 🟢)</item>
+    /// <item>Tracked&lt;T&gt;: Weak observer wrapper (brown group 🟤)</item>
+    /// <item>Shared&lt;T, Policy&gt;: Multi-threaded shared wrapper (blue group 🔵)</item>
     /// <item>Snatched&lt;T&gt;: Contaminated ownership wrapper (black group 💀)</item>
     /// </list>
     ///
@@ -2524,12 +2523,11 @@ public class SemanticAnalyzer : IAstVisitor<object?>
             "List",
             "Dict",
             "Set",
-            "Text",
-            "Array"
+            "Text"
         };
 
-        return heapTypes.Contains(value: type.Name) || type.Name.StartsWith(value: "Shared<") ||
-               type.Name.StartsWith(value: "ThreadShared<");
+        return heapTypes.Contains(value: type.Name) || type.Name.StartsWith(value: "Retained<") ||
+               type.Name.StartsWith(value: "Shared<");
     }
 
     /// <summary>
@@ -2826,7 +2824,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     }
 
     /// <summary>
-    /// Validates generic members on wrapper types (Shared&lt;T&gt;, ThreadShared&lt;T&gt;, etc.).
+    /// Validates generic members on wrapper types (Retained&lt;T&gt;, Shared&lt;T, Policy&gt;, etc.).
     /// </summary>
     private TypeInfo? ValidateWrapperGenericMember(TypeInfo wrapperType, string memberName,
         List<TypeExpression> typeArguments, SourceLocation location)
@@ -2863,7 +2861,6 @@ public class SemanticAnalyzer : IAstVisitor<object?>
             "List",
             "Dict",
             "Set",
-            "Array",
             "Deque",
             "PriorityQueue"
         };
@@ -2878,10 +2875,9 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     {
         string[] wrapperTypes =
         {
+            "Retained",
+            "Tracked",
             "Shared",
-            "Watched",
-            "ThreadShared",
-            "ThreadWatched",
             "Hijacked",
             "Snatched"
         };

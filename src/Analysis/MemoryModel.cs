@@ -243,10 +243,13 @@ public record MemoryObject(
         WrapperType.Retained => MemoryGroup.SingleThreaded,
 
         // Tracked belongs to Group 2 if tracking Retained (no Policy), Group 3 if tracking Shared (has Policy)
-        WrapperType.Tracked => Policy == null ? MemoryGroup.SingleThreaded : MemoryGroup.MultiThreaded,
+        WrapperType.Tracked => Policy == null
+            ? MemoryGroup.SingleThreaded
+            : MemoryGroup.MultiThreaded,
 
         // Group 3: Multi-threaded reference counting and scoped locks
-        WrapperType.Shared or WrapperType.Observed or WrapperType.Seized => MemoryGroup.MultiThreaded,
+        WrapperType.Shared or WrapperType.Observed or WrapperType.Seized => MemoryGroup
+           .MultiThreaded,
 
         // Unsafe: Danger zone
         WrapperType.Snatched => MemoryGroup.Unsafe,
@@ -361,7 +364,8 @@ public record MemoryObject(
             WrapperType.Tracked => MemoryGroup.SingleThreaded,
 
             // Group 3: Multi-threaded RC and scoped locks
-            WrapperType.Shared or WrapperType.Observed or WrapperType.Seized => MemoryGroup.MultiThreaded,
+            WrapperType.Shared or WrapperType.Observed or WrapperType.Seized => MemoryGroup
+               .MultiThreaded,
 
             // Unsafe zone
             WrapperType.Snatched => MemoryGroup.Unsafe,
@@ -440,10 +444,12 @@ public enum MemoryOperation
     /// <summary>
     /// recover!() / try_recover() - Upgrade weak to strong reference.
     /// Converts Tracked reference back to its strong form:
-    ///   - recover!(): Tracked&lt;Retained&lt;T&gt;&gt; → Retained&lt;T&gt; (crashes if deallocated)
-    ///   - try_recover(): Tracked&lt;Retained&lt;T&gt;&gt; → Maybe&lt;Retained&lt;T&gt;&gt; (returns None if deallocated)
-    ///   - recover!(): Tracked&lt;Shared&lt;T, Policy&gt;&gt; → Shared&lt;T, Policy&gt; (crashes if deallocated)
-    ///   - try_recover(): Tracked&lt;Shared&lt;T, Policy&gt;&gt; → Maybe&lt;Shared&lt;T, Policy&gt;&gt; (returns None if deallocated)
+    /// <list type="bullet">
+    /// <item>recover!(): Tracked&lt;Retained&lt;T&gt;&gt; → Retained&lt;T&gt; (crashes if deallocated)</item>
+    /// <item>try_recover(): Tracked&lt;Retained&lt;T&gt;&gt; → Maybe&lt;Retained&lt;T&gt;&gt; (returns None if deallocated)</item>
+    /// <item>recover!(): Tracked&lt;Shared&lt;T, Policy&gt;&gt; → Shared&lt;T, Policy&gt; (crashes if deallocated)</item>
+    /// <item>try_recover(): Tracked&lt;Shared&lt;T, Policy&gt;&gt; → Maybe&lt;Shared&lt;T, Policy&gt;&gt; (returns None if deallocated)</item>
+    /// </list>
     /// Use case: Upgrade from observer to participant (try_ variant is safer).
     /// </summary>
     Recover,

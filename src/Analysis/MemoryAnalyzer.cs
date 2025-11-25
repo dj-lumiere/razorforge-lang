@@ -521,7 +521,7 @@ public class MemoryAnalyzer
     /// <summary>
     /// Handle release!() operation - manually decrement reference count.
     /// Decrements RC/Arc and invalidates this reference for early cleanup.
-    /// Only works on Shared/ThreadShared objects with RC > 1.
+    /// Only works on Retained/Shared objects with RC > 1.
     /// Used for manual memory optimization when done with a reference early.
     /// </summary>
     private MemoryObject? HandleRelease(MemoryObject obj, SourceLocation location)
