@@ -4,7 +4,8 @@ Import via: File → Settings → Editor → Live Templates → Import
 -->
 <templateSet group="RazorForge">
   <!-- Memory Slice Templates -->
-  <template name="heap" value="var $VAR$ = DynamicSlice($SIZE$)$END$" description="Create DynamicSlice" toReformat="true"
+  <template name="heap" value="var $VAR$ = DynamicSlice($SIZE$)$END$" description="Create DynamicSlice"
+            toReformat="true"
             toShortenFQNames="true">
     <variable name="VAR" expression="" defaultValue="buffer" alwaysStopAt="true"/>
     <variable name="SIZE" expression="" defaultValue="64" alwaysStopAt="true"/>
@@ -13,7 +14,8 @@ Import via: File → Settings → Editor → Live Templates → Import
     </context>
   </template>
 
-  <template name="stack" value="var $VAR$ = TemporarySlice($SIZE$)$END$" description="Create TemporarySlice" toReformat="true"
+  <template name="stack" value="var $VAR$ = TemporarySlice($SIZE$)$END$" description="Create TemporarySlice"
+            toReformat="true"
             toShortenFQNames="true">
     <variable name="VAR" expression="" defaultValue="buffer" alwaysStopAt="true"/>
     <variable name="SIZE" expression="" defaultValue="64" alwaysStopAt="true"/>

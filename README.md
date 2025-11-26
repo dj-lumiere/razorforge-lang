@@ -9,7 +9,8 @@
 
 ## What Are RazorForge and Suflae?
 
-RazorForge and Suflae are modern programming languages designed to provide a smooth gradient from high-productivity application development to high-performance systems programming.
+RazorForge and Suflae are modern programming languages designed to provide a smooth gradient from high-productivity
+application development to high-performance systems programming.
 
 ### ⚔️ RazorForge: "Make Programming Sharp Again"
 
@@ -32,6 +33,7 @@ routine main() -> s32:
 ```
 
 **Use RazorForge for:**
+
 - Systems programming
 - Game engines and real-time applications
 - Embedded systems and firmware
@@ -58,6 +60,7 @@ routine main():
 ```
 
 **Use Suflae for:**
+
 - Web applications and APIs
 - CLI tools and scripts
 - Data processing and analytics

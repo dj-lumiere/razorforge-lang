@@ -10,7 +10,7 @@ namespace Compilers.Shared.Analysis;
 /// <item>Traditional type checking and symbol resolution</item>
 /// <item>Advanced memory safety analysis with ownership tracking</item>
 /// <item>Language-specific behavior handling (RazorForge vs Suflae)</item>
-/// <item>Memory operation validation (hijack!, share, etc.)</item>
+/// <item>Memory operation validation (retain, share, track, etc.)</item>
 /// <item>Cross-language compatibility checking</item>
 /// </list>
 ///
@@ -1444,9 +1444,8 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         return methodName switch
         {
             // Core memory transformation operations
-            "hijack!" or "share" or "watch!" or "thread_share" or "thread_watch!"
-                or "snatch!" or "release!" or "try_share" or "try_thread_share" or "reveal!"
-                or "own!" => true,
+            "retain" or "share" or "track" or "snatch!"
+                or "try_recover" or "recover!" => true,
             _ => false
         };
     }
@@ -1519,7 +1518,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         LockingPolicy? policy = null;
         if (operation == MemoryOperation.Share)
         {
-            // thread_share(Mutex) or thread_share(MultiReadLock)
+            // share(Mutex) or share(MultiReadLock)
             // For now, accept policy as a simple identifier argument
             if (arguments.Count > 0 && arguments[index: 0] is IdentifierExpression policyId)
             {
@@ -1568,12 +1567,10 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     ///
     /// The systematic naming reflects the memory model's organization:
     /// <list type="bullet">
-    /// <item>Basic operations: hijack!, share, watch!</item>
-    /// <item>Thread-safe variants: thread_share, thread_watch!</item>
-    /// <item>Ownership operations: snatch!, own!</item>
-    /// <item>RC management: release!</item>
-    /// <item>Weak upgrades: try_share, try_thread_share!</item>
-    /// <item>Unsafe access: reveal!</item>
+    /// <item>Single-threaded RC: retain, track</item>
+    /// <item>Multi-threaded RC: share</item>
+    /// <item>Weak reference ops: track, try_recover, recover!</item>
+    /// <item>Unsafe operations (danger! only): snatch!</item>
     /// </list>
     /// </summary>
     /// <param name="operationName">Method name from source code</param>
@@ -1589,7 +1586,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
             "recover!" => MemoryOperation.Recover,
 
             // Group 3: Multi-threaded reference counting
-            "share!" => MemoryOperation.Share,
+            "share" => MemoryOperation.Share,
 
             // Unsafe operations (danger! block only)
             "snatch!" => MemoryOperation.Snatch,
@@ -1750,7 +1747,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     }
 
     /// <summary>
-    /// Visits a memory operation expression (e.g., hijack!, share!) and validates safety.
+    /// Visits a memory operation expression (e.g., retain, share, track) and validates safety.
     /// </summary>
     /// <param name="node">Memory operation expression node</param>
     /// <returns>TypeInfo of the wrapped result</returns>
@@ -3120,8 +3117,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         try
         {
             // Create a Seized<T> type for the handle
-            var seizedType = new TypeInfo(
-                Name: $"Seized<{sourceType.Name}>", IsReference: true);
+            var seizedType = new TypeInfo(Name: $"Seized<{sourceType.Name}>", IsReference: true);
 
             // Declare the handle variable in the scope
             var handleSymbol = new VariableSymbol(Name: node.Handle, Type: seizedType,

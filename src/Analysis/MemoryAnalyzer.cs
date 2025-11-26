@@ -375,7 +375,8 @@ public class MemoryAnalyzer
     /// Can be created from Retained (single-threaded) or Shared (multi-threaded) objects.
     /// Doesn't invalidate source or affect RC. Used for breaking reference cycles.
     /// </summary>
-    private MemoryObject? HandleTrack(MemoryObject obj, SourceLocation location, LockingPolicy? policy)
+    private MemoryObject? HandleTrack(MemoryObject obj, SourceLocation location,
+        LockingPolicy? policy)
     {
         // Create a weak reference - doesn't invalidate source or affect its RC
         if (obj.Wrapper == WrapperType.Retained)
@@ -415,8 +416,8 @@ public class MemoryAnalyzer
     {
         if (!obj.CanTransformTo(target: WrapperType.Shared, inDangerBlock: _inDangerBlock))
         {
-            AddError(message: $"Cannot share object of type {obj.Wrapper}",
-                location: location, type: MemoryError.MemoryErrorType.InvalidTransformation);
+            AddError(message: $"Cannot share object of type {obj.Wrapper}", location: location,
+                type: MemoryError.MemoryErrorType.InvalidTransformation);
             return null;
         }
 
@@ -483,8 +484,7 @@ public class MemoryAnalyzer
     {
         if (obj.Wrapper != WrapperType.Retained && obj.Wrapper != WrapperType.Shared)
         {
-            AddError(
-                message: $"Can only release Retained or Shared objects, not {obj.Wrapper}",
+            AddError(message: $"Can only release Retained or Shared objects, not {obj.Wrapper}",
                 location: location, type: MemoryError.MemoryErrorType.InvalidTransformation);
             return null;
         }
@@ -515,8 +515,7 @@ public class MemoryAnalyzer
     {
         if (obj.Wrapper != WrapperType.Tracked)
         {
-            AddError(
-                message: $"Can only recover Tracked objects, not {obj.Wrapper}",
+            AddError(message: $"Can only recover Tracked objects, not {obj.Wrapper}",
                 location: location, type: MemoryError.MemoryErrorType.InvalidTransformation);
             return null;
         }
@@ -524,7 +523,9 @@ public class MemoryAnalyzer
         // Try to upgrade weak to strong - in real implementation this could fail
         // if the original object was already destroyed
         // Determine target type based on Policy (null = Retained, non-null = Shared)
-        WrapperType targetWrapper = obj.Policy == null ? WrapperType.Retained : WrapperType.Shared;
+        WrapperType targetWrapper = obj.Policy == null
+            ? WrapperType.Retained
+            : WrapperType.Shared;
 
         return obj with
         {
@@ -846,8 +847,9 @@ public class MemoryAnalyzer
     {
         if (!obj.CanTransformTo(target: WrapperType.Retained, inDangerBlock: _inDangerBlock))
         {
-            errors.Add(item: new MemoryError(Message: $"Cannot retain object of type {obj.Wrapper}",
-                Location: location, Type: MemoryError.MemoryErrorType.InvalidTransformation));
+            errors.Add(item: new MemoryError(
+                Message: $"Cannot retain object of type {obj.Wrapper}", Location: location,
+                Type: MemoryError.MemoryErrorType.InvalidTransformation));
             return obj.Wrapper;
         }
 
@@ -860,8 +862,8 @@ public class MemoryAnalyzer
         if (obj.Wrapper != WrapperType.Retained && obj.Wrapper != WrapperType.Shared)
         {
             errors.Add(item: new MemoryError(
-                Message: $"Can only track Retained or Shared objects, not {obj.Wrapper}", Location: location,
-                Type: MemoryError.MemoryErrorType.InvalidTransformation));
+                Message: $"Can only track Retained or Shared objects, not {obj.Wrapper}",
+                Location: location, Type: MemoryError.MemoryErrorType.InvalidTransformation));
             return obj.Wrapper;
         }
 
@@ -873,9 +875,8 @@ public class MemoryAnalyzer
     {
         if (!obj.CanTransformTo(target: WrapperType.Shared, inDangerBlock: _inDangerBlock))
         {
-            errors.Add(item: new MemoryError(
-                Message: $"Cannot share object of type {obj.Wrapper}", Location: location,
-                Type: MemoryError.MemoryErrorType.InvalidTransformation));
+            errors.Add(item: new MemoryError(Message: $"Cannot share object of type {obj.Wrapper}",
+                Location: location, Type: MemoryError.MemoryErrorType.InvalidTransformation));
             return obj.Wrapper;
         }
 
@@ -930,7 +931,9 @@ public class MemoryAnalyzer
         }
 
         // Determine target type based on Policy (null = Retained, non-null = Shared)
-        return obj.Policy == null ? WrapperType.Retained : WrapperType.Shared;
+        return obj.Policy == null
+            ? WrapperType.Retained
+            : WrapperType.Shared;
     }
 
     private WrapperType ValidateReveal(MemoryObject obj, SourceLocation location,
