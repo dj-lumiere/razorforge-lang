@@ -139,7 +139,7 @@ public class SimpleCodeGenerator : IAstVisitor<string>
             values: node.Parameters.Select(selector: p => $"{p.Name}: {p.Type?.Name ?? "auto"}"));
         string returnStr = node.ReturnType?.Name ?? "void";
 
-        WriteLine(text: $"{visStr}recipe {node.Name}({paramStr}) -> {returnStr}");
+        WriteLine(text: $"{visStr}routine {node.Name}({paramStr}) -> {returnStr}");
         WriteLine(text: "{");
         Indent();
 
@@ -624,7 +624,7 @@ public class SimpleCodeGenerator : IAstVisitor<string>
     public string VisitExternalDeclaration(ExternalDeclaration node)
     {
         var sb = new StringBuilder();
-        sb.Append(value: "external recipe ");
+        sb.Append(value: "external routine ");
         sb.Append(value: node.Name);
 
         if (node.GenericParameters != null && node.GenericParameters.Count > 0)

@@ -96,29 +96,29 @@ public static class TestUtilities
     }
 
     /// <summary>
-    /// Create a simple recipe with the given body
+    /// Create a simple routine with the given body
     /// </summary>
-    public static string CreateRecipe(string name, string body, string parameters = "",
+    public static string CreateRoutine(string name, string body, string parameters = "",
         string returnType = "")
     {
         string returnClause = string.IsNullOrEmpty(value: returnType)
             ? ""
             : $" -> {returnType}";
         return $@"
-recipe {name}({parameters}){returnClause} {{
+routine {name}({parameters}){returnClause} {{
 {body}
 }}";
     }
 
     /// <summary>
-    /// Create a test program with main recipe
+    /// Create a test program with main routine
     /// </summary>
-    public static string CreateProgram(string mainBody, string additionalRecipes = "")
+    public static string CreateProgram(string mainBody, string additionalRoutines = "")
     {
         return $@"
-{additionalRecipes}
+{additionalRoutines}
 
-recipe main() -> s32 {{
+routine main() -> s32 {{
 {mainBody}
     return 0
 }}";
@@ -324,27 +324,27 @@ recipe main() -> s32 {{
     public static class SamplePrograms
     {
         public static readonly string HelloWorld = @"
-recipe main() -> s32 {
+routine main() -> s32 {
     print(""Hello, World!"")
     return 0
 }";
 
         public static readonly string Factorial = @"
-recipe factorial(n: s32) -> s32 {
+routine factorial(n: s32) -> s32 {
     if n <= 1:
         return 1
     else:
         return n * factorial(n - 1)
 }
 
-recipe main() -> s32 {
+routine main() -> s32 {
     let result = factorial(5)
     print(f""Factorial of 5 is {result}"")
     return 0
 }";
 
         public static readonly string FibonacciIterative = @"
-recipe fibonacci(n: s32) -> s32 {
+routine fibonacci(n: s32) -> s32 {
     if n <= 1:
         return n
 
@@ -360,7 +360,7 @@ recipe fibonacci(n: s32) -> s32 {
     return result
 }
 
-recipe main() -> s32 {
+routine main() -> s32 {
     for i in 0 to 10:
         let fib = fibonacci(i)
         print(f""fib({i}) = {fib}"")
@@ -368,14 +368,14 @@ recipe main() -> s32 {
 }";
 
         public static readonly string ArrayOperations = @"
-recipe array_sum(arr: DynamicSlice, size: s32) -> s32 {
+routine array_sum(arr: DynamicSlice, size: s32) -> s32 {
     var sum = 0
     for i in 0 to size:
         sum = sum + arr[i]
     return sum
 }
 
-recipe main() -> s32 {
+routine main() -> s32 {
     let numbers = DynamicSlice(10)
 
     for i in 0 to 10:
@@ -387,7 +387,7 @@ recipe main() -> s32 {
 }";
 
         public static readonly string ComplexMath = @"
-recipe power(base: f64, exponent: s32) -> f64 {
+routine power(base: f64, exponent: s32) -> f64 {
     if exponent == 0:
         return 1.0
     elif exponent < 0:
@@ -396,7 +396,7 @@ recipe power(base: f64, exponent: s32) -> f64 {
         return base * power(base, exponent - 1)
 }
 
-recipe main() -> s32 {
+routine main() -> s32 {
     let base = 2.0
     for exp in 0 to 10:
         let result = power(base, exp)
@@ -405,14 +405,14 @@ recipe main() -> s32 {
 }";
 
         public static readonly string ErrorHandling = @"
-recipe safe_divide(a: s32, b: s32) -> Option(s32) {
+routine safe_divide(a: s32, b: s32) -> Option(s32) {
     if b == 0:
         return None
     else:
         return Some(a / b)
 }
 
-recipe main() -> s32 {
+routine main() -> s32 {
     let result = safe_divide(10, 2)
     when result is Some(value):
         print(f""Result: {value}"")

@@ -85,10 +85,10 @@ public class SuflaeParser : BaseParser
             return ParseVariableDeclaration(visibility: visibility);
         }
 
-        // Recipe (function) declaration - using 'recipe' keyword in Suflae
-        if (Match(type: TokenType.Recipe))
+        // Routine (function) declaration - using 'routine' keyword in Suflae
+        if (Match(type: TokenType.Routine))
         {
-            return ParseRecipeDeclaration(visibility: visibility);
+            return ParseRoutineDeclaration(visibility: visibility);
         }
 
         // Entity/Record/Choice declarations
@@ -285,15 +285,15 @@ public class SuflaeParser : BaseParser
             Visibility: visibility, IsMutable: isMutable, Location: location);
     }
 
-    private FunctionDeclaration ParseRecipeDeclaration(
+    private FunctionDeclaration ParseRoutineDeclaration(
         VisibilityModifier visibility = VisibilityModifier.Private)
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
 
-        string name = ConsumeIdentifier(errorMessage: "Expected recipe name");
+        string name = ConsumeIdentifier(errorMessage: "Expected routine name");
 
         // Parameters
-        Consume(type: TokenType.LeftParen, errorMessage: "Expected '(' after recipe name");
+        Consume(type: TokenType.LeftParen, errorMessage: "Expected '(' after routine name");
         var parameters = new List<Parameter>();
 
         if (!Check(type: TokenType.RightParen))
@@ -325,7 +325,7 @@ public class SuflaeParser : BaseParser
         }
 
         // Colon to start indented block
-        Consume(type: TokenType.Colon, errorMessage: "Expected ':' after recipe header");
+        Consume(type: TokenType.Colon, errorMessage: "Expected ':' after routine header");
 
         // Body (indented block)
         Statement body = ParseIndentedBlock();
@@ -460,9 +460,9 @@ public class SuflaeParser : BaseParser
                     continue;
                 }
 
-                // Check if it's a method (recipe)
+                // Check if it's a method (routine)
                 if (Check(type: TokenType.Public) || Check(type: TokenType.Private) ||
-                    Check(type: TokenType.Recipe))
+                    Check(type: TokenType.Routine))
                 {
                     var method = ParseDeclaration() as FunctionDeclaration;
                     if (method != null)
@@ -549,9 +549,9 @@ public class SuflaeParser : BaseParser
                     continue;
                 }
 
-                // Check if it's a method (recipe)
+                // Check if it's a method (routine)
                 if (Check(type: TokenType.Public) || Check(type: TokenType.Private) ||
-                    Check(type: TokenType.Recipe))
+                    Check(type: TokenType.Routine))
                 {
                     var method = ParseDeclaration() as FunctionDeclaration;
                     if (method != null)
@@ -627,9 +627,9 @@ public class SuflaeParser : BaseParser
                     continue;
                 }
 
-                // Parse recipe signature
-                Consume(type: TokenType.Recipe,
-                    errorMessage: "Expected 'recipe' in feature method");
+                // Parse routine signature
+                Consume(type: TokenType.Routine,
+                    errorMessage: "Expected 'routine' in feature method");
                 string methodName = ConsumeIdentifier(errorMessage: "Expected method name");
 
                 // Parameters

@@ -13,7 +13,7 @@ namespace Compilers.Shared.Analysis;
 /// Key responsibilities:
 /// <list type="bullet">
 /// <item>Track object lifetime and wrapper type transformations</item>
-/// <item>Validate memory operation method calls (hijack!, share!, etc.)</item>
+/// <item>Validate memory operation method calls (hijack!, share, etc.)</item>
 /// <item>Enforce memory group separation rules (no mixing between groups)</item>
 /// <item>Detect use-after-invalidation errors (deadref protection)</item>
 /// <item>Handle scope-based invalidation and cleanup</item>
@@ -259,7 +259,7 @@ public class MemoryAnalyzer
 
     /// <summary>
     /// Handle memory operation method call from RazorForge source code.
-    /// These are the core memory transformation operations like obj.share!(), obj.hijack!(), etc.
+    /// These are the core memory transformation operations like obj.share(), obj.hijack!(), etc.
     /// Each operation validates the current object state, checks transformation rules,
     /// and returns the new memory object state after the operation.
     ///
@@ -274,7 +274,7 @@ public class MemoryAnalyzer
     /// <param name="objectName">Name of the object being operated on</param>
     /// <param name="operation">The memory operation being performed</param>
     /// <param name="location">Source location for error reporting</param>
-    /// <param name="policy">Locking policy for share!() operation (Mutex or MultiReadLock)</param>
+    /// <param name="policy">Locking policy for share() operation (Mutex or MultiReadLock)</param>
     /// <returns>New memory object state after operation, or null if operation failed</returns>
     public MemoryObject? HandleMemoryOperation(string objectName, MemoryOperation operation,
         SourceLocation location, LockingPolicy? policy = null)
@@ -339,7 +339,7 @@ public class MemoryAnalyzer
     }
 
     /// <summary>
-    /// Handle retain!() operation - transform to single-threaded shared ownership with reference counting.
+    /// Handle retain() operation - transform to single-threaded shared ownership with reference counting.
     /// Creates a Retained&lt;T&gt; wrapper that allows multiple mutable references with RC tracking.
     /// If already retained, increments reference count. Otherwise converts and invalidates source.
     /// </summary>
@@ -361,7 +361,7 @@ public class MemoryAnalyzer
         }
 
         // Convert to single-threaded shared ownership, invalidate source (one-time transformation)
-        InvalidateObject(name: obj.Name, reason: "retain!()", location: location);
+        InvalidateObject(name: obj.Name, reason: "retain()", location: location);
 
         return obj with
         {
@@ -370,7 +370,7 @@ public class MemoryAnalyzer
     }
 
     /// <summary>
-    /// Handle track!() operation - create a weak observer reference.
+    /// Handle track() operation - create a weak observer reference.
     /// Creates a Tracked&lt;Retained&lt;T&gt;&gt; or Tracked&lt;Shared&lt;T, Policy&gt;&gt; weak reference.
     /// Can be created from Retained (single-threaded) or Shared (multi-threaded) objects.
     /// Doesn't invalidate source or affect RC. Used for breaking reference cycles.
@@ -404,7 +404,7 @@ public class MemoryAnalyzer
     }
 
     /// <summary>
-    /// Handle share!() operation - transform to thread-safe shared ownership.
+    /// Handle share() operation - transform to thread-safe shared ownership.
     /// Creates a Shared&lt;T, Policy&gt; wrapper with atomic reference counting (Arc).
     /// Safe to pass between threads. If already shared, increments Arc count.
     /// Policy determines synchronization: Mutex (Arc&lt;Mutex&lt;T&gt;&gt;), MultiReadLock (Arc&lt;RwLock&lt;T&gt;&gt;), or RejectEdit (Arc&lt;T&gt;).
@@ -438,7 +438,7 @@ public class MemoryAnalyzer
         }
 
         // Convert to thread-safe shared ownership, invalidate source
-        InvalidateObject(name: obj.Name, reason: "share!()", location: location);
+        InvalidateObject(name: obj.Name, reason: "share()", location: location);
 
         return obj with
         {
@@ -727,7 +727,7 @@ public class MemoryAnalyzer
     ///
     /// Objects become invalidated through:
     /// <list type="bullet">
-    /// <item>Memory operations (hijack!(), share!(), retain!(), etc.)</item>
+    /// <item>Memory operations (hijack!(), share(), retain(), etc.)</item>
     /// <item>Scope exit (automatic cleanup)</item>
     /// <item>Container moves (RazorForge only)</item>
     /// <item>Manual release operations</item>

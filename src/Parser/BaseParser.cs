@@ -321,7 +321,7 @@ public abstract class BaseParser
                 case TokenType.Variant:
                 case TokenType.Mutant:
                 case TokenType.Protocol:
-                case TokenType.Recipe:
+                case TokenType.Routine:
                 case TokenType.Var:
                 case TokenType.Let:
                 case TokenType.If:
@@ -681,7 +681,7 @@ public abstract class BaseParser
         }
 
         // Lambda expression
-        if (Check(type: TokenType.Recipe))
+        if (Check(type: TokenType.Routine))
         {
             return ParseLambdaExpression();
         }

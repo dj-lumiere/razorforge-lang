@@ -33,11 +33,11 @@ if 5 < x <= 10 < z < 15 {
 
 // Multi-encoding text literals
 let text8 = t8"Hello in 8-bit"
-let text16 = t16"Hello in 16-bit" 
+let text16 = t16"Hello in 16-bit"
 let text32 = t32"Hello in 32-bit"
 let formatted = f"x is {x}, y is {y}"
 
-recipe main() {
+routine main() {
     print(message)
     print(formatted)
     print("Memory: " + memory_size)

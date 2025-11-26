@@ -47,8 +47,8 @@ proper file associations.
 
 RazorForge files are associated with C# syntax highlighting, which provides:
 
-- **Keywords**: `recipe`, `record`, `let`, `var`, `danger`, etc.
-- **Memory Operations**: `hijacking`, `share!`, `retain!`, etc. (highlighted in red)
+- **Keywords**: `routine`, `record`, `let`, `var`, `danger`, etc.
+- **Memory Operations**: `hijacking`, `share`, `retain`, etc. (highlighted in red)
 - **Slice Operations**: `size()`, `address()`, `unsafe_ptr!()` (highlighted in cyan)
 - **Danger Zone**: `read_as!`, `write_as!`, `volatile_read!` (highlighted with red background)
 - **Types**: `DynamicSlice`, `TemporarySlice`, `s32`, `sysuint`, etc.
@@ -68,11 +68,11 @@ Type these abbreviations and press Tab to expand:
 ### Memory Operations
 
 - `hijack` → `hijacking borrowed from shared:`
-- `share` → `let shared = object.share!()`
+- `share` → `let shared = object.share()`
 
 ### Functions
 
-- `recipe` → Complete recipe template with documentation
+- `routine` → Complete routine template with documentation
 - `forloop` → `for i in 0 to 10 { ... }`
 
 ### Danger Zone
@@ -92,7 +92,7 @@ The RazorForge color scheme provides semantic highlighting:
 
 ### RazorForge Colors
 
-- **Memory Operations** (`hijacking`, `share!`): Red (`#FF6B6B`)
+- **Memory Operations** (`hijacking`, `share`): Red (`#FF6B6B`)
 - **Slice Operations** (`size()`, `address()`): Cyan (`#8BE9FD`)
 - **Danger Operations** (`read_as!`, `write_as!`): Red with dark background
 - **danger! Blocks**: Red text with dark red background and underline
@@ -134,10 +134,10 @@ Disable C#-specific inspections that don't apply to RazorForge:
 
 Create new RazorForge files with proper templates:
 
-### Recipe File Template
+### Routine File Template
 
 ```razorforge
-# RazorForge Recipe Template
+# RazorForge Routine Template
 
 import system/console/write_line
 
@@ -146,7 +146,7 @@ Function description
 @param param - parameter description
 @return return description
 ###
-recipe function_name(parameters) return_type {
+routine function_name(parameters) return_type {
     # Implementation
 }
 ```
@@ -167,7 +167,7 @@ record StructName {
     Constructor
     @param param - parameter description
     ###
-    public recipe __create__(param: type) -> StructName {
+    public routine __create__(param: type) -> StructName {
         me.field1 = param
         return me
     }

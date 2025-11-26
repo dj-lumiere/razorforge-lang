@@ -8,7 +8,7 @@ record Shared<T, Policy> {
 }
 
 # Create thread-safe shared reference with policy (default: Mutex)
-recipe T.share!() -> Shared<T, Mutex> {
+routine T.share() -> Shared<T, Mutex> {
     danger! {
         # Allocate control block with atomic ref counting
         let controller = ThreadReferenceCounter()
@@ -27,7 +27,7 @@ recipe T.share!() -> Shared<T, Mutex> {
 }
 
 # Create thread-safe shared reference with explicit policy
-recipe T.share!(policy: Policy) -> Shared<T, Policy> {
+routine T.share(policy: Policy) -> Shared<T, Policy> {
     danger! {
         # Allocate control block with atomic ref counting
         let controller = ThreadReferenceCounter()
@@ -46,7 +46,7 @@ recipe T.share!(policy: Policy) -> Shared<T, Policy> {
 }
 
 # Constructor for Shared<T, Policy>
-recipe Shared<T, Policy>.Shared<T, Policy>(controller_address: sysuint, data_address: sysuint, lock_address: sysuint) {
+routine Shared<T, Policy>.Shared<T, Policy>(controller_address: sysuint, data_address: sysuint, lock_address: sysuint) {
     me.controller_address = controller_address
     me.data_address = data_address
     me.lock_address = lock_address
@@ -54,7 +54,7 @@ recipe Shared<T, Policy>.Shared<T, Policy>(controller_address: sysuint, data_add
 }
 
 # Clone the shared reference (increment atomic ref count)
-recipe Shared<T, Policy>.share!() -> Shared<T, Policy> {
+routine Shared<T, Policy>.share!() -> Shared<T, Policy> {
     danger! {
         var controller = read_as<ThreadReferenceCounter>(controller_address)
         controller.increase_strong_count!()  # Atomic increment
@@ -63,7 +63,7 @@ recipe Shared<T, Policy>.share!() -> Shared<T, Policy> {
 }
 
 # Release the shared reference (decrement atomic ref count)
-recipe Shared<T, Policy>.release!() {
+routine Shared<T, Policy>.release!() {
     danger! {
         var controller = read_as<ThreadReferenceCounter>(controller_address)
         controller.decrease_strong_count!()  # Atomic decrement
@@ -88,14 +88,14 @@ recipe Shared<T, Policy>.release!() {
 }
 
 # Get atomic reference counts for debugging
-recipe Shared<T, Policy>.strong_count(me: Shared<T, Policy>) -> s32 {
+routine Shared<T, Policy>.strong_count(me: Shared<T, Policy>) -> s32 {
     danger! {
         var controller = read_as<ThreadReferenceCounter>(controller_address)
         return controller.strong_count()
     }
 }
 
-recipe Shared<T, Policy>.weak_count(me: Shared<T, Policy>) -> s32 {
+routine Shared<T, Policy>.weak_count(me: Shared<T, Policy>) -> s32 {
     danger! {
         var controller = read_as<ThreadReferenceCounter>(controller_address)
         return controller.weak_count()

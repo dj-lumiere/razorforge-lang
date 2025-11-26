@@ -9,23 +9,23 @@ entity Animal:
     @[public get, private set]
     var name: Text
 
-    public recipe __create__(name: Text, species: Text) -> Animal:
+    public routine __create__(name: Text, species: Text) -> Animal:
         me.name = name
         me.species = species
         return me
 
-    public recipe speak() -> Text:
+    public routine speak() -> Text:
         return f"{me.name} makes a sound"
 
 entity Dog from Animal:
     public var breed: Text
 
-    public recipe __create__(name: Text, breed: Text) -> Dog:
+    public routine __create__(name: Text, breed: Text) -> Dog:
         parent(name, "Canine")
         me.breed = breed
         return me
 
-    public recipe speak() -> Text:
+    public routine speak() -> Text:
         return f"{me.name} barks: Woof!"
 
 # Record Example - Value type for data
@@ -33,10 +33,10 @@ record Point:
     public var x: Decimal
     public var y: Decimal
 
-    public recipe distance_from_origin() -> Decimal:
+    public routine distance_from_origin() -> Decimal:
         return (me.x * me.x + me.y * me.y).sqrt()
 
-    public recipe translate(dx: Decimal, dy: Decimal) -> Point:
+    public routine translate(dx: Decimal, dy: Decimal) -> Point:
         return Point(x: me.x + dx, y: me.y + dy)
 
 # Choice (Enum) Example - Simple enumeration
@@ -45,7 +45,7 @@ choice Color:
     Green
     Blue
 
-    public recipe to_hex() -> Text:
+    public routine to_hex() -> Text:
         when me:
             Color.Red => return "#FF0000"
             Color.Green => return "#00FF00"
@@ -56,12 +56,12 @@ chimera Result<T>:
     Success(T)
     Error(Error)
 
-    public recipe unwrap() -> T:
+    public routine unwrap() -> T:
         when me:
             is Error error: crash(f"Unwrap failed: {error}")
             _: return _
 
-    public recipe is_success() -> Bool:
+    public routine is_success() -> Bool:
         when me:
             is Error _: return false
             _: return true
@@ -71,30 +71,30 @@ chimera Maybe<T>:
     Invalid
 
     # This will be overridden as ?: operator.
-    public recipe unwrap_or(default: T) -> T:
+    public routine unwrap_or(default: T) -> T:
         when me:
             is Invalid: return default
             _: return _
 
 # Feature Example - Interface/trait
 feature Drawable:
-    recipe draw() -> Text
+    routine draw() -> Text
 
 # Implementing feature for a record
 record Circle:
     public var radius: Decimal
     public var center: Point
 
-    public recipe area() -> Decimal:
+    public routine area() -> Decimal:
         return 3.14159 * me.radius * me.radius
 
 # Making Circle drawable
 Circle follows Drawable:
-    recipe draw() -> Text:
+    routine draw() -> Text:
         return f"Circle at ({me.center.x}, {me.center.y}) with radius {me.radius}"
 
 # Usage example
-recipe main():
+routine main():
     # Entity usage
     var dog = Dog("Buddy", "Golden Retriever")
     show_line(dog.speak())

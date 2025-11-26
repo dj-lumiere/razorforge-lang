@@ -11,7 +11,7 @@ namespace Compilers.Shared.AST;
 /// Declarations form the structural backbone of programs:
 /// <list type="bullet">
 /// <item>Variables: local and global state</item>
-/// <item>Functions: executable procedures and recipes</item>
+/// <item>Functions: executable procedures and routines</item>
 /// <item>Types: classes, structs, enums, variants, traits</item>
 /// <item>Modules: imports and namespace organization</item>
 /// </list>
@@ -57,8 +57,8 @@ public record VariableDeclaration(
 }
 
 /// <summary>
-/// Function/recipe declaration that defines executable code blocks.
-/// Represents both traditional functions and RazorForge "recipes".
+/// Function/routine declaration that defines executable code blocks.
+/// Represents both traditional functions and RazorForge "routines".
 /// </summary>
 /// <param name="Name">Function identifier name</param>
 /// <param name="Parameters">List of parameter definitions</param>
@@ -71,8 +71,8 @@ public record VariableDeclaration(
 /// <remarks>
 /// Function declarations support:
 /// <list type="bullet">
-/// <item>Generic functions: recipe sort[T](items: Array[T])</item>
-/// <item>Default parameters: recipe greet(name: text = "World")</item>
+/// <item>Generic functions: routine sort[T](items: Array[T])</item>
+/// <item>Default parameters: routine greet(name: text = "World")</item>
 /// <item>Type inference: parameters and return types can be inferred</item>
 /// <item>Attributes: @[inline], @[everywhere get], etc.</item>
 /// <item>Visibility: public, private, protected, internal</item>
@@ -116,7 +116,7 @@ public record FunctionDeclaration(
 /// <item>Multiple interface implementation: entity Dog follows Nameable, Trainable</item>
 /// <item>Generic classes: entity Container[T]</item>
 /// <item>Member visibility: public, private, protected fields/methods</item>
-/// <item>Constructors: defined as special recipe methods</item>
+/// <item>Constructors: defined as special routine methods</item>
 /// </list>
 /// </remarks>
 public record ClassDeclaration(
@@ -264,8 +264,8 @@ public record VariantDeclaration(
 /// <remarks>
 /// Feature/Trait declarations enable polymorphism and code reuse:
 /// <list type="bullet">
-/// <item>Interface contracts: feature Drawable { recipe draw() }</item>
-/// <item>Generic traits: feature Comparable[T] { recipe compare(other: T) -> s32 }</item>
+/// <item>Interface contracts: feature Drawable { routine draw() }</item>
+/// <item>Generic traits: feature Comparable[T] { routine compare(other: T) -> s32 }</item>
 /// <item>Multiple implementation: types can implement multiple features</item>
 /// <item>Default methods: traits can provide default implementations</item>
 /// <item>Trait bounds: generic constraints (where T: Comparable)</item>
@@ -295,8 +295,8 @@ public record FeatureDeclaration(
 /// <remarks>
 /// Implementation blocks serve two purposes:
 /// <list type="bullet">
-/// <item>Inherent impls: String follows { recipe length() -> sysuint }</item>
-/// <item>Trait impls: MyType follows Drawable { recipe draw() { ... } }</item>
+/// <item>Inherent impls: String follows { routine length() -> sysuint }</item>
+/// <item>Trait impls: MyType follows Drawable { routine draw() { ... } }</item>
 /// <item>Extension methods: add methods to existing types</item>
 /// <item>Organized code: group related methods together</item>
 /// <item>Conditional compilation: different impls for different platforms</item>
@@ -542,9 +542,9 @@ public record UsingDeclaration(TypeExpression Type, string Alias, SourceLocation
 /// <remarks>
 /// External declarations link RazorForge to native runtime:
 /// <list type="bullet">
-/// <item>external("C") recipe malloc(size: sysuint) -> cptr&lt;cvoid&gt;</item>
-/// <item>external("C") recipe free(ptr: cptr&lt;cvoid&gt;)</item>
-/// <item>external recipe heap_alloc!(bytes: sysuint) -> sysuint (default C convention)</item>
+/// <item>external("C") routine malloc(size: sysuint) -> cptr&lt;cvoid&gt;</item>
+/// <item>external("C") routine free(ptr: cptr&lt;cvoid&gt;)</item>
+/// <item>external routine heap_alloc!(bytes: sysuint) -> sysuint (default C convention)</item>
 /// <item>No function body - implementation provided by native runtime</item>
 /// <item>Links to C functions at compile time</item>
 /// </list>
@@ -564,12 +564,12 @@ public record ExternalDeclaration(
 }
 
 /// <summary>
-/// Recipe declaration - alias for FunctionDeclaration to support RazorForge "recipe" keyword.
-/// Provides compatibility with test code that expects RecipeDeclaration type.
+/// Routine declaration - alias for FunctionDeclaration to support RazorForge "routine" keyword.
+/// Provides compatibility with test code that expects RoutineDeclaration type.
 /// </summary>
-public record RecipeDeclaration : FunctionDeclaration
+public record RoutineDeclaration : FunctionDeclaration
 {
-    public RecipeDeclaration(string Name, List<Parameter> Parameters, TypeExpression? ReturnType,
+    public RoutineDeclaration(string Name, List<Parameter> Parameters, TypeExpression? ReturnType,
         Statement Body, VisibilityModifier Visibility, List<string> Attributes,
         SourceLocation Location) : base(Name: Name, Parameters: Parameters, ReturnType: ReturnType,
         Body: Body, Visibility: Visibility, Attributes: Attributes, Location: Location)

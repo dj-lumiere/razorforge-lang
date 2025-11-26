@@ -69,7 +69,7 @@ public enum WrapperType
     /// Single-threaded shared ownership with interior mutability (Retained&lt;T&gt;).
     /// Multiple references can exist (RC > 1). Provides shared mutable access
     /// through reference counting similar to Rc&lt;RefCell&lt;T&gt;&gt; in Rust.
-    /// Created via retain!() operation.
+    /// Created via retain() operation.
     /// </summary>
     Retained,
 
@@ -80,7 +80,7 @@ public enum WrapperType
     /// Must use try_recover() to upgrade to strong reference:
     ///   - Tracked&lt;Retained&lt;T&gt;&gt; → Maybe&lt;Retained&lt;T&gt;&gt;
     ///   - Tracked&lt;Shared&lt;T, Policy&gt;&gt; → Maybe&lt;Shared&lt;T, Policy&gt;&gt;
-    /// Created via track!() operation on Retained&lt;T&gt; or Shared&lt;T, Policy&gt;.
+    /// Created via track() operation on Retained&lt;T&gt; or Shared&lt;T, Policy&gt;.
     /// </summary>
     Tracked,
 
@@ -89,7 +89,7 @@ public enum WrapperType
     /// Thread-safe shared ownership (Shared&lt;T, Policy&gt;).
     /// Multiple references across threads (Arc > 1). Provides thread-safe
     /// shared mutable access through atomic reference counting and locking policy.
-    /// Created via share!() operation with explicit policy (Mutex, MultiReadLock, or RejectEdit).
+    /// Created via share() operation with explicit policy (Mutex, MultiReadLock, or RejectEdit).
     /// </summary>
     Shared,
 
@@ -181,7 +181,7 @@ public enum ObjectState
 
     /// <summary>
     /// Object has been invalidated (deadref). Cannot be accessed anymore.
-    /// Caused by: memory operations (retain!, hijack!, etc.), scope exit, or explicit invalidation.
+    /// Caused by: memory operations (retain, hijack!, etc.), scope exit, or explicit invalidation.
     /// Attempting to use invalidated objects results in compile-time error.
     /// </summary>
     Invalidated,
@@ -376,8 +376,8 @@ public record MemoryObject(
 ///
 /// The operations are grouped by their primary purpose:
 /// <list type="bullet">
-/// <item>Group Transformations: retain!(), share!() - change wrapper type</item>
-/// <item>Weak References: track!() - create non-owning references</item>
+/// <item>Group Transformations: retain(), share() - change wrapper type</item>
+/// <item>Weak References: track() - create non-owning references</item>
 /// <item>RC Management: release!() - manually decrement reference count</item>
 /// <item>Weak Upgrades: try_recover() - upgrade weak to strong (can fail)</item>
 /// <item>Unsafe Operations: snatch!(), reveal!(), own!() - danger! block only</item>
@@ -386,7 +386,7 @@ public record MemoryObject(
 public enum MemoryOperation
 {
     /// <summary>
-    /// retain!() - Transform to single-threaded shared ownership (Retained&lt;T&gt;).
+    /// retain() - Transform to single-threaded shared ownership (Retained&lt;T&gt;).
     /// Creates reference-counted shared access with interior mutability.
     /// Multiple Retained references can coexist, each with RC tracking.
     /// Use case: When multiple references within single thread need mutable access.
@@ -394,7 +394,7 @@ public enum MemoryOperation
     Retain,
 
     /// <summary>
-    /// share!() - Transform to thread-safe shared ownership (Shared&lt;T, Policy&gt;).
+    /// share() - Transform to thread-safe shared ownership (Shared&lt;T, Policy&gt;).
     /// Creates atomic reference-counted shared access across threads.
     /// Requires explicit locking policy (Mutex, MultiReadLock, or RejectEdit).
     /// Use case: Sharing mutable objects across thread boundaries.
@@ -402,7 +402,7 @@ public enum MemoryOperation
     Share,
 
     /// <summary>
-    /// track!() - Create weak reference (Tracked&lt;Retained&lt;T&gt;&gt; or Tracked&lt;Shared&lt;T, Policy&gt;&gt;).
+    /// track() - Create weak reference (Tracked&lt;Retained&lt;T&gt;&gt; or Tracked&lt;Shared&lt;T, Policy&gt;&gt;).
     /// Creates observer reference that doesn't prevent object destruction.
     /// Weak references don't contribute to reference count (RC = 0).
     /// Can be used with both Retained (single-threaded) and Shared (multi-threaded).
@@ -479,7 +479,7 @@ public record MemoryError(
         /// <summary>
         /// Attempt to use an object that has been invalidated (deadref protection).
         /// Caused by using objects after memory operations invalidated them.
-        /// Example: using 'obj' after 'obj.retain!()' invalidated it.
+        /// Example: using 'obj' after 'obj.retain()' invalidated it.
         /// </summary>
         UseAfterInvalidation,
 
@@ -580,7 +580,7 @@ public enum FunctionType
     /// Most functions fall into this category and cannot return Hijacked&lt;T&gt;,
     /// Viewed&lt;T&gt;, Observed&lt;T&gt;, or Seized&lt;T&gt; since these are scoped tokens.
     /// Can return Owned, Retained, Tracked, Shared objects.
-    /// Example: recipe process_data(data: Node) → Node
+    /// Example: routine process_data(data: Node) → Node
     /// </summary>
     Regular,
 
@@ -589,7 +589,7 @@ public enum FunctionType
     /// Special functions explicitly marked as 'usurping' that are allowed
     /// to return tokens from scoped statements. Used for factory functions or
     /// specialized operations that need to provide scoped access.
-    /// Example: usurping public recipe __create___exclusive() → Hijacked&lt;Node&gt;
+    /// Example: usurping public routine __create___exclusive() → Hijacked&lt;Node&gt;
     /// </summary>
     Usurping
 }

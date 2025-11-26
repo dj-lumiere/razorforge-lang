@@ -43,7 +43,7 @@ $inFunction = $false
 
 foreach ($line in $lines) {
     # Track function boundaries
-    if ($line -match 'recipe\s+.*\)\s*->\s*\S+\s*\{') {
+    if ($line -match 'routine\s+.*\)\s*->\s*\S+\s*\{') {
         $inFunction = $true
     }
     if ($line -match '^\}') {

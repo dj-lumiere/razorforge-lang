@@ -154,7 +154,7 @@ public record UnaryExpression(UnaryOperator Operator, Expression Operand, Source
 /// <remarks>
 /// Supports various call patterns:
 /// <list type="bullet">
-/// <item>Function calls: recipe(a, b, c)</item>
+/// <item>Function calls: routine(a, b, c)</item>
 /// <item>Method calls: obj.method(x, y)</item>
 /// <item>Constructor calls: Point(x, y)</item>
 /// <item>Lambda calls: ((x) => x + 1)(42)</item>

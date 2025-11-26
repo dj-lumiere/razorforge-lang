@@ -134,8 +134,8 @@ chimera Maybe<T> {
 
 # Feature Example - Interface/trait for polymorphism
 feature Drawable {
-    func draw() -> Text
-    func area() -> f64
+    routine draw() -> Text
+    routine area() -> f64
 }
 
 # Memory-efficient record implementing feature
@@ -149,11 +149,11 @@ record Circle {
 }
 
 impl Drawable for Circle {
-    func draw() -> Text {
+    routine draw() -> Text {
         return f"Circle at ({me.center.x}, {me.center.y}) with radius {me.radius}"
     }
 
-    func area() -> f64 {
+    routine area() -> f64 {
         return me.area()
     }
 }
@@ -190,7 +190,7 @@ record Buffer<T> {
 }
 
 # Usage example
-func main() {
+routine main() {
     # Entity usage
     let dog = Dog("Buddy", "Golden Retriever")
     show_line(dog.speak())

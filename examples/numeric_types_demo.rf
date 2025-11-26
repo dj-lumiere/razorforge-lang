@@ -2,7 +2,7 @@
 # This shows how RazorForge types map to LLVM IR native types
 
 # Integer operations with s64 (maps to LLVM i64)
-recipe calculate_fibonacci(n: s64) -> s64 {
+routine calculate_fibonacci(n: s64) -> s64 {
     when (n) {
         0 => 0,
         1 => 1,
@@ -11,13 +11,13 @@ recipe calculate_fibonacci(n: s64) -> s64 {
 }
 
 # Floating point operations with f64 (maps to LLVM double)
-recipe calculate_compound_interest(principal: f64, rate: f64, time: s64) -> f64 {
+routine calculate_compound_interest(principal: f64, rate: f64, time: s64) -> f64 {
     let years: f64 = f64(from_s64: time)
     return principal * ((1.0 + rate) ^ years)
 }
 
 # Mixed integer and floating point arithmetic
-recipe compute_average(values: slice<s64>) -> f64 {
+routine compute_average(values: slice<s64>) -> f64 {
     let sum: s64 = 0
     let count: s64 = values.length()
 
@@ -30,13 +30,13 @@ recipe compute_average(values: slice<s64>) -> f64 {
 }
 
 # Bitwise operations on s64 (direct LLVM mapping)
-recipe hash_combine(a: s64, b: s64) -> s64 {
+routine hash_combine(a: s64, b: s64) -> s64 {
     # Golden ratio hash combination
     return a ^ (b + 0x9e3779b9 + (a << 6) + (a >> 2))
 }
 
 # IEEE 754 floating point manipulation
-recipe extract_mantissa_exponent(value: f64) -> (s64, s64) {
+routine extract_mantissa_exponent(value: f64) -> (s64, s64) {
     # Convert f64 bits to s64 for bit manipulation
     let bits: s64 = value.as_bits()
 
@@ -52,7 +52,7 @@ recipe extract_mantissa_exponent(value: f64) -> (s64, s64) {
 }
 
 # SIMD-friendly operations (vectorizable by LLVM)
-recipe vector_dot_product(a: slice<f64>, b: slice<f64>) -> f64 {
+routine vector_dot_product(a: slice<f64>, b: slice<f64>) -> f64 {
     let result: f64 = 0.0
     let length: s64 = min(a.length(), b.length())
 
@@ -72,7 +72,7 @@ record Point3D {
     # Total: 24 bytes, naturally aligned for SIMD
 }
 
-recipe distance_squared(p1: Point3D, p2: Point3D) -> f64 {
+routine distance_squared(p1: Point3D, p2: Point3D) -> f64 {
     let dx: f64 = p1.x - p2.x
     let dy: f64 = p1.y - p2.y
     let dz: f64 = p1.z - p2.z
@@ -81,7 +81,7 @@ recipe distance_squared(p1: Point3D, p2: Point3D) -> f64 {
 }
 
 # Unsafe pointer operations for low-level LLVM integration
-recipe unsafe_memory_copy(src: sysuint, dest: sysuint, count: s64) {
+routine unsafe_memory_copy(src: sysuint, dest: sysuint, count: s64) {
     danger {
         # Direct memory manipulation - compiles to LLVM memcpy intrinsic
         for i in 0..count {
@@ -90,18 +90,22 @@ recipe unsafe_memory_copy(src: sysuint, dest: sysuint, count: s64) {
     }
 }
 
-# Atomic operations for concurrent programming
+# Atomic operations for concurrent programming (use Shared<T> instead)
+# Note: For thread-safe counters, use Shared<s64, Mutex> with seizing/observing
 record AtomicCounter {
-    value: atomic<s64>
+    value: Shared<s64, Mutex>
 }
 
-recipe atomic_increment(counter: AtomicCounter) -> s64 {
-    # Maps to LLVM atomic add intrinsic
-    counter.value.fetch_add(1, memory_order.acquire_release)
+routine atomic_increment(counter: AtomicCounter) -> s64 {
+    # Use seizing for atomic increment
+    seizing counter.value as seized {
+        seized.value += 1
+        return seized.value
+    }
 }
 
-# Main demonstration recipe
-recipe main() -> s64 {
+# Main demonstration routine
+routine main() -> s64 {
     # s64 operations
     let large_number: s64 = 9_223_372_036_854_775_807  # s64.MAX
     let fib_result: s64 = calculate_fibonacci(20)
@@ -141,7 +145,7 @@ recipe main() -> s64 {
 ### s64                  -> i64           -> int64_t
 ### f64                  -> double        -> double
 ### DynamicSlice/TemporarySlice -> {i64, i64}     -> struct { size_t starting_address; size_t len; }
-### atomic<s64>          -> atomic i64    -> _Atomic int64_t
+### Shared<s64, Mutex>   -> atomic i64    -> _Atomic int64_t (with mutex)
 
 ### LLVM Intrinsics Generated:
 ### - Arithmetic: add, sub, mul, sdiv, udiv, srem, urem

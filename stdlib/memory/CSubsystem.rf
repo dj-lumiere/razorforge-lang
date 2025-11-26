@@ -2,29 +2,30 @@
 # Core external functions for danger! blocks and low-level memory management
 # These map directly to LLVM intrinsics and C runtime functions
 
-# Memory allocation operations
-external("C") recipe get_heap(size: MemorySize) -> sysuint
-external("C") recipe get_stack(size: MemorySize) -> sysuint
+# Memory allocation operations (for danger zone)
+external("C") routine claim_dynamic(size: MemorySize) -> sysuint
+external("C") routine claim_temporary(size: MemorySize) -> sysuint
+external("C") routine release_dynamic(address: sysuint)
 
 # Memory reading operations
-external("C") recipe read_as<T>(address: sysuint) -> T
-external("C") recipe volatile_read_as<T>(address: sysuint) -> T
+external("C") routine read_as<T>(address: sysuint) -> T
+external("C") routine volatile_read_as<T>(address: sysuint) -> T
 
 # Memory writing operations
-external("C") recipe write_as<T>(address: sysuint, value: T)
-external("C") recipe volatile_write_as<T>(address: sysuint, value: T)
+external("C") routine write_as<T>(address: sysuint, value: T)
+external("C") routine volatile_write_as<T>(address: sysuint, value: T)
 
 # Address operations
-external("C") recipe addr_of<T>(value: T) -> sysuint
+external("C") routine address_of<T>(value: T) -> sysuint
 
 # Type punning operations
-external("C") recipe obtain_as<U, T>(value: T) -> sysuint
-external("C") recipe reveal_as<U, T>(ptr: sysuint) -> U
+external("C") routine obtain_as<U, T>(value: T) -> sysuint
+external("C") routine reveal_as<U, T>(ptr: sysuint) -> U
 
 # Memory management
-external("C") recipe invalidate!(address: sysuint)
+external("C") routine invalidate!(address: sysuint)
 
 # Memory utilities
-external("C") recipe copy_memory(dest: sysuint, src: sysuint, size: MemorySize)
-external("C") recipe zero_memory(address: sysuint, size: MemorySize)
-external("C") recipe compare_memory(a: sysuint, b: sysuint, size: MemorySize) -> s32
+external("C") routine copy_memory(dest: sysuint, src: sysuint, size: MemorySize)
+external("C") routine zero_memory(address: sysuint, size: MemorySize)
+external("C") routine compare_memory(a: sysuint, b: sysuint, size: MemorySize) -> s32

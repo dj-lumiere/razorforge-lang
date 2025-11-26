@@ -29,7 +29,7 @@ function Should-Add-Return {
     )
 
     # Track if we're in a function
-    if ($Line -match 'recipe\s+\S+.*\)\s*->\s*\S+\s*\{') {
+    if ($Line -match 'routine\s+\S+.*\)\s*->\s*\S+\s*\{') {
         $InFunction.Value = $true
     }
 
@@ -39,7 +39,7 @@ function Should-Add-Return {
     }
 
     # Reset when we hit a closing brace at function level
-    if ($Line -match '^\}' -or $Line -match '^recipe\s+') {
+    if ($Line -match '^\}' -or $Line -match '^routine\s+') {
         $InFunction.Value = $false
         return $false
     }

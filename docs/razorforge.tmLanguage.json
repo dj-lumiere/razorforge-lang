@@ -9,7 +9,7 @@
     {
       "comment": "Keywords",
       "name": "keyword.control.razorforge",
-      "match": "\\b(recipe|record|entity|let|var|const|preeval|return|if|else|for|in|to|loop|break|continue|import|public|private|protected|danger|with|and|or|not|as|redefine|crash|external|me|auto|using)\\b"
+      "match": "\\b(routine|record|entity|let|var|const|preeval|return|if|else|for|in|to|loop|break|continue|import|public|private|protected|danger|with|and|or|not|as|redefine|crash|external|me|auto|using)\\b"
     },
     {
       "comment": "Memory operations",

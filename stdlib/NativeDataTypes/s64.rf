@@ -15,22 +15,22 @@ preset S64_ONE: s64 = 1_s64
 # Basic arithmetic operations (LLVM intrinsics: add, sub, mul, sdiv, srem)
 
 # Addition with overflow checking
-recipe s64.add(me: s64, other: s64) -> s64 {
+routine s64.add(me: s64, other: s64) -> s64 {
     return llvm_intrinsic("llvm.sadd.with.overflow.i64", me, other)
 }
 
 # Subtraction with overflow checking
-recipe s64.sub(me: s64, other: s64) -> s64 {
+routine s64.sub(me: s64, other: s64) -> s64 {
     return llvm_intrinsic("llvm.ssub.with.overflow.i64", me, other)
 }
 
 # Multiplication with overflow checking
-recipe s64.mul(me: s64, other: s64) -> s64 {
+routine s64.mul(me: s64, other: s64) -> s64 {
     return llvm_intrinsic("llvm.smul.with.overflow.i64", me, other)
 }
 
 # Division (signed) - maps to LLVM sdiv
-recipe s64.floordiv(me: s64, other: s64) -> s64 {
+routine s64.floordiv(me: s64, other: s64) -> s64 {
     when (other) {
         0 => throw panic("Division by zero"),
         _ => return llvm_intrinsic("sdiv", me, other)
@@ -38,7 +38,7 @@ recipe s64.floordiv(me: s64, other: s64) -> s64 {
 }
 
 # Remainder (signed) - maps to LLVM srem
-recipe s64.rem(me: s64, other: s64) -> s64 {
+routine s64.rem(me: s64, other: s64) -> s64 {
     when (other) {
         0 => throw panic("Division by zero"),
         _ => return llvm_intrinsic("srem", me, other)
@@ -46,122 +46,122 @@ recipe s64.rem(me: s64, other: s64) -> s64 {
 }
 
 # Bitwise operations (direct LLVM mapping)
-recipe s64.and(me: s64, other: s64) -> s64 {
+routine s64.and(me: s64, other: s64) -> s64 {
     return llvm_intrinsic("and", me, other)
 }
 
-recipe s64.or(me: s64, other: s64) -> s64 {
+routine s64.or(me: s64, other: s64) -> s64 {
     return llvm_intrinsic("or", me, other)
 }
 
-recipe s64.xor(me: s64, other: s64) -> s64 {
+routine s64.xor(me: s64, other: s64) -> s64 {
     return llvm_intrinsic("xor", me, other)
 }
 
-recipe s64.not(me: s64) -> s64 {
+routine s64.not(me: s64) -> s64 {
     return llvm_intrinsic("xor", me, -1)
 }
 
 # Bit shifting operations
-recipe s64.shl(me: s64, bits: s64) -> s64 {
+routine s64.shl(me: s64, bits: s64) -> s64 {
     return llvm_intrinsic("shl", me, bits)
 }
 
-recipe s64.shr(me: s64, bits: s64) -> s64 {
+routine s64.shr(me: s64, bits: s64) -> s64 {
     return llvm_intrinsic("ashr", me, bits)  # Arithmetic right shift for signed
 }
 
 # Comparison operations (LLVM icmp)
-recipe s64.eq(me: s64, other: s64) -> bool {
+routine s64.eq(me: s64, other: s64) -> bool {
     return llvm_intrinsic("icmp eq", me, other)
 }
 
-recipe s64.ne(me: s64, other: s64) -> bool {
+routine s64.ne(me: s64, other: s64) -> bool {
     return llvm_intrinsic("icmp ne", me, other)
 }
 
-recipe s64.lt(me: s64, other: s64) -> bool {
+routine s64.lt(me: s64, other: s64) -> bool {
     return llvm_intrinsic("icmp slt", me, other)  # Signed less than
 }
 
-recipe s64.le(me: s64, other: s64) -> bool {
+routine s64.le(me: s64, other: s64) -> bool {
     return llvm_intrinsic("icmp sle", me, other)  # Signed less equal
 }
 
-recipe s64.gt(me: s64, other: s64) -> bool {
+routine s64.gt(me: s64, other: s64) -> bool {
     return llvm_intrinsic("icmp sgt", me, other)  # Signed greater than
 }
 
-recipe s64.ge(me: s64, other: s64) -> bool {
+routine s64.ge(me: s64, other: s64) -> bool {
     return llvm_intrinsic("icmp sge", me, other)  # Signed greater equal
 }
 
 # Advanced math operations using LLVM intrinsics
-recipe s64.abs(me: s64) -> s64 {
+routine s64.abs(me: s64) -> s64 {
     when (me) {
         >= 0 => return me,
         _ => return -me
     }
 }
 
-recipe s64.min(me: s64, other: s64) -> s64 {
+routine s64.min(me: s64, other: s64) -> s64 {
     return if me <= other then me else other
 }
 
-recipe s64.max(me: s64, other: s64) -> s64 {
+routine s64.max(me: s64, other: s64) -> s64 {
     return if me >= other then me else other
 }
 
 # Bit manipulation utilities
-recipe s64.count_leading_zeros(me: s64) -> s64 {
+routine s64.count_leading_zeros(me: s64) -> s64 {
     return llvm_intrinsic("llvm.ctlz.i64", me, false)
 }
 
-recipe s64.count_trailing_zeros(me: s64) -> s64 {
+routine s64.count_trailing_zeros(me: s64) -> s64 {
     return llvm_intrinsic("llvm.cttz.i64", me, false)
 }
 
-recipe s64.count_ones(me: s64) -> s64 {
+routine s64.count_ones(me: s64) -> s64 {
     return llvm_intrinsic("llvm.ctpop.i64", me)
 }
 
 # Byte swapping for endianness conversion
-recipe s64.swap_bytes(me: s64) -> s64 {
+routine s64.swap_bytes(me: s64) -> s64 {
     return llvm_intrinsic("llvm.bswap.i64", me)
 }
 
 # Type conversions to other native types (using constructor syntax)
-recipe u64(from_s64: s64) -> u64 {
+routine u64(from_s64: s64) -> u64 {
     return llvm_intrinsic("bitcast", from_s64)  # Direct bit reinterpretation
 }
 
-recipe f64(from_s64: s64) -> f64 {
+routine f64(from_s64: s64) -> f64 {
     return llvm_intrinsic("sitofp", from_s64)   # Signed int to double
 }
 
-recipe s32(from_s64: s64) -> s32 {
+routine s32(from_s64: s64) -> s32 {
     return llvm_intrinsic("trunc", from_s64)    # Truncate to 32-bit
 }
 
-recipe bool(from_s64: s64) -> bool {
+routine bool(from_s64: s64) -> bool {
     return from_s64 != 0
 }
 
 # Parsing and formatting using constructor syntax
-recipe s64(from_text: Text) -> s64 {
+routine s64(from_text: Text) -> s64 {
     # Parse Text to s64 using LLVM constant folding when possible
     # Implementation would use text parsing logic
     return 0  # Placeholder
 }
 
-recipe Text(from_s64: s64) -> Text {
+routine Text(from_s64: s64) -> Text {
     # Convert s64 to Text representation
     # Implementation would use formatting logic
     return ""  # Placeholder
 }
 
 # SIMD operations for vectorized s64 processing
-recipe s64_vec_add(a: slice<s64>, b: slice<s64>) -> slice<s64> {
+routine s64_vec_add(a: slice<s64>, b: slice<s64>) -> slice<s64> {
     let result = new_slice<s64>(a.length())
 
     # This loop will be auto-vectorized by LLVM using SSE/AVX
@@ -173,9 +173,9 @@ recipe s64_vec_add(a: slice<s64>, b: slice<s64>) -> slice<s64> {
 }
 
 # Example usage demonstrating LLVM optimizations
-recipe fibonacci_s64(n: s64) -> s64 {
+routine fibonacci_s64(n: s64) -> s64 {
     # Tail recursion optimization by LLVM
-    recipe fib_helper(n: s64, a: s64, b: s64) -> s64 {
+    routine fib_helper(n: s64, a: s64, b: s64) -> s64 {
         when (n) {
             0 => a,
             _ => fib_helper(n - 1, b, a + b)
@@ -186,7 +186,7 @@ recipe fibonacci_s64(n: s64) -> s64 {
 }
 
 # Hash function using s64 for high performance
-recipe s64_hash(value: s64) -> s64 {
+routine s64_hash(value: s64) -> s64 {
     # FNV-1a hash algorithm optimized by LLVM
     let hash: s64 = 14695981039346656037  # FNV offset basis
     let prime: s64 = 1099511628211        # FNV prime

@@ -47,7 +47,7 @@
     "alignArrayElements": true
   },
   "blankLines": {
-    "beforeRecipe": 1,
+    "beforeRoutine": 1,
     "beforeClass": 2,
     "beforeStruct": 2,
     "beforeEnum": 2,
@@ -82,7 +82,7 @@
       "formatTypeParameters": true,
       "spaceAroundTypeParameters": false
     },
-    "recipes": {
+    "routines": {
       "alignParameters": true,
       "newLineAfterLongParameters": true,
       "parameterThreshold": 3

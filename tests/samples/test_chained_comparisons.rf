@@ -1,5 +1,5 @@
 # Test comparison operator chaining
-recipe test_chains() -> bool {
+routine test_chains() -> bool {
     let a = 1i32
     let b = 5i32
     let c = 10i32
@@ -28,11 +28,11 @@ recipe test_chains() -> bool {
 }
 
 # Range checking example
-recipe in_bounds(x: i32, y: i32, width: i32, height: i32) -> bool {
+routine in_bounds(x: i32, y: i32, width: i32, height: i32) -> bool {
     return 0 <= x < width and 0 <= y < height
 }
 
 # Finding plateau in array
-recipe find_plateau(prev: i32, curr: i32, next: i32) -> bool {
+routine find_plateau(prev: i32, curr: i32, next: i32) -> bool {
     return prev < curr == next  # Rising then flat
 }

@@ -9,7 +9,7 @@
 
   <!-- RazorForge specific colors -->
   <attributes>
-    <!-- Memory operations (hijacking, share!, etc.) -->
+    <!-- Memory operations (hijacking, share, etc.) -->
     <option name="RAZORFORGE.MEMORY_OP">
       <value>
         <option name="FOREGROUND" value="FF6B6B" />
@@ -63,7 +63,7 @@
       </value>
     </option>
 
-    <!-- External recipe declarations -->
+    <!-- External routine declarations -->
     <option name="RAZORFORGE.EXTERNAL">
       <value>
         <option name="FOREGROUND" value="BD93F9" />
@@ -73,7 +73,7 @@
 
     <!-- Suflae specific colors -->
 
-    <!-- Sweet keywords (recipe, suspended, etc.) -->
+    <!-- Sweet keywords (routine, suspended, etc.) -->
     <option name="SUFLAE.SWEET_KEYWORD">
       <value>
         <option name="FOREGROUND" value="FF79C6" />

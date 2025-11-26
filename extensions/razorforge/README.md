@@ -52,7 +52,7 @@ Configure the extension through VS Code settings:
 
 The extension provides syntax highlighting for:
 
-- Keywords: `recipe`, `class`, `struct`, `let`, `var`, `if`, `while`, etc.
+- Keywords: `routine`, `class`, `struct`, `let`, `var`, `if`, `while`, etc.
 - Types: `s32`, `u64`, `f32`, `bool`, `string`, `DynamicSlice`, etc.
 - Comments: Line (`//`) and block (`/* */`) comments
 - Strings and literals
@@ -63,7 +63,7 @@ The extension provides syntax highlighting for:
 **Control Flow**: `if`, `else`, `when`, `while`, `for`, `in`, `to`, `by`, `match`, `case`, `default`, `break`,
 `continue`, `return`
 
-**Declarations**: `recipe`, `class`, `struct`, `enum`, `chimera`, `variant`, `mutant`, `option`, `feature`
+**Declarations**: `routine`, `class`, `struct`, `enum`, `chimera`, `variant`, `mutant`, `option`, `feature`
 
 **Storage**: `let`, `var`, `const`, `mut`, `auto`
 
@@ -75,14 +75,14 @@ The extension provides syntax highlighting for:
 
 ```razorforge
 // Example RazorForge program
-recipe fibonacci(n: u32) -> u32 {
+routine fibonacci(n: u32) -> u32 {
     if n <= 1 {
         return n;
     }
     return fibonacci(n - 1) + fibonacci(n - 2);
 }
 
-recipe main() {
+routine main() {
     let result = fibonacci(10);
     // Result: 55
 }

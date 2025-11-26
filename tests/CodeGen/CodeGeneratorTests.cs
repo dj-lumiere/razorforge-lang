@@ -43,10 +43,10 @@ public class CodeGeneratorTests
     }
 
     [Fact]
-    public void TestSimpleRecipeGeneration()
+    public void TestSimpleRoutineGeneration()
     {
         string code = @"
-recipe main() -> s32 {
+routine main() -> s32 {
     return 42
 }";
 
@@ -64,10 +64,10 @@ recipe main() -> s32 {
     }
 
     [Fact]
-    public void TestRecipeWithParameters()
+    public void TestRoutineWithParameters()
     {
         string code = @"
-recipe add(a: s32, b: s32) -> s32 {
+routine add(a: s32, b: s32) -> s32 {
     return a + b
 }";
 
@@ -86,7 +86,7 @@ recipe add(a: s32, b: s32) -> s32 {
     public void TestVariableDeclaration()
     {
         string code = @"
-recipe test() -> s32 {
+routine test() -> s32 {
     let x = 42
     return x
 }";
@@ -106,7 +106,7 @@ recipe test() -> s32 {
     public void TestArithmeticOperations()
     {
         string code = @"
-recipe math() -> s32 {
+routine math() -> s32 {
     let a = 10
     let b = 20
     let sum = a + b
@@ -129,7 +129,7 @@ recipe math() -> s32 {
     public void TestComparisonOperations()
     {
         string code = @"
-recipe compare(x: s32, y: s32) -> Bool {
+routine compare(x: s32, y: s32) -> Bool {
     return x < y
 }";
 
@@ -144,7 +144,7 @@ recipe compare(x: s32, y: s32) -> Bool {
     public void TestIfStatement()
     {
         string code = @"
-recipe conditional(x: s32) -> s32 {
+routine conditional(x: s32) -> s32 {
     if x > 0:
         return 1
     else:
@@ -164,7 +164,7 @@ recipe conditional(x: s32) -> s32 {
     public void TestWhileLoop()
     {
         string code = @"
-recipe countdown(n: s32) -> s32 {
+routine countdown(n: s32) -> s32 {
     var i = n
     while i > 0:
         i = i - 1
@@ -181,14 +181,14 @@ recipe countdown(n: s32) -> s32 {
     }
 
     [Fact]
-    public void TestRecipeCall()
+    public void TestRoutineCall()
     {
         string code = @"
-recipe helper() -> s32 {
+routine helper() -> s32 {
     return 42
 }
 
-recipe main() -> s32 {
+routine main() -> s32 {
     return helper()
 }";
 
@@ -205,7 +205,7 @@ recipe main() -> s32 {
     public void TestRecursiveCall()
     {
         string code = @"
-recipe factorial(n: s32) -> s32 {
+routine factorial(n: s32) -> s32 {
     if n <= 1:
         return 1
     else:
@@ -225,7 +225,7 @@ recipe factorial(n: s32) -> s32 {
     public void TestDifferentIntegerTypes()
     {
         string code = @"
-recipe types() {
+routine types() {
     let a: s8 = 10
     let b: s16 = 1000
     let c: s32 = 100000
@@ -251,7 +251,7 @@ recipe types() {
     public void TestFloatingPointTypes()
     {
         string code = @"
-recipe floats() {
+routine floats() {
     let f32_val: f32 = 3.14
     let f64_val: f64 = 2.718281828
 }";
@@ -268,7 +268,7 @@ recipe floats() {
     public void TestStringLiterals()
     {
         string code = @"
-recipe strings() -> Text {
+routine strings() -> Text {
     let message = ""Hello, World!""
     return message
 }";
@@ -284,7 +284,7 @@ recipe strings() -> Text {
     public void TestBooleanOperations()
     {
         string code = @"
-recipe boolean_logic(a: Bool, b: Bool) -> Bool {
+routine boolean_logic(a: Bool, b: Bool) -> Bool {
     let and_result = a and b
     let or_result = a or b
     let not_result = not a
@@ -302,7 +302,7 @@ recipe boolean_logic(a: Bool, b: Bool) -> Bool {
     public void TestMemorySliceOperations()
     {
         string code = @"
-recipe slice_test() {
+routine slice_test() {
     let heap_slice = DynamicSlice(64)
     heap_slice[0] = 42
     let value = heap_slice[0]
@@ -322,7 +322,7 @@ recipe slice_test() {
     public void TestOverflowOperators()
     {
         string code = @"
-recipe overflow_math() {
+routine overflow_math() {
     let a: u8 = 200
     let b: u8 = 100
     let wrapped = a +% b
@@ -340,8 +340,8 @@ recipe overflow_math() {
     public void TestModuleStructure()
     {
         string code = @"
-recipe first() -> s32 { return 1 }
-recipe second() -> s32 { return 2 }
+routine first() -> s32 { return 1 }
+routine second() -> s32 { return 2 }
 ";
 
         string llvmIr = GenerateCode(code: code);
@@ -360,7 +360,7 @@ recipe second() -> s32 { return 2 }
     public void TestOptimizationHints()
     {
         string code = @"
-recipe optimized(x: s32) -> s32 {
+routine optimized(x: s32) -> s32 {
     return x * 2  # Should be optimizable to left shift
 }";
 
@@ -376,7 +376,7 @@ recipe optimized(x: s32) -> s32 {
     public void TestConstantFolding()
     {
         string code = @"
-recipe constants() -> s32 {
+routine constants() -> s32 {
     return 2 + 3 * 4  # Should potentially fold to 14
 }";
 
@@ -391,7 +391,7 @@ recipe constants() -> s32 {
     public void TestErrorHandling()
     {
         string code = @"
-recipe test() -> s32 {
+routine test() -> s32 {
     return divide_by_zero()  # Undefined function
 }";
 
@@ -403,7 +403,7 @@ recipe test() -> s32 {
     public void TestComplexExpression()
     {
         string code = @"
-recipe complex(a: s32, b: s32, c: s32) -> s32 {
+routine complex(a: s32, b: s32, c: s32) -> s32 {
     return (a + b) * c - (a - b) / (c + 1)
 }";
 
@@ -419,7 +419,7 @@ recipe complex(a: s32, b: s32, c: s32) -> s32 {
     public void TestStackAllocation()
     {
         string code = @"
-recipe local_vars() {
+routine local_vars() {
     let a = 1
     let b = 2
     let c = 3
@@ -440,7 +440,7 @@ recipe local_vars() {
     public void TestTypeConversions()
     {
         string code = @"
-recipe conversions() {
+routine conversions() {
     let small: s8 = 10
     let big: s32 = small  # Implicit widening
 }";
@@ -457,7 +457,7 @@ recipe conversions() {
     public void TestNullReturn()
     {
         string code = @"
-recipe void_func() {
+routine void_func() {
     let x = 42
     # No explicit return
 }";
@@ -473,7 +473,7 @@ recipe void_func() {
     public void TestMultipleReturnPaths()
     {
         string code = @"
-recipe multi_return(x: s32) -> s32 {
+routine multi_return(x: s32) -> s32 {
     if x > 0:
         return 1
     elif x < 0:

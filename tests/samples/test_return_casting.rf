@@ -1,23 +1,23 @@
 # Test return type casting
 
 # Simple case - should not need casting
-func test_direct() -> i32 {
+routine test_direct() -> i32 {
     return 42i32
 }
 
 # Type mismatch - should need casting
-func test_i8_return() -> i8 {
+routine test_i8_return() -> i8 {
     return 100i8 + 20i8
 }
 
-func test_i16_return() -> i16 {
+routine test_i16_return() -> i16 {
     return 1000i16 - 100i16
 }
 
-func test_u32_return() -> u32 {
+routine test_u32_return() -> u32 {
     return 500u32 * 2u32
 }
 
-func main() -> i32 {
+routine main() -> i32 {
     return 0
 }

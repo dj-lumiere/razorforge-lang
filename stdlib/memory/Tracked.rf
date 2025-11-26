@@ -17,7 +17,7 @@ record Tracked<Shared<T, Policy>> {
 }
 
 # Create weak reference from Retained<T>
-recipe Retained<T>.track(me: Retained<T>) -> Tracked<Retained<T>> {
+routine Retained<T>.track(me: Retained<T>) -> Tracked<Retained<T>> {
     danger! {
         var controller = read_as<RefCountController>(controller_address)
         controller.increase_weak_count!()
@@ -30,7 +30,7 @@ recipe Retained<T>.track(me: Retained<T>) -> Tracked<Retained<T>> {
 }
 
 # Create weak reference from Shared<T, Policy>
-recipe Shared<T, Policy>.track(me: Shared<T, Policy>) -> Tracked<Shared<T, Policy>> {
+routine Shared<T, Policy>.track(me: Shared<T, Policy>) -> Tracked<Shared<T, Policy>> {
     danger! {
         var controller = read_as<ThreadReferenceCounter>(controller_address)
         controller.increase_weak_count!()
@@ -44,14 +44,14 @@ recipe Shared<T, Policy>.track(me: Shared<T, Policy>) -> Tracked<Shared<T, Polic
 }
 
 # Constructor for Tracked<Retained<T>>
-recipe Tracked<Retained<T>>.Tracked<Retained<T>>(controller_address: sysuint, data_address: sysuint) -> Tracked<Retained<T>> {
+routine Tracked<Retained<T>>.Tracked<Retained<T>>(controller_address: sysuint, data_address: sysuint) -> Tracked<Retained<T>> {
     me.controller_address = controller_address
     me.data_address = data_address
     return me
 }
 
 # Constructor for Tracked<Shared<T, Policy>>
-recipe Tracked<Shared<T, Policy>>.Tracked<Shared<T, Policy>>(controller_address: sysuint, data_address: sysuint, lock_address: sysuint) -> Tracked<Shared<T, Policy>> {
+routine Tracked<Shared<T, Policy>>.Tracked<Shared<T, Policy>>(controller_address: sysuint, data_address: sysuint, lock_address: sysuint) -> Tracked<Shared<T, Policy>> {
     me.controller_address = controller_address
     me.data_address = data_address
     me.lock_address = lock_address
@@ -59,7 +59,7 @@ recipe Tracked<Shared<T, Policy>>.Tracked<Shared<T, Policy>>(controller_address:
 }
 
 # Check if the tracked data is still alive
-recipe Tracked<T>.is_alive(me: Tracked<T>) -> bool {
+routine Tracked<T>.is_alive(me: Tracked<T>) -> bool {
     danger! {
         var controller = read_as<RefCountController>(controller_address)
         return controller.strong_count() > 0
@@ -67,7 +67,7 @@ recipe Tracked<T>.is_alive(me: Tracked<T>) -> bool {
 }
 
 # Recover Tracked<Retained<T>> to Retained<T> (crashes if dead)
-recipe Tracked<Retained<T>>.recover!(me: Tracked<Retained<T>>) -> Retained<T> {
+routine Tracked<Retained<T>>.recover!(me: Tracked<Retained<T>>) -> Retained<T> {
     danger! {
         var controller = read_as<RefCountController>(controller_address)
 
@@ -85,7 +85,7 @@ recipe Tracked<Retained<T>>.recover!(me: Tracked<Retained<T>>) -> Retained<T> {
 }
 
 # Recover Tracked<Retained<T>> to Retained<T> (returns Maybe)
-recipe Tracked<Retained<T>>.try_recover(me: Tracked<Retained<T>>) -> Maybe<Retained<T>> {
+routine Tracked<Retained<T>>.try_recover(me: Tracked<Retained<T>>) -> Maybe<Retained<T>> {
     danger! {
         var controller = read_as<RefCountController>(controller_address)
 
@@ -103,7 +103,7 @@ recipe Tracked<Retained<T>>.try_recover(me: Tracked<Retained<T>>) -> Maybe<Retai
 }
 
 # Recover Tracked<Shared<T, Policy>> to Shared<T, Policy> (crashes if dead)
-recipe Tracked<Shared<T, Policy>>.recover!(me: Tracked<Shared<T, Policy>>) -> Shared<T, Policy> {
+routine Tracked<Shared<T, Policy>>.recover!(me: Tracked<Shared<T, Policy>>) -> Shared<T, Policy> {
     danger! {
         var controller = read_as<ThreadReferenceCounter>(controller_address)
 
@@ -122,7 +122,7 @@ recipe Tracked<Shared<T, Policy>>.recover!(me: Tracked<Shared<T, Policy>>) -> Sh
 }
 
 # Recover Tracked<Shared<T, Policy>> to Shared<T, Policy> (returns Maybe)
-recipe Tracked<Shared<T, Policy>>.try_recover(me: Tracked<Shared<T, Policy>>) -> Maybe<Shared<T, Policy>> {
+routine Tracked<Shared<T, Policy>>.try_recover(me: Tracked<Shared<T, Policy>>) -> Maybe<Shared<T, Policy>> {
     danger! {
         var controller = read_as<ThreadReferenceCounter>(controller_address)
 
@@ -141,7 +141,7 @@ recipe Tracked<Shared<T, Policy>>.try_recover(me: Tracked<Shared<T, Policy>>) ->
 }
 
 # Clone the weak reference
-recipe Tracked<T>.track(me: Tracked<T>) -> Tracked<T> {
+routine Tracked<T>.track(me: Tracked<T>) -> Tracked<T> {
     danger! {
         var controller = read_as<RefCountController>(controller_address)
         controller.increase_weak_count!()
@@ -154,7 +154,7 @@ recipe Tracked<T>.track(me: Tracked<T>) -> Tracked<T> {
 }
 
 # Release the weak reference
-recipe Tracked<T>.release!(me: Tracked<T>) {
+routine Tracked<T>.release!(me: Tracked<T>) {
     danger! {
         var controller = read_as<RefCountController>(controller_address)
         controller.decrease_weak_count!()
@@ -168,14 +168,14 @@ recipe Tracked<T>.release!(me: Tracked<T>) {
 }
 
 # Get reference counts for debugging
-recipe Tracked<T>.strong_count(me: Tracked<T>) -> s32 {
+routine Tracked<T>.strong_count(me: Tracked<T>) -> s32 {
     danger! {
         var controller = read_as<RefCountController>(controller_address)
         return controller.strong_count()
     }
 }
 
-recipe Tracked<T>.weak_count(me: Tracked<T>) -> s32 {
+routine Tracked<T>.weak_count(me: Tracked<T>) -> s32 {
     danger! {
         var controller = read_as<RefCountController>(controller_address)
         return controller.weak_count()

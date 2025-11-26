@@ -22,7 +22,7 @@ public enum Language
 {
     /// <summary>
     /// RazorForge: Explicit memory management with wrapper types and memory groups.
-    /// Features manual memory operations (hijack!, share!, etc.), danger! blocks for unsafe code,
+    /// Features manual memory operations (hijack!, share, etc.), danger! blocks for unsafe code,
     /// usurping functions, and compile-time deadref protection. Compiles to high-performance
     /// native code with zero-cost abstractions.
     /// </summary>

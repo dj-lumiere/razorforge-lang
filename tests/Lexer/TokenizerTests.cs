@@ -236,7 +236,7 @@ public class TokenizerTests
     {
         (string, TokenType)[] keywords = new[]
         {
-            ("recipe", recipe: TokenType.Recipe),
+            ("routine", routine: TokenType.Routine),
             ("entity", TokenType.Entity),
             ("record", TokenType.Record),
             ("choice", TokenType.Choice),
@@ -426,13 +426,13 @@ public class TokenizerTests
     [Fact]
     public void TestComplexExpression()
     {
-        string code = "recipe add(a: s32, b: s32) -> s32 { return a + b }";
+        string code = "routine add(a: s32, b: s32) -> s32 { return a + b }";
         List<Token> tokens = Tokenizer.Tokenize(source: code, language: Language.RazorForge);
 
         // Verify the sequence of tokens
         TokenType[] expectedTypes = new[]
         {
-            TokenType.Recipe,
+            TokenType.Routine,
             TokenType.Identifier,
             TokenType.LeftParen,
             TokenType.Identifier,

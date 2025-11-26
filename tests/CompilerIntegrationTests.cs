@@ -46,7 +46,7 @@ public class CompilerIntegrationTests
     public void TestSliceConstructorParsing()
     {
         string code = @"
-recipe test() {
+routine test() {
     var heap_buffer = DynamicSlice(64)
     var stack_buffer = TemporarySlice(32)
 }";
@@ -82,7 +82,7 @@ recipe test() {
     public void TestGenericMethodCallParsing()
     {
         string code = @"
-recipe test() {
+routine test() {
     var buffer = DynamicSlice(64)
     buffer.write<s32>!(0, 42)
     let value = buffer.read<s32>!(0)
@@ -107,7 +107,7 @@ recipe test() {
     public void TestMemoryOperationParsing()
     {
         string code = @"
-recipe test() {
+routine test() {
     var buffer = TemporarySlice(48)
     let size = buffer.size!()
     let addr = buffer.address!()
@@ -133,9 +133,9 @@ recipe test() {
     public void TestExternalDeclarationParsing()
     {
         string code = @"
-external recipe heap_alloc!(bytes: sysuint) -> sysuint
-external recipe memory_copy!(src: sysuint, dest: sysuint, bytes: sysuint)
-external recipe read_as<T>!(address: sysuint) -> T
+external routine heap_alloc!(bytes: sysuint) -> sysuint
+external routine memory_copy!(src: sysuint, dest: sysuint, bytes: sysuint)
+external routine read_as<T>!(address: sysuint) -> T
 ";
 
         Program program = ParseCode(code: code);
@@ -164,7 +164,7 @@ external recipe read_as<T>!(address: sysuint) -> T
     public void TestDangerBlockParsing()
     {
         string code = @"
-recipe test() {
+routine test() {
     danger! {
         let addr = 0xDEADBEEF
         write_as<s32>!(addr, 999)
@@ -195,7 +195,7 @@ recipe test() {
     public void TestSemanticAnalysisOfSliceOperations()
     {
         string code = @"
-recipe test() {
+routine test() {
     var buffer = DynamicSlice(64)
     buffer.write<s32>!(0, 42)
     let value = buffer.read<s32>!(0)
@@ -213,7 +213,7 @@ recipe test() {
     public void TestSemanticAnalysisTypeErrors()
     {
         string code = @"
-recipe test() {
+routine test() {
     var buffer = DynamicSlice(""invalid_size"")  # Error: size must be sysuint
     buffer.write<s32>!(""invalid_offset"", 42)  # Error: offset must be sysuint
 }";
@@ -229,10 +229,10 @@ recipe test() {
     public void TestLLVMCodeGeneration()
     {
         string code = @"
-external recipe heap_alloc!(bytes: sysuint) -> sysuint
-external recipe memory_write_s32!(address: sysuint, offset: sysuint, value: s32)
+external routine heap_alloc!(bytes: sysuint) -> sysuint
+external routine memory_write_s32!(address: sysuint, offset: sysuint, value: s32)
 
-recipe test() -> s32 {
+routine test() -> s32 {
     var buffer = DynamicSlice(64)
     buffer.write<s32>!(0, 42)
     return 0
@@ -258,10 +258,10 @@ recipe test() -> s32 {
 import stdlib/memory/DynamicSlice
 import system/console/show
 
-external recipe heap_alloc!(bytes: sysuint) -> sysuint
-external recipe heap_free!(address: sysuint)
+external routine heap_alloc!(bytes: sysuint) -> sysuint
+external routine heap_free!(address: sysuint)
 
-recipe main() -> s32 {
+routine main() -> s32 {
     var buffer = DynamicSlice(128)
 
     # Write some test data
@@ -301,7 +301,7 @@ recipe main() -> s32 {
     public void TestDangerBlockCodeGeneration()
     {
         string code = @"
-recipe test() {
+routine test() {
     danger! {
         let addr = 0x1000
         write_as<s64>!(addr, 0xDEADBEEF)
@@ -326,7 +326,7 @@ recipe test() {
     public void TestMemorySliceOperationsCodeGen()
     {
         string code = @"
-recipe test() {
+routine test() {
     var buffer = TemporarySlice(64)
 
     let size = buffer.size!()
@@ -353,7 +353,7 @@ recipe test() {
     public void TestComplexMemoryScenario()
     {
         string code = @"
-recipe complex_memory_test() -> s32 {
+routine complex_memory_test() -> s32 {
     # Create multiple slice types
     var heap1 = DynamicSlice(256)
     var heap2 = DynamicSlice(128)
@@ -367,7 +367,7 @@ recipe complex_memory_test() -> s32 {
     }
 
     # Test wrapper operations
-    let shared = heap1.share!()
+    let shared = heap1.share()
     danger!:
         let raw_ptr = heap1.snatch()
 

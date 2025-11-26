@@ -1,5 +1,5 @@
 # Test operator precedence
-func test() -> i32 {
+routine test() -> i32 {
     let a = 2 + 3 * 4      # Should be 2 + (3 * 4) = 14
     let b = 2 ** 3 * 4     # Should be (2 ** 3) * 4 = 32
     let c = 1 + 2 < 5 and 6 > 3  # Should be ((1 + 2) < 5) and (6 > 3) = true

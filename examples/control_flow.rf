@@ -1,7 +1,7 @@
 # Control flow examples in RazorForge
 # Demonstrates if/else, when, while, for, match constructs
 
-recipe control_flow_demo() {
+routine control_flow_demo() {
     let value: s32 = 42
     var result: s32 = 0
 
@@ -42,7 +42,7 @@ choice Color {
     Blue
 }
 
-recipe color_match(color: Color) -> Text {
+routine color_match(color: Color) -> Text {
     when color {
         Color.Red => "red",
         Color.Green => "green",
@@ -62,7 +62,7 @@ variant Shape {
     Triangle(a: Point, b: Point, c: Point)
 }
 
-recipe calculate_area(shape: Shape) -> f64 {
+routine calculate_area(shape: Shape) -> f64 {
     when shape {
         Shape.Circle(_, radius) => 3.14159 * radius * radius,
         Shape.Rectangle(_, width, height) => width * height,

@@ -15,9 +15,9 @@ choice Color {
 let memory_size = 4gb + 512mb
 let duration = 30m + 45s + 500ms
 
-recipe test_conditionals() {
+routine test_conditionals() {
     let x = 10
-    
+
     // Unless statement
     unless x > 15 {
         print("x is not greater than 15")
@@ -39,35 +39,35 @@ recipe test_conditionals() {
     print(message)
 }
 
-recipe test_comparisons() {
+routine test_comparisons() {
     let y = 8
     let z = 12
     let x = 10
-    
+
     // Chained comparisons
     if 5 < x <= 10 < z < 15 {
         print("Values are in ascending order within ranges")
     }
 }
 
-recipe test_text_encoding() {
+routine test_text_encoding() {
     // Multi-encoding text literals
     let text8 = t8"Hello in 8-bit"
-    let text16 = t16"Hello in 16-bit" 
+    let text16 = t16"Hello in 16-bit"
     let text32 = t32"Hello in 32-bit"
     let formatted = f"Memory: {memory_size}, Duration: {duration}"
-    
+
     print(text8)
     print(text16)
     print(text32)
     print(formatted)
 }
 
-recipe main() {
+routine main() {
     test_conditionals()
     test_comparisons()
     test_text_encoding()
-    
+
     let color = Color.Red
     print("Selected color: " + color)
 }

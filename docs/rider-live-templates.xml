@@ -44,10 +44,10 @@ Import via: File → Settings → Editor → Live Templates → Import
     </context>
   </template>
 
-  <!-- Recipe Templates -->
-  <template name="recipe"
-            value="###&#10;$DESCRIPTION$&#10;$PARAMS$&#10;$RETURN$&#10;###&#10;recipe $NAME$($PARAMETERS$) $RETURN_TYPE$ {&#10;    $BODY$&#10;}$END$"
-            description="Create recipe function" toReformat="true" toShortenFQNames="true">
+  <!-- Routine Templates -->
+  <template name="routine"
+            value="###&#10;$DESCRIPTION$&#10;$PARAMS$&#10;$RETURN$&#10;###&#10;routine $NAME$($PARAMETERS$) $RETURN_TYPE$ {&#10;    $BODY$&#10;}$END$"
+            description="Create routine function" toReformat="true" toShortenFQNames="true">
     <variable name="DESCRIPTION" expression="" defaultValue="Function description" alwaysStopAt="true"/>
     <variable name="PARAMS" expression="" defaultValue="@param param - parameter description" alwaysStopAt="true"/>
     <variable name="RETURN" expression="" defaultValue="@return return description" alwaysStopAt="true"/>
@@ -70,7 +70,7 @@ Import via: File → Settings → Editor → Live Templates → Import
     </context>
   </template>
 
-  <template name="share" value="let $VAR$ = $OBJ$.share!()$END$" description="Share object" toReformat="true"
+  <template name="share" value="let $VAR$ = $OBJ$.share()$END$" description="Share object" toReformat="true"
             toShortenFQNames="true">
     <variable name="VAR" expression="" defaultValue="shared" alwaysStopAt="true"/>
     <variable name="OBJ" expression="" defaultValue="object" alwaysStopAt="true"/>

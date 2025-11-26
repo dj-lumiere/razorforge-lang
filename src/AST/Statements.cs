@@ -108,7 +108,7 @@ public record AssignmentStatement(Expression Target, Expression Value, SourceLoc
 /// <list type="bullet">
 /// <item>In functions with return type: must provide compatible value</item>
 /// <item>In void functions: value must be null</item>
-/// <item>In procedures/recipes: may omit return statement (implicit void return)</item>
+/// <item>In procedures/routines: may omit return statement (implicit void return)</item>
 /// <item>Multiple returns allowed; first encountered terminates execution</item>
 /// </list>
 /// </remarks>

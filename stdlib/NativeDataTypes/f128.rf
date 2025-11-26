@@ -25,96 +25,96 @@ preset F128_LN_10: f128 = 2.302585092994045684017991454684364208
 # Basic arithmetic operations (LLVM floating point intrinsics)
 
 # Addition - maps to LLVM fadd
-recipe f128.add(my: f128, other: f128) -> f128 {
+routine f128.add(my: f128, other: f128) -> f128 {
     return llvm_intrinsic("fadd", my, other)
 }
 
 # Subtraction - maps to LLVM fsub
-recipe f128.sub(my: f128, other: f128) -> f128 {
+routine f128.sub(my: f128, other: f128) -> f128 {
     return llvm_intrinsic("fsub", my, other)
 }
 
 # Multiplication - maps to LLVM fmul
-recipe f128.mul(my: f128, other: f128) -> f128 {
+routine f128.mul(my: f128, other: f128) -> f128 {
     return llvm_intrinsic("fmul", my, other)
 }
 
 # Division - maps to LLVM fdiv
-recipe f128.div(my: f128, other: f128) -> f128 {
+routine f128.div(my: f128, other: f128) -> f128 {
     return llvm_intrinsic("fdiv", my, other)
 }
 
 # Remainder - maps to LLVM frem
-recipe f128.rem(my: f128, other: f128) -> f128 {
+routine f128.rem(my: f128, other: f128) -> f128 {
     return llvm_intrinsic("frem", my, other)
 }
 
 # Comparison operations (LLVM fcmp)
-recipe f128.eq(my: f128, other: f128) -> bool {
+routine f128.eq(my: f128, other: f128) -> bool {
     return llvm_intrinsic("fcmp oeq", my, other)  # Ordered equal
 }
 
-recipe f128.ne(my: f128, other: f128) -> bool {
+routine f128.ne(my: f128, other: f128) -> bool {
     return llvm_intrinsic("fcmp one", my, other)  # Ordered not equal
 }
 
-recipe f128.lt(my: f128, other: f128) -> bool {
+routine f128.lt(my: f128, other: f128) -> bool {
     return llvm_intrinsic("fcmp olt", my, other)  # Ordered less than
 }
 
-recipe f128.le(my: f128, other: f128) -> bool {
+routine f128.le(my: f128, other: f128) -> bool {
     return llvm_intrinsic("fcmp ole", my, other)  # Ordered less equal
 }
 
-recipe f128.gt(my: f128, other: f128) -> bool {
+routine f128.gt(my: f128, other: f128) -> bool {
     return llvm_intrinsic("fcmp ogt", my, other)  # Ordered greater than
 }
 
-recipe f128.ge(my: f128, other: f128) -> bool {
+routine f128.ge(my: f128, other: f128) -> bool {
     return llvm_intrinsic("fcmp oge", my, other)  # Ordered greater equal
 }
 
 # NaN-aware comparisons
-recipe f128.is_nan(my: f128) -> bool {
+routine f128.is_nan(my: f128) -> bool {
     return llvm_intrinsic("fcmp uno", my, my)   # Unordered (NaN check)
 }
 
-recipe f128.is_finite(my: f128) -> bool {
+routine f128.is_finite(my: f128) -> bool {
     return not my.is_nan() and not my.is_infinite()
 }
 
-recipe f128.is_infinite(my: f128) -> bool {
+routine f128.is_infinite(my: f128) -> bool {
     return my == F128_INFINITY or my == F128_NEG_INFINITY
 }
 
 # Mathematical functions using LLVM intrinsics
-recipe f128.abs(my: f128) -> f128 {
+routine f128.abs(my: f128) -> f128 {
     return llvm_intrinsic("llvm.fabs.f128", my)
 }
 
-recipe f128.sqrt(my: f128) -> f128 {
+routine f128.sqrt(my: f128) -> f128 {
     return llvm_intrinsic("llvm.sqrt.f128", my)
 }
 
-recipe f128.sin(my: f128) -> f128 {
+routine f128.sin(my: f128) -> f128 {
     # Note: LLVM may not have native f128 sin, use library calls
     # For now, demote to f64, compute, and promote back
     let demoted = f64(my)
     return f128(demoted.sin())
 }
 
-recipe f128.cos(my: f128) -> f128 {
+routine f128.cos(my: f128) -> f128 {
     # Note: LLVM may not have native f128 cos, use library calls
     # For now, demote to f64, compute, and promote back
     let demoted = f64(my)
     return f128(demoted.cos())
 }
 
-recipe f128.tan(my: f128) -> f128 {
+routine f128.tan(my: f128) -> f128 {
     return my.sin() / my.cos()
 }
 
-recipe f128.pow(my: f128, exponent: f128) -> f128 {
+routine f128.pow(my: f128, exponent: f128) -> f128 {
     # Note: LLVM may not have native f128 pow, use library calls
     # For now, demote to f64, compute, and promote back
     let demoted_base = f64(my)
@@ -122,35 +122,35 @@ recipe f128.pow(my: f128, exponent: f128) -> f128 {
     return f128(demoted_base.pow(demoted_exp))
 }
 
-recipe f128.exp(my: f128) -> f128 {
+routine f128.exp(my: f128) -> f128 {
     # Note: LLVM may not have native f128 exp, use library calls
     # For now, demote to f64, compute, and promote back
     let demoted = f64(my)
     return f128(demoted.exp())
 }
 
-recipe f128.exp2(my: f128) -> f128 {
+routine f128.exp2(my: f128) -> f128 {
     # Note: LLVM may not have native f128 exp2, use library calls
     # For now, demote to f64, compute, and promote back
     let demoted = f64(my)
     return f128(demoted.exp2())
 }
 
-recipe f128.ln(my: f128) -> f128 {
+routine f128.ln(my: f128) -> f128 {
     # Note: LLVM may not have native f128 log, use library calls
     # For now, demote to f64, compute, and promote back
     let demoted = f64(my)
     return f128(demoted.ln())
 }
 
-recipe f128.log2(my: f128) -> f128 {
+routine f128.log2(my: f128) -> f128 {
     # Note: LLVM may not have native f128 log2, use library calls
     # For now, demote to f64, compute, and promote back
     let demoted = f64(my)
     return f128(demoted.log2())
 }
 
-recipe f128.log10(my: f128) -> f128 {
+routine f128.log10(my: f128) -> f128 {
     # Note: LLVM may not have native f128 log10, use library calls
     # For now, demote to f64, compute, and promote back
     let demoted = f64(my)
@@ -158,194 +158,194 @@ recipe f128.log10(my: f128) -> f128 {
 }
 
 # Rounding and truncation
-recipe f128.floor(my: f128) -> f128 {
+routine f128.floor(my: f128) -> f128 {
     return llvm_intrinsic("llvm.floor.f128", my)
 }
 
-recipe f128.ceil(my: f128) -> f128 {
+routine f128.ceil(my: f128) -> f128 {
     return llvm_intrinsic("llvm.ceil.f128", my)
 }
 
-recipe f128.round(my: f128) -> f128 {
+routine f128.round(my: f128) -> f128 {
     return llvm_intrinsic("llvm.round.f128", my)
 }
 
-recipe f128.trunc(my: f128) -> f128 {
+routine f128.trunc(my: f128) -> f128 {
     return llvm_intrinsic("llvm.trunc.f128", my)
 }
 
 # Min/Max with proper NaN handling
-recipe f128.min(my: f128, other: f128) -> f128 {
+routine f128.min(my: f128, other: f128) -> f128 {
     return llvm_intrinsic("llvm.minnum.f128", my, other)
 }
 
-recipe f128.max(my: f128, other: f128) -> f128 {
+routine f128.max(my: f128, other: f128) -> f128 {
     return llvm_intrinsic("llvm.maxnum.f128", my, other)
 }
 
 # Fused multiply-add for better precision
-recipe f128.fma(my: f128, mul: f128, add: f128) -> f128 {
+routine f128.fma(my: f128, mul: f128, add: f128) -> f128 {
     return llvm_intrinsic("llvm.fma.f128", my, mul, add)
 }
 
 # IEEE 754 bit manipulation
-recipe f128.as_bits(my: f128) -> s128 {
+routine f128.as_bits(my: f128) -> s128 {
     return llvm_intrinsic("bitcast", my)  # Reinterpret as s128
 }
 
-recipe f128(from_bits: BitArray<128>) -> f128 {
+routine f128(from_bits: BitArray<128>) -> f128 {
     return llvm_intrinsic("bitcast", from_bits)  # Reinterpret BitArray<128> as f128
 }
 
 # Extract IEEE 754 components (binary128: 1 sign + 15 exponent + 112 mantissa)
-recipe f128.extract_sign(my: f128) -> bool {
+routine f128.extract_sign(my: f128) -> bool {
     let bits = my.as_bits()
     return (bits >> 127) != 0
 }
 
-recipe f128.extract_exponent(my: f128) -> s128 {
+routine f128.extract_exponent(my: f128) -> s128 {
     let bits = my.as_bits()
     return (bits >> 112) & 0x7FFF  # 15 bits
 }
 
-recipe f128.extract_mantissa(my: f128) -> s128 {
+routine f128.extract_mantissa(my: f128) -> s128 {
     let bits = my.as_bits()
     return bits & 0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFF  # 112 bits
 }
 
 # Type conversions (using constructor syntax)
-recipe s8(from_f128: f128) -> s8 {
+routine s8(from_f128: f128) -> s8 {
     return llvm_intrinsic("fptosi", from_f128)   # Float to signed int
 }
 
-recipe u8(from_f128: f128) -> u8 {
+routine u8(from_f128: f128) -> u8 {
     return llvm_intrinsic("fptoui", from_f128)   # Float to unsigned int
 }
 
-recipe s16(from_f128: f128) -> s16 {
+routine s16(from_f128: f128) -> s16 {
     return llvm_intrinsic("fptosi", from_f128)   # Float to signed int
 }
 
-recipe u16(from_f128: f128) -> u16 {
+routine u16(from_f128: f128) -> u16 {
     return llvm_intrinsic("fptoui", from_f128)   # Float to unsigned int
 }
 
-recipe s32(from_f128: f128) -> s32 {
+routine s32(from_f128: f128) -> s32 {
     return llvm_intrinsic("fptosi", from_f128)   # Float to signed int
 }
 
-recipe u32(from_f128: f128) -> u32 {
+routine u32(from_f128: f128) -> u32 {
     return llvm_intrinsic("fptoui", from_f128)   # Float to unsigned int
 }
 
-recipe s64(from_f128: f128) -> s64 {
+routine s64(from_f128: f128) -> s64 {
     return llvm_intrinsic("fptosi", from_f128)   # Float to signed int
 }
 
-recipe u64(from_f128: f128) -> u64 {
+routine u64(from_f128: f128) -> u64 {
     return llvm_intrinsic("fptoui", from_f128)   # Float to unsigned int
 }
 
-recipe s128(from_f128: f128) -> s128 {
+routine s128(from_f128: f128) -> s128 {
     return llvm_intrinsic("fptosi", from_f128)   # Float to signed int
 }
 
-recipe u128(from_f128: f128) -> u128 {
+routine u128(from_f128: f128) -> u128 {
     return llvm_intrinsic("fptoui", from_f128)   # Float to unsigned int
 }
 
-recipe f16(from_f128: f128) -> f16 {
+routine f16(from_f128: f128) -> f16 {
     return llvm_intrinsic("fptrunc", from_f128)  # Truncate to half precision
 }
 
-recipe f32(from_f128: f128) -> f32 {
+routine f32(from_f128: f128) -> f32 {
     return llvm_intrinsic("fptrunc", from_f128)  # Truncate to single precision
 }
 
-recipe f64(from_f128: f128) -> f64 {
+routine f64(from_f128: f128) -> f64 {
     return llvm_intrinsic("fptrunc", from_f128)  # Truncate to double precision
 }
 
-recipe bool(from_f128: f128) -> bool {
+routine bool(from_f128: f128) -> bool {
     return from_f128 != 0.0
 }
 
 # Conversion from other types to f128
-recipe f128(from_s8: s8) -> f128 {
+routine f128(from_s8: s8) -> f128 {
     return llvm_intrinsic("sitofp", from_s8)   # Signed int to float
 }
 
-recipe f128(from_u8: u8) -> f128 {
+routine f128(from_u8: u8) -> f128 {
     return llvm_intrinsic("uitofp", from_u8)   # Unsigned int to float
 }
 
-recipe f128(from_s16: s16) -> f128 {
+routine f128(from_s16: s16) -> f128 {
     return llvm_intrinsic("sitofp", from_s16)   # Signed int to float
 }
 
-recipe f128(from_u16: u16) -> f128 {
+routine f128(from_u16: u16) -> f128 {
     return llvm_intrinsic("uitofp", from_u16)   # Unsigned int to float
 }
 
-recipe f128(from_s32: s32) -> f128 {
+routine f128(from_s32: s32) -> f128 {
     return llvm_intrinsic("sitofp", from_s32)   # Signed int to float
 }
 
-recipe f128(from_u32: u32) -> f128 {
+routine f128(from_u32: u32) -> f128 {
     return llvm_intrinsic("uitofp", from_u32)   # Unsigned int to float
 }
 
-recipe f128(from_s64: s64) -> f128 {
+routine f128(from_s64: s64) -> f128 {
     return llvm_intrinsic("sitofp", from_s64)   # Signed int to float
 }
 
-recipe f128(from_u64: u64) -> f128 {
+routine f128(from_u64: u64) -> f128 {
     return llvm_intrinsic("uitofp", from_u64)   # Unsigned int to float
 }
 
-recipe f128(from_s128: s128) -> f128 {
+routine f128(from_s128: s128) -> f128 {
     return llvm_intrinsic("sitofp", from_s128)   # Signed int to float
 }
 
-recipe f128(from_u128: u128) -> f128 {
+routine f128(from_u128: u128) -> f128 {
     return llvm_intrinsic("uitofp", from_u128)   # Unsigned int to float
 }
 
-recipe f128(from_f16: f16) -> f128 {
+routine f128(from_f16: f16) -> f128 {
     return llvm_intrinsic("fpext", from_f16)    # Extend from half precision
 }
 
-recipe f128(from_f32: f32) -> f128 {
+routine f128(from_f32: f32) -> f128 {
     return llvm_intrinsic("fpext", from_f32)    # Extend from single precision
 }
 
-recipe f128(from_f64: f64) -> f128 {
+routine f128(from_f64: f64) -> f128 {
     return llvm_intrinsic("fpext", from_f64)    # Extend from double precision
 }
 
 # Parsing and formatting using constructor syntax
-recipe f128(from_text: Text) -> f128 {
+routine f128(from_text: Text) -> f128 {
     # Parse Text to f128 using LLVM constant folding when possible
     return 0.0  # Placeholder
 }
 
-recipe Text(from_f128: f128, precision: s32) -> Text {
+routine Text(from_f128: f128, precision: s32) -> Text {
     # Convert f128 to Text representation with specified precision
     return ""  # Placeholder
 }
 
 # High-performance mathematical operations
-recipe lerp(a: f128, b: f128, t: f128) -> f128 {
+routine lerp(a: f128, b: f128, t: f128) -> f128 {
     # Linear interpolation with fused multiply-add
     return a.fma(1.0 - t, b * t)
 }
 
 # Numerical computation helpers
-recipe approx_equal(a: f128, b: f128, epsilon: f128) -> bool {
+routine approx_equal(a: f128, b: f128, epsilon: f128) -> bool {
     return (a - b).abs() <= epsilon
 }
 
-recipe next_power_of_two(value: f128) -> f128 {
+routine next_power_of_two(value: f128) -> f128 {
     return when value {
         <= 1.0 => 1.0,
         _ => 2.0.pow(value.ln() / F128_LN_2).ceil()
@@ -353,7 +353,7 @@ recipe next_power_of_two(value: f128) -> f128 {
 }
 
 # High-precision scientific computing functions
-recipe f128.hypot(my: f128, other: f128) -> f128 {
+routine f128.hypot(my: f128, other: f128) -> f128 {
     # Compute sqrt(my^2 + other^2) avoiding overflow/underflow
     let abs_a = my.abs()
     let abs_b = other.abs()
@@ -372,7 +372,7 @@ recipe f128.hypot(my: f128, other: f128) -> f128 {
     }
 }
 
-recipe f128.atan2(y: f128, x: f128) -> f128 {
+routine f128.atan2(y: f128, x: f128) -> f128 {
     # Compute atan(y/x) with proper quadrant handling
     # This is a simplified implementation; full version would handle all edge cases
     return when {
@@ -385,13 +385,13 @@ recipe f128.atan2(y: f128, x: f128) -> f128 {
     }
 }
 
-recipe f128.gamma(my: f128) -> f128 {
+routine f128.gamma(my: f128) -> f128 {
     # Placeholder for gamma function - would use Stirling's approximation
     # or series expansion for high precision
     return 1.0  # Placeholder
 }
 
-recipe f128.lgamma(my: f128) -> f128 {
+routine f128.lgamma(my: f128) -> f128 {
     # Placeholder for log gamma function
     return 0.0  # Placeholder
 }

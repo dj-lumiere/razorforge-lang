@@ -269,7 +269,7 @@ public class RazorForgeCompilerService : IRazorForgeCompilerService
     {
         string[] keywords = new[]
         {
-            "recipe",
+            "routine",
             "entity",
             "record",
             "variant",

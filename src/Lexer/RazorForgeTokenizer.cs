@@ -14,7 +14,7 @@ public class RazorForgeTokenizer : BaseTokenizer
     /// <summary>Dictionary mapping RazorForge keywords to their corresponding token types</summary>
     private readonly Dictionary<string, TokenType> _keywords = new()
     {
-        [key: "recipe"] = TokenType.Recipe,
+        [key: "routine"] = TokenType.Routine,
         [key: "choice"] = TokenType.Choice,
         [key: "chimera"] = TokenType.Chimera,
         [key: "variant"] = TokenType.Variant,

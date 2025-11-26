@@ -16,13 +16,13 @@ RazorForge and Suflae are modern programming languages designed to provide a smo
 A precision systems language for absolute control and deterministic performance.
 
 ```razorforge
-recipe main() -> s32:
+routine main() -> s32:
     # Explicit memory control with theatrical tokens
     let data = Vector<s32>()
     data.push(42)
 
     # Share ownership with reference counting
-    let shared = data.share!()
+    let shared = data.share()
 
     # Hijack exclusive access
     hijacking borrowed from shared:
@@ -43,7 +43,7 @@ recipe main() -> s32:
 A productivity-first language for building modern applications quickly and safely.
 
 ```suflae
-recipe main():
+routine main():
     # Automatic memory management - no tokens needed
     let items = List<Integer>()
     items.push(42)
@@ -104,7 +104,7 @@ dotnet build
 ### Hello World in RazorForge
 
 ```razorforge
-recipe main() -> s32:
+routine main() -> s32:
     show("Hello, RazorForge!")
     return 0
 ```
@@ -112,7 +112,7 @@ recipe main() -> s32:
 ### Hello World in Suflae
 
 ```suflae
-recipe main():
+routine main():
     display("Hello, Suflae!")
 ```
 
@@ -122,7 +122,7 @@ recipe main():
 
 ### RazorForge
 
-- **Theatrical Memory Model**: `hijacking`, `share!`, `retain!` - make memory operations visible
+- **Theatrical Memory Model**: `hijacking`, `share`, `retain` - make memory operations visible
 - **Zero-Cost Abstractions**: Pay only for what you use
 - **Danger Blocks**: Opt-in unsafe operations for zero-overhead code
 - **Resident Types**: Fixed-size reference types for embedded systems
@@ -193,15 +193,15 @@ resident ListNode<T>:
     value: T
     next: ListNode<T>?  # Optional next node
 
-    recipe new(value: T) -> ListNode<T>:
+    routine new(value: T) -> ListNode<T>:
         return ListNode(value: value, next: None)
 
-recipe main() -> s32:
+routine main() -> s32:
     # Allocate on stack (fixed size)
     let node = ListNode.new(42)
 
     # Explicit memory control
-    let shared = node.share!()
+    let shared = node.share()
 
     return 0
 ```
@@ -209,14 +209,14 @@ recipe main() -> s32:
 ### Suflae: Application Development
 
 ```suflae
-suspended recipe fetch_users() -> Result<List<User>>:
+suspended routine fetch_users() -> Result<List<User>>:
     let response = waitfor http.get("/api/users")
     unless response:
         return Error("Network error")
 
     return parse_users(response.body)
 
-recipe main():
+routine main():
     # Automatic async/await
     let users = waitfor fetch_users()
     when users:

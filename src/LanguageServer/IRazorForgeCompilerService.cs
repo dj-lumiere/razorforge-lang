@@ -43,7 +43,7 @@ public interface IRazorForgeCompilerService
     /// Analyzes the code context at the given line and column to provide relevant suggestions.
     ///
     /// Completion sources include:
-    /// - RazorForge language keywords (recipe, class, let, etc.)
+    /// - RazorForge language keywords (routine, class, let, etc.)
     /// - Built-in types and functions (DynamicSlice, TemporarySlice, etc.)
     /// - User-defined symbols (functions, variables, types)
     /// - Context-sensitive suggestions based on parsing state
@@ -81,7 +81,7 @@ public interface IRazorForgeCompilerService
     /// Performs a complete analysis to identify all named entities in the code.
     ///
     /// Extracted symbols include:
-    /// - Function and recipe declarations
+    /// - Function and routine declarations
     /// - Entity and struct definitions
     /// - Variable declarations
     /// - Type definitions and aliases
@@ -198,7 +198,7 @@ public enum CompletionKind
     /// <summary>Entity method.</summary>
     Method,
 
-    /// <summary>Standalone function or recipe.</summary>
+    /// <summary>Standalone function or routine.</summary>
     Function,
 
     /// <summary>Constructor for classes or memory slices.</summary>

@@ -15,22 +15,22 @@ preset S8_ONE: s8 = 1_s8
 # Basic arithmetic operations (LLVM intrinsics: add, sub, mul, sdiv, srem)
 
 # Addition with overflow checking
-recipe s8.add(me: s8, other: s8) -> s8 {
+routine s8.add(me: s8, other: s8) -> s8 {
     return llvm_intrinsic("llvm.sadd.with.overflow.i8", me, other)
 }
 
 # Subtraction with overflow checking
-recipe s8.sub(me: s8, other: s8) -> s8 {
+routine s8.sub(me: s8, other: s8) -> s8 {
     return llvm_intrinsic("llvm.ssub.with.overflow.i8", me, other)
 }
 
 # Multiplication with overflow checking
-recipe s8.mul(me: s8, other: s8) -> s8 {
+routine s8.mul(me: s8, other: s8) -> s8 {
     return llvm_intrinsic("llvm.smul.with.overflow.i8", me, other)
 }
 
 # Division (signed) - maps to LLVM sdiv
-recipe s8.floordiv(me: s8, other: s8) -> s8 {
+routine s8.floordiv(me: s8, other: s8) -> s8 {
     when (other) {
         0 => throw panic("Division by zero"),
         _ => return llvm_intrinsic("sdiv", me, other)
@@ -38,7 +38,7 @@ recipe s8.floordiv(me: s8, other: s8) -> s8 {
 }
 
 # Remainder (signed) - maps to LLVM srem
-recipe s8.rem(me: s8, other: s8) -> s8 {
+routine s8.rem(me: s8, other: s8) -> s8 {
     when (other) {
         0 => throw panic("Division by zero"),
         _ => return llvm_intrinsic("srem", me, other)
@@ -46,123 +46,123 @@ recipe s8.rem(me: s8, other: s8) -> s8 {
 }
 
 # Bitwise operations (direct LLVM mapping)
-recipe s8.and(me: s8, other: s8) -> s8 {
+routine s8.and(me: s8, other: s8) -> s8 {
     return llvm_intrinsic("and", me, other)
 }
 
-recipe s8.or(me: s8, other: s8) -> s8 {
+routine s8.or(me: s8, other: s8) -> s8 {
     return llvm_intrinsic("or", me, other)
 }
 
-recipe s8.xor(me: s8, other: s8) -> s8 {
+routine s8.xor(me: s8, other: s8) -> s8 {
     return llvm_intrinsic("xor", me, other)
 }
 
-recipe s8.not(me: s8) -> s8 {
+routine s8.not(me: s8) -> s8 {
     return llvm_intrinsic("xor", me, -1)
 }
 
 # Bit shifting operations
-recipe s8.shl(me: s8, bits: s8) -> s8 {
+routine s8.shl(me: s8, bits: s8) -> s8 {
     return llvm_intrinsic("shl", me, bits)
 }
 
-recipe s8.shr(me: s8, bits: s8) -> s8 {
+routine s8.shr(me: s8, bits: s8) -> s8 {
     return llvm_intrinsic("ashr", me, bits)  # Arithmetic right shift for signed
 }
 
 # Comparison operations (LLVM icmp)
-recipe s8.eq(me: s8, other: s8) -> bool {
+routine s8.eq(me: s8, other: s8) -> bool {
     return llvm_intrinsic("icmp eq", me, other)
 }
 
-recipe s8.ne(me: s8, other: s8) -> bool {
+routine s8.ne(me: s8, other: s8) -> bool {
     return llvm_intrinsic("icmp ne", me, other)
 }
 
-recipe s8.lt(me: s8, other: s8) -> bool {
+routine s8.lt(me: s8, other: s8) -> bool {
     return llvm_intrinsic("icmp slt", me, other)  # Signed less than
 }
 
-recipe s8.le(me: s8, other: s8) -> bool {
+routine s8.le(me: s8, other: s8) -> bool {
     return llvm_intrinsic("icmp sle", me, other)  # Signed less equal
 }
 
-recipe s8.gt(me: s8, other: s8) -> bool {
+routine s8.gt(me: s8, other: s8) -> bool {
     return llvm_intrinsic("icmp sgt", me, other)  # Signed greater than
 }
 
-recipe s8.ge(me: s8, other: s8) -> bool {
+routine s8.ge(me: s8, other: s8) -> bool {
     return llvm_intrinsic("icmp sge", me, other)  # Signed greater equal
 }
 
 # Advanced math operations using LLVM intrinsics
-recipe s8.abs(me: s8) -> s8 {
+routine s8.abs(me: s8) -> s8 {
     when (me) {
         >= 0 => return me,
         _ => return -me
     }
 }
 
-recipe s8.min(me: s8, other: s8) -> s8 {
+routine s8.min(me: s8, other: s8) -> s8 {
     return if me <= other then me else other
 }
 
-recipe s8.max(me: s8, other: s8) -> s8 {
+routine s8.max(me: s8, other: s8) -> s8 {
     return if me >= other then me else other
 }
 
 # Bit manipulation utilities
-recipe s8.count_leading_zeros(me: s8) -> s8 {
+routine s8.count_leading_zeros(me: s8) -> s8 {
     return llvm_intrinsic("llvm.ctlz.i8", me, false)
 }
 
-recipe s8.count_trailing_zeros(me: s8) -> s8 {
+routine s8.count_trailing_zeros(me: s8) -> s8 {
     return llvm_intrinsic("llvm.cttz.i8", me, false)
 }
 
-recipe s8.count_ones(me: s8) -> s8 {
+routine s8.count_ones(me: s8) -> s8 {
     return llvm_intrinsic("llvm.ctpop.i8", me)
 }
 
 # No byte swapping for 8-bit values (single byte)
 
 # Type conversions to other native types (using constructor syntax)
-recipe u8(from_s8: s8) -> u8 {
+routine u8(from_s8: s8) -> u8 {
     return llvm_intrinsic("bitcast", from_s8)  # Direct bit reinterpretation
 }
 
-recipe s16(from_s8: s8) -> s16 {
+routine s16(from_s8: s8) -> s16 {
     return llvm_intrinsic("sext", from_s8)     # Sign-extend to 16-bit
 }
 
-recipe s32(from_s8: s8) -> s32 {
+routine s32(from_s8: s8) -> s32 {
     return llvm_intrinsic("sext", from_s8)     # Sign-extend to 32-bit
 }
 
-recipe s64(from_s8: s8) -> s64 {
+routine s64(from_s8: s8) -> s64 {
     return llvm_intrinsic("sext", from_s8)     # Sign-extend to 64-bit
 }
 
-recipe f32(from_s8: s8) -> f32 {
+routine f32(from_s8: s8) -> f32 {
     return llvm_intrinsic("sitofp", from_s8)   # Signed int to float
 }
 
-recipe f64(from_s8: s8) -> f64 {
+routine f64(from_s8: s8) -> f64 {
     return llvm_intrinsic("sitofp", from_s8)   # Signed int to double
 }
 
-recipe bool(from_s8: s8) -> bool {
+routine bool(from_s8: s8) -> bool {
     return from_s8 != 0
 }
 
 # Parsing and formatting using constructor syntax
-recipe s8(from_text: Text) -> s8 {
+routine s8(from_text: Text) -> s8 {
     # Parse Text to s8 using LLVM constant folding when possible
     return 0  # Placeholder
 }
 
-recipe Text(from_s8: s8) -> Text {
+routine Text(from_s8: s8) -> Text {
     # Convert s8 to Text representation
     return ""  # Placeholder
 }

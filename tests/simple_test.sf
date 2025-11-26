@@ -1,2 +1,2 @@
-recipe main():
+routine main():
     display("Hello, Suflae!")

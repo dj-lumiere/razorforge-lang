@@ -451,7 +451,7 @@ public record Symbol
 /// </summary>
 public enum SymbolKind
 {
-    /// <summary>A standalone function or recipe declaration.</summary>
+    /// <summary>A standalone function or routine declaration.</summary>
     Function,
 
     /// <summary>A variable declaration (let, var, const).</summary>

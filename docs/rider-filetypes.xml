@@ -14,9 +14,9 @@ Import via: File → Settings → Editor → File Types → Import Schema
 
     <!-- File Templates -->
     <templates>
-      <template name="RazorForge Recipe" extension="rf">
+      <template name="RazorForge Routine" extension="rf">
         <content><![CDATA[
-# RazorForge Recipe Template
+# RazorForge Routine Template
 # $NAME$
 
 import system/console/show
@@ -26,7 +26,7 @@ $DESCRIPTION$
 $PARAMS$
 $RETURN$
 ###
-recipe $RECIPE_NAME$($PARAMETERS$) $RETURN_TYPE$ {
+routine $RECIPE_NAME$($PARAMETERS$) $RETURN_TYPE$ {
     $BODY$
 }
 ]]></content>
@@ -47,7 +47,7 @@ record $STRUCT_NAME$ {
     Constructor
     $PARAMS$
     ###
-    public recipe __create__($CONSTRUCTOR_PARAMS$) -> $STRUCT_NAME$ {
+    public routine __create__($CONSTRUCTOR_PARAMS$) -> $STRUCT_NAME$ {
         $CONSTRUCTOR_BODY$
         return me
     }

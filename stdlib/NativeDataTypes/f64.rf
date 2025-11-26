@@ -25,223 +25,212 @@ preset F64_LN_10: f64 = 2.302585092994046
 # Basic arithmetic operations (LLVM floating point intrinsics)
 
 # Addition - maps to LLVM fadd
-recipe f64.add(me: f64, other: f64) -> f64 {
+routine f64.add(me: f64, other: f64) -> f64 {
     return llvm_intrinsic("fadd", me, other)
 }
 
 # Subtraction - maps to LLVM fsub
-recipe f64.sub(me: f64, other: f64) -> f64 {
+routine f64.sub(me: f64, other: f64) -> f64 {
     return llvm_intrinsic("fsub", me, other)
 }
 
 # Multiplication - maps to LLVM fmul
-recipe f64.mul(me: f64, other: f64) -> f64 {
+routine f64.mul(me: f64, other: f64) -> f64 {
     return llvm_intrinsic("fmul", me, other)
 }
 
 # Division - maps to LLVM fdiv
-recipe f64.div(me: f64, other: f64) -> f64 {
+routine f64.div(me: f64, other: f64) -> f64 {
     return llvm_intrinsic("fdiv", me, other)
 }
 
 # Remainder - maps to LLVM frem
-recipe f64.rem(me: f64, other: f64) -> f64 {
+routine f64.rem(me: f64, other: f64) -> f64 {
     return llvm_intrinsic("frem", me, other)
 }
 
 # Comparison operations (LLVM fcmp)
-recipe f64.eq(me: f64, other: f64) -> bool {
+routine f64.eq(me: f64, other: f64) -> bool {
     return llvm_intrinsic("fcmp oeq", me, other)  # Ordered equal
 }
 
-recipe f64.ne(me: f64, other: f64) -> bool {
+routine f64.ne(me: f64, other: f64) -> bool {
     return llvm_intrinsic("fcmp one", me, other)  # Ordered not equal
 }
 
-recipe f64.lt(me: f64, other: f64) -> bool {
+routine f64.lt(me: f64, other: f64) -> bool {
     return llvm_intrinsic("fcmp olt", me, other)  # Ordered less than
 }
 
-recipe f64.le(me: f64, other: f64) -> bool {
+routine f64.le(me: f64, other: f64) -> bool {
     return llvm_intrinsic("fcmp ole", me, other)  # Ordered less equal
 }
 
-recipe f64.gt(me: f64, other: f64) -> bool {
+routine f64.gt(me: f64, other: f64) -> bool {
     return llvm_intrinsic("fcmp ogt", me, other)  # Ordered greater than
 }
 
-recipe f64.ge(me: f64, other: f64) -> bool {
+routine f64.ge(me: f64, other: f64) -> bool {
     return llvm_intrinsic("fcmp oge", me, other)  # Ordered greater equal
 }
 
 # NaN-aware comparisons
-recipe f64.is_nan(me: f64) -> bool {
+routine f64.is_nan(me: f64) -> bool {
     return llvm_intrinsic("fcmp uno", me, me)   # Unordered (NaN check)
 }
 
-recipe f64.is_finite(me: f64) -> bool {
+routine f64.is_finite(me: f64) -> bool {
     not me.is_nan() and not me.is_infinite()
 }
 
-recipe f64.is_infinite(me: f64) -> bool {
+routine f64.is_infinite(me: f64) -> bool {
     me == F64_INFINITY or me == F64_NEG_INFINITY
 }
 
 # Mathematical functions using LLVM intrinsics
-recipe f64.abs(me: f64) -> f64 {
+routine f64.abs(me: f64) -> f64 {
     return llvm_intrinsic("llvm.fabs.f64", me)
 }
 
-recipe f64.sqrt(me: f64) -> f64 {
+routine f64.sqrt(me: f64) -> f64 {
     return llvm_intrinsic("llvm.sqrt.f64", me)
 }
 
-recipe f64.sin(me: f64) -> f64 {
+routine f64.sin(me: f64) -> f64 {
     return llvm_intrinsic("llvm.sin.f64", me)
 }
 
-recipe f64.cos(me: f64) -> f64 {
+routine f64.cos(me: f64) -> f64 {
     return llvm_intrinsic("llvm.cos.f64", me)
 }
 
-recipe f64.tan(me: f64) -> f64 {
+routine f64.tan(me: f64) -> f64 {
     return me.sin() / me.cos()
 }
 
-recipe f64.pow(me: f64, exponent: f64) -> f64 {
+routine f64.pow(me: f64, exponent: f64) -> f64 {
     return llvm_intrinsic("llvm.pow.f64", me, exponent)
 }
 
-recipe f64.exp(me: f64) -> f64 {
+routine f64.exp(me: f64) -> f64 {
     return llvm_intrinsic("llvm.exp.f64", me)
 }
 
-recipe f64.exp2(me: f64) -> f64 {
+routine f64.exp2(me: f64) -> f64 {
     return llvm_intrinsic("llvm.exp2.f64", me)
 }
 
-recipe f64.ln(me: f64) -> f64 {
+routine f64.ln(me: f64) -> f64 {
     return llvm_intrinsic("llvm.log.f64", me)
 }
 
-recipe f64.log2(me: f64) -> f64 {
+routine f64.log2(me: f64) -> f64 {
     return llvm_intrinsic("llvm.log2.f64", me)
 }
 
-recipe f64.log10(me: f64) -> f64 {
+routine f64.log10(me: f64) -> f64 {
     return llvm_intrinsic("llvm.log10.f64", me)
 }
 
 # Rounding and truncation
-recipe f64.floor(me: f64) -> f64 {
+routine f64.floor(me: f64) -> f64 {
     return llvm_intrinsic("llvm.floor.f64", me)
 }
 
-recipe f64.ceil(me: f64) -> f64 {
+routine f64.ceil(me: f64) -> f64 {
     return llvm_intrinsic("llvm.ceil.f64", me)
 }
 
-recipe f64.round(me: f64) -> f64 {
+routine f64.round(me: f64) -> f64 {
     return llvm_intrinsic("llvm.round.f64", me)
 }
 
-recipe f64.trunc(me: f64) -> f64 {
+routine f64.trunc(me: f64) -> f64 {
     return llvm_intrinsic("llvm.trunc.f64", me)
 }
 
 # Min/Max with proper NaN handling
-recipe f64.min(me: f64, other: f64) -> f64 {
+routine f64.min(me: f64, other: f64) -> f64 {
     return llvm_intrinsic("llvm.minnum.f64", me, other)
 }
 
-recipe f64.max(me: f64, other: f64) -> f64 {
+routine f64.max(me: f64, other: f64) -> f64 {
     return llvm_intrinsic("llvm.maxnum.f64", me, other)
 }
 
 # Fused multiply-add for better precision
-recipe f64.fma(me: f64, mul: f64, add: f64) -> f64 {
+routine f64.fma(me: f64, mul: f64, add: f64) -> f64 {
     return llvm_intrinsic("llvm.fma.f64", me, mul, add)
 }
 
 # IEEE 754 bit manipulation
-recipe f64.as_bits(me: f64) -> s64 {
+routine f64.as_bits(me: f64) -> s64 {
     return llvm_intrinsic("bitcast", me)  # Reinterpret as s64
 }
 
-recipe f64(from_bits: BitArray<64>) -> f64 {
+routine f64(from_bits: BitArray<64>) -> f64 {
     return llvm_intrinsic("bitcast", from_bits)  # Reinterpret BitArray<64> as f64
 }
 
 # Extract IEEE 754 components
-recipe f64.extract_sign(me: f64) -> bool {
+routine f64.extract_sign(me: f64) -> bool {
     let bits = me.as_bits()
     return (bits >> 63) != 0
 }
 
-recipe f64.extract_exponent(me: f64) -> s64 {
+routine f64.extract_exponent(me: f64) -> s64 {
     let bits = me.as_bits()
     return (bits >> 52) & 0x7FF
 }
 
-recipe f64.extract_mantissa(me: f64) -> s64 {
+routine f64.extract_mantissa(me: f64) -> s64 {
     let bits = me.as_bits()
     return bits & 0x000FFFFFFFFFFFFF
 }
 
 # Type conversions (using constructor syntax)
-recipe s64(from_f64: f64) -> s64 {
+routine s64(from_f64: f64) -> s64 {
     return llvm_intrinsic("fptosi", from_f64)   # Float to signed int
 }
 
-recipe u64(from_f64: f64) -> u64 {
+routine u64(from_f64: f64) -> u64 {
     return llvm_intrinsic("fptoui", from_f64)   # Float to unsigned int
 }
 
-recipe f32(from_f64: f64) -> f32 {
+routine f32(from_f64: f64) -> f32 {
     return llvm_intrinsic("fptrunc", from_f64)  # Truncate to single precision
 }
 
-recipe bool(from_f64: f64) -> bool {
+routine bool(from_f64: f64) -> bool {
     return from_f64 != 0.0
 }
 
-# Memory operations
-recipe f64.load_from_memory(ptr: *const f64) -> f64 {
-    danger {
+# Memory operations (use in danger blocks)
+routine f64.load_from_memory(ptr: Snatched<f64>) -> f64 {
+    danger! {
         return llvm_intrinsic("load", ptr)
     }
 }
 
-recipe f64.store_to_memory(me: f64, ptr: *mut f64) {
-    danger {
+routine f64.store_to_memory(me: f64, ptr: Snatched<f64>) {
+    danger! {
         return llvm_intrinsic("store", me, ptr)
     }
 }
 
-# Atomic operations (limited support for double)
-recipe f64.atomic_load(ptr: *const atomic<f64>) -> f64 {
-    let bits = llvm_intrinsic("llvm.atomic.load.i64", ptr as *const atomic<s64>)
-    return f64(from_bits: BitArray<64>(from_s64: bits))
-}
-
-recipe f64.atomic_store(me: f64, ptr: *mut atomic<f64>) {
-    let bits = me.as_bits()
-    return llvm_intrinsic("llvm.atomic.store.i64", bits, ptr as *mut atomic<s64>)
-}
-
 # Parsing and formatting using constructor syntax
-recipe f64(from_text: Text) -> f64 {
+routine f64(from_text: Text) -> f64 {
     # Parse Text to f64 using LLVM constant folding when possible
     return 0.0  # Placeholder
 }
 
-recipe Text(from_f64: f64, precision: s64) -> Text {
+routine Text(from_f64: f64, precision: s64) -> Text {
     # Convert f64 to Text representation with specified precision
     return ""  # Placeholder
 }
 
 # SIMD operations for vectorized f64 processing
-recipe f64_vec_add(a: slice<f64>, b: slice<f64>) -> slice<f64> {
+routine f64_vec_add(a: slice<f64>, b: slice<f64>) -> slice<f64> {
     let result = new_slice<f64>(a.length())
 
     # This loop will be auto-vectorized by LLVM using SSE2/AVX
@@ -252,7 +241,7 @@ recipe f64_vec_add(a: slice<f64>, b: slice<f64>) -> slice<f64> {
     return result
 }
 
-recipe f64_vec_dot_product(a: slice<f64>, b: slice<f64>) -> f64 {
+routine f64_vec_dot_product(a: slice<f64>, b: slice<f64>) -> f64 {
     let sum: f64 = 0.0
     let length = min(a.length(), b.length())
 
@@ -265,7 +254,7 @@ recipe f64_vec_dot_product(a: slice<f64>, b: slice<f64>) -> f64 {
 }
 
 # High-performance mathematical operations
-recipe fast_inverse_sqrt(value: f64) -> f64 {
+routine fast_inverse_sqrt(value: f64) -> f64 {
     # Fast inverse square root using bit manipulation
     let bits = value.as_bits()
     let magic: s64 = 0x5FE6EC85E7DE30DA  # Magic constant for f64
@@ -276,17 +265,17 @@ recipe fast_inverse_sqrt(value: f64) -> f64 {
     return guess * (1.5 - half_value * guess * guess)
 }
 
-recipe lerp(a: f64, b: f64, t: f64) -> f64 {
+routine lerp(a: f64, b: f64, t: f64) -> f64 {
     # Linear interpolation with fused multiply-add
     return a.fma(1.0 - t, b * t)
 }
 
 # Numerical computation helpers
-recipe approx_equal(a: f64, b: f64, epsilon: f64) -> bool {
+routine approx_equal(a: f64, b: f64, epsilon: f64) -> bool {
     return (a - b).abs() <= epsilon
 }
 
-recipe next_power_of_two(value: f64) -> f64 {
+routine next_power_of_two(value: f64) -> f64 {
     when value {
         <= 1.0 => 1.0,
         _ => return 2.0.pow(value.ln() / F64_LN_2).ceil()

@@ -25,283 +25,283 @@ preset F16_LN_10: f16 = 2.302734
 # Basic arithmetic operations (LLVM floating point intrinsics)
 
 # Addition - maps to LLVM fadd
-recipe f16.add(my: f16, other: f16) -> f16 {
+routine f16.add(my: f16, other: f16) -> f16 {
     return llvm_intrinsic("fadd", my, other)
 }
 
 # Subtraction - maps to LLVM fsub
-recipe f16.sub(my: f16, other: f16) -> f16 {
+routine f16.sub(my: f16, other: f16) -> f16 {
     return llvm_intrinsic("fsub", my, other)
 }
 
 # Multiplication - maps to LLVM fmul
-recipe f16.mul(my: f16, other: f16) -> f16 {
+routine f16.mul(my: f16, other: f16) -> f16 {
     return llvm_intrinsic("fmul", my, other)
 }
 
 # Division - maps to LLVM fdiv
-recipe f16.div(my: f16, other: f16) -> f16 {
+routine f16.div(my: f16, other: f16) -> f16 {
     return llvm_intrinsic("fdiv", my, other)
 }
 
 # Remainder - maps to LLVM frem
-recipe f16.rem(my: f16, other: f16) -> f16 {
+routine f16.rem(my: f16, other: f16) -> f16 {
     return llvm_intrinsic("frem", my, other)
 }
 
 # Comparison operations (LLVM fcmp)
-recipe f16.eq(my: f16, other: f16) -> bool {
+routine f16.eq(my: f16, other: f16) -> bool {
     return llvm_intrinsic("fcmp oeq", my, other)  # Ordered equal
 }
 
-recipe f16.ne(my: f16, other: f16) -> bool {
+routine f16.ne(my: f16, other: f16) -> bool {
     return llvm_intrinsic("fcmp one", my, other)  # Ordered not equal
 }
 
-recipe f16.lt(my: f16, other: f16) -> bool {
+routine f16.lt(my: f16, other: f16) -> bool {
     return llvm_intrinsic("fcmp olt", my, other)  # Ordered less than
 }
 
-recipe f16.le(my: f16, other: f16) -> bool {
+routine f16.le(my: f16, other: f16) -> bool {
     return llvm_intrinsic("fcmp ole", my, other)  # Ordered less equal
 }
 
-recipe f16.gt(my: f16, other: f16) -> bool {
+routine f16.gt(my: f16, other: f16) -> bool {
     return llvm_intrinsic("fcmp ogt", my, other)  # Ordered greater than
 }
 
-recipe f16.ge(my: f16, other: f16) -> bool {
+routine f16.ge(my: f16, other: f16) -> bool {
     return llvm_intrinsic("fcmp oge", my, other)  # Ordered greater equal
 }
 
 # NaN-aware comparisons
-recipe f16.is_nan(my: f16) -> bool {
+routine f16.is_nan(my: f16) -> bool {
     return llvm_intrinsic("fcmp uno", my, my)   # Unordered (NaN check)
 }
 
-recipe f16.is_finite(my: f16) -> bool {
+routine f16.is_finite(my: f16) -> bool {
     not my.is_nan() and not my.is_infinite()
 }
 
-recipe f16.is_infinite(my: f16) -> bool {
+routine f16.is_infinite(my: f16) -> bool {
     my == F16_INFINITY or my == F16_NEG_INFINITY
 }
 
 # Mathematical functions using LLVM intrinsics
-recipe f16.abs(my: f16) -> f16 {
+routine f16.abs(my: f16) -> f16 {
     return llvm_intrinsic("llvm.fabs.f16", my)
 }
 
-recipe f16.sqrt(my: f16) -> f16 {
+routine f16.sqrt(my: f16) -> f16 {
     return llvm_intrinsic("llvm.sqrt.f16", my)
 }
 
-recipe f16.sin(my: f16) -> f16 {
+routine f16.sin(my: f16) -> f16 {
     # Note: LLVM may not have native f16 sin, promote to f32
     let promoted = f32(my)
     return f16(promoted.sin())
 }
 
-recipe f16.cos(my: f16) -> f16 {
+routine f16.cos(my: f16) -> f16 {
     # Note: LLVM may not have native f16 cos, promote to f32
     let promoted = f32(my)
     return f16(promoted.cos())
 }
 
-recipe f16.tan(my: f16) -> f16 {
+routine f16.tan(my: f16) -> f16 {
     return my.sin() / my.cos()
 }
 
-recipe f16.pow(my: f16, exponent: f16) -> f16 {
+routine f16.pow(my: f16, exponent: f16) -> f16 {
     # Note: LLVM may not have native f16 pow, promote to f32
     let promoted_base = f32(my)
     let promoted_exp = f32(exponent)
     return f16(promoted_base.pow(promoted_exp))
 }
 
-recipe f16.exp(my: f16) -> f16 {
+routine f16.exp(my: f16) -> f16 {
     # Note: LLVM may not have native f16 exp, promote to f32
     let promoted = f32(my)
     return f16(promoted.exp())
 }
 
-recipe f16.exp2(my: f16) -> f16 {
+routine f16.exp2(my: f16) -> f16 {
     # Note: LLVM may not have native f16 exp2, promote to f32
     let promoted = f32(my)
     return f16(promoted.exp2())
 }
 
-recipe f16.ln(my: f16) -> f16 {
+routine f16.ln(my: f16) -> f16 {
     # Note: LLVM may not have native f16 log, promote to f32
     let promoted = f32(my)
     return f16(promoted.ln())
 }
 
-recipe f16.log2(my: f16) -> f16 {
+routine f16.log2(my: f16) -> f16 {
     # Note: LLVM may not have native f16 log2, promote to f32
     let promoted = f32(my)
     return f16(promoted.log2())
 }
 
-recipe f16.log10(my: f16) -> f16 {
+routine f16.log10(my: f16) -> f16 {
     # Note: LLVM may not have native f16 log10, promote to f32
     let promoted = f32(my)
     return f16(promoted.log10())
 }
 
 # Rounding and truncation
-recipe f16.floor(my: f16) -> f16 {
+routine f16.floor(my: f16) -> f16 {
     return llvm_intrinsic("llvm.floor.f16", my)
 }
 
-recipe f16.ceil(my: f16) -> f16 {
+routine f16.ceil(my: f16) -> f16 {
     return llvm_intrinsic("llvm.ceil.f16", my)
 }
 
-recipe f16.round(my: f16) -> f16 {
+routine f16.round(my: f16) -> f16 {
     return llvm_intrinsic("llvm.round.f16", my)
 }
 
-recipe f16.trunc(my: f16) -> f16 {
+routine f16.trunc(my: f16) -> f16 {
     return llvm_intrinsic("llvm.trunc.f16", my)
 }
 
 # Min/Max with proper NaN handling
-recipe f16.min(my: f16, other: f16) -> f16 {
+routine f16.min(my: f16, other: f16) -> f16 {
     return llvm_intrinsic("llvm.minnum.f16", my, other)
 }
 
-recipe f16.max(my: f16, other: f16) -> f16 {
+routine f16.max(my: f16, other: f16) -> f16 {
     return llvm_intrinsic("llvm.maxnum.f16", my, other)
 }
 
 # Fused multiply-add for better precision
-recipe f16.fma(my: f16, mul: f16, add: f16) -> f16 {
+routine f16.fma(my: f16, mul: f16, add: f16) -> f16 {
     return llvm_intrinsic("llvm.fma.f16", my, mul, add)
 }
 
 # IEEE 754 bit manipulation
-recipe f16.as_bits(my: f16) -> s16 {
+routine f16.as_bits(my: f16) -> s16 {
     return llvm_intrinsic("bitcast", my)  # Reinterpret as s16
 }
 
-recipe f16(from_bits: BitArray<16>) -> f16 {
+routine f16(from_bits: BitArray<16>) -> f16 {
     return llvm_intrinsic("bitcast", from_bits)  # Reinterpret BitArray<16> as f16
 }
 
 # Extract IEEE 754 components (binary16: 1 sign + 5 exponent + 10 mantissa)
-recipe f16.extract_sign(my: f16) -> bool {
+routine f16.extract_sign(my: f16) -> bool {
     let bits = my.as_bits()
     return (bits >> 15) != 0
 }
 
-recipe f16.extract_exponent(my: f16) -> s16 {
+routine f16.extract_exponent(my: f16) -> s16 {
     let bits = my.as_bits()
     return (bits >> 10) & 0x1F  # 5 bits
 }
 
-recipe f16.extract_mantissa(my: f16) -> s16 {
+routine f16.extract_mantissa(my: f16) -> s16 {
     let bits = my.as_bits()
     return bits & 0x3FF  # 10 bits
 }
 
 # Type conversions (using constructor syntax)
-recipe s16(from_f16: f16) -> s16 {
+routine s16(from_f16: f16) -> s16 {
     return llvm_intrinsic("fptosi", from_f16)   # Float to signed int
 }
 
-recipe u16(from_f16: f16) -> u16 {
+routine u16(from_f16: f16) -> u16 {
     return llvm_intrinsic("fptoui", from_f16)   # Float to unsigned int
 }
 
-recipe s32(from_f16: f16) -> s32 {
+routine s32(from_f16: f16) -> s32 {
     return llvm_intrinsic("fptosi", from_f16)   # Float to signed int
 }
 
-recipe u32(from_f16: f16) -> u32 {
+routine u32(from_f16: f16) -> u32 {
     return llvm_intrinsic("fptoui", from_f16)   # Float to unsigned int
 }
 
-recipe s64(from_f16: f16) -> s64 {
+routine s64(from_f16: f16) -> s64 {
     return llvm_intrinsic("fptosi", from_f16)   # Float to signed int
 }
 
-recipe u64(from_f16: f16) -> u64 {
+routine u64(from_f16: f16) -> u64 {
     return llvm_intrinsic("fptoui", from_f16)   # Float to unsigned int
 }
 
-recipe f32(from_f16: f16) -> f32 {
+routine f32(from_f16: f16) -> f32 {
     return llvm_intrinsic("fpext", from_f16)    # Extend to single precision
 }
 
-recipe f64(from_f16: f16) -> f64 {
+routine f64(from_f16: f16) -> f64 {
     return llvm_intrinsic("fpext", from_f16)    # Extend to double precision
 }
 
-recipe f128(from_f16: f16) -> f128 {
+routine f128(from_f16: f16) -> f128 {
     return llvm_intrinsic("fpext", from_f16)    # Extend to quad precision
 }
 
-recipe bool(from_f16: f16) -> bool {
+routine bool(from_f16: f16) -> bool {
     from_f16 != 0.0
 }
 
 # Conversion from other types to f16
-recipe f16(from_s16: s16) -> f16 {
+routine f16(from_s16: s16) -> f16 {
     return llvm_intrinsic("sitofp", from_s16)   # Signed int to float
 }
 
-recipe f16(from_u16: u16) -> f16 {
+routine f16(from_u16: u16) -> f16 {
     return llvm_intrinsic("uitofp", from_u16)   # Unsigned int to float
 }
 
-recipe f16(from_s32: s32) -> f16 {
+routine f16(from_s32: s32) -> f16 {
     return llvm_intrinsic("sitofp", from_s32)   # Signed int to float
 }
 
-recipe f16(from_u32: u32) -> f16 {
+routine f16(from_u32: u32) -> f16 {
     return llvm_intrinsic("uitofp", from_u32)   # Unsigned int to float
 }
 
-recipe f16(from_s64: s64) -> f16 {
+routine f16(from_s64: s64) -> f16 {
     return llvm_intrinsic("sitofp", from_s64)   # Signed int to float
 }
 
-recipe f16(from_u64: u64) -> f16 {
+routine f16(from_u64: u64) -> f16 {
     return llvm_intrinsic("uitofp", from_u64)   # Unsigned int to float
 }
 
-recipe f16(from_f32: f32) -> f16 {
+routine f16(from_f32: f32) -> f16 {
     return llvm_intrinsic("fptrunc", from_f32)  # Truncate from single precision
 }
 
-recipe f16(from_f64: f64) -> f16 {
+routine f16(from_f64: f64) -> f16 {
     return llvm_intrinsic("fptrunc", from_f64)  # Truncate from double precision
 }
 
-recipe f16(from_f128: f128) -> f16 {
+routine f16(from_f128: f128) -> f16 {
     return llvm_intrinsic("fptrunc", from_f128) # Truncate from quad precision
 }
 
 # Parsing and formatting using constructor syntax
-recipe f16(from_text: Text) -> f16 {
+routine f16(from_text: Text) -> f16 {
     # Parse Text to f16 using LLVM constant folding when possible
     0.0  # Placeholder
 }
 
-recipe Text(from_f16: f16, precision: s32) -> Text {
+routine Text(from_f16: f16, precision: s32) -> Text {
     # Convert f16 to Text representation with specified precision
     ""  # Placeholder
 }
 
 # High-performance mathematical operations
-recipe lerp(a: f16, b: f16, t: f16) -> f16 {
+routine lerp(a: f16, b: f16, t: f16) -> f16 {
     # Linear interpolation with fused multiply-add
     a.fma(1.0 - t, b * t)
 }
 
 # Numerical computation helpers
-recipe approx_equal(a: f16, b: f16, epsilon: f16) -> bool {
+routine approx_equal(a: f16, b: f16, epsilon: f16) -> bool {
     (a - b).abs() <= epsilon
 }
 

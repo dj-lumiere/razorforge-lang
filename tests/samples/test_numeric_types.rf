@@ -1,6 +1,6 @@
 # Comprehensive test for all sN, uN, fN numeric types in RazorForge
 
-recipe test_signed_integers() {
+routine test_signed_integers() {
     # Signed integers - s8, s16, s32, s64, s128
     let a: s8 = 127s8
     let b: s16 = 32767s16
@@ -21,7 +21,7 @@ recipe test_signed_integers() {
     let neg64: s64 = -9223372036854775808s64
 }
 
-recipe test_unsigned_integers() {
+routine test_unsigned_integers() {
     # Unsigned integers - u8, u16, u32, u64, u128
     let a: u8 = 255u8
     let b: u16 = 65535u16
@@ -40,7 +40,7 @@ recipe test_unsigned_integers() {
     let mul16: u16 = 50u16 * 30u16
 }
 
-recipe test_floating_point() {
+routine test_floating_point() {
     # Floating point - f16, f32, f64, f128
     let a: f16 = 3.14f16
     let b: f32 = 3.14159f32
@@ -60,7 +60,7 @@ recipe test_floating_point() {
     let div64: f64 = 100.0f64 / 4.0f64
 }
 
-recipe test_type_conversions() {
+routine test_type_conversions() {
     # Test conversions between types
     let i32_val: s32 = 42s32
     let i64_val: s64 = i32_val.as(s64)
@@ -80,7 +80,7 @@ recipe test_type_conversions() {
     let int_from_float: s32 = float_val.as(s32)
 }
 
-recipe test_mixed_operations() {
+routine test_mixed_operations() {
     # Test operations with explicit types
     let x: s32 = 10s32
     let y: s32 = 20s32
@@ -96,7 +96,7 @@ recipe test_mixed_operations() {
     let is_less: bool = 1.5f32 < 2.5f32
 }
 
-recipe test_system_sized_types() {
+routine test_system_sized_types() {
     # System-sized types (pointer-sized)
     let sys_signed: syssint = 9223372036854775807syssint
     let sys_unsigned: sysuint = 18446744073709551615sysuint
@@ -106,7 +106,7 @@ recipe test_system_sized_types() {
     let offset: syssint = -100syssint
 }
 
-recipe main() -> s32 {
+routine main() -> s32 {
     test_signed_integers()
     test_unsigned_integers()
     test_floating_point()

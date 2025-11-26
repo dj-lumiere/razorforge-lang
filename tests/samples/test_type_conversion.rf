@@ -1,18 +1,18 @@
 # Test explicit type conversion syntax
 
-recipe test_function_style() -> i32 {
+routine test_function_style() -> i32 {
     return i32!(10i8 + 20i8)
 }
 
-recipe test_method_style() -> f32 {
+routine test_method_style() -> f32 {
     return (100i32 + 50i32).f32!()
 }
 
-recipe test_complex() -> i64 {
+routine test_complex() -> i64 {
     # Mixed conversions
     return i64!(f32!(10i8).f64!())
 }
 
-recipe main() -> i32 {
+routine main() -> i32 {
     return 0
 }

@@ -288,7 +288,7 @@ public interface IAstVisitor<T>
     /// <returns>Result of visiting the variable declaration</returns>
     T VisitVariableDeclaration(VariableDeclaration node);
 
-    /// <summary>Visits a function declaration node (recipe/function definitions)</summary>
+    /// <summary>Visits a function declaration node (routine/function definitions)</summary>
     /// <param name="node">The function declaration to visit</param>
     /// <returns>Result of visiting the function declaration</returns>
     T VisitFunctionDeclaration(FunctionDeclaration node);

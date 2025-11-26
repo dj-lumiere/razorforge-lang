@@ -62,7 +62,7 @@
         },
         {
           "name": "keyword.declaration.sf",
-          "match": "\\b(recipe|option|chimera|variant|mutant|feature)\\b"
+          "match": "\\b(routine|option|chimera|variant|mutant|feature)\\b"
         },
         {
           "name": "keyword.storage.sf",

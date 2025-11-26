@@ -1,11 +1,11 @@
-func test_f32() -> f32 {
+routine test_f32() -> f32 {
     return 3.14f32
 }
 
-func test_f64() -> f64 {
+routine test_f64() -> f64 {
     return 2.71828f64
 }
 
-func main() -> i32 {
+routine main() -> i32 {
     return 0
 }

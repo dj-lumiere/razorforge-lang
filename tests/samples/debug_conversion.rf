@@ -1,7 +1,7 @@
-func test_basic() -> i8 {
+routine test_basic() -> i8 {
     return 10i8
 }
 
-func test_conversion() -> i32 {
+routine test_conversion() -> i32 {
     return i32!(10i8)
 }

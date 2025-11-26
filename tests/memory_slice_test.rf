@@ -8,7 +8,7 @@ import system/console/show_line
 ###
 Tests basic TemporarySlice operations on stack memory
 ###
-recipe test_stack_slice() {
+routine test_stack_slice() {
     show_line("=== Testing TemporarySlice ===")
 
     # Create a stack slice for 40 bytes (10 s32 integers)
@@ -32,7 +32,7 @@ recipe test_stack_slice() {
     show_line(f"Sub-slice size: {sub_slice.size()} bytes")
 
     # Test unsafe pointer access
-    let unsafe_addr = stack_buffer.unsafe_ptr!(0)
+    let unsafe_addr = stack_buffer.snatch!(0)
     show_line(f"Stack buffer address: 0x{unsafe_addr:x}")
 
     show_line("TemporarySlice test completed\n")
@@ -41,7 +41,7 @@ recipe test_stack_slice() {
 ###
 Tests basic DynamicSlice operations on heap memory
 ###
-recipe test_heap_slice() {
+routine test_heap_slice() {
     show_line("=== Testing DynamicSlice ===")
 
     # Create a heap slice for 32 bytes (8 f32 floats)
@@ -82,7 +82,7 @@ recipe test_heap_slice() {
 ###
 Tests memory operations between stack and heap
 ###
-recipe test_memory_operations() {
+routine test_memory_operations() {
     show_line("=== Testing Memory Operations ===")
 
     # Create both stack and heap buffers
@@ -119,7 +119,7 @@ recipe test_memory_operations() {
 ###
 Demonstrates wrapper type operations
 ###
-recipe test_wrapper_operations() {
+routine test_wrapper_operations() {
     show_line("=== Testing Wrapper Operations ===")
 
     # Create heap slice for integers
@@ -153,7 +153,7 @@ e    # Test snatch operation
 Main test runner
 @return Exit code (0 for success)
 ###
-recipe main() -> s32 {
+routine main() -> s32 {
     show_line("RazorForge Memory Slice Test Suite")
     show_line("==================================\n")
 

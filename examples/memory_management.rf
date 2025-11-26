@@ -1,7 +1,7 @@
 # Memory management example in RazorForge
 # Demonstrates DynamicSlice, TemporarySlice, and danger zone functions
 
-recipe memory_example() {
+routine memory_example() {
     # Safe memory allocation
     let heap_data = DynamicSlice(4096B)
     let stack_buffer = TemporarySlice(1024B)
@@ -17,7 +17,7 @@ recipe memory_example() {
 
     # Danger zone operations (require explicit danger blocks)
     danger {
-        let ptr = addr_of!(counter)
+        let ptr = address_of!(counter)
         let value = read_as<u32>!(ptr)
         write_as<u32>!(ptr, value + 1)
     }
@@ -33,14 +33,14 @@ struct DataProcessor {
     let buffer: DynamicSlice
     var size: u64
 
-    recipe new(capacity: u64) -> DataProcessor {
+    routine new(capacity: u64) -> DataProcessor {
         return DataProcessor {
             buffer: DynamicSlice(capacity),
             size: 0
         }
     }
 
-    recipe process_data(data: TemporarySlice) {
+    routine process_data(data: TemporarySlice) {
         # Process data safely
         me.size = data.length
     }

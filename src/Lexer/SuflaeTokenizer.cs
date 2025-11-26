@@ -25,7 +25,7 @@ public class SuflaeTokenizer : BaseTokenizer
     /// <summary>Dictionary mapping Suflae keywords to their corresponding token types</summary>
     private readonly Dictionary<string, TokenType> _keywords = new()
     {
-        [key: "recipe"] = TokenType.Recipe,
+        [key: "routine"] = TokenType.Routine,
         [key: "entity"] = TokenType.Entity,
         [key: "record"] = TokenType.Record,
         [key: "choice"] = TokenType.Choice,
@@ -562,7 +562,7 @@ public class SuflaeTokenizer : BaseTokenizer
         if (Tokens.Count > 0)
         {
             TokenType lastToken = Tokens[^1].Type;
-            if (lastToken is TokenType.Recipe or TokenType.Entity or TokenType.Record
+            if (lastToken is TokenType.Routine or TokenType.Entity or TokenType.Record
                 or TokenType.Choice or TokenType.Chimera or TokenType.Variant or TokenType.Mutant
                 or TokenType.Protocol)
             {

@@ -16,51 +16,51 @@ preset LETTER_NEWLINE: letter = letter(codepoint: 0x0A)
 preset LETTER_TAB: letter = letter(codepoint: 0x09)
 
 # Core character properties
-recipe letter.codepoint(me: letter) -> u32 {
+routine letter.codepoint(me: letter) -> u32 {
     return me.value
 }
 
-recipe letter(codepoint: u32) -> letter {
+routine letter(codepoint: u32) -> letter {
     return letter { value: codepoint }
 }
 
-recipe letter.is_valid_unicode(me: letter) -> bool {
+routine letter.is_valid_unicode(me: letter) -> bool {
     let cp = me.codepoint()
     return cp <= 0x10FFFF and not (cp >= 0xD800 and cp <= 0xDFFF)
 }
 
-recipe letter.is_ascii(me: letter) -> bool {
+routine letter.is_ascii(me: letter) -> bool {
     return me.codepoint() <= 127
 }
 
 # Character classification
-recipe letter.is_alphabetic(me: letter) -> bool {
+routine letter.is_alphabetic(me: letter) -> bool {
     let cp = me.codepoint()
     return (cp >= 0x41 and cp <= 0x5A) or    # A-Z
            (cp >= 0x61 and cp <= 0x7A) or    # a-z
            (cp >= 0xC0 and cp <= 0xFF)       # Extended Latin (simplified)
 }
 
-recipe letter.is_numeric(me: letter) -> bool {
+routine letter.is_numeric(me: letter) -> bool {
     let cp = me.codepoint()
     return cp >= 0x30 and cp <= 0x39  # 0-9
 }
 
-recipe letter.is_alphanumeric(me: letter) -> bool {
+routine letter.is_alphanumeric(me: letter) -> bool {
     return me.is_alphabetic() or me.is_numeric()
 }
 
-recipe letter.is_uppercase(me: letter) -> bool {
+routine letter.is_uppercase(me: letter) -> bool {
     let cp = me.codepoint()
     return cp >= 0x41 and cp <= 0x5A  # A-Z (ASCII only, simplified)
 }
 
-recipe letter.is_lowercase(me: letter) -> bool {
+routine letter.is_lowercase(me: letter) -> bool {
     let cp = me.codepoint()
     return cp >= 0x61 and cp <= 0x7A  # a-z (ASCII only, simplified)
 }
 
-recipe letter.is_whitespace(me: letter) -> bool {
+routine letter.is_whitespace(me: letter) -> bool {
     let cp = me.codepoint()
     return cp == 0x20 or    # Space
            cp == 0x09 or    # Tab
@@ -69,20 +69,20 @@ recipe letter.is_whitespace(me: letter) -> bool {
            cp == 0x0C       # Form feed
 }
 
-recipe letter.is_control(me: letter) -> bool {
+routine letter.is_control(me: letter) -> bool {
     let cp = me.codepoint()
     return (cp <= 0x1F) or cp == 0x7F
 }
 
 # Case conversions (ASCII only, simplified)
-recipe letter.to_uppercase(me: letter) -> letter {
+routine letter.to_uppercase(me: letter) -> letter {
     when (me.is_lowercase()) {
         true => return letter(codepoint: me.codepoint() - 32),
         false => return me
     }
 }
 
-recipe letter.to_lowercase(me: letter) -> letter {
+routine letter.to_lowercase(me: letter) -> letter {
     when (me.is_uppercase()) {
         true => return letter(codepoint: me.codepoint() + 32),
         false => return me
@@ -90,68 +90,68 @@ recipe letter.to_lowercase(me: letter) -> letter {
 }
 
 # Comparison operations
-recipe letter.eq(me: letter, other: letter) -> bool {
+routine letter.eq(me: letter, other: letter) -> bool {
     return me.codepoint() == other.codepoint()
 }
 
-recipe letter.ne(me: letter, other: letter) -> bool {
+routine letter.ne(me: letter, other: letter) -> bool {
     return me.codepoint() != other.codepoint()
 }
 
-recipe letter.lt(me: letter, other: letter) -> bool {
+routine letter.lt(me: letter, other: letter) -> bool {
     return me.codepoint() < other.codepoint()
 }
 
-recipe letter.le(me: letter, other: letter) -> bool {
+routine letter.le(me: letter, other: letter) -> bool {
     return me.codepoint() <= other.codepoint()
 }
 
-recipe letter.gt(me: letter, other: letter) -> bool {
+routine letter.gt(me: letter, other: letter) -> bool {
     return me.codepoint() > other.codepoint()
 }
 
-recipe letter.ge(me: letter, other: letter) -> bool {
+routine letter.ge(me: letter, other: letter) -> bool {
     return me.codepoint() >= other.codepoint()
 }
 
 # Type conversions
-recipe letter16(from_letter: letter) -> letter16 {
+routine letter16(from_letter: letter) -> letter16 {
     # Truncate to 16-bit (may lose information for high Unicode points)
     return letter16(codepoint: from_letter.codepoint() as u16)
 }
 
-recipe letter8(from_letter: letter) -> letter8 {
+routine letter8(from_letter: letter) -> letter8 {
     # Truncate to 8-bit (ASCII only)
     return letter8(codepoint: from_letter.codepoint() as u8)
 }
 
-recipe u32(from_letter: letter) -> u32 {
+routine u32(from_letter: letter) -> u32 {
     return from_letter.codepoint()
 }
 
-recipe s32(from_letter: letter) -> s32 {
+routine s32(from_letter: letter) -> s32 {
     return from_letter.codepoint() as s32
 }
 
 # Text conversion
-recipe Text(from_letter: letter) -> Text {
+routine Text(from_letter: letter) -> Text {
     # Convert single character to Text
     # Implementation would encode the Unicode code point to UTF-8
     return ""  # Placeholder - would encode to UTF-8
 }
 
-recipe letter(from_text: Text) -> letter {
+routine letter(from_text: Text) -> letter {
     # Extract first character from Text
     # Implementation would decode UTF-8 to Unicode code point
     return LETTER_NULL  # Placeholder - would decode from UTF-8
 }
 
 # UTF-16 encoding helpers
-recipe letter.needs_surrogate_pair(me: letter) -> bool {
+routine letter.needs_surrogate_pair(me: letter) -> bool {
     return me.codepoint() > 0xFFFF
 }
 
-recipe letter.to_surrogate_pair(me: letter) -> (letter16, letter16) {
+routine letter.to_surrogate_pair(me: letter) -> (letter16, letter16) {
     when (me.needs_surrogate_pair()) {
         true => {
             let cp = me.codepoint() - 0x10000
@@ -166,16 +166,16 @@ recipe letter.to_surrogate_pair(me: letter) -> (letter16, letter16) {
     }
 }
 
-# Utility recipes
-recipe letter.is_digit(me: letter) -> bool {
+# Utility routines
+routine letter.is_digit(me: letter) -> bool {
     return me.is_numeric()
 }
 
-recipe letter.is_letter(me: letter) -> bool {
+routine letter.is_letter(me: letter) -> bool {
     return me.is_alphabetic()
 }
 
-recipe letter.digit_value(me: letter) -> s32 {
+routine letter.digit_value(me: letter) -> s32 {
     when (me.is_numeric()) {
         true => return (me.codepoint() - 0x30) as s32,
         false => return -1

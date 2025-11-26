@@ -16,7 +16,7 @@ record TemporarySlice {
     @param bytes - Number of bytes to allocate on stack
     @return New TemporarySlice instance
     ###
-    public recipe __create__(bytes: sysuint) -> TemporarySlice {
+    public routine __create__(bytes: sysuint) -> TemporarySlice {
         if bytes == 0 {
             me.starting_address = 0
             me.allocated_bytes = 0
@@ -26,7 +26,7 @@ record TemporarySlice {
         me.allocated_bytes = bytes
 
         # LLVM alloca instruction for stack allocation
-        me.starting_address = stack_alloc!(bytes)
+        me.starting_address = claim_temporary!(bytes)
 
         if me.starting_address == 0 {
             crash!("Failed to allocate stack memory")
@@ -39,7 +39,7 @@ record TemporarySlice {
     Gets the total allocated bytes
     @return Number of bytes allocated for this slice
     ###
-    public recipe size() -> sysuint {
+    public routine size() -> sysuint {
         return me.allocated_bytes
     }
 
@@ -47,7 +47,7 @@ record TemporarySlice {
     Gets the starting memory address
     @return Memory address where slice data begins
     ###
-    public recipe address() -> sysuint {
+    public routine address() -> sysuint {
         return me.starting_address
     }
 
@@ -55,7 +55,7 @@ record TemporarySlice {
     Checks if this slice is valid (has allocated memory)
     @return true if slice has valid memory allocation
     ###
-    public recipe is_valid() -> bool {
+    public routine is_valid() -> bool {
         return me.starting_address != 0
     }
 
@@ -65,7 +65,7 @@ record TemporarySlice {
     @param dest - Destination address to copy bytes to
     @param count - Number of bytes to read
     ###
-    public recipe read_bytes!(offset: sysuint, dest: sysuint, count: sysuint) {
+    public routine read_bytes!(offset: sysuint, dest: sysuint, count: sysuint) {
         if offset + count > me.allocated_bytes {
             crash!(f"Read operation would exceed slice bounds")
         }
@@ -80,7 +80,7 @@ record TemporarySlice {
     @param src - Source address to copy bytes from
     @param count - Number of bytes to write
     ###
-    public recipe write_bytes!(offset: sysuint, src: sysuint, count: sysuint) {
+    public routine write_bytes!(offset: sysuint, src: sysuint, count: sysuint) {
         if offset + count > me.allocated_bytes {
             crash!(f"Write operation would exceed slice bounds")
         }
@@ -94,7 +94,7 @@ record TemporarySlice {
     @param offset - Byte offset within the slice
     @return Value of type T read from the slice
     ###
-    public recipe read<T>!(offset: sysuint) -> T {
+    public routine read<T>!(offset: sysuint) -> T {
         let type_size = sizeof<T>()
 
         if offset + type_size > me.allocated_bytes {
@@ -110,7 +110,7 @@ record TemporarySlice {
     @param offset - Byte offset within the slice
     @param value - Value of type T to write to the slice
     ###
-    public recipe write<T>!(offset: sysuint, value: T) {
+    public routine write<T>!(offset: sysuint, value: T) {
         let type_size = sizeof<T>()
 
         if offset + type_size > me.allocated_bytes {
@@ -126,7 +126,7 @@ record TemporarySlice {
     @param offset - Byte offset within the slice
     @return Raw memory address at the specified offset
     ###
-    public recipe unsafe_ptr!(offset: sysuint) -> sysuint {
+    public routine snatch!(offset: sysuint) -> sysuint {
         return me.starting_address + offset
     }
 
@@ -136,7 +136,7 @@ record TemporarySlice {
     @param bytes - Number of bytes in sub-slice
     @return New TemporarySlice representing the sub-range
     ###
-    public recipe slice!(offset: sysuint, bytes: sysuint) -> TemporarySlice {
+    public routine slice!(offset: sysuint, bytes: sysuint) -> TemporarySlice {
         if offset + bytes > me.allocated_bytes {
             crash!(f"Slice range exceeds bounds")
         }
@@ -151,7 +151,7 @@ record TemporarySlice {
     Fills the slice with a byte pattern
     @param pattern - Byte value to fill the entire slice with
     ###
-    public recipe fill!(pattern: u8) {
+    public routine fill!(pattern: u8) {
         memory_fill!(me.starting_address, pattern, me.allocated_bytes)
     }
 
@@ -162,7 +162,7 @@ record TemporarySlice {
     @param dest_offset - Starting offset in destination slice
     @param count - Number of bytes to copy
     ###
-    public recipe copy_from!(source: TemporarySlice, src_offset: sysuint,
+    public routine copy_from!(source: TemporarySlice, src_offset: sysuint,
                            dest_offset: sysuint, count: sysuint) {
         if src_offset + count > source.allocated_bytes {
             crash!("Source range exceeds bounds")
@@ -180,27 +180,27 @@ record TemporarySlice {
     ###
     Zeros out all memory in the slice
     ###
-    public recipe zero!() {
+    public routine zero!() {
         memory_zero!(me.starting_address, me.allocated_bytes)
     }
 }
 
-# Native runtime functions for stack operations
-external("C") recipe stack_alloc!(bytes: sysuint) -> sysuint
-external("C") recipe memory_copy!(src: sysuint, dest: sysuint, bytes: sysuint)
-external("C") recipe memory_fill!(address: sysuint, pattern: u8, bytes: sysuint)
-external("C") recipe memory_zero!(address: sysuint, bytes: sysuint)
-external("C") recipe memory_read<T>!(address: sysuint) -> T
-external("C") recipe memory_write<T>!(address: sysuint, value: T)
-external("C") recipe sizeof<T>() -> sysuint
+# Native runtime functions for temporary (stack) operations
+external("C") routine claim_temporary!(bytes: sysuint) -> sysuint
+external("C") routine memory_copy!(src: sysuint, dest: sysuint, bytes: sysuint)
+external("C") routine memory_fill!(address: sysuint, pattern: u8, bytes: sysuint)
+external("C") routine memory_zero!(address: sysuint, bytes: sysuint)
+external("C") routine memory_read<T>!(address: sysuint) -> T
+external("C") routine memory_write<T>!(address: sysuint, value: T)
+external("C") routine sizeof<T>() -> sysuint
 
 # Danger zone operations - raw memory access without safety checks
-external("C") recipe read_as<T>!(address: sysuint) -> T
-external("C") recipe write_as<T>!(address: sysuint, value: T)
-external("C") recipe volatile_read<T>!(address: sysuint) -> T
-external("C") recipe volatile_write<T>!(address: sysuint, value: T)
-external("C") recipe obtain_as<T>!(object: auto) -> sysuint
-external("C") recipe reveal_as<T>!(address: sysuint) -> T
-external("C") recipe addr_of!(object: auto) -> sysuint
-external("C") recipe invalidate<T>!(object: T)
-external("C") recipe crash!(message: text)
+external("C") routine read_as<T>!(address: sysuint) -> T
+external("C") routine write_as<T>!(address: sysuint, value: T)
+external("C") routine volatile_read<T>!(address: sysuint) -> T
+external("C") routine volatile_write<T>!(address: sysuint, value: T)
+external("C") routine obtain_as<T>!(object: auto) -> sysuint
+external("C") routine reveal_as<T>!(address: sysuint) -> T
+external("C") routine address_of!(object: auto) -> sysuint
+external("C") routine invalidate<T>!(object: T)
+external("C") routine crash!(message: text)

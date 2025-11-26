@@ -15,22 +15,22 @@ preset U128_ONE: u128 = 1_u128
 # Basic arithmetic operations (LLVM intrinsics: add, sub, mul, udiv, urem)
 
 # Addition with overflow checking
-recipe u128.add(me: u128, other: u128) -> u128 {
+routine u128.add(me: u128, other: u128) -> u128 {
     return llvm_intrinsic("llvm.uadd.with.overflow.i128", me, other)
 }
 
 # Subtraction with overflow checking
-recipe u128.sub(me: u128, other: u128) -> u128 {
+routine u128.sub(me: u128, other: u128) -> u128 {
     return llvm_intrinsic("llvm.usub.with.overflow.i128", me, other)
 }
 
 # Multiplication with overflow checking
-recipe u128.mul(me: u128, other: u128) -> u128 {
+routine u128.mul(me: u128, other: u128) -> u128 {
     return llvm_intrinsic("llvm.umul.with.overflow.i128", me, other)
 }
 
 # Division (unsigned) - maps to LLVM udiv
-recipe u128.floordiv(me: u128, other: u128) -> u128 {
+routine u128.floordiv(me: u128, other: u128) -> u128 {
     when (other) {
         0 => throw panic("Division by zero"),
         _ => return llvm_intrinsic("udiv", me, other)
@@ -38,7 +38,7 @@ recipe u128.floordiv(me: u128, other: u128) -> u128 {
 }
 
 # Remainder (unsigned) - maps to LLVM urem
-recipe u128.rem(me: u128, other: u128) -> u128 {
+routine u128.rem(me: u128, other: u128) -> u128 {
     when (other) {
         0 => throw panic("Division by zero"),
         _ => return llvm_intrinsic("urem", me, other)
@@ -46,154 +46,154 @@ recipe u128.rem(me: u128, other: u128) -> u128 {
 }
 
 # Bitwise operations (direct LLVM mapping)
-recipe u128.and(me: u128, other: u128) -> u128 {
+routine u128.and(me: u128, other: u128) -> u128 {
     return llvm_intrinsic("and", me, other)
 }
 
-recipe u128.or(me: u128, other: u128) -> u128 {
+routine u128.or(me: u128, other: u128) -> u128 {
     return llvm_intrinsic("or", me, other)
 }
 
-recipe u128.xor(me: u128, other: u128) -> u128 {
+routine u128.xor(me: u128, other: u128) -> u128 {
     return llvm_intrinsic("xor", me, other)
 }
 
-recipe u128.not(me: u128) -> u128 {
+routine u128.not(me: u128) -> u128 {
     return llvm_intrinsic("xor", me, 340282366920938463463374607431768211455)
 }
 
 # Bit shifting operations
-recipe u128.shl(me: u128, bits: u128) -> u128 {
+routine u128.shl(me: u128, bits: u128) -> u128 {
     return llvm_intrinsic("shl", me, bits)
 }
 
-recipe u128.shr(me: u128, bits: u128) -> u128 {
+routine u128.shr(me: u128, bits: u128) -> u128 {
     return llvm_intrinsic("lshr", me, bits)  # Logical right shift for unsigned
 }
 
 # Comparison operations (LLVM icmp)
-recipe u128.eq(me: u128, other: u128) -> bool {
+routine u128.eq(me: u128, other: u128) -> bool {
     return llvm_intrinsic("icmp eq", me, other)
 }
 
-recipe u128.ne(me: u128, other: u128) -> bool {
+routine u128.ne(me: u128, other: u128) -> bool {
     return llvm_intrinsic("icmp ne", me, other)
 }
 
-recipe u128.lt(me: u128, other: u128) -> bool {
+routine u128.lt(me: u128, other: u128) -> bool {
     return llvm_intrinsic("icmp ult", me, other)  # Unsigned less than
 }
 
-recipe u128.le(me: u128, other: u128) -> bool {
+routine u128.le(me: u128, other: u128) -> bool {
     return llvm_intrinsic("icmp ule", me, other)  # Unsigned less equal
 }
 
-recipe u128.gt(me: u128, other: u128) -> bool {
+routine u128.gt(me: u128, other: u128) -> bool {
     return llvm_intrinsic("icmp ugt", me, other)  # Unsigned greater than
 }
 
-recipe u128.ge(me: u128, other: u128) -> bool {
+routine u128.ge(me: u128, other: u128) -> bool {
     return llvm_intrinsic("icmp uge", me, other)  # Unsigned greater equal
 }
 
 # Math operations
-recipe u128.min(me: u128, other: u128) -> u128 {
+routine u128.min(me: u128, other: u128) -> u128 {
     return if me <= other then me else other
 }
 
-recipe u128.max(me: u128, other: u128) -> u128 {
+routine u128.max(me: u128, other: u128) -> u128 {
     return if me >= other then me else other
 }
 
 # Bit manipulation utilities
-recipe u128.count_leading_zeros(me: u128) -> u128 {
+routine u128.count_leading_zeros(me: u128) -> u128 {
     return llvm_intrinsic("llvm.ctlz.i128", me, false)
 }
 
-recipe u128.count_trailing_zeros(me: u128) -> u128 {
+routine u128.count_trailing_zeros(me: u128) -> u128 {
     return llvm_intrinsic("llvm.cttz.i128", me, false)
 }
 
-recipe u128.count_ones(me: u128) -> u128 {
+routine u128.count_ones(me: u128) -> u128 {
     return llvm_intrinsic("llvm.ctpop.i128", me)
 }
 
 # Note: No native byte swapping for i128 in LLVM - would need manual implementation
-# recipe u128.byte_swap(me: u128) -> u128 {
+# routine u128.byte_swap(me: u128) -> u128 {
 #     # Manual implementation needed as LLVM doesn't have llvm.bswap.i128
 #     # Would require splitting into 64-bit halves and reassembling
 # }
 
 # Type conversions to other native types (using constructor syntax)
-recipe u8(from_u128: u128) -> u8 {
+routine u8(from_u128: u128) -> u8 {
     return llvm_intrinsic("trunc", from_u128)      # Truncate to 8-bit
 }
 
-recipe u16(from_u128: u128) -> u16 {
+routine u16(from_u128: u128) -> u16 {
     return llvm_intrinsic("trunc", from_u128)      # Truncate to 16-bit
 }
 
-recipe u32(from_u128: u128) -> u32 {
+routine u32(from_u128: u128) -> u32 {
     return llvm_intrinsic("trunc", from_u128)      # Truncate to 32-bit
 }
 
-recipe u64(from_u128: u128) -> u64 {
+routine u64(from_u128: u128) -> u64 {
     return llvm_intrinsic("trunc", from_u128)      # Truncate to 64-bit
 }
 
-recipe s8(from_u128: u128) -> s8 {
+routine s8(from_u128: u128) -> s8 {
     return llvm_intrinsic("trunc", from_u128)      # Truncate to signed 8-bit
 }
 
-recipe s16(from_u128: u128) -> s16 {
+routine s16(from_u128: u128) -> s16 {
     return llvm_intrinsic("trunc", from_u128)      # Truncate to signed 16-bit
 }
 
-recipe s32(from_u128: u128) -> s32 {
+routine s32(from_u128: u128) -> s32 {
     return llvm_intrinsic("trunc", from_u128)      # Truncate to signed 32-bit
 }
 
-recipe s64(from_u128: u128) -> s64 {
+routine s64(from_u128: u128) -> s64 {
     return llvm_intrinsic("trunc", from_u128)      # Truncate to signed 64-bit
 }
 
-recipe s128(from_u128: u128) -> s128 {
+routine s128(from_u128: u128) -> s128 {
     return llvm_intrinsic("bitcast", from_u128)    # Direct bit reinterpretation
 }
 
-recipe f32(from_u128: u128) -> f32 {
+routine f32(from_u128: u128) -> f32 {
     return llvm_intrinsic("uitofp", from_u128)     # Unsigned int to float
 }
 
-recipe f64(from_u128: u128) -> f64 {
+routine f64(from_u128: u128) -> f64 {
     return llvm_intrinsic("uitofp", from_u128)     # Unsigned int to double
 }
 
-recipe f128(from_u128: u128) -> f128 {
+routine f128(from_u128: u128) -> f128 {
     return llvm_intrinsic("uitofp", from_u128)     # Unsigned int to quad
 }
 
-recipe bool(from_u128: u128) -> bool {
+routine bool(from_u128: u128) -> bool {
     return from_u128 != 0
 }
 
 # Parsing and formatting using constructor syntax
-recipe u128(from_text: Text) -> u128 {
+routine u128(from_text: Text) -> u128 {
     # Parse Text to u128 using LLVM constant folding when possible
     return 0  # Placeholder
 }
 
-recipe Text(from_u128: u128) -> Text {
+routine Text(from_u128: u128) -> Text {
     # Convert u128 to Text representation
     return ""  # Placeholder
 }
 
 # Utility functions for bit operations
-recipe u128.is_power_of_two(me: u128) -> bool {
+routine u128.is_power_of_two(me: u128) -> bool {
     return me != 0 and (me & (me - 1)) == 0
 }
 
-recipe u128.next_power_of_two(me: u128) -> u128 {
+routine u128.next_power_of_two(me: u128) -> u128 {
     when (me) {
         0 => return 1,
         1 => return 1,
@@ -208,31 +208,31 @@ recipe u128.next_power_of_two(me: u128) -> u128 {
 }
 
 # Saturating arithmetic (clamps to min/max instead of wrapping)
-recipe u128.saturating_add(me: u128, other: u128) -> u128 {
+routine u128.saturating_add(me: u128, other: u128) -> u128 {
     let result = me + other
     return if result < me then U128_MAX else result  # Overflow check
 }
 
-recipe u128.saturating_sub(me: u128, other: u128) -> u128 {
+routine u128.saturating_sub(me: u128, other: u128) -> u128 {
     return if me >= other then me - other else U128_ZERO
 }
 
-recipe u128.saturating_mul(me: u128, other: u128) -> u128 {
+routine u128.saturating_mul(me: u128, other: u128) -> u128 {
     let result = me * other
     return if other != 0 and result / other != me then U128_MAX else result
 }
 
 # High/low 64-bit extraction utilities
-recipe u128.high64(me: u128) -> u64 {
+routine u128.high64(me: u128) -> u64 {
     return llvm_intrinsic("trunc", llvm_intrinsic("lshr", me, 64))
 }
 
-recipe u128.low64(me: u128) -> u64 {
+routine u128.low64(me: u128) -> u64 {
     return llvm_intrinsic("trunc", me)
 }
 
 # Combine two u64 values into u128
-recipe u128.from_u64_pair(high: u64, low: u64) -> u128 {
+routine u128.from_u64_pair(high: u64, low: u64) -> u128 {
     let high_128 = llvm_intrinsic("zext", high)
     let shifted_high = llvm_intrinsic("shl", high_128, 64)
     let low_128 = llvm_intrinsic("zext", low)

@@ -8,7 +8,7 @@ import system/console/show_line
 ###
 Tests basic parsing and compilation of slice constructors
 ###
-recipe test_slice_constructors() {
+routine test_slice_constructors() {
     show_line("=== Testing Slice Constructors ===")
 
     # Test DynamicSlice constructor parsing
@@ -25,7 +25,7 @@ recipe test_slice_constructors() {
 ###
 Tests generic method call parsing and compilation
 ###
-recipe test_generic_methods() {
+routine test_generic_methods() {
     show_line("=== Testing Generic Methods ===")
 
     var buffer = DynamicSlice(32)
@@ -49,7 +49,7 @@ recipe test_generic_methods() {
 ###
 Tests memory operation parsing and compilation
 ###
-recipe test_memory_operations() {
+routine test_memory_operations() {
     show_line("=== Testing Memory Operations ===")
 
     var buffer = TemporarySlice(48)
@@ -58,7 +58,7 @@ recipe test_memory_operations() {
     let size = buffer.size!()
     let addr = buffer.address!()
     let valid = buffer.is_valid!()
-    let ptr = buffer.unsafe_ptr!(16)
+    let ptr = buffer.snatch!(16)
 
     show_line(f"Buffer size: {size}")
     show_line(f"Buffer address: 0x{addr:x}")
@@ -73,13 +73,13 @@ recipe test_memory_operations() {
 }
 
 ###
-Tests external recipe declarations and linking
+Tests external routine declarations and linking
 ###
-recipe test_external_functions() {
+routine test_external_functions() {
     show_line("=== Testing External Functions ===")
 
     # These external functions should be linked from C runtime
-    let allocated_ptr = heap_alloc!(256)
+    let allocated_ptr = claim_dynamic!(256)
     show_line(f"Heap allocated at: 0x{allocated_ptr:x}")
 
     # Test memory operations
@@ -87,14 +87,14 @@ recipe test_external_functions() {
     let read_value = read_as<s64>!(allocated_ptr)
     show_line(f"Written and read value: 0x{read_value:x}")
 
-    heap_free!(allocated_ptr)
-    show_line("External recipe test completed\n")
+    release_dynamic!(allocated_ptr)
+    show_line("External routine test completed\n")
 }
 
 ###
 Tests danger block parsing and compilation
 ###
-recipe test_danger_blocks() {
+routine test_danger_blocks() {
     show_line("=== Testing Danger Blocks ===")
 
     var buffer = DynamicSlice(64)
@@ -114,9 +114,9 @@ recipe test_danger_blocks() {
         show_line(f"Raw read 1: 0x{val1:x}")
         show_line(f"Raw read 2: 0x{val2:x}")
 
-        # Test addr_of operation
+        # Test address_of operation
         let local_var: s32 = 999
-        let var_addr = addr_of!(local_var)
+        let var_addr = address_of!(local_var)
         show_line(f"Local variable address: 0x{var_addr:x}")
     }
 
@@ -126,7 +126,7 @@ recipe test_danger_blocks() {
 ###
 Tests memory wrapper operations and safety
 ###
-recipe test_wrapper_operations() {
+routine test_wrapper_operations() {
     show_line("=== Testing Wrapper Operations ===")
 
     var original = DynamicSlice(96)
@@ -148,7 +148,7 @@ recipe test_wrapper_operations() {
 ###
 Tests comprehensive memory management scenarios
 ###
-recipe test_memory_management() {
+routine test_memory_management() {
     show_line("=== Testing Memory Management ===")
 
     # Create multiple slices
@@ -185,7 +185,7 @@ recipe test_memory_management() {
 Main test runner that exercises the complete compiler pipeline
 @return Exit code (0 for success, 1 for failure)
 ###
-recipe main() -> s32 {
+routine main() -> s32 {
     show_line("RazorForge Compiler Integration Test Suite")
     show_line("==========================================")
     show_line("Testing: Parser → AST → Semantic Analysis → LLVM IR → Native Runtime")

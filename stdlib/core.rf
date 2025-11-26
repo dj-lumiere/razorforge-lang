@@ -2,22 +2,22 @@
 # Provides fundamental types and operations
 
 # Memory management functions - C FFI
-external("C") recipe malloc(size: sysuint) -> sysuint
-external("C") recipe free(ptr: sysuint)
-external("C") recipe memcpy(dest: sysuint, src: sysuint, size: sysuint) -> sysuint
-external("C") recipe memset(ptr: sysuint, value: cint, size: sysuint) -> sysuint
+external("C") routine malloc(size: sysuint) -> sysuint
+external("C") routine free(ptr: sysuint)
+external("C") routine memcpy(dest: sysuint, src: sysuint, size: sysuint) -> sysuint
+external("C") routine memset(ptr: sysuint, value: cint, size: sysuint) -> sysuint
 
 # Basic I/O (temporarily using C functions)
-external("C") recipe printf(format: sysuint, ...) -> cint
-external("C") recipe scanf(format: sysuint, ...) -> cint
+external("C") routine printf(format: sysuint, ...) -> cint
+external("C") routine scanf(format: sysuint, ...) -> cint
 
 # Core print function for integers
-recipe print_i32(value: i32) {
+routine print_i32(value: i32) {
     printf("%d\n", value)
 }
 
 # Core print function for text
-recipe print_text(text: Text) {
+routine print_text(text: Text) {
     printf("%s\n", text)
 }
 
@@ -27,7 +27,7 @@ import ErrorHandling.Result
 import ErrorHandling.Maybe
 
 # Basic crash function for unrecoverable errors
-recipe crash!(message: Text) {
+routine crash!(message: Text) {
     printf("Program Crashed: %s\n", message)
     # TODO: proper exit mechanism - call system exit
     loop {}

@@ -54,7 +54,7 @@ public class EndToEndTests
     public void TestHelloWorldProgram()
     {
         string code = @"
-recipe main() -> s32 {
+routine main() -> s32 {
     print(""Hello, World!"")
     return 0
 }";
@@ -72,14 +72,14 @@ recipe main() -> s32 {
     public void TestFactorialProgram()
     {
         string code = @"
-recipe factorial(n: s32) -> s32 {
+routine factorial(n: s32) -> s32 {
     if n <= 1:
         return 1
     else:
         return n * factorial(n - 1)
 }
 
-recipe main() -> s32 {
+routine main() -> s32 {
     let result = factorial(5)
     print(f""Factorial of 5 is {result}"")
     return 0
@@ -98,14 +98,14 @@ recipe main() -> s32 {
     public void TestFibonacciProgram()
     {
         string code = @"
-recipe fibonacci(n: s32) -> s32 {
+routine fibonacci(n: s32) -> s32 {
     if n <= 1:
         return n
     else:
         return fibonacci(n - 1) + fibonacci(n - 2)
 }
 
-recipe main() -> s32 {
+routine main() -> s32 {
     for i in 0 to 10:
         let fib = fibonacci(i)
         print(f""fib({i}) = {fib}"")
@@ -123,14 +123,14 @@ recipe main() -> s32 {
     public void TestArrayOperationsProgram()
     {
         string code = @"
-recipe array_sum(arr: DynamicSlice, size: s32) -> s32 {
+routine array_sum(arr: DynamicSlice, size: s32) -> s32 {
     var sum = 0
     for i in 0 to size:
         sum = sum + arr[i]
     return sum
 }
 
-recipe main() -> s32 {
+routine main() -> s32 {
     let numbers = DynamicSlice(10)
 
     # Initialize array
@@ -153,15 +153,15 @@ recipe main() -> s32 {
     public void TestStringManipulationProgram()
     {
         string code = @"
-recipe string_length(text: Text) -> s32 {
+routine string_length(text: Text) -> s32 {
     return text.length
 }
 
-recipe concatenate(a: Text, b: Text) -> Text {
+routine concatenate(a: Text, b: Text) -> Text {
     return a + b
 }
 
-recipe main() -> s32 {
+routine main() -> s32 {
     let greeting = ""Hello""
     let target = ""World""
     let message = concatenate(greeting, "" "") + target + ""!""
@@ -183,7 +183,7 @@ recipe main() -> s32 {
     public void TestComplexMathProgram()
     {
         string code = @"
-recipe power(base: f64, exponent: s32) -> f64 {
+routine power(base: f64, exponent: s32) -> f64 {
     if exponent == 0:
         return 1.0
     elif exponent < 0:
@@ -192,7 +192,7 @@ recipe power(base: f64, exponent: s32) -> f64 {
         return base * power(base, exponent - 1)
 }
 
-recipe main() -> s32 {
+routine main() -> s32 {
     let base = 2.0
     for exp in 0 to 10:
         let result = power(base, exp)
@@ -211,7 +211,7 @@ recipe main() -> s32 {
     public void TestMemoryManagementProgram()
     {
         string code = @"
-recipe memory_test() {
+routine memory_test() {
     let heap_buffer = DynamicSlice(1024)
     let stack_buffer = TemporarySlice(256)
 
@@ -231,7 +231,7 @@ recipe memory_test() {
     print(f""Sum: {sum}"")
 }
 
-recipe main() -> s32 {
+routine main() -> s32 {
     memory_test()
     return 0
 }";
@@ -247,14 +247,14 @@ recipe main() -> s32 {
     public void TestErrorHandlingProgram()
     {
         string code = @"
-recipe safe_divide(a: s32, b: s32) -> Option(s32) {
+routine safe_divide(a: s32, b: s32) -> Option(s32) {
     if b == 0:
         return None
     else:
         return Some(a / b)
 }
 
-recipe main() -> s32 {
+routine main() -> s32 {
     let result1 = safe_divide(10, 2)
     let result2 = safe_divide(10, 0)
 
@@ -278,7 +278,7 @@ recipe main() -> s32 {
     public void TestGenericDataStructuresProgram()
     {
         string code = @"
-recipe list_operations() {
+routine list_operations() {
     let numbers = List(s32)()
 
     # Add elements
@@ -290,11 +290,11 @@ recipe list_operations() {
     for num in numbers:
         print(f""Number: {num}"")
 
-    let sum = numbers.fold(0, recipe(acc, x) -> acc + x)
+    let sum = numbers.fold(0, routine(acc, x) -> acc + x)
     print(f""Sum: {sum}"")
 }
 
-recipe main() -> s32 {
+routine main() -> s32 {
     list_operations()
     return 0
 }";
@@ -310,14 +310,14 @@ recipe main() -> s32 {
     public void TestConcurrencyProgram()
     {
         string code = @"
-recipe worker(id: s32, data: ThreadShared(s32)) {
+routine worker(id: s32, data: ThreadShared(s32)) {
     for i in 0 to 1000:
         let old_value = data.get()
         data.set(old_value + 1)
     print(f""Worker {id} finished"")
 }
 
-recipe main() -> s32 {
+routine main() -> s32 {
     let shared_counter = ThreadShared(s32)(0)
 
     # Spawn worker threads
@@ -344,7 +344,7 @@ recipe main() -> s32 {
     public void TestDangerModeProgram()
     {
         string code = @"
-recipe unsafe_memory_operations() {
+routine unsafe_memory_operations() {
     danger {
         let ptr = malloc(1024)
 
@@ -362,7 +362,7 @@ recipe unsafe_memory_operations() {
     }
 }
 
-recipe main() -> s32 {
+routine main() -> s32 {
     unsafe_memory_operations()
     return 0
 }";
@@ -378,7 +378,7 @@ recipe main() -> s32 {
     public void TestOverflowHandlingProgram()
     {
         string code = @"
-recipe overflow_demo() {
+routine overflow_demo() {
     let a: u8 = 200
     let b: u8 = 100
 
@@ -398,7 +398,7 @@ recipe overflow_demo() {
     print(f""Wrapped: {wrapped}, Saturated: {saturated}"")
 }
 
-recipe main() -> s32 {
+routine main() -> s32 {
     overflow_demo()
     return 0
 }";
@@ -415,7 +415,7 @@ recipe main() -> s32 {
     {
         string code = @"
 # Simple calculator application
-recipe parse_number(input: Text) -> Option(s32) {
+routine parse_number(input: Text) -> Option(s32) {
     # Simplified number parsing
     if input == ""0"": return Some(0)
     elif input == ""1"": return Some(1)
@@ -423,7 +423,7 @@ recipe parse_number(input: Text) -> Option(s32) {
     else: return None
 }
 
-recipe calculator(op: Text, a: s32, b: s32) -> Result(s32, Text) {
+routine calculator(op: Text, a: s32, b: s32) -> Result(s32, Text) {
     when op is:
         ""+"": return Ok(a + b)
         ""-"": return Ok(a - b)
@@ -436,7 +436,7 @@ recipe calculator(op: Text, a: s32, b: s32) -> Result(s32, Text) {
         _: return Err(""Unknown operation"")
 }
 
-recipe main() -> s32 {
+routine main() -> s32 {
     let input_a = ""2""
     let input_b = ""3""
     let operation = ""+""
@@ -468,7 +468,7 @@ recipe main() -> s32 {
     {
         // Test compilation of a large program
         string code = @"
-recipe main() -> s32 {";
+routine main() -> s32 {";
 
         // Generate a large function with many operations
         for (int i = 0; i < 100; i++)
@@ -501,7 +501,7 @@ recipe main() -> s32 {";
         for (int i = 0; i < 10; i++)
         {
             string code = @"
-recipe test_function() -> s32 {
+routine test_function() -> s32 {
     let x = 42
     return x * 2
 }";

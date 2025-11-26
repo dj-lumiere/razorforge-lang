@@ -66,7 +66,7 @@ public class RazorForgeParser : BaseParser
         VisibilityModifier visibility = ParseVisibilityModifier();
 
         // External declaration with optional calling convention
-        // Supports: external recipe foo() or external("C") recipe foo()
+        // Supports: external routine foo() or external("C") routine foo()
         if (visibility == VisibilityModifier.External)
         {
             string? callingConvention = null;
@@ -85,7 +85,7 @@ public class RazorForgeParser : BaseParser
                     errorMessage: "Expected ')' after calling convention");
             }
 
-            if (Match(type: TokenType.Recipe))
+            if (Match(type: TokenType.Routine))
             {
                 return ParseExternalDeclaration(callingConvention: callingConvention);
             }
@@ -98,7 +98,7 @@ public class RazorForgeParser : BaseParser
         }
 
         // Function declaration
-        if (Match(type: TokenType.Recipe))
+        if (Match(type: TokenType.Routine))
         {
             return ParseFunctionDeclaration(visibility: visibility);
         }
@@ -597,7 +597,7 @@ public class RazorForgeParser : BaseParser
 
             // Try to parse as function first
             if (Check(type: TokenType.Public) || Check(type: TokenType.Private) ||
-                Check(type: TokenType.Recipe))
+                Check(type: TokenType.Routine))
             {
                 var method = ParseDeclaration() as FunctionDeclaration;
                 if (method != null)
@@ -676,7 +676,7 @@ public class RazorForgeParser : BaseParser
             }
 
             // Parse function signature
-            Consume(type: TokenType.Recipe, errorMessage: "Expected 'recipe' in feature method");
+            Consume(type: TokenType.Routine, errorMessage: "Expected 'routine' in feature method");
             string methodName = ConsumeIdentifier(errorMessage: "Expected method name");
 
             // Parameters
@@ -1316,7 +1316,7 @@ public class RazorForgeParser : BaseParser
 
         while (true)
         {
-            // Handle standalone generic function calls like recipe<T>!(args)
+            // Handle standalone generic function calls like routine<T>!(args)
             if (expr is IdentifierExpression && Check(type: TokenType.Less))
             {
                 Advance(); // consume '<'
@@ -1730,7 +1730,7 @@ public class RazorForgeParser : BaseParser
         }
 
         // Lambda expression
-        if (Match(type: TokenType.Recipe))
+        if (Match(type: TokenType.Routine))
         {
             return ParseLambdaExpression(location: location);
         }
@@ -1757,7 +1757,7 @@ public class RazorForgeParser : BaseParser
     private LambdaExpression ParseLambdaExpression(SourceLocation location)
     {
         // Parse parameters
-        Consume(type: TokenType.LeftParen, errorMessage: "Expected '(' after 'recipe' in lambda");
+        Consume(type: TokenType.LeftParen, errorMessage: "Expected '(' after 'routine' in lambda");
         var parameters = new List<Parameter>();
 
         if (!Check(type: TokenType.RightParen))
@@ -1860,7 +1860,7 @@ public class RazorForgeParser : BaseParser
             location =
                 GetLocation(
                     token: PeekToken(
-                        offset: -2)); // -2 because we consumed 'external' and 'recipe'
+                        offset: -2)); // -2 because we consumed 'external' and 'routine'
 
         string name = ConsumeIdentifier(errorMessage: "Expected function name");
 

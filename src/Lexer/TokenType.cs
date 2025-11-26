@@ -270,8 +270,8 @@ public enum TokenType
 
     #region Keywords - Declarations
 
-    /// <summary>Function declaration keyword (recipe)</summary>
-    Recipe,
+    /// <summary>Function declaration keyword (routine)</summary>
+    Routine,
 
     /// <summary>Entity declaration keyword</summary>
     Entity,

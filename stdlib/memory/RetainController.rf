@@ -1,0 +1,50 @@
+# RazorForge Reference Count Controller
+# Core reference counting mechanism for retained memory management
+
+entity RetainController {
+    private strong_count: s32
+    private weak_count: s32
+
+    # Create new reference count controller with initial counts of 0
+    public routine __create__() -> RetainController {
+        return RetainController(
+            strong_count: 0,
+            weak_count: 0
+        )
+    }
+}
+
+# Simple non-atomic operations (single-threaded)
+routine RetainController.increase_strong_count(me: RetainController) {
+    me.strong_count += 1
+}
+
+routine RetainController.decrease_strong_count(me: RetainController) {
+    me.strong_count -= 1
+}
+
+routine RetainController.increase_weak_count(me: RetainController) {
+    me.weak_count += 1
+}
+
+routine RetainController.decrease_weak_count(me: RetainController) {
+    me.weak_count -= 1
+}
+
+# Read-only access to counts
+routine RetainController.strong_count(me: RetainController) -> s32 {
+    return me.strong_count
+}
+
+routine RetainController.weak_count(me: RetainController) -> s32 {
+    return me.weak_count
+}
+
+# Check if the controller should be deallocated
+routine RetainController.should_deallocate_data(me: RetainController) -> bool {
+    return me.strong_count() == 0
+}
+
+routine RetainController.should_deallocate_controller(me: RetainController) -> bool {
+    return me.strong_count() == 0 and me.weak_count() == 0
+}

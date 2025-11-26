@@ -10,7 +10,7 @@ namespace Compilers.Shared.Analysis;
 /// <item>Traditional type checking and symbol resolution</item>
 /// <item>Advanced memory safety analysis with ownership tracking</item>
 /// <item>Language-specific behavior handling (RazorForge vs Suflae)</item>
-/// <item>Memory operation validation (hijack!, share!, etc.)</item>
+/// <item>Memory operation validation (hijack!, share, etc.)</item>
 /// <item>Cross-language compatibility checking</item>
 /// </list>
 ///
@@ -877,7 +877,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// <summary>
     /// Analyze function calls with special handling for memory operation methods.
     ///
-    /// This is where the magic happens for memory operations like obj.retain!(), obj.share!(), etc.
+    /// This is where the magic happens for memory operations like obj.retain(), obj.share(), etc.
     /// The analyzer detects method calls ending with '!' and routes them through the memory
     /// analyzer for proper ownership tracking and safety validation.
     ///
@@ -1421,9 +1421,9 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// Detect memory operation method calls by their distinctive '!' suffix.
     ///
     /// Memory operations are the heart of RazorForge's explicit memory model:
-    /// - retain!() - create single-threaded RC (green group)
-    /// - share!() - create multi-threaded RC with policy (blue group)
-    /// - track!() - create weak reference (green/blue group)
+    /// - retain() - create single-threaded RC (green group)
+    /// - share() - create multi-threaded RC with policy (blue group)
+    /// - track() - create weak reference (green/blue group)
     /// - recover!() - upgrade weak to strong (crashes if dead)
     /// - try_recover() - upgrade weak to strong (returns Maybe)
     /// - snatch!() - force ownership (danger! only)
@@ -1444,8 +1444,8 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         return methodName switch
         {
             // Core memory transformation operations
-            "hijack!" or "share!" or "watch!" or "thread_share!" or "thread_watch!"
-                or "snatch!" or "release!" or "try_share!" or "try_thread_share!" or "reveal!"
+            "hijack!" or "share" or "watch!" or "thread_share" or "thread_watch!"
+                or "snatch!" or "release!" or "try_share" or "try_thread_share" or "reveal!"
                 or "own!" => true,
             _ => false
         };
@@ -1462,8 +1462,8 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// for proper language support. Current implementation uses naming heuristics.
     ///
     /// Examples of usurping functions:
-    /// - usurping public recipe __create___exclusive() -> Hijacked&lt;Node&gt;
-    /// - usurping recipe factory_method() -> Hijacked&lt;Widget&gt;
+    /// - usurping public routine __create___exclusive() -> Hijacked&lt;Node&gt;
+    /// - usurping routine factory_method() -> Hijacked&lt;Widget&gt;
     /// </summary>
     /// <param name="node">Function declaration to check</param>
     /// <returns>True if this function can return exclusive tokens</returns>
@@ -1477,7 +1477,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// <summary>
     /// Handle memory operation method calls - the core of RazorForge's memory model.
     ///
-    /// This method processes calls like obj.retain!(), obj.share!(), etc., which are
+    /// This method processes calls like obj.retain(), obj.share(), etc., which are
     /// the primary way programmers interact with RazorForge's explicit memory management.
     ///
     /// The process:
@@ -1491,7 +1491,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// use-after-invalidation prevention.
     /// </summary>
     /// <param name="memberExpr">Member expression (obj.method!)</param>
-    /// <param name="operationName">Name of memory operation (e.g., "share!")</param>
+    /// <param name="operationName">Name of memory operation (e.g., "share")</param>
     /// <param name="arguments">Method arguments (usually empty for memory ops)</param>
     /// <param name="location">Source location for error reporting</param>
     /// <returns>Wrapper type info for the result, or null if operation failed</returns>
@@ -1499,7 +1499,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         List<Expression> arguments, SourceLocation location)
     {
         // Extract object name - currently limited to simple identifiers
-        // TODO: Support more complex expressions like container[index].share!()
+        // TODO: Support more complex expressions like container[index].share()
         if (memberExpr.Object is not IdentifierExpression objId)
         {
             AddError(message: "Memory operations can only be called on simple identifiers",
@@ -1515,11 +1515,11 @@ public class SemanticAnalyzer : IAstVisitor<object?>
             return null;
         }
 
-        // Extract policy argument for share!()
+        // Extract policy argument for share()
         LockingPolicy? policy = null;
         if (operation == MemoryOperation.Share)
         {
-            // thread_share!(Mutex) or thread_share!(MultiReadLock)
+            // thread_share(Mutex) or thread_share(MultiReadLock)
             // For now, accept policy as a simple identifier argument
             if (arguments.Count > 0 && arguments[index: 0] is IdentifierExpression policyId)
             {
@@ -1568,11 +1568,11 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     ///
     /// The systematic naming reflects the memory model's organization:
     /// <list type="bullet">
-    /// <item>Basic operations: hijack!, share!, watch!</item>
-    /// <item>Thread-safe variants: thread_share!, thread_watch!</item>
+    /// <item>Basic operations: hijack!, share, watch!</item>
+    /// <item>Thread-safe variants: thread_share, thread_watch!</item>
     /// <item>Ownership operations: snatch!, own!</item>
     /// <item>RC management: release!</item>
-    /// <item>Weak upgrades: try_share!, try_thread_share!</item>
+    /// <item>Weak upgrades: try_share, try_thread_share!</item>
     /// <item>Unsafe access: reveal!</item>
     /// </list>
     /// </summary>
@@ -1583,8 +1583,8 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         return operationName switch
         {
             // Group 2: Single-threaded reference counting
-            "retain!" => MemoryOperation.Retain,
-            "track!" => MemoryOperation.Track,
+            "retain" => MemoryOperation.Retain,
+            "track" => MemoryOperation.Track,
             "try_recover" => MemoryOperation.Recover,
             "recover!" => MemoryOperation.Recover,
 

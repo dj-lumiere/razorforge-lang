@@ -13,45 +13,45 @@ preset LETTER8_NEWLINE: letter8 = letter8(codepoint: 0x0A)
 preset LETTER8_TAB: letter8 = letter8(codepoint: 0x09)
 
 # Core character properties
-recipe letter8.codepoint(me: letter8) -> u8 {
+routine letter8.codepoint(me: letter8) -> u8 {
     return me.value
 }
 
-recipe letter8(codepoint: u8) -> letter8 {
+routine letter8(codepoint: u8) -> letter8 {
     return letter8 { value: codepoint }
 }
 
-recipe letter8.is_ascii(me: letter8) -> bool {
+routine letter8.is_ascii(me: letter8) -> bool {
     return me.codepoint() <= 127
 }
 
 # Character classification (ASCII only)
-recipe letter8.is_alphabetic(me: letter8) -> bool {
+routine letter8.is_alphabetic(me: letter8) -> bool {
     let cp = me.codepoint()
     return (cp >= 0x41 and cp <= 0x5A) or    # A-Z
            (cp >= 0x61 and cp <= 0x7A)       # a-z
 }
 
-recipe letter8.is_numeric(me: letter8) -> bool {
+routine letter8.is_numeric(me: letter8) -> bool {
     let cp = me.codepoint()
     return cp >= 0x30 and cp <= 0x39  # 0-9
 }
 
-recipe letter8.is_alphanumeric(me: letter8) -> bool {
+routine letter8.is_alphanumeric(me: letter8) -> bool {
     return me.is_alphabetic() or me.is_numeric()
 }
 
-recipe letter8.is_uppercase(me: letter8) -> bool {
+routine letter8.is_uppercase(me: letter8) -> bool {
     let cp = me.codepoint()
     return cp >= 0x41 and cp <= 0x5A  # A-Z
 }
 
-recipe letter8.is_lowercase(me: letter8) -> bool {
+routine letter8.is_lowercase(me: letter8) -> bool {
     let cp = me.codepoint()
     return cp >= 0x61 and cp <= 0x7A  # a-z
 }
 
-recipe letter8.is_whitespace(me: letter8) -> bool {
+routine letter8.is_whitespace(me: letter8) -> bool {
     let cp = me.codepoint()
     return cp == 0x20 or    # Space
            cp == 0x09 or    # Tab
@@ -60,20 +60,20 @@ recipe letter8.is_whitespace(me: letter8) -> bool {
            cp == 0x0C       # Form feed
 }
 
-recipe letter8.is_control(me: letter8) -> bool {
+routine letter8.is_control(me: letter8) -> bool {
     let cp = me.codepoint()
     return (cp <= 0x1F) or cp == 0x7F
 }
 
 # Case conversions
-recipe letter8.to_uppercase(me: letter8) -> letter8 {
+routine letter8.to_uppercase(me: letter8) -> letter8 {
     when (me.is_lowercase()) {
         true => return letter8(codepoint: me.codepoint() - 32),
         false => return me
     }
 }
 
-recipe letter8.to_lowercase(me: letter8) -> letter8 {
+routine letter8.to_lowercase(me: letter8) -> letter8 {
     when (me.is_uppercase()) {
         true => return letter8(codepoint: me.codepoint() + 32),
         false => return me
@@ -81,89 +81,89 @@ recipe letter8.to_lowercase(me: letter8) -> letter8 {
 }
 
 # Comparison operations
-recipe letter8.eq(me: letter8, other: letter8) -> bool {
+routine letter8.eq(me: letter8, other: letter8) -> bool {
     return me.codepoint() == other.codepoint()
 }
 
-recipe letter8.ne(me: letter8, other: letter8) -> bool {
+routine letter8.ne(me: letter8, other: letter8) -> bool {
     return me.codepoint() != other.codepoint()
 }
 
-recipe letter8.lt(me: letter8, other: letter8) -> bool {
+routine letter8.lt(me: letter8, other: letter8) -> bool {
     return me.codepoint() < other.codepoint()
 }
 
-recipe letter8.le(me: letter8, other: letter8) -> bool {
+routine letter8.le(me: letter8, other: letter8) -> bool {
     return me.codepoint() <= other.codepoint()
 }
 
-recipe letter8.gt(me: letter8, other: letter8) -> bool {
+routine letter8.gt(me: letter8, other: letter8) -> bool {
     return me.codepoint() > other.codepoint()
 }
 
-recipe letter8.ge(me: letter8, other: letter8) -> bool {
+routine letter8.ge(me: letter8, other: letter8) -> bool {
     return me.codepoint() >= other.codepoint()
 }
 
 # Type conversions
-recipe letter(from_letter8: letter8) -> letter {
+routine letter(from_letter8: letter8) -> letter {
     # Extend to full Unicode letter
     return letter(codepoint: from_letter8.codepoint() as u32)
 }
 
-recipe letter16(from_letter8: letter8) -> letter16 {
+routine letter16(from_letter8: letter8) -> letter16 {
     # Extend to 16-bit letter
     return letter16(codepoint: from_letter8.codepoint() as u16)
 }
 
-recipe u8(from_letter8: letter8) -> u8 {
+routine u8(from_letter8: letter8) -> u8 {
     return from_letter8.codepoint()
 }
 
-recipe s8(from_letter8: letter8) -> s8 {
+routine s8(from_letter8: letter8) -> s8 {
     return from_letter8.codepoint() as s8
 }
 
 # Text conversion
-recipe Text8(from_letter8: letter8) -> Text8 {
+routine Text8(from_letter8: letter8) -> Text8 {
     # Convert single ASCII character to Text8 string
     return ""  # Placeholder - would create single-char ASCII string
 }
 
-recipe letter8(from_text8: Text8) -> letter8 {
+routine letter8(from_text8: Text8) -> letter8 {
     # Extract first character from Text8 string
     return LETTER8_NULL  # Placeholder - would extract first ASCII char
 }
 
-# Utility recipes
-recipe letter8.is_digit(me: letter8) -> bool {
+# Utility routines
+routine letter8.is_digit(me: letter8) -> bool {
     return me.is_numeric()
 }
 
-recipe letter8.is_letter(me: letter8) -> bool {
+routine letter8.is_letter(me: letter8) -> bool {
     return me.is_alphabetic()
 }
 
-recipe letter8.digit_value(me: letter8) -> s8 {
+routine letter8.digit_value(me: letter8) -> s8 {
     when (me.is_numeric()) {
         true => return (me.codepoint() - 0x30) as s8,
         false => return -1
     }
 }
 
-recipe letter8.is_printable(me: letter8) -> bool {
+routine letter8.is_printable(me: letter8) -> bool {
     let cp = me.codepoint()
     return cp >= 0x20 and cp <= 0x7E  # Printable ASCII range
 }
 
-recipe letter8.is_hex_digit(me: letter8) -> bool {
+routine letter8.is_hex_digit(me: letter8) -> bool {
     let cp = me.codepoint()
     return (cp >= 0x30 and cp <= 0x39) or    # 0-9
            (cp >= 0x41 and cp <= 0x46) or    # A-F
            (cp >= 0x61 and cp <= 0x66)       # a-f
 }
 
-recipe letter8.hex_value(me: letter8) -> s8 {
+routine letter8.hex_value(me: letter8) -> s8 {
     let cp = me.codepoint()
     when {
         cp >= 0x30 and cp <= 0x39 => return (cp - 0x30) as s8,  # 0-9

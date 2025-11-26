@@ -9,7 +9,7 @@ public record Hijacked<T> {
 preset HIJACKED_NULL: sysuint = 0_sysuint
 
 # Create new hijacked memory allocation
-recipe Hijacked<T>(data: T) -> Hijacked<T> {
+routine Hijacked<T>(data: T) -> Hijacked<T> {
     danger! {
         # Allocate memory on heap and store the data
         let addr = allocate_heap_memory<T>(data)
@@ -20,29 +20,29 @@ recipe Hijacked<T>(data: T) -> Hijacked<T> {
 }
 
 # Create hijacked wrapper from existing address (unsafe)
-recipe Hijacked<T>(addr: sysuint) -> Hijacked<T> {
+routine Hijacked<T>(addr: sysuint) -> Hijacked<T> {
     return Hijacked<T> {
         address: addr
     }
 }
 
 # Get the raw address
-recipe Hijacked.get_address<T>(me: Hijacked<T>) -> sysuint {
+routine Hijacked.get_address<T>(me: Hijacked<T>) -> sysuint {
     return me.address
 }
 
 # Check if hijacked reference is null
-recipe Hijacked.is_null<T>(me: Hijacked<T>) -> bool {
+routine Hijacked.is_null<T>(me: Hijacked<T>) -> bool {
     return me.address == HIJACKED_NULL
 }
 
 # Check if hijacked reference is valid (non-null)
-recipe Hijacked.is_valid<T>(me: Hijacked<T>) -> bool {
+routine Hijacked.is_valid<T>(me: Hijacked<T>) -> bool {
     return me.address != HIJACKED_NULL
 }
 
 # Get immutable access to the data
-recipe Hijacked.get<T>(me: Hijacked<T>) -> T {
+routine Hijacked.get<T>(me: Hijacked<T>) -> T {
     when (me.is_null()) {
         true => throw panic("Attempted to access null hijacked memory"),
         false => {
@@ -54,7 +54,7 @@ recipe Hijacked.get<T>(me: Hijacked<T>) -> T {
 }
 
 # Get mutable access to the data
-recipe Hijacked.get_mut<T>(me: Hijacked<T>) -> T {
+routine Hijacked.get_mut<T>(me: Hijacked<T>) -> T {
     when (me.is_null()) {
         true => throw panic("Attempted to access null hijacked memory"),
         false => {
@@ -66,7 +66,7 @@ recipe Hijacked.get_mut<T>(me: Hijacked<T>) -> T {
 }
 
 # Update the data at the address
-recipe Hijacked.set<T>(me: Hijacked<T>, new_data: T) {
+routine Hijacked.set<T>(me: Hijacked<T>, new_data: T) {
     when (me.is_null()) {
         true => throw panic("Attempted to write to null hijacked memory"),
         false => {
@@ -78,14 +78,14 @@ recipe Hijacked.set<T>(me: Hijacked<T>, new_data: T) {
 }
 
 # Clone the hijacked reference (shares same memory address)
-recipe Hijacked.clone<T>(me: Hijacked<T>) -> Hijacked<T> {
+routine Hijacked.clone<T>(me: Hijacked<T>) -> Hijacked<T> {
     return Hijacked<T> {
         address: me.address
     }
 }
 
 # Create a deep copy (allocates new memory with copied data)
-recipe Hijacked.deep_copy<T>(me: Hijacked<T>) -> Hijacked<T> where T: Clone {
+routine Hijacked.deep_copy<T>(me: Hijacked<T>) -> Hijacked<T> where T: Clone {
     when (me.is_null()) {
         true => return Hijacked<T> { address: HIJACKED_NULL },
         false => {
@@ -97,7 +97,7 @@ recipe Hijacked.deep_copy<T>(me: Hijacked<T>) -> Hijacked<T> where T: Clone {
 }
 
 # Release/deallocate the memory (dangerous - only call once!)
-recipe Hijacked.release<T>(me: Hijacked<T>) {
+routine Hijacked.release<T>(me: Hijacked<T>) {
     when (me.is_null()) {
         false => {
             danger {
@@ -109,14 +109,14 @@ recipe Hijacked.release<T>(me: Hijacked<T>) {
 }
 
 # Reset to null (does not deallocate - use release() first if needed)
-recipe Hijacked.nullify<T>(me: Hijacked<T>) -> Hijacked<T> {
+routine Hijacked.nullify<T>(me: Hijacked<T>) -> Hijacked<T> {
     return Hijacked<T> {
         address: HIJACKED_NULL
     }
 }
 
 # Swap data between two hijacked references
-recipe Hijacked.swap<T>(a: Hijacked<T>, b: Hijacked<T>) {
+routine Hijacked.swap<T>(a: Hijacked<T>, b: Hijacked<T>) {
     when (a.is_null() or b.is_null()) {
         true => throw panic("Cannot swap with null hijacked memory"),
         false => {
@@ -131,16 +131,16 @@ recipe Hijacked.swap<T>(a: Hijacked<T>, b: Hijacked<T>) {
 }
 
 # Comparison operations (compare addresses, not contents)
-recipe Hijacked.ptr_eq<T>(a: Hijacked<T>, b: Hijacked<T>) -> bool {
+routine Hijacked.ptr_eq<T>(a: Hijacked<T>, b: Hijacked<T>) -> bool {
     return a.address == b.address
 }
 
-recipe Hijacked.ptr_ne<T>(a: Hijacked<T>, b: Hijacked<T>) -> bool {
+routine Hijacked.ptr_ne<T>(a: Hijacked<T>, b: Hijacked<T>) -> bool {
     return a.address != b.address
 }
 
 # Content comparison (requires accessing the data)
-recipe Hijacked.eq<T>(a: Hijacked<T>, b: Hijacked<T>) -> bool where T: Eq {
+routine Hijacked.eq<T>(a: Hijacked<T>, b: Hijacked<T>) -> bool where T: Eq {
     when {
         a.is_null() and b.is_null() => return true,
         a.is_null() or b.is_null() => return false,
@@ -149,7 +149,7 @@ recipe Hijacked.eq<T>(a: Hijacked<T>, b: Hijacked<T>) -> bool where T: Eq {
 }
 
 # Convert to text representation
-recipe Text<T>(from_hijacked: Hijacked<T>) -> Text where T: ToText {
+routine Text<T>(from_hijacked: Hijacked<T>) -> Text where T: ToText {
     when (from_hijacked.is_null()) {
         true => return "Hijacked(null)",
         false => {
@@ -161,7 +161,7 @@ recipe Text<T>(from_hijacked: Hijacked<T>) -> Text where T: ToText {
 }
 
 # Transform the data in place
-recipe Hijacked.transform<T>(me: Hijacked<T>, transform: recipe(T) -> T) {
+routine Hijacked.transform<T>(me: Hijacked<T>, transform: routine(T) -> T) {
     when (me.is_null()) {
         true => throw panic("Cannot transform null hijacked memory"),
         false => {
@@ -173,7 +173,7 @@ recipe Hijacked.transform<T>(me: Hijacked<T>, transform: recipe(T) -> T) {
 }
 
 # Apply a function to the data and return result
-recipe Hijacked.map<T, U>(me: Hijacked<T>, transform: recipe(T) -> U) -> U {
+routine Hijacked.map<T, U>(me: Hijacked<T>, transform: routine(T) -> U) -> U {
     when (me.is_null()) {
         true => throw panic("Cannot map over null hijacked memory"),
         false => {
@@ -184,12 +184,12 @@ recipe Hijacked.map<T, U>(me: Hijacked<T>, transform: recipe(T) -> U) -> U {
 }
 
 # Utility function for ergonomic creation
-recipe hijacked<T>(data: T) -> Hijacked<T> {
+routine hijacked<T>(data: T) -> Hijacked<T> {
     return Hijacked<T>(data)
 }
 
 # Create null hijacked reference
-recipe hijacked_null<T>() -> Hijacked<T> {
+routine hijacked_null<T>() -> Hijacked<T> {
     return Hijacked<T> {
         address: HIJACKED_NULL
     }

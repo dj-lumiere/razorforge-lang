@@ -1,6 +1,6 @@
 # Test advanced expression types
 
-recipe test_conditionals() -> i32 {
+routine test_conditionals() -> i32 {
     let x = 5i32
     let y = 10i32
 
@@ -8,7 +8,7 @@ recipe test_conditionals() -> i32 {
     let max = if x > y then x else y         # Should be: y (10)
     let min = if x < y then x else y         # Should be: x (5)
 
-    # For complex logic like sign recipe, use if/elif/else statements instead:
+    # For complex logic like sign routine, use if/elif/else statements instead:
     # if x > 0 { sign = 1 } elif x < 0 { sign = -1 } else { sign = 0 }
 
     # Conditional in arithmetic context
@@ -20,7 +20,7 @@ recipe test_conditionals() -> i32 {
     return max + min  # Should be 15
 }
 
-recipe test_ranges() {
+routine test_ranges() {
     # Basic range expressions
     let basic_range = 1 to 10                   # Range from 1 to 10 (step 1)
     let range_with_step = 0 to 100 step 5       # Range from 0 to 100 step 5
@@ -41,7 +41,7 @@ recipe test_ranges() {
     let expr_range = (1 + 2) to (10 * 2) step (1 + 1)  # Should be: 3 to 20 step 2
 }
 
-recipe test_mixed_expressions() -> bool {
+routine test_mixed_expressions() -> bool {
     let a = 5i32
     let b = 10i32
     let c = 15i32
@@ -58,7 +58,7 @@ recipe test_mixed_expressions() -> bool {
     return in_range and result > 0
 }
 
-recipe test_precedence() -> i32 {
+routine test_precedence() -> i32 {
     let x = 5i32
 
     # Test precedence: conditional has lowest precedence

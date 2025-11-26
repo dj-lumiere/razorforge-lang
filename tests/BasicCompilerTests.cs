@@ -31,7 +31,7 @@ public class BasicCompilerTests
     {
         (string, TokenType)[] keywords = new[]
         {
-            ("recipe", recipe: TokenType.Recipe),
+            ("routine", TokenType.Routine),
             ("let", TokenType.Let),
             ("var", TokenType.Var),
             ("if", TokenType.If),
@@ -112,7 +112,7 @@ public class BasicCompilerTests
         // Test simple expression parsing doesn't crash
         try
         {
-            Program simpleProgram = ParseCode(code: "recipe test() { let x = 42 }");
+            Program simpleProgram = ParseCode(code: "routine test() { let x = 42 }");
             Assert.NotNull(@object: simpleProgram);
             // If we get here without exception, basic parsing works
         }

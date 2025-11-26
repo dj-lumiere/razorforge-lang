@@ -38,7 +38,7 @@ public class SemanticAnalyzerTests
     public void TestVariableDeclarationAndUsage()
     {
         string code = @"
-recipe test() {
+routine test() {
     let x = 42
     return x
 }";
@@ -51,7 +51,7 @@ recipe test() {
     public void TestUndefinedVariableError()
     {
         string code = @"
-recipe test() {
+routine test() {
     return undefined_var
 }";
 
@@ -63,7 +63,7 @@ recipe test() {
     public void TestTypeInference()
     {
         string code = @"
-recipe test() {
+routine test() {
     let x = 42        # Should infer s32
     let y = 3.14      # Should infer f64
     let z = ""hello""   # Should infer Text
@@ -79,7 +79,7 @@ recipe test() {
     public void TestTypeMismatchError()
     {
         string code = @"
-recipe test() {
+routine test() {
     let x: s32 = ""not a number""
 }";
 
@@ -88,14 +88,14 @@ recipe test() {
     }
 
     [Fact]
-    public void TestRecipeParameterTypes()
+    public void TestRoutineParameterTypes()
     {
         string code = @"
-recipe add(a: s32, b: s32) -> s32 {
+routine add(a: s32, b: s32) -> s32 {
     return a + b
 }
 
-recipe test() {
+routine test() {
     let result = add(1, 2)
 }";
 
@@ -105,14 +105,14 @@ recipe test() {
     }
 
     [Fact]
-    public void TestRecipeCallArgumentMismatch()
+    public void TestRoutineCallArgumentMismatch()
     {
         string code = @"
-recipe add(a: s32, b: s32) -> s32 {
+routine add(a: s32, b: s32) -> s32 {
     return a + b
 }
 
-recipe test() {
+routine test() {
     let result = add(1)  # Wrong number of arguments
 }";
 
@@ -121,14 +121,14 @@ recipe test() {
     }
 
     [Fact]
-    public void TestRecipeCallTypeMismatch()
+    public void TestRoutineCallTypeMismatch()
     {
         string code = @"
-recipe add(a: s32, b: s32) -> s32 {
+routine add(a: s32, b: s32) -> s32 {
     return a + b
 }
 
-recipe test() {
+routine test() {
     let result = add(""hello"", ""world"")  # Wrong argument types
 }";
 
@@ -140,7 +140,7 @@ recipe test() {
     public void TestArithmeticOperatorTypes()
     {
         string code = @"
-recipe math_ops() {
+routine math_ops() {
     let a = 10
     let b = 20
     let sum = a + b
@@ -158,7 +158,7 @@ recipe math_ops() {
     public void TestInvalidArithmeticTypes()
     {
         string code = @"
-recipe invalid_math() {
+routine invalid_math() {
     let text = ""hello""
     let number = 42
     return text + number  # Invalid: can't add string to number
@@ -172,7 +172,7 @@ recipe invalid_math() {
     public void TestComparisonOperators()
     {
         string code = @"
-recipe comparisons() -> Bool {
+routine comparisons() -> Bool {
     let a = 10
     let b = 20
     let equal = a == b
@@ -193,7 +193,7 @@ recipe comparisons() -> Bool {
     public void TestLogicalOperators()
     {
         string code = @"
-recipe logic() -> Bool {
+routine logic() -> Bool {
     let a = true
     let b = false
     let and_result = a and b
@@ -211,7 +211,7 @@ recipe logic() -> Bool {
     public void TestIfStatementCondition()
     {
         string code = @"
-recipe conditional() {
+routine conditional() {
     let x = 10
     if x > 0:
         return 1
@@ -228,7 +228,7 @@ recipe conditional() {
     public void TestInvalidIfCondition()
     {
         string code = @"
-recipe invalid_condition() {
+routine invalid_condition() {
     let x = ""hello""
     if x:  # String is not a boolean condition
         return 1
@@ -242,7 +242,7 @@ recipe invalid_condition() {
     public void TestWhileLoopCondition()
     {
         string code = @"
-recipe loop() {
+routine loop() {
     var i = 0
     while i < 10:
         i = i + 1
@@ -257,7 +257,7 @@ recipe loop() {
     public void TestVariableReassignment()
     {
         string code = @"
-recipe reassignment() {
+routine reassignment() {
     var x = 10
     x = 20  # Valid: x is mutable
 }";
@@ -271,7 +271,7 @@ recipe reassignment() {
     public void TestImmutableVariableReassignment()
     {
         string code = @"
-recipe immutable_error() {
+routine immutable_error() {
     let x = 10
     x = 20  # Invalid: x is immutable
 }";
@@ -284,11 +284,11 @@ recipe immutable_error() {
     public void TestReturnTypeValidation()
     {
         string code = @"
-recipe returns_number() -> s32 {
+routine returns_number() -> s32 {
     return 42  # Valid
 }
 
-recipe returns_wrong_type() -> s32 {
+routine returns_wrong_type() -> s32 {
     return ""not a number""  # Invalid
 }";
 
@@ -297,10 +297,10 @@ recipe returns_wrong_type() -> s32 {
     }
 
     [Fact]
-    public void TestRecursiveRecipeCall()
+    public void TestRecursiveRoutineCall()
     {
         string code = @"
-recipe factorial(n: s32) -> s32 {
+routine factorial(n: s32) -> s32 {
     if n <= 1:
         return 1
     else:
@@ -316,11 +316,11 @@ recipe factorial(n: s32) -> s32 {
     public void TestForwardDeclaration()
     {
         string code = @"
-recipe caller() {
+routine caller() {
     return callee()
 }
 
-recipe callee() -> s32 {
+routine callee() -> s32 {
     return 42
 }";
 
@@ -330,14 +330,14 @@ recipe callee() -> s32 {
     }
 
     [Fact]
-    public void TestUndefinedRecipeCall()
+    public void TestUndefinedRoutineCall()
     {
         string code = @"
-recipe test() {
-    return undefined_recipe()
+routine test() {
+    return undefined_routine()
 }";
 
-        // Should detect undefined recipe
+        // Should detect undefined routine
         Assert.ThrowsAny<Exception>(testCode: () => AnalyzeCode(code: code));
     }
 
@@ -345,7 +345,7 @@ recipe test() {
     public void TestNestedScopes()
     {
         string code = @"
-recipe nested_scopes() {
+routine nested_scopes() {
     let x = 10
     if true:
         let y = 20
@@ -362,7 +362,7 @@ recipe nested_scopes() {
     public void TestVariableShadowing()
     {
         string code = @"
-recipe shadowing() {
+routine shadowing() {
     let x = 10
     if true:
         let x = 20  # Should shadow outer x
@@ -378,7 +378,7 @@ recipe shadowing() {
     public void TestMemorySliceOperations()
     {
         string code = @"
-recipe slice_operations() {
+routine slice_operations() {
     let heap_slice = DynamicSlice(64)
     let stack_slice = TemporarySlice(32)
 
@@ -395,7 +395,7 @@ recipe slice_operations() {
     public void TestInvalidSliceIndex()
     {
         string code = @"
-recipe invalid_index() {
+routine invalid_index() {
     let slice = DynamicSlice(64)
     slice[""not an index""] = 42  # Invalid index type
 }";
@@ -408,7 +408,7 @@ recipe invalid_index() {
     public void TestMemberAccess()
     {
         string code = @"
-recipe member_access() {
+routine member_access() {
     let slice = DynamicSlice(64)
     let size = slice.size
     let ptr = slice.ptr
@@ -423,7 +423,7 @@ recipe member_access() {
     public void TestInvalidMemberAccess()
     {
         string code = @"
-recipe invalid_member() {
+routine invalid_member() {
     let x = 42
     return x.nonexistent_field  # Invalid member access
 }";
@@ -436,7 +436,7 @@ recipe invalid_member() {
     public void TestBreakContinueInLoop()
     {
         string code = @"
-recipe loop_control() {
+routine loop_control() {
     while true:
         if condition1:
             break     # Valid: inside loop
@@ -453,7 +453,7 @@ recipe loop_control() {
     public void TestBreakContinueOutsideLoop()
     {
         string code = @"
-recipe invalid_break() {
+routine invalid_break() {
     break  # Invalid: not inside loop
 }";
 
@@ -465,7 +465,7 @@ recipe invalid_break() {
     public void TestDangerModeValidation()
     {
         string code = @"
-recipe safe_operations() {
+routine safe_operations() {
     danger {
         # Should allow potentially unsafe operations here
         let ptr = get_raw_pointer()
@@ -481,7 +481,7 @@ recipe safe_operations() {
     public void TestTypeCoercion()
     {
         string code = @"
-recipe coercion() {
+routine coercion() {
     let small: s8 = 10
     let big: s32 = small  # Should allow implicit widening
 }";
@@ -495,7 +495,7 @@ recipe coercion() {
     public void TestUnsafeTypeCoercion()
     {
         string code = @"
-recipe unsafe_coercion() {
+routine unsafe_coercion() {
     let big: s32 = 1000
     let small: s8 = big  # Should detect potential overflow
 }";
@@ -508,7 +508,7 @@ recipe unsafe_coercion() {
     public void TestOverflowOperators()
     {
         string code = @"
-recipe overflow_ops() {
+routine overflow_ops() {
     let a: u8 = 200
     let b: u8 = 100
     let wrapped = a +% b      # Wrapping add

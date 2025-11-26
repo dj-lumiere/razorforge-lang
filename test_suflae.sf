@@ -1,9 +1,9 @@
 # Simple Suflae program to test compilation
 import stdlib/core
 
-recipe greet(name: Text) -> Text:
+routine greet(name: Text) -> Text:
     return f"Hello, {name}!"
 
-recipe main():
+routine main():
     let message = greet("World")
     display_line(message)

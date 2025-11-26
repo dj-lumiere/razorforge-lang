@@ -1,19 +1,19 @@
-recipe test_add_wrap() -> i8 {
+routine test_add_wrap() -> i8 {
     return 255i8 +% 1i8
 }
 
-recipe test_add_saturate() -> i8 {
+routine test_add_saturate() -> i8 {
     return 127i8 +^ 1i8
 }
 
-recipe test_add_checked() -> i8 {
+routine test_add_checked() -> i8 {
     return 100i8 +? 20i8
 }
 
-recipe test_add_unchecked() -> i8 {
+routine test_add_unchecked() -> i8 {
     return 100i8 +! 20i8
 }
 
-recipe main() -> i32 {
+routine main() -> i32 {
     return 0
 }

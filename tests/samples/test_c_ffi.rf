@@ -1,19 +1,19 @@
 # Test C FFI with calling conventions and C types
 
 # External C function declarations with explicit calling convention
-external("C") recipe malloc(size: sysuint) -> sysuint
-external("C") recipe free(ptr: sysuint)
-external("C") recipe printf(fmt: sysuint, ...) -> cint
+external("C") routine malloc(size: sysuint) -> sysuint
+external("C") routine free(ptr: sysuint)
+external("C") routine printf(fmt: sysuint, ...) -> cint
 
 # External C function with C types
-external("C") recipe add(a: cint, b: cint) -> cint
-external("C") recipe multiply(x: clong, y: clong) -> clong
+external("C") routine add(a: cint, b: cint) -> cint
+external("C") routine multiply(x: clong, y: clong) -> clong
 
 # Test with default calling convention (implicitly "C")
-external recipe strlen(s: sysuint) -> sysuint
+external routine strlen(s: sysuint) -> sysuint
 
 # Main function to test the FFI
-recipe main() -> s32 {
+routine main() -> s32 {
     # This is just a syntax test - we're not actually linking to real C functions
     # The important part is that it parses and generates LLVM IR correctly
     return 0s32

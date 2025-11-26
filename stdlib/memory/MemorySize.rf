@@ -1,15 +1,15 @@
 record MemorySize {
     private value: sysuint
 
-    public recipe __create__(bytes: sysuint) {
+    public routine __create__(bytes: sysuint) {
         me.value = bytes
     }
 
-    public recipe text(memory_size: MemorySize) {
+    public routine text(memory_size: MemorySize) {
         return f"{me.value.u64()} bytes"
     }
 
-    public recipe add(your: MemorySize) {
+    public routine add(your: MemorySize) {
         return me with { me.value = me.value + your.value }
     }
 }

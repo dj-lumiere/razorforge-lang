@@ -1,4 +1,0 @@
-entity Text8 {
-    private letters: List<letter8>
-}
-
