@@ -42,7 +42,7 @@ routine main() -> s32 {
 
     # Scoped read access
     viewing shared as v {
-        show("Hits: {v.hits}")
+        show(f"Hits: {v.hits}")
     }
 
     return 0
