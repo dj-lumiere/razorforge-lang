@@ -69,7 +69,7 @@ The extension provides syntax highlighting for:
 
 **Memory Types**: `DynamicSlice`, `TemporarySlice`
 
-**Danger Zone**: `danger`, `external`, `write_as!`, `read_as!`, `addr_of!`, `invalidate!`
+**Danger Zone**: `danger`, `external`, `write_as!`, `read_as!`, `address_of!`, `invalidate!`
 
 ## Example RazorForge Code
 

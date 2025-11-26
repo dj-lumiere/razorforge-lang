@@ -56,7 +56,7 @@ routine main():
 
     # Arbitrary-precision by default
     let big = 999999999999999999999999
-    display(big + 1)
+    show(big + 1)
 ```
 
 **Use Suflae for:**
@@ -107,16 +107,16 @@ dotnet build
 ### Hello World in RazorForge
 
 ```razorforge
-routine main() -> s32:
+routine main() -> s32 {
     show("Hello, RazorForge!")
-    return 0
+}
 ```
 
 ### Hello World in Suflae
 
 ```suflae
 routine main():
-    display("Hello, Suflae!")
+    show("Hello, Suflae!")
 ```
 
 ---
@@ -156,33 +156,33 @@ routine main():
 
 ### Getting Started
 
-- [Hello World](wiki/Hello-World.md) - Your first program
-- [Choosing Between Languages](wiki/Choosing-Language.md) - RazorForge vs Suflae
-- [IDE Support](wiki/IDE-Support.md) - Editor setup and tooling
+- [Hello World](wiki/Hello-World.md) – Your first program
+- [Choosing Between Languages](wiki/Choosing-Language.md) – RazorForge vs Suflae
+- [IDE Support](wiki/IDE-Support.md) – Editor setup and tooling
 
 ### RazorForge
 
-- [Memory Model](wiki/RazorForge-Memory-Model.md) - Theatrical memory management
-- [Concurrency Model](wiki/RazorForge-Concurrency-Model.md) - Multi-threading primitives
-- [Data Types](wiki/RazorForge-Data-Types.md) - Records, entities, residents
-- [Danger Blocks](wiki/RazorForge-Danger-Blocks.md) - Unsafe operations
-- [Code Style](wiki/RazorForge-Code-Style.md) - Coding conventions
+- [Memory Model](wiki/RazorForge-Memory-Model.md) – Theatrical memory management
+- [Concurrency Model](wiki/RazorForge-Concurrency-Model.md) – Multi-threading primitives
+- [Data Types](wiki/RazorForge-Data-Types.md) – Records, entities, residents
+- [Danger Blocks](wiki/RazorForge-Danger-Blocks.md) – Unsafe operations
+- [Code Style](wiki/RazorForge-Code-Style.md) – Coding conventions
 
 ### Suflae
 
-- [Overview](wiki/Suflae-Overview.md) - Language introduction
-- [Memory Model](wiki/Suflae-Memory-Model.md) - Automatic memory management
-- [Concurrency Model](wiki/Suflae-Concurrency-Model.md) - Easy parallelism
-- [Data Types](wiki/Suflae-Data-Types.md) - Simplified type system
-- [Code Style](wiki/Suflae-Code-Style.md) - Coding conventions
+- [Overview](wiki/Suflae-Overview.md) – Language introduction
+- [Memory Model](wiki/Suflae-Memory-Model.md) – Automatic memory management
+- [Concurrency Model](wiki/Suflae-Concurrency-Model.md) – Easy parallelism
+- [Data Types](wiki/Suflae-Data-Types.md) – Simplified type system
+- [Code Style](wiki/Suflae-Code-Style.md) – Coding conventions
 
 ### Reference
 
-- [Keyword Comparison](wiki/Keyword-Comparison.md) - Side-by-side syntax
-- [Numeric Types](wiki/Numeric-Types.md) - Integer and floating-point types
-- [Collections](wiki/Collections.md) - Data structures reference
-- [Pattern Matching](wiki/Pattern-Matching.md) - Patterns and matching
-- [Error Handling](wiki/Error-Handling.md) - Result types
+- [Keyword Comparison](wiki/Keyword-Comparison.md) – Side-by-side syntax
+- [Numeric Types](wiki/Numeric-Types.md) – Integer and floating-point types
+- [Collections](wiki/Collections.md) – Data structures reference
+- [Pattern Matching](wiki/Pattern-Matching.md) – Patterns and matching
+- [Error Handling](wiki/Error-Handling.md) – Result types
 
 ---
 
@@ -223,8 +223,8 @@ routine main():
     # Automatic async/await
     let users = waitfor fetch_users()
     when users:
-        is Ok data => display(f"Found {data.length()} users")
-        is Error msg => display(f"Error: {msg}")
+        is Ok data => show(f"Found {data.length()} users")
+        is Error msg => show(f"Error: {msg}")
 ```
 
 ---
@@ -346,11 +346,11 @@ Choose the license that works best for your project.
 
 RazorForge and Suflae are inspired by:
 
-- **Rust** - Memory safety without garbage collection
-- **Python** - Readable syntax and developer happiness
-- **Zig** - Explicit control and simplicity
-- **Swift** - Modern language design
-- **C** - Systems programming power
+- **Rust** – Memory safety without garbage collection
+- **Python** – Readable syntax and developer happiness
+- **Zig** – Explicit control and simplicity
+- **C#** – Modern language design
+- **C/C++** – Systems programming power
 
 But we believe we can do better by being honest about tradeoffs and focusing on total developer happiness.
 
