@@ -17,19 +17,36 @@ application development to high-performance systems programming.
 A precision systems language for absolute control and deterministic performance.
 
 ```razorforge
-routine main() -> s32:
-    # Explicit memory control with theatrical tokens
-    let data = Vector<s32>()
-    data.push(42)
+entity Cache {
+    var data: Dict<s32, Text<letter>>
+    var hits: s64
+}
 
-    # Share ownership with reference counting
-    let shared = data.share()
+routine main() -> s32 {
+    # Theatrical memory tokens - explicit and visible
+    let cache = Cache(data: Dict(), hits: 0)
 
-    # Hijack exclusive access
-    hijacking borrowed from shared:
-        borrowed.push(100)
+    # Pattern matching for control flow
+    when cache.hits > 0 {
+        is true => show("Cache active"),
+        else => {
+            hijacking cache as h {
+                h.data.insert(1, "value")
+                h.hits += 1
+            }
+        }
+    }
+
+    # Reference counting when needed
+    let shared = cache.retain()  # Explicit Retained<T>
+
+    # Scoped read access
+    viewing shared as v {
+        show("Hits: {v.hits}")
+    }
 
     return 0
+}
 ```
 
 **Use RazorForge for:**
@@ -45,18 +62,34 @@ routine main() -> s32:
 A productivity-first language for building modern applications quickly and safely.
 
 ```suflae
+shared entity DataStore:
+    private items: Dict<Integer, Text>
+    private count: Integer
+
+    public routine __create__():
+        me.items = Dict()
+        me.count = 0
+
+    public suspended routine fetch(id: Integer) -> Result<Text>:
+        # Pattern matching with async/await
+        when me.items.get(id):
+            is None:
+                # Arbitrary-precision math - no overflow!
+                me.count += 1
+                let data = waitfor http.get(f"/api/data/{id}")
+                unless data:
+                    return Error("Not found")
+                me.items.insert(id, data)
+                return data
+            else cached:
+                return cached
+
 routine main():
-    # Automatic memory management - no tokens needed
-    let items = List<Integer>()
-    items.push(42)
+    # Actor model - automatic message passing!
+    shared let store = DataStore()
 
-    # Thread-safe sharing with one keyword
-    shared let cache = Dict<Text, Data>()
-    spawn_task(worker, cache)
-
-    # Arbitrary-precision by default
-    let big = 999999999999999999999999
-    show(big + 1)
+    # Safe concurrent access - no locks needed
+    spawn_task(lambda: waitfor store.fetch(999999999999))
 ```
 
 **Use Suflae for:**
@@ -188,43 +221,222 @@ routine main():
 
 ## Examples
 
-### RazorForge: Systems Programming
+### RazorForge: Theatrical Memory Management
+
+RazorForge makes memory operations **visible and elegant** through scoped access patterns:
 
 ```razorforge
-# Memory-efficient linked list node
-resident ListNode<T>:
-    value: T
-    next: ListNode<T>?  # Optional next node
+### High-performance connection pool with reference counting
+###
+### Demonstrates:
+### - viewing/hijacking for scoped access
+### - Retained<T> for reference-counted ownership
+### - Tracked<Retained<T>> for weak references (break cycles)
+### - Pattern matching with when
+entity ConnectionPool {
+    var connections: List<Connection>
+    var active_count: s64
+    var max_connections: s64
+}
 
-    routine new(value: T) -> ListNode<T>:
-        return ListNode(value: value, next: None)
+routine acquire_connection(pool: Retained<ConnectionPool>) -> Connection? {
+    hijacking pool as p {
+        # Check capacity with pattern matching
+        when p.active_count < p.max_connections {
+            is true => {
+                let conn = Connection.new()
+                p.connections.push(conn)
+                p.active_count += 1
+                return conn
+            },
+            else => return none  # Pool exhausted
+        }
+    }
+}
 
-routine main() -> s32:
-    # Allocate on stack (fixed size)
-    let node = ListNode.new(42)
-
-    # Explicit memory control
-    let shared = node.share()
-
-    return 0
+routine monitor_pool(weak: Tracked<Retained<ConnectionPool>>) {
+    # Try to recover weak reference
+    when weak.try_recover() {
+        is None => show("Pool was deallocated"),
+        else strong => {
+            viewing strong as v {
+                show("Pool stats: {v.active_count}/{v.max_connections}")
+            }
+        }
+    }
+}
 ```
 
-### Suflae: Application Development
+### RazorForge: Thread-Safe Concurrency
+
+RazorForge provides **explicit control** over concurrent access with zero hidden costs:
+
+```razorforge
+### Thread-safe counter with configurable locking
+###
+### Demonstrates:
+### - Shared<T, Policy> for thread-safe references
+### - observing for concurrent reads
+### - seizing for exclusive writes
+entity Counter {
+    var value: s64
+}
+
+routine main() -> s32 {
+    let counter = Counter(value: 0)
+
+    # Create thread-safe reference with MultiReadLock policy
+    let shared = counter.share(policy: MultiReadLock)
+
+    # Spawn reader threads - can run concurrently!
+    for i in 0 to 5 {
+        let reader = shared  # Clone Arc (atomic increment)
+        spawn_thread({
+            observing reader as r {
+                show("Thread {i} reads: {r.value}")
+            }  # Read lock released automatically
+        })
+    }
+
+    # Writer thread - exclusive access
+    let writer = shared
+    spawn_thread({
+        seizing writer as w {
+            w.value += 1
+        }  # Write lock released automatically
+    })
+
+    return 0
+}
+```
+
+### RazorForge: Lock-Free Atomic Operations
+
+For high-performance scenarios, use **lock-free atomics**:
+
+```razorforge
+### High-performance metrics collector
+###
+### Demonstrates:
+### - Atomic<T> for lock-free operations
+### - Zero overhead for simple counters
+entity MetricsCollector {
+    request_count: Atomic<s64>
+    error_count: Atomic<s64>
+}
+
+routine track_request(metrics: MetricsCollector, success: bool) {
+    # Lock-free increment (~5-10 CPU cycles)
+    metrics.request_count.fetch_add(1)
+
+    if !success {
+        metrics.error_count.fetch_add(1)
+    }
+}
+```
+
+### RazorForge: Message Passing
+
+For clean thread communication, **transfer ownership** via channels:
+
+```razorforge
+### Worker pool processing tasks
+###
+### Demonstrates:
+### - Channel<T> for ownership transfer
+### - No shared state - just message passing
+record Task {
+    id: s32
+    data: Text<letter>
+}
+
+routine main() -> s32 {
+    let (tx, rx) = Channel<Task>()
+
+    # Spawn worker threads
+    for worker_id in 0 to 4 {
+        let receiver = rx
+        spawn_thread({
+            loop {
+                when receiver.receive() {
+                    is None => break,  # Channel closed
+                    else task => {
+                        show("Worker {worker_id} processing task {task.id}")
+                        process_task(task)
+                    }
+                }
+            }
+        })
+    }
+
+    # Send tasks (ownership transferred to channel)
+    for i in 0 to 100 {
+        let task = Task(id: i, data: "payload")
+        tx.send(task)  # task becomes deadref - moved to channel
+    }
+
+    return 0
+}
+```
+
+### Suflae: Sweet Productivity
+
+Suflae prioritizes **developer happiness** with automatic memory management and built-in concurrency:
 
 ```suflae
-suspended routine fetch_users() -> Result<List<User>>:
-    let response = waitfor http.get("/api/users")
-    unless response:
-        return Error("Network error")
+### User service with automatic async/await and actor model
+###
+### Demonstrates:
+### - suspended routines for async operations
+### - Arbitrary-precision Integer by default
+### - shared keyword for actor model (automatic message passing)
+### - Pattern matching with when
+### - unless for error handling
+shared entity UserCache:
+    private cache: Dict<Integer, User>
+    private hit_count: Integer
+    private miss_count: Integer
 
-    return parse_users(response.body)
+    public routine __create__():
+        me.cache = Dict()
+        me.hit_count = 0
+        me.miss_count = 0
+
+    public routine get_stats() -> Text:
+        let total = me.hit_count + me.miss_count  # Arbitrary precision!
+        let rate = (me.hit_count * 100) / total if total > 0 else 0
+        return f"Cache hits: {me.hit_count}, rate: {rate}%"
+
+    public suspended routine fetch_user(id: Integer) -> Result<User>:
+        # Check cache first
+        when me.cache.get(id):
+            is None:
+                me.miss_count += 1
+                let user = waitfor http.get(f"/api/users/{id}")
+                unless user:
+                    return Error("Network error")
+                me.cache.insert(id, user)
+                return user
+            else cached:
+                me.hit_count += 1
+                return cached
 
 routine main():
-    # Automatic async/await
-    let users = waitfor fetch_users()
-    when users:
-        is Ok data => show(f"Found {data.length()} users")
-        is Error msg => show(f"Error: {msg}")
+    # shared entity uses actor model - automatic message passing!
+    shared let cache = UserCache()
+
+    # Multiple tasks can safely call cache methods concurrently
+    spawn_task(lambda:
+        let user = waitfor cache.fetch_user(12345)
+        when user:
+            is Error msg => show(f"Error: {msg}"),
+            else data => show(f"Got user: {data.name}")
+    )
+
+    spawn_task(lambda:
+        let stats = cache.get_stats()  # Thread-safe automatic message
+        show(stats)
+    )
 ```
 
 ---

@@ -1,0 +1,752 @@
+# RazorForge Compiler Architecture
+
+## Table of Contents
+1. [Compilation Pipeline](#compilation-pipeline)
+2. [Directory Structure](#directory-structure)
+3. [Key Components](#key-components)
+4. [Generic Types Implementation Status](#generic-types-implementation-status)
+5. [Module/Import System Status](#moduleimport-system-status)
+6. [Flow Charts](#flow-charts)
+7. [Quick Reference](#quick-reference)
+
+---
+
+## Compilation Pipeline
+
+```
+Source Code (.rf/.sf)
+        ↓
+    TOKENIZATION (Lexer)
+    - RazorForgeTokenizer / SuflaeTokenizer
+    - Produces: List<Token>
+        ↓
+    PARSING (Parser)
+    - RazorForgeParser / SuflaeParser
+    - Produces: AST (Abstract Syntax Tree)
+        ↓
+    SEMANTIC ANALYSIS (Analyzer)
+    - SemanticAnalyzer + MemoryAnalyzer
+    - Type checking, symbol resolution
+    - Produces: Validated AST + Errors
+        ↓
+    CODE GENERATION (Generators)
+    - SimpleCodeGenerator → .out file
+    - LLVMCodeGenerator → .ll file (LLVM IR)
+        ↓
+    EXECUTABLE GENERATION (clang)
+    - Compiles LLVM IR to native executable
+    - Produces: .exe/.out binary
+```
+
+**Entry Point:** `src/CLI/Program.cs:94` (Main method)
+
+---
+
+## Directory Structure
+
+```
+src/
+├── CLI/
+│   └── Program.cs              # Entry point, orchestrates compilation
+├── Lexer/
+│   ├── BaseTokenizer.cs        # Base tokenizer logic
+│   ├── RazorForgeTokenizer.cs  # RazorForge-specific tokenization
+│   ├── SuflaeTokenizer.cs      # Suflae-specific tokenization
+│   ├── Token.cs                # Token data structure
+│   └── TokenType.cs            # All token types (keywords, operators, etc.)
+├── Parser/
+│   ├── BaseParser.cs           # Common parsing utilities
+│   ├── RazorForgeParser.cs     # RazorForge syntax parser ⭐
+│   └── SuflaeParser.cs         # Suflae syntax parser
+├── AST/
+│   ├── ASTNode.cs              # Base AST node interfaces
+│   ├── Declarations.cs         # Declaration AST nodes ⭐
+│   ├── Expressions.cs          # Expression AST nodes ⭐
+│   └── Statements.cs           # Statement AST nodes
+├── Analysis/
+│   ├── SemanticAnalyzer.cs     # Type checking & validation ⭐
+│   ├── SymbolTable.cs          # Symbol tracking & scoping ⭐
+│   ├── MemoryAnalyzer.cs       # Memory safety analysis
+│   ├── MemoryModel.cs          # Memory model definitions
+│   └── Language.cs             # Language mode enums
+└── CodeGen/
+    ├── LLVMCodeGenerator.cs    # LLVM IR generation ⭐
+    ├── SimpleCodeGenerator.cs  # Readable output generation
+    ├── MathLibrarySupport.cs   # Math intrinsics
+    └── TargetPlatform.cs       # Platform-specific config
+
+⭐ = Files with generic/import implementation
+```
+
+---
+
+## Key Components
+
+### 1. Tokenizer (Lexer Phase)
+
+**Location:** `src/Lexer/`
+
+**Purpose:** Convert source text into tokens
+
+**Key Classes:**
+- `Tokenizer` - Static entry point
+- `RazorForgeTokenizer` / `SuflaeTokenizer` - Language-specific implementations
+- `Token` - Data: type, value, location
+- `TokenType` - Enum of all token types
+
+**Flow:**
+```csharp
+string sourceCode = File.ReadAllText(filePath);
+List<Token> tokens = Tokenizer.Tokenize(sourceCode, language);
+```
+
+**Supported Features:**
+- Keywords: `entity`, `record`, `routine`, `import`, etc.
+- Operators: `+`, `-`, `*`, `/`, `<`, `>`, etc.
+- Literals: numbers, strings, characters
+- Generic brackets: `<`, `>` (for `List<T>`)
+- Path separator: `/` (for `import a/b/c`)
+
+---
+
+### 2. Parser (Syntax Analysis)
+
+**Location:** `src/Parser/RazorForgeParser.cs`
+
+**Purpose:** Build Abstract Syntax Tree from tokens
+
+**Key Methods:**
+- `ParseDeclaration()` - Top-level declarations
+- `ParseExpression()` - All expression types
+- `ParseStatement()` - Control flow, assignments
+- `ParseTypeExpression()` - Type references (including `List<T>`)
+- `ParseImportDeclaration()` - Import statements
+
+**Generic Parsing:** ✅ **IMPLEMENTED**
+```csharp
+// Lines 425-437: Parses entity Buffer<T>
+private ClassDeclaration ParseClassDeclaration(VisibilityModifier visibility)
+{
+    // ...
+    List<string> genericParams = ParseGenericParameters(); // <T, U>
+    // ...
+}
+```
+
+**Import Parsing:** ⚠️ **PARTIAL**
+```csharp
+// Lines 269-302: Parses import stdlib/memory/DynamicSlice
+private ImportDeclaration ParseImportDeclaration()
+{
+    string modulePath = "";
+    do {
+        string part = ConsumeIdentifier();
+        modulePath += part;
+        if (Match(TokenType.Slash)) modulePath += "/";
+        else break;
+    } while (true);
+    // ...
+}
+```
+
+**Issue:** `ConsumeIdentifier()` doesn't accept keywords like `entity`, so `import Collections/entity/List` fails.
+
+---
+
+### 3. AST (Abstract Syntax Tree)
+
+**Location:** `src/AST/`
+
+**Purpose:** Intermediate representation of program structure
+
+**Key Node Types:**
+
+#### Declarations (`Declarations.cs`)
+```csharp
+// Generic entity declaration
+ClassDeclaration(
+    Name: "Buffer",
+    GenericParameters: ["T"],       // ✅ Supported
+    // ...
+)
+
+// Import declaration
+ImportDeclaration(
+    ModulePath: "stdlib/memory/DynamicSlice",
+    Alias: null,
+    SpecificImports: null,          // ⚠️ Not parsed yet
+    // ...
+)
+```
+
+#### Expressions (`Expressions.cs`)
+```csharp
+// Generic type reference
+TypeExpression(
+    Name: "List",
+    GenericArguments: [TypeExpression("s32")],  // List<s32>
+    // ...
+)
+
+// Generic method call
+GenericMethodCallExpression(
+    Object: buffer,
+    MethodName: "read",
+    TypeArguments: [TypeExpression("s32")],     // buffer.read<s32>!()
+    Arguments: [offset],
+    // ...
+)
+```
+
+---
+
+### 4. Semantic Analyzer (Type Checking)
+
+**Location:** `src/Analysis/SemanticAnalyzer.cs`
+
+**Purpose:** Validate program semantics, resolve types, check memory safety
+
+**Key Features:**
+
+#### Generic Type Resolution ✅ **PARTIAL**
+```csharp
+// Lines 1353-1375: Resolves List<s32> to concrete type
+private TypeInfo? ResolveGenericType(
+    TypeInfo genericType,
+    Dictionary<string, TypeInfo> genericBindings)
+{
+    // Substitutes T with s32
+    // ...
+}
+```
+
+#### Generic Method Calls ✅ **IMPLEMENTED**
+```csharp
+// Lines 2092-2122: Handles buffer.read<T>!()
+public object? VisitGenericMethodCallExpression(
+    GenericMethodCallExpression node)
+{
+    // Special handling for DynamicSlice operations
+    if (methodName is "read" or "write" && IsSliceType(objectType))
+    {
+        // Validates memory operations
+        return ResolveType(typeArg);
+    }
+    // TODO: Generic method validation for other types
+}
+```
+
+#### Import Processing ❌ **NOT IMPLEMENTED**
+```csharp
+// Line 523
+public object? VisitImportDeclaration(ImportDeclaration node)
+{
+    // TODO: Module system
+    return null;
+}
+```
+
+**Current Status:** Imports are parsed but completely ignored during semantic analysis.
+
+---
+
+### 5. Symbol Table
+
+**Location:** `src/Analysis/SymbolTable.cs`
+
+**Purpose:** Track symbols, manage scopes, resolve names
+
+**Key Symbol Types:**
+
+```csharp
+// All support generic parameters
+FunctionSymbol(
+    Name: "map",
+    GenericParameters: ["T", "U"],      // ✅ Supported
+    GenericConstraints: [...],          // ✅ Supported
+    // ...
+)
+
+ClassSymbol(
+    Name: "List",
+    GenericParameters: ["T"],           // ✅ Supported
+    // ...
+)
+```
+
+**Generic Constraints:**
+```csharp
+GenericConstraint(
+    ParameterName: "T",
+    BaseTypes: [TypeInfo("Comparable")],    // where T : Comparable
+    IsValueType: false,                     // where T : record
+    IsReferenceType: false                  // where T : entity
+)
+```
+
+**Missing:** No module/namespace tracking. Symbols are global or local, no intermediate module scope.
+
+---
+
+### 6. Code Generation
+
+#### LLVM IR Generator
+
+**Location:** `src/CodeGen/LLVMCodeGenerator.cs`
+
+**Purpose:** Generate LLVM Intermediate Representation
+
+**Generic Support:** ✅ **PARTIAL**
+
+```csharp
+// Lines 60-65: Tracks generic instantiations
+private readonly Dictionary<string, List<List<TypeInfo>>>
+    _genericInstantiations = new();
+
+// Lines 201-227: Name mangling for generics
+private string MangleGenericName(string baseName, List<TypeInfo> typeArgs)
+{
+    // List<s32> → List_s32
+    // Dict<String, s32> → Dict_String_s32
+}
+```
+
+**Generic Method Calls:** ✅ **IMPLEMENTED**
+```csharp
+// Lines 1744-1857: Handles read<T>!(), write<T>!()
+public string VisitGenericMethodCallExpression(
+    GenericMethodCallExpression node)
+{
+    if (methodName == "read")
+    {
+        // Generates: %tmp0 = call i32 @read_s32(ptr %slice)
+    }
+}
+```
+
+**TODO:**
+- Generic member access (Line 1861)
+- Full monomorphization (currently only tracks, doesn't generate all instances)
+
+---
+
+## Generic Types Implementation Status
+
+### ✅ Implemented (Working)
+
+1. **Parser Support**
+   - Entity/record/variant with generic parameters: `entity Buffer<T>`
+   - Generic type references: `List<s32>`
+   - Generic method calls: `buffer.read<T>!()`
+   - Multiple type parameters: `Dict<K, V>`
+
+2. **AST Representation**
+   - `TypeExpression.GenericArguments`
+   - `GenericMethodCallExpression`
+   - `GenericConstraint` definitions
+
+3. **Symbol Table**
+   - `FunctionSymbol.GenericParameters`
+   - `ClassSymbol.GenericParameters`
+   - Generic constraint storage
+
+4. **Code Generation**
+   - Generic method call handling (for DynamicSlice operations)
+   - Name mangling for generic types
+   - Instantiation tracking
+
+5. **Real Working Examples**
+   ```razorforge
+   # From tests/samples/hello_world.rf
+   record Buffer<T> {
+       private var data: DynamicSlice<T>
+       public func push!(item: T) { ... }
+   }
+
+   var buffer = Buffer<s32>(10)
+   buffer.push!(42)
+   ```
+
+### ⚠️ Partial / TODO
+
+1. **Semantic Validation**
+   - Generic constraint checking (Line 1483: "TODO: Check actual inheritance")
+   - Generic type instantiation validation (count/kind of type args)
+   - Type parameter inference (partial support)
+
+2. **Code Generation**
+   - Full monomorphization (generate code for all used instantiations)
+   - Generic member access (Line 1861: "TODO: Implement")
+   - Generic trait/feature methods
+
+3. **Advanced Features**
+   - Generic specialization
+   - Variance (covariance/contravariance)
+   - Default type parameters
+   - Associated types
+
+### ❌ Not Implemented
+
+1. **Higher-kinded types** (types that take types as parameters)
+2. **Generic closure support**
+3. **Generic async functions**
+
+---
+
+## Module/Import System Status
+
+### ✅ Implemented (Working)
+
+1. **Parser Support**
+   - Basic import paths: `import stdlib/memory`
+   - Nested paths with `/`: `import a/b/c/d`
+   - Import aliases: `import std as S`
+
+2. **AST Representation**
+   - `ImportDeclaration` node with all fields
+
+3. **Token Support**
+   - `Import`, `As`, `Slash` tokens
+
+### ⚠️ Partial
+
+1. **Selective Imports** - AST defined but not parsed
+   ```razorforge
+   import stdlib/collections { List, Dict }  # Not working yet
+   ```
+
+2. **Path Resolution** - Parser accepts keywords in paths inconsistently
+   ```razorforge
+   import Collections/List        # Works
+   import Collections/entity/List # Fails ('entity' is keyword)
+   ```
+
+### ❌ Not Implemented
+
+1. **Module Resolution** (Line 523: "TODO: Module system")
+   - No file lookup
+   - No symbol table population from imports
+   - No transitive import handling
+
+2. **Namespace Management**
+   - No module scopes
+   - No qualified access (`std::vector` style)
+
+3. **Using Declarations** (Line 545: "TODO: Handle type alias")
+   ```razorforge
+   using IntList = List<s32>  # Not working
+   ```
+
+4. **Redefinition** (Line 533: "TODO: Handle method redefinition")
+   ```razorforge
+   redefinition OldName as NewName  # Not working
+   ```
+
+5. **Import Validation**
+   - No circular import detection
+   - No duplicate import warnings
+   - No unused import warnings
+
+---
+
+## Flow Charts
+
+### Overall Compilation Flow
+
+```
+┌─────────────────┐
+│   Source File   │
+│  (.rf or .sf)   │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────────────────────┐
+│      CLI/Program.cs:94          │
+│  Main(string[] args)            │
+│                                 │
+│  Commands:                      │
+│  - compile <file>               │
+│  - run <file>                   │
+│  - compileandrun <file>         │
+└────────┬────────────────────────┘
+         │
+         ▼
+┌─────────────────────────────────┐
+│   PHASE 1: TOKENIZATION         │
+│   Lexer/Tokenizer.cs            │
+│                                 │
+│   Source → List<Token>          │
+│                                 │
+│   Handles:                      │
+│   - Keywords (entity, import)   │
+│   - Operators (<, >, /)         │
+│   - Literals (42, "text")       │
+└────────┬────────────────────────┘
+         │
+         ▼
+┌─────────────────────────────────┐
+│   PHASE 2: PARSING              │
+│   Parser/RazorForgeParser.cs    │
+│                                 │
+│   List<Token> → AST             │
+│                                 │
+│   Parses:                       │
+│   - Generic syntax ✅            │
+│   - Import statements ✅         │
+│   - All declarations            │
+└────────┬────────────────────────┘
+         │
+         ▼
+┌─────────────────────────────────┐
+│   PHASE 3: SEMANTIC ANALYSIS    │
+│   Analysis/SemanticAnalyzer.cs  │
+│   Analysis/SymbolTable.cs       │
+│                                 │
+│   AST → Validated AST           │
+│                                 │
+│   Checks:                       │
+│   - Type correctness            │
+│   - Symbol resolution           │
+│   - Memory safety               │
+│   - Generic constraints ⚠️       │
+│   - Import resolution ❌         │
+└────────┬────────────────────────┘
+         │
+         ├──────────┬──────────────┐
+         ▼          ▼              ▼
+   ┌─────────┐ ┌─────────┐   ┌─────────┐
+   │ Simple  │ │  LLVM   │   │ Memory  │
+   │ CodeGen │ │ CodeGen │   │Analyzer │
+   └─────────┘ └─────────┘   └─────────┘
+         │          │
+         ▼          ▼
+   ┌─────────┐ ┌──────────┐
+   │ .out    │ │ .ll file │
+   │ file    │ │ (LLVM IR)│
+   └─────────┘ └────┬─────┘
+                    │
+                    ▼
+              ┌──────────┐
+              │  clang   │
+              └────┬─────┘
+                   │
+                   ▼
+              ┌──────────┐
+              │   .exe   │
+              └──────────┘
+```
+
+### Generic Type Processing Flow
+
+```
+Source: entity List<T> { ... }
+         │
+         ▼
+┌────────────────────────────────┐
+│  PARSER                        │
+│  RazorForgeParser.cs:425       │
+│                                │
+│  ParseGenericParameters()      │
+│  - Sees '<T>'                  │
+│  - Extracts ["T"]              │
+└─────────┬──────────────────────┘
+          │
+          ▼
+     ┌─────────┐
+     │   AST   │
+     │ ClassDeclaration(          │
+     │   Name: "List",            │
+     │   GenericParameters: ["T"] │
+     │ )                          │
+     └─────────┬──────────────────┘
+               │
+               ▼
+┌──────────────────────────────────┐
+│  SEMANTIC ANALYZER               │
+│  SemanticAnalyzer.cs:1353        │
+│                                  │
+│  When sees: List<s32>            │
+│  1. Looks up "List" symbol       │
+│  2. Checks GenericParameters     │
+│  3. Binds T → s32                │
+│  4. Creates TypeInfo(            │
+│       Name: "List",              │
+│       GenericArguments: [s32]    │
+│     )                            │
+└─────────┬────────────────────────┘
+          │
+          ▼
+┌──────────────────────────────────┐
+│  CODE GENERATOR                  │
+│  LLVMCodeGenerator.cs:201        │
+│                                  │
+│  MangleGenericName()             │
+│  List<s32> → "List_s32"          │
+│                                  │
+│  Generates:                      │
+│  %struct.List_s32 = type {       │
+│    ptr, i64, i64                 │
+│  }                               │
+└──────────────────────────────────┘
+```
+
+### Import Processing Flow (Current)
+
+```
+Source: import Collections/List
+         │
+         ▼
+┌────────────────────────────────┐
+│  PARSER                        │
+│  RazorForgeParser.cs:269       │
+│                                │
+│  ParseImportDeclaration()      │
+│  - Reads path segments         │
+│  - Creates ImportDeclaration   │
+└─────────┬──────────────────────┘
+          │
+          ▼
+     ┌─────────┐
+     │   AST   │
+     │ ImportDeclaration(         │
+     │   ModulePath:              │
+     │     "Collections/List"     │
+     │ )                          │
+     └─────────┬──────────────────┘
+               │
+               ▼
+┌──────────────────────────────────┐
+│  SEMANTIC ANALYZER               │
+│  SemanticAnalyzer.cs:523         │
+│                                  │
+│  VisitImportDeclaration()        │
+│  {                               │
+│    // TODO: Module system        │
+│    return null;  ← STOPS HERE ❌ │
+│  }                               │
+│                                  │
+│  Symbol "List" never added to    │
+│  symbol table!                   │
+└──────────────────────────────────┘
+```
+
+### Import Processing Flow (Needed)
+
+```
+Source: import Collections/List
+         │
+         ▼
+┌────────────────────────────────┐
+│  MODULE RESOLVER (NEW)         │
+│                                │
+│  1. Resolve path:              │
+│     Collections/List →         │
+│     stdlib/Collections/List.rf │
+│                                │
+│  2. Check cache                │
+│  3. If not loaded, parse file  │
+│  4. Build module symbol table  │
+└─────────┬──────────────────────┘
+          │
+          ▼
+┌────────────────────────────────┐
+│  SEMANTIC ANALYZER             │
+│                                │
+│  1. Get module's symbols       │
+│  2. Add to current scope       │
+│  3. Handle conflicts           │
+│  4. Track dependencies         │
+└────────────────────────────────┘
+```
+
+---
+
+## Quick Reference
+
+### Key Files by Feature
+
+| Feature | Parser | AST | Semantic | CodeGen |
+|---------|--------|-----|----------|---------|
+| **Generics** | RazorForgeParser:425 | Declarations.cs:56 | SemanticAnalyzer:1353 | LLVMCodeGenerator:201 |
+| **Imports** | RazorForgeParser:269 | Declarations.cs:339 | SemanticAnalyzer:523 ❌ | N/A ❌ |
+| **Functions** | RazorForgeParser:1685 | Declarations.cs:85 | SemanticAnalyzer:558 | LLVMCodeGenerator:392 |
+| **Types** | RazorForgeParser:1098 | Expressions.cs:506 | SemanticAnalyzer:1353 | LLVMCodeGenerator:1600 |
+| **Memory** | RazorForgeParser:2405 | Expressions.cs:600 | MemoryAnalyzer | LLVMCodeGenerator:2264 |
+
+### Common Tasks
+
+**Add new keyword:**
+1. `src/Lexer/TokenType.cs` - Add to enum
+2. `src/Lexer/RazorForgeTokenizer.cs` - Add to keyword map
+3. Parser - Handle in appropriate method
+
+**Add new AST node:**
+1. `src/AST/` - Add record type
+2. Parser - Create parse method
+3. `SemanticAnalyzer` - Add Visit method
+4. `LLVMCodeGenerator` - Add Visit method
+
+**Debug compilation:**
+1. Set breakpoint in `Program.cs:94`
+2. Inspect tokens after tokenization
+3. Inspect AST after parsing
+4. Check `SemanticAnalyzer.Errors` list
+5. View generated LLVM IR in `.ll` file
+
+### Important Line Numbers
+
+**Generic Type Resolution:**
+- Parse: `RazorForgeParser.cs:425-437`
+- Analyze: `SemanticAnalyzer.cs:1353-1375`
+- Generate: `LLVMCodeGenerator.cs:201-227`
+
+**Import Processing:**
+- Parse: `RazorForgeParser.cs:269-302`
+- Analyze: `SemanticAnalyzer.cs:523` ⚠️ TODO
+- Generate: N/A ⚠️ Not needed
+
+**Generic Method Calls:**
+- Parse: `RazorForgeParser.cs:2405-2442`
+- Analyze: `SemanticAnalyzer.cs:2092-2122`
+- Generate: `LLVMCodeGenerator.cs:1744-1857`
+
+---
+
+## Next Steps for Full stdlib Support
+
+### Priority 1: Complete Import System
+1. Implement `ModuleResolver` class
+2. Resolve import paths to file paths
+3. Parse imported files
+4. Populate symbol table with imported symbols
+5. Handle transitive imports
+
+**Estimated Effort:** 2-3 days
+
+### Priority 2: Complete Generic Validation
+1. Validate generic constraint satisfaction
+2. Check type parameter counts match
+3. Infer generic arguments where possible
+4. Better error messages for generic errors
+
+**Estimated Effort:** 1-2 days
+
+### Priority 3: Full Monomorphization
+1. Generate code for all used generic instantiations
+2. Deduplicate identical instantiations
+3. Handle recursive generic types
+
+**Estimated Effort:** 2-3 days
+
+---
+
+## Conclusion
+
+The compiler has **excellent foundation** for generics and imports:
+- ✅ Syntax parsing works
+- ✅ AST representation complete
+- ✅ Symbol table supports generics
+- ⚠️ Semantic analysis partial
+- ❌ Module system not implemented
+
+**The stdlib (`List<T>`, `Text<T>`) is architecturally correct and will work once these features are completed!**
