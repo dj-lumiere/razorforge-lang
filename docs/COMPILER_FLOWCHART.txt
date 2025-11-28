@@ -9,207 +9,385 @@
     ┃                        SOURCE CODE INPUT                          ┃
     ┃                     (.rf files, .sf files)                        ┃
     ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┯━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
-                                   │
-                                   │ File.ReadAllText()
-                                   ▼
+                                 │
+                                 │ File.ReadAllText()
+                                 ▼
     ╔══════════════════════════════════════════════════════════════════╗
     ║            PHASE 1: TOKENIZATION (Lexer)                         ║
     ║                 src/Lexer/Tokenizer.cs                           ║
     ╠══════════════════════════════════════════════════════════════════╣
     ║  • Converts text → List<Token>                                   ║
     ║  • Recognizes keywords, operators, literals                      ║
+    ║  • Duration literals: 5w, 3d, 2h, 30m, 45s, 100ms, 500us, 1000ns ║
+    ║  • Memory size literals: 1024b, 64kb, 1mb, 2gb, 3tib, etc.       ║
     ║  • Tracks source locations for errors                            ║
+    ║  • Handles >> in nested generics (split to > >)       ✅         ║
+    ║  • Failable function marker: ! suffix                 ✅         ║
+    ║  • Error handling keywords: fail, absent              ✅         ║
     ║                                                                  ║
     ║  Input:  "entity List<T> { ... }"                               ║
     ║  Output: [Entity, Identifier("List"), Less, Identifier("T"), ...]║
     ╚══════════════════════════════════════════════════════════════════╝
-                                   │
-                                   │ Token stream
-                                   ▼
+                                 │
+                                 │ Token stream
+                                 ▼
     ╔══════════════════════════════════════════════════════════════════╗
     ║            PHASE 2: PARSING (Parser)                             ║
     ║            src/Parser/RazorForgeParser.cs                        ║
     ╠══════════════════════════════════════════════════════════════════╣
     ║  • Builds Abstract Syntax Tree (AST)                             ║
     ║  • Validates syntax structure                                    ║
-    ║  • Handles generic syntax: entity List<T>          ✅            ║
-    ║  • Parses imports: import Collections/List         ✅            ║
+    ║  • Handles generic syntax: entity List<T>             ✅         ║
+    ║  • Parses imports: import Collections/List            ✅         ║
+    ║  • Parses nested generics: List<Text<letter8>>        ✅         ║
+    ║  • Parses arrow lambdas: x => expr, (a,b) => expr     ✅         ║
+    ║  • Parses failable functions: routine name!()         ✅         ║
+    ║  • Parses fail/absent statements                      ✅         ║
     ║                                                                  ║
     ║  Key Methods:                                                    ║
-    ║    - ParseDeclaration()        (Line 45)                         ║
-    ║    - ParseGenericParameters()  (Line 425)                        ║
-    ║    - ParseImportDeclaration()  (Line 269)                        ║
+    ║    - ParseDeclaration()              (declarations)              ║
+    ║    - ParseGenericParameters()        (generic type params)       ║
+    ║    - ParseImportDeclaration()        (imports)                   ║
+    ║    - ParseArrowLambdaExpression()    (x => expr)                 ║
+    ║    - ParseParenthesizedArrowLambda() ((x) => expr)               ║
+    ║    - ConsumeGreaterForGeneric()      (>> splitting)              ║
     ╚══════════════════════════════════════════════════════════════════╝
-                                   │
-                                   │ AST
-                                   ▼
+                                 │
+                                 │ AST
+                                 ▼
     ╔══════════════════════════════════════════════════════════════════╗
     ║         PHASE 3: SEMANTIC ANALYSIS (Type Checking)               ║
     ║         src/Analysis/SemanticAnalyzer.cs                         ║
     ║         src/Analysis/SymbolTable.cs                              ║
     ╠══════════════════════════════════════════════════════════════════╣
-    ║  • Type checking and inference                                   ║
-    ║  • Symbol resolution                                             ║
-    ║  • Generic type resolution                        ⚠️ Partial     ║
-    ║  • Import resolution                              ❌ TODO        ║
-    ║  • Memory safety analysis                         ✅             ║
+    ║  • Type checking and inference                        ✅         ║
+    ║  • Symbol resolution                                  ✅         ║
+    ║  • Generic function type resolution                   ✅         ║
+    ║  • Generic entity/record type resolution              ⚠️ Partial ║
+    ║  • Import resolution                                  ❌ TODO    ║
+    ║  • Memory safety analysis                             ✅         ║
     ║                                                                  ║
     ║  Key Methods:                                                    ║
-    ║    - ResolveGenericType()      (Line 1353)                       ║
-    ║    - VisitImportDeclaration()  (Line 523) ← TODO!               ║
-    ║    - BindGenericArguments()    (Line 1389)                       ║
+    ║    - ResolveGenericType()                                        ║
+    ║    - VisitImportDeclaration()         ← TODO: Module system      ║
+    ║    - BindGenericArguments()                                      ║
+    ║    - ValidateGenericMethodCall()                                 ║
     ║                                                                  ║
     ║  Errors collected in: SemanticAnalyzer.Errors                    ║
     ╚══════════════════════════════════════════════════════════════════╝
-                                   │
-                                   │ Validated AST
-                                   │
-                 ┌─────────────────┴─────────────────┐
-                 │                                   │
-                 ▼                                   ▼
+                                 │
+                                 │ Validated AST
+                                 ▼
+    ╔══════════════════════════════════════════════════════════════════╗
+    ║      PHASE 3.5: FUNCTION VARIANT GENERATION                      ║
+    ║      src/Analysis/FunctionVariantGenerator.cs                    ║
+    ╠══════════════════════════════════════════════════════════════════╣
+    ║  • Analyzes failable (!) functions for fail/absent usage  ✅     ║
+    ║  • Generates safe wrapper variants automatically          ✅     ║
+    ║                                                                  ║
+    ║  Generation Rules:                                               ║
+    ║    ┌────────┬──────────┬────────────────────────────────┐        ║
+    ║    │ fail   │ absent   │ Generated Variants             │        ║
+    ║    ├────────┼──────────┼────────────────────────────────┤        ║
+    ║    │ no     │ no       │ Compile Error                  │        ║
+    ║    │ no     │ yes      │ try_ only (Maybe<T>)           │        ║
+    ║    │ yes    │ no       │ try_, check_ (Result<T>)       │        ║
+    ║    │ yes    │ yes      │ try_, find_ (Lookup<T>)        │        ║
+    ║    └────────┴──────────┴────────────────────────────────┘        ║
+    ║                                                                  ║
+    ║  Example: divide!() → try_divide(), check_divide()               ║
+    ╚══════════════════════════════════════════════════════════════════╝
+                                 │
+                                 │ AST with generated variants
+                                 │
+               ┌─────────────────┴─────────────────┐
+               │                                   │
+               ▼                                   ▼
     ┌──────────────────────────┐      ┌──────────────────────────┐
     │  PHASE 4A: SIMPLE CODEGEN│      │  PHASE 4B: LLVM CODEGEN  │
     │  SimpleCodeGenerator.cs  │      │  LLVMCodeGenerator.cs    │
     ├──────────────────────────┤      ├──────────────────────────┤
     │ • Readable output        │      │ • LLVM IR generation     │
     │ • For debugging          │      │ • Generic monomorphization│
-    │ • .out file              │      │ • .ll file               │
-    │                          │      │                          │
-    │ Example:                 │      │ Example:                 │
-    │ routine add(a, b) {      │      │ define i32 @add(i32, i32)│
-    │   return a + b            │      │ {                        │
-    │ }                        │      │   %1 = add i32 %0, %1    │
+    │ • .out file              │      │ • Deferred instantiation │
+    │                          │      │ • Console I/O support    │
+    │ Example:                 │      │ • Target platform detect │
+    │ routine add(a, b) {      │      │ • .ll file               │
+    │   return a + b           │      │                          │
+    │ }                        │      │ Example:                 │
+    │                          │      │ define i32 @add(i32, i32)│
+    │                          │      │ {                        │
+    │                          │      │   %1 = add i32 %0, %1    │
     │                          │      │   ret i32 %1             │
     │                          │      │ }                        │
     └──────────────────────────┘      └──────────┬───────────────┘
-                                                 │
-                                                 │ LLVM IR
-                                                 ▼
-                                    ┌─────────────────────────┐
-                                    │   PHASE 5: COMPILATION  │
-                                    │   (clang)               │
-                                    ├─────────────────────────┤
-                                    │ • Compiles LLVM IR      │
-                                    │ • Optimizes code        │
-                                    │ • Links libraries       │
-                                    │ • Generates executable  │
-                                    └──────────┬──────────────┘
                                                │
+                                               │ LLVM IR
                                                ▼
-                                    ┏━━━━━━━━━━━━━━━━━━━━━┓
-                                    ┃  EXECUTABLE OUTPUT  ┃
-                                    ┃    (.exe / .out)    ┃
-                                    ┗━━━━━━━━━━━━━━━━━━━━━┛
+                                  ┌─────────────────────────┐
+                                  │   PHASE 5: COMPILATION  │
+                                  │   (clang)               │
+                                  ├─────────────────────────┤
+                                  │ • Compiles LLVM IR      │
+                                  │ • Optimizes code        │
+                                  │ • Links C runtime       │
+                                  │ • Links native/runtime  │
+                                  │ • Generates executable  │
+                                  └──────────┬──────────────┘
+                                             │
+                                             ▼
+                                  ┏━━━━━━━━━━━━━━━━━━━━━┓
+                                  ┃  EXECUTABLE OUTPUT  ┃
+                                  ┃    (.exe / .out)    ┃
+                                  ┗━━━━━━━━━━━━━━━━━━━━━┛
 
 ================================================================================
-                       GENERIC TYPE PROCESSING FLOW
+                       GENERIC FUNCTION MONOMORPHIZATION
 ================================================================================
 
 Source Code:
-    entity List<T> {
-        routine push(value: T) { ... }
+    routine identity<T>(value: T) -> T {
+        return value
     }
 
-    let list: List<s32> = List<s32>()
+    routine main() -> s32 {
+        let x = identity<s32>(42)
+        return x
+    }
 
 
-Step 1: PARSING
+Step 1: PARSING ✅
 ┌────────────────────────────────────────────────────────────────┐
-│ RazorForgeParser.ParseClassDeclaration() - Line 425           │
+│ RazorForgeParser.ParseFunctionDeclaration()                    │
 ├────────────────────────────────────────────────────────────────┤
 │                                                                │
-│  Sees: entity List<T>                                          │
+│  Sees: routine identity<T>(value: T) -> T                      │
 │                                                                │
-│  1. Consume "entity" keyword                                   │
-│  2. Read identifier "List"                                     │
+│  1. Consume "routine" keyword                                  │
+│  2. Read identifier "identity"                                 │
 │  3. See '<' token → ParseGenericParameters()                   │
 │  4. Extract parameter names: ["T"]                             │
 │  5. Consume '>' token                                          │
-│  6. Parse body {...}                                           │
+│  6. Parse parameters and return type                           │
+│  7. Parse body {...}                                           │
 │                                                                │
 │  Creates:                                                      │
-│    ClassDeclaration(                                           │
-│      Name: "List",                                             │
+│    FunctionDeclaration(                                        │
+│      Name: "identity",                                         │
 │      GenericParameters: ["T"],  ✅                              │
-│      Members: [...]                                            │
+│      Parameters: [(value, T)],                                 │
+│      ReturnType: T                                             │
 │    )                                                           │
 └────────────────────────────────────────────────────────────────┘
-                            │
-                            │ AST with generic declaration
-                            ▼
-Step 2: SEMANTIC ANALYSIS (Declaration Phase)
+                          │
+                          │ AST with generic function
+                          ▼
+Step 2: SEMANTIC ANALYSIS ✅
 ┌────────────────────────────────────────────────────────────────┐
-│ SemanticAnalyzer.VisitClassDeclaration() - Line 678           │
+│ SemanticAnalyzer.VisitFunctionDeclaration()                    │
 ├────────────────────────────────────────────────────────────────┤
 │                                                                │
-│  1. Create ClassSymbol:                                        │
-│       ClassSymbol(                                             │
-│         Name: "List",                                          │
-│         GenericParameters: ["T"],  ✅                           │
-│         IsGeneric: true            ✅                           │
-│       )                                                        │
+│  1. Register type parameters in scope (T as TypeParameterSymbol)│
+│  2. Create FunctionSymbol with generic info                    │
+│  3. Validate function body with T as valid type                │
 │                                                                │
-│  2. Add to symbol table                                        │
-│  3. Enter new scope for class body                             │
-│  4. Add "T" as type parameter in scope                         │
-│  5. Visit members (push method sees "T" as valid type)         │
+│  For call site: identity<s32>(42)                              │
+│  4. Look up "identity" → finds generic FunctionSymbol          │
+│  5. Bind T → s32                                               │
+│  6. Validate argument types match                              │
+│  7. Return type resolved: s32                                  │
 │                                                                │
 └────────────────────────────────────────────────────────────────┘
-                            │
-                            │ Symbol table populated
-                            ▼
-Step 3: SEMANTIC ANALYSIS (Usage Phase)
+                          │
+                          │ Validated generic call
+                          ▼
+Step 3: CODE GENERATION ✅
 ┌────────────────────────────────────────────────────────────────┐
-│ SemanticAnalyzer - Resolve List<s32>                          │
+│ LLVMCodeGenerator - Deferred Instantiation                     │
 ├────────────────────────────────────────────────────────────────┤
 │                                                                │
-│  Sees: List<s32>                                               │
+│  During VisitGenericMethodCallExpression:                      │
+│  1. Generate call: identity_s32(42)                            │
+│  2. Queue instantiation: _pendingGenericInstantiations         │
 │                                                                │
-│  1. Look up "List" → finds ClassSymbol                         │
-│  2. Check IsGeneric → true ✅                                   │
-│  3. GenericParameters count → 1                                │
-│  4. GenericArguments count → 1 ✅                               │
-│  5. Bind: T → s32                                              │
+│  After VisitProgram (GeneratePendingInstantiations):           │
+│  3. For each pending instantiation:                            │
+│     - Substitute T with s32 in function body                   │
+│     - Generate: define i32 @identity_s32(i32 %value)           │
 │                                                                │
-│  Creates:                                                      │
-│    TypeInfo(                                                   │
-│      Name: "List",                                             │
-│      GenericArguments: [TypeInfo("s32")],  ✅                   │
-│      IsReference: true                                         │
-│    )                                                           │
-│                                                                │
-│  ⚠️ TODO: Validate constraints on T                            │
-│  ⚠️ TODO: Cache instantiated types                             │
-│                                                                │
-└────────────────────────────────────────────────────────────────┘
-                            │
-                            │ Resolved generic type
-                            ▼
-Step 4: CODE GENERATION
-┌────────────────────────────────────────────────────────────────┐
-│ LLVMCodeGenerator.MangleGenericName() - Line 201              │
-├────────────────────────────────────────────────────────────────┤
-│                                                                │
-│  Input: TypeInfo("List", [TypeInfo("s32")])                   │
-│                                                                │
-│  1. Start with base name: "List"                               │
-│  2. For each generic argument:                                 │
-│     - Append "_"                                               │
-│     - Append argument name: "s32"                              │
-│  3. Result: "List_s32"                                         │
-│                                                                │
-│  Generates LLVM IR:                                            │
-│    %struct.List_s32 = type {                                   │
-│      ptr,    ; data: DynamicSlice                              │
-│      i64,    ; len: u64                                        │
-│      i64     ; capacity: u64                                   │
+│  Output:                                                       │
+│    define i32 @main() {                                        │
+│      %tmp0 = call i32 @identity_s32(i32 42)                    │
+│      ret i32 %tmp0                                             │
 │    }                                                           │
 │                                                                │
-│    define void @List_s32_push(                                 │
-│      ptr %self, i32 %value) { ... }                           │
+│    define i32 @identity_s32(i32 %value) {                      │
+│      ret i32 %value                                            │
+│    }                                                           │
 │                                                                │
-│  ⚠️ Currently only generates code for explicitly used types    │
-│  ⚠️ Full monomorphization not implemented                      │
+└────────────────────────────────────────────────────────────────┘
+
+
+================================================================================
+                         ARROW LAMBDA PARSING
+================================================================================
+
+Source Code Examples:
+    x => x * 2              # Single param, no parens
+    (x) => x * x            # Single param with parens
+    (a, b) => a + b         # Multi-param
+    () => 42                # No params
+    (x: s32) => x * 3       # Typed params
+
+
+Parsing Flow:
+┌────────────────────────────────────────────────────────────────┐
+│ RazorForgeParser.ParsePrimary()                                │
+├────────────────────────────────────────────────────────────────┤
+│                                                                │
+│  Check 1: Is it "x =>" pattern?                                │
+│  ─────────────────────────────                                 │
+│    if (Check(Identifier) && PeekToken(1) == FatArrow)          │
+│      → ParseArrowLambdaExpression()                            │
+│                                                                │
+│    ParseArrowLambdaExpression():                               │
+│      1. Consume identifier as param name                       │
+│      2. Consume '=>'                                           │
+│      3. Parse body expression                                  │
+│      → LambdaExpression([param], body)                         │
+│                                                                │
+│  Check 2: Is it "(..." pattern?                                │
+│  ──────────────────────────────                                │
+│    if (Match(LeftParen))                                       │
+│      if (IsArrowLambdaParameters())  ← lookahead check         │
+│        → ParseParenthesizedArrowLambda()                       │
+│      else                                                      │
+│        → normal parenthesized expression                       │
+│                                                                │
+│    IsArrowLambdaParameters():                                  │
+│      Scan ahead: identifier [: type]? [, ...]* ) =>            │
+│      Returns true if pattern matches                           │
+│                                                                │
+│    ParseParenthesizedArrowLambda():                            │
+│      1. Parse params with optional types                       │
+│      2. Consume ')'                                            │
+│      3. Consume '=>'                                           │
+│      4. Parse body expression                                  │
+│      → LambdaExpression([params...], body)                     │
+│                                                                │
+└────────────────────────────────────────────────────────────────┘
+
+
+================================================================================
+                       NESTED GENERIC TYPE PARSING
+================================================================================
+
+Problem: >> tokenized as RightShift operator
+    List<Text<letter8>>
+              ^^─── This was parsed as >> (right shift)
+
+Solution: ConsumeGreaterForGeneric()
+┌────────────────────────────────────────────────────────────────┐
+│ RazorForgeParser.ConsumeGreaterForGeneric()                    │
+├────────────────────────────────────────────────────────────────┤
+│                                                                │
+│  When closing generic type argument list:                      │
+│                                                                │
+│  1. Try Match(Greater) → success, done                         │
+│                                                                │
+│  2. If Check(RightShift):  (seeing >>)                         │
+│     a. Save current token position                             │
+│     b. Advance past >>                                         │
+│     c. Insert new Greater token at current position            │
+│        (This splits >> into > and leaves > for next close)     │
+│     d. Return success                                          │
+│                                                                │
+│  Example: List<Text<letter8>>                                  │
+│                           ^^                                   │
+│    First > closes Text<letter8>                                │
+│    >> is split, second > closes List<...>                      │
+│                                                                │
+└────────────────────────────────────────────────────────────────┘
+
+
+================================================================================
+                    FAILABLE FUNCTION & VARIANT GENERATION
+================================================================================
+
+Source Code:
+    routine divide!(a: s32, b: s32) -> s32 {
+        if b == 0 {
+            fail DivisionError(message: "Division by zero")
+        }
+        return a / b
+    }
+
+
+Step 1: PARSING ✅
+┌────────────────────────────────────────────────────────────────┐
+│ RazorForgeParser.ParseFunctionDeclaration()                    │
+├────────────────────────────────────────────────────────────────┤
+│                                                                │
+│  Sees: routine divide!(a: s32, b: s32) -> s32                  │
+│                                                                │
+│  1. Consume "routine" keyword                                  │
+│  2. Read identifier "divide"                                   │
+│  3. See '!' token → Mark as failable function                  │
+│  4. Parse parameters and return type                           │
+│  5. Parse body with fail/absent statements                     │
+│                                                                │
+│  Creates:                                                      │
+│    FunctionDeclaration(                                        │
+│      Name: "divide",                                           │
+│      IsFailable: true,  ✅                                      │
+│      Parameters: [(a, s32), (b, s32)],                         │
+│      ReturnType: s32,                                          │
+│      Body: { ... fail ... }                                    │
+│    )                                                           │
+└────────────────────────────────────────────────────────────────┘
+                          │
+                          │ AST with failable function
+                          ▼
+Step 2: VARIANT GENERATION ✅
+┌────────────────────────────────────────────────────────────────┐
+│ FunctionVariantGenerator.Generate()                            │
+├────────────────────────────────────────────────────────────────┤
+│                                                                │
+│  1. Analyze function body for fail/absent usage                │
+│     - hasFail = true (found "fail DivisionError(...)")         │
+│     - hasAbsent = false (no "absent" statements)               │
+│                                                                │
+│  2. Apply generation rules:                                    │
+│     fail=yes, absent=no → generate try_, check_                │
+│                                                                │
+│  3. Generate variants:                                         │
+│                                                                │
+│     routine try_divide(a: s32, b: s32) -> Maybe<s32> {         │
+│         // Wraps original, catches fail, returns None          │
+│     }                                                          │
+│                                                                │
+│     routine check_divide(a: s32, b: s32) -> Result<s32> {      │
+│         // Wraps original, catches fail, returns Error         │
+│     }                                                          │
+│                                                                │
+└────────────────────────────────────────────────────────────────┘
+                          │
+                          │ AST with generated variants
+                          ▼
+Step 3: CODE GENERATION ✅
+┌────────────────────────────────────────────────────────────────┐
+│ LLVMCodeGenerator                                              │
+├────────────────────────────────────────────────────────────────┤
+│                                                                │
+│  Generates LLVM IR for:                                        │
+│  - divide! (original, may crash)                               │
+│  - try_divide (returns Maybe<s32>)                             │
+│  - check_divide (returns Result<s32>)                          │
+│                                                                │
+│  Usage in user code:                                           │
+│    let result = try_divide(10, 0)   // Returns None            │
+│    let result = check_divide(10, 0) // Returns Error           │
+│    let value = divide!(10, 2)       // Returns 5 or crashes    │
 │                                                                │
 └────────────────────────────────────────────────────────────────┘
 
@@ -231,7 +409,7 @@ Source Code:
 
 Step 1: PARSING ✅
 ┌────────────────────────────────────────────────────────────────┐
-│ RazorForgeParser.ParseImportDeclaration() - Line 269          │
+│ RazorForgeParser.ParseImportDeclaration()                      │
 ├────────────────────────────────────────────────────────────────┤
 │                                                                │
 │  1. Consume "import" keyword                                   │
@@ -240,26 +418,20 @@ Step 1: PARSING ✅
 │     - See '/' → append to path                                 │
 │     - Read "List" (identifier)                                 │
 │  3. Check for "as" alias (optional)                            │
-│  4. Check for "{...}" selective imports (not implemented)      │
 │                                                                │
 │  Creates:                                                      │
 │    ImportDeclaration(                                          │
 │      ModulePath: "Collections/List",  ✅                        │
-│      Alias: null,                                              │
-│      SpecificImports: null                                     │
+│      Alias: null                                               │
 │    )                                                           │
 │                                                                │
-│  ⚠️ Issue: Can't handle keywords in path                       │
-│     import Collections/entity/List ← fails                     │
-│     ("entity" is keyword, not identifier)                      │
-│                                                                │
 └────────────────────────────────────────────────────────────────┘
-                            │
-                            │ AST node created
-                            ▼
+                          │
+                          │ AST node created
+                          ▼
 Step 2: SEMANTIC ANALYSIS ❌
 ┌────────────────────────────────────────────────────────────────┐
-│ SemanticAnalyzer.VisitImportDeclaration() - Line 523          │
+│ SemanticAnalyzer.VisitImportDeclaration()                      │
 ├────────────────────────────────────────────────────────────────┤
 │                                                                │
 │  public object? VisitImportDeclaration(                        │
@@ -276,13 +448,6 @@ Step 2: SEMANTIC ANALYSIS ❌
 │  Result: "List" symbol never added to symbol table!            │
 │                                                                │
 └────────────────────────────────────────────────────────────────┘
-                            │
-                            │ Symbol not found!
-                            ▼
-                   ┏━━━━━━━━━━━━━━━━━━━┓
-                   ┃  COMPILATION ERROR ┃
-                   ┃ "Undefined: List" ┃
-                   ┗━━━━━━━━━━━━━━━━━━━┛
 
 
 Target Implementation (Needed):
@@ -290,7 +455,7 @@ Target Implementation (Needed):
 
 Step 2: MODULE RESOLUTION (NEW)
 ┌────────────────────────────────────────────────────────────────┐
-│ ModuleResolver.Resolve() - To Be Implemented                  │
+│ ModuleResolver.Resolve() - To Be Implemented                   │
 ├────────────────────────────────────────────────────────────────┤
 │                                                                │
 │  Input: "Collections/List"                                     │
@@ -308,97 +473,62 @@ Step 2: MODULE RESOLUTION (NEW)
 │     - Yes → return cached module                               │
 │     - No → continue to parsing                                 │
 │                                                                │
-│  4. Read file: stdlib/Collections/List.rf                      │
-│  5. Parse file → get AST                                       │
-│  6. Create Module object:                                      │
-│       Module(                                                  │
-│         Path: "Collections/List",                              │
-│         SourcePath: "stdlib/Collections/List.rf",              │
-│         AST: [...],                                            │
-│         Symbols: SymbolTable()                                 │
-│       )                                                        │
-│                                                                │
-│  7. Process imports in that file (recursive)                   │
-│     - List.rf imports memory/DynamicSlice                      │
-│     - Resolve that import first                                │
-│                                                                │
-│  8. Cache module for reuse                                     │
-│  9. Return Module object                                       │
+│  4. Read file, Parse → get AST                                 │
+│  5. Process imports in that file (recursive)                   │
+│  6. Cache module for reuse                                     │
 │                                                                │
 └────────────────────────────────────────────────────────────────┘
-                            │
-                            │ Module loaded
-                            ▼
-Step 3: SYMBOL POPULATION (NEW)
+
+
+================================================================================
+                         CONSOLE I/O SYSTEM
+================================================================================
+
+Console Operations (via C Runtime):
+────────────────────────────────────
+
+Source Code:
+    Console.show("Hello")              # stdout, no newline
+    Console.show_line("Hello")         # stdout with newline
+    Console.alert("Error!")            # stderr, no newline
+    Console.alert_line("Error!")       # stderr with newline
+
+    let word = Console.input_word()    # read until whitespace
+    let line = Console.input_line()    # read until newline
+    let chars = Console.input_letters(5)  # read exactly 5 letters
+    let words = Console.input_words()  # read all words (List)
+    let lines = Console.input_lines()  # read all lines (List)
+    let all = Console.input_all()      # read until EOF
+
+
+Code Generation Flow:
 ┌────────────────────────────────────────────────────────────────┐
-│ SemanticAnalyzer.VisitImportDeclaration() - Enhanced          │
+│ LLVMCodeGenerator - Console I/O Support                        │
 ├────────────────────────────────────────────────────────────────┤
 │                                                                │
-│  1. Get module from resolver                                   │
-│     Module module = ModuleResolver.Resolve("Collections/List")│
+│  OUTPUT (generic, uses to_text() method):                      │
+│    show<T>(value)      → rf_console_print_text8 (stdout)       │
+│    show_line<T>(value) → rf_console_print_line_text8           │
+│    alert<T>(value)     → rf_console_alert_text8 (stderr)       │
+│    alert_line<T>(value)→ rf_console_alert_line_text8           │
 │                                                                │
-│  2. Extract exported symbols:                                  │
-│     - Public entity List<T>       → Add to symbol table        │
-│     - Private members             → Skip                       │
+│  INPUT:                                                        │
+│    input_letters(n)    → rf_console_input_letters (n chars)    │
+│    input_word()        → rf_console_input_word (until space)   │
+│    input_line()        → rf_console_input_line (until newline) │
+│    input_words()       → rf_console_input_words (List<Text>)   │
+│    input_lines()       → rf_console_input_lines (List<Text>)   │
+│    input_all()         → rf_console_input_all (until EOF)      │
 │                                                                │
-│  3. Handle alias:                                              │
-│     import Collections/List as CL                              │
-│     → Symbol accessible as "CL.List" or just "List"            │
+│  UTILITY:                                                      │
+│    Console.flush()     → rf_console_flush                      │
+│    Console.clear()     → rf_console_clear                      │
 │                                                                │
-│  4. Handle selective imports:                                  │
-│     import Collections { List, Dict }                          │
-│     → Only add List and Dict symbols                           │
-│                                                                │
-│  5. Track dependencies:                                        │
-│     - For incremental compilation                              │
-│     - For circular import detection                            │
-│                                                                │
-│  6. Symbol table now has:                                      │
-│     ClassSymbol(                                               │
-│       Name: "List",                                            │
-│       GenericParameters: ["T"],                                │
-│       IsImported: true,                                        │
-│       SourceModule: "Collections/List"                         │
-│     )                                                          │
+│  Platform Detection (TargetPlatform.cs):                       │
+│    - Windows: Uses MSVC conventions                            │
+│    - Linux/macOS: Uses System V AMD64 ABI                      │
 │                                                                │
 └────────────────────────────────────────────────────────────────┘
-                            │
-                            │ Symbols available!
-                            ▼
-                   ┏━━━━━━━━━━━━━━━━━━━┓
-                   ┃ COMPILATION SUCCESS┃
-                   ┃ "List" resolved!  ┃
-                   ┗━━━━━━━━━━━━━━━━━━━┛
-
-
-================================================================================
-                    SYMBOL TABLE SCOPE MANAGEMENT
-================================================================================
-
-Global Scope
-└── import Collections/List
-    │
-    ├── Symbol: List<T> (imported)
-    │
-    └── routine main()
-        └── Local Scope (main)
-            ├── Variable: list (List<s32>)
-            │   └── Type resolved from imported symbol ✅
-            │
-            └── Method call: list.push(42)
-                └── Resolved to: List<T>.push where T=s32 ✅
-
-
-Current Issue:
-──────────────
-Global Scope
-└── import Collections/List  ← Parsed but ignored!
-    │
-    └── routine main()
-        └── Local Scope (main)
-            ├── Variable: list (List<s32>)  ← Error!
-            │   └── Symbol "List" not found ❌
-            └── ...
 
 
 ================================================================================
@@ -412,8 +542,11 @@ Program.cs
    │                                         │
    ├──> Parser ─────────────────────────> AST
    │       │                                 │
-   │       │ ParseGenericParameters() ✅      │
-   │       │ ParseImportDeclaration() ✅      │
+   │       │ ParseGenericParameters()    ✅  │
+   │       │ ParseImportDeclaration()    ✅  │
+   │       │ ParseArrowLambdaExpression()✅  │
+   │       │ ConsumeGreaterForGeneric()  ✅  │
+   │       │ ParseFailableFunction()     ✅  │
    │       │                                 │
    │                                         │
    ├──> SemanticAnalyzer ────────────────> Validated AST + Errors
@@ -423,22 +556,42 @@ Program.cs
    │       │    ├─> FunctionSymbol           │
    │       │    │    └─> GenericParameters ✅│
    │       │    │                            │
-   │       │    └─> ClassSymbol              │
-   │       │         └─> GenericParameters ✅│
+   │       │    ├─> ClassSymbol              │
+   │       │    │    └─> GenericParameters ✅│
+   │       │    │                            │
+   │       │    └─> TypeParameterSymbol   ✅ │
    │       │                                 │
-   │       ├─> ResolveGenericType() ⚠️       │
+   │       ├─> ResolveGenericType()      ✅  │
+   │       ├─> ValidateGenericMethodCall()✅ │
    │       │                                 │
-   │       └─> VisitImportDeclaration() ❌   │
+   │       └─> VisitImportDeclaration()  ❌  │
    │            (TODO: Module system)        │
+   │                                         │
+   │                                         │
+   ├──> FunctionVariantGenerator ────────> AST with generated variants
+   │       │                                 │
+   │       ├─> Analyzes fail/absent usage ✅ │
+   │       ├─> Generates try_* variants   ✅ │
+   │       ├─> Generates check_* variants ✅ │
+   │       └─> Generates find_* variants  ✅ │
    │                                         │
    │                                         │
    ├──> LLVMCodeGenerator ────────────────> LLVM IR (.ll)
    │       │                                 │
-   │       ├─> MangleGenericName() ✅        │
-   │       │    List<s32> → List_s32         │
+   │       ├─> MangleGenericName()       ✅  │
+   │       │    identity<s32> → identity_s32 │
    │       │                                 │
-   │       └─> Generic instantiation         │
-   │            tracking ⚠️                  │
+   │       ├─> InstantiateGenericFunction()✅│
+   │       │    (deferred to end of program) │
+   │       │                                 │
+   │       ├─> GeneratePendingInstantiations│
+   │       │    ✅ (after main code)         │
+   │       │                                 │
+   │       ├─> Console I/O               ✅  │
+   │       │    show/alert/input_* funcs     │
+   │       │                                 │
+   │       └─> TargetPlatform detection  ✅  │
+   │            (Win/Linux/macOS)            │
    │                                         │
    │                                         │
    └──> clang ──────────────────────────> Executable
@@ -449,35 +602,154 @@ Program.cs
 ================================================================================
 
 GENERICS:
-┌────────────────────────┬──────────┬───────────────────────────────┐
-│ Feature                │ Status   │ Location                      │
-├────────────────────────┼──────────┼───────────────────────────────┤
-│ Parse entity<T>        │ ✅ DONE  │ RazorForgeParser.cs:425       │
-│ Parse List<s32>        │ ✅ DONE  │ RazorForgeParser.cs:1098      │
-│ Parse method<T>()      │ ✅ DONE  │ RazorForgeParser.cs:1685      │
-│ Parse call<T>!()       │ ✅ DONE  │ RazorForgeParser.cs:2405      │
-│ Store in AST           │ ✅ DONE  │ Declarations.cs, Expressions  │
-│ Symbol table support   │ ✅ DONE  │ SymbolTable.cs                │
-│ Type resolution        │ ⚠️ PART  │ SemanticAnalyzer.cs:1353      │
-│ Constraint checking    │ ⚠️ TODO  │ SemanticAnalyzer.cs:1429      │
-│ Code generation        │ ⚠️ PART  │ LLVMCodeGenerator.cs:201      │
-│ Monomorphization       │ ⚠️ TODO  │ LLVMCodeGenerator.cs:60       │
-└────────────────────────┴──────────┴───────────────────────────────┘
+┌────────────────────────────────┬──────────┬───────────────────────────┐
+│ Feature                        │ Status   │ Notes                     │
+├────────────────────────────────┼──────────┼───────────────────────────┤
+│ Parse entity<T>                │ ✅ DONE  │ Generic entity syntax     │
+│ Parse List<s32>                │ ✅ DONE  │ Generic type usage        │
+│ Parse routine<T>()             │ ✅ DONE  │ Generic function syntax   │
+│ Parse List<List<s32>>          │ ✅ DONE  │ Nested generics (>> fix)  │
+│ Parse call<T>()                │ ✅ DONE  │ Generic method call       │
+│ Store in AST                   │ ✅ DONE  │ GenericParameters field   │
+│ Symbol table support           │ ✅ DONE  │ TypeParameterSymbol       │
+│ Generic function resolution    │ ✅ DONE  │ Monomorphization works    │
+│ Generic entity resolution      │ ⚠️ TODO  │ Need instantiation        │
+│ Constraint checking            │ ❌ TODO  │ where T: Protocol         │
+│ Function monomorphization      │ ✅ DONE  │ identity<s32> works       │
+│ Entity monomorphization        │ ❌ TODO  │ List<s32> struct gen      │
+└────────────────────────────────┴──────────┴───────────────────────────┘
+
+LAMBDAS:
+┌────────────────────────────────┬──────────┬───────────────────────────┐
+│ Feature                        │ Status   │ Notes                     │
+├────────────────────────────────┼──────────┼───────────────────────────┤
+│ Parse x => expr                │ ✅ DONE  │ Single param, no parens   │
+│ Parse (x) => expr              │ ✅ DONE  │ Single param with parens  │
+│ Parse (a, b) => expr           │ ✅ DONE  │ Multi-param               │
+│ Parse () => expr               │ ✅ DONE  │ No params                 │
+│ Parse (x: T) => expr           │ ✅ DONE  │ Typed params              │
+│ Lambda AST node                │ ✅ DONE  │ LambdaExpression          │
+│ Lambda type inference          │ ⚠️ TODO  │ Need context-based        │
+│ Lambda code generation         │ ❌ TODO  │ LLVM function pointers    │
+│ Closure capture                │ ❌ TODO  │ Per memory model rules    │
+└────────────────────────────────┴──────────┴───────────────────────────┘
 
 IMPORTS:
-┌────────────────────────┬──────────┬───────────────────────────────┐
-│ Feature                │ Status   │ Location                      │
-├────────────────────────┼──────────┼───────────────────────────────┤
-│ Parse import a/b/c     │ ✅ DONE  │ RazorForgeParser.cs:269       │
-│ Parse import as alias  │ ✅ DONE  │ RazorForgeParser.cs:294       │
-│ Parse import {a, b}    │ ❌ TODO  │ Parser (not implemented)      │
-│ Store in AST           │ ✅ DONE  │ Declarations.cs:339           │
-│ Module resolution      │ ❌ TODO  │ (needs new class)             │
-│ File lookup            │ ❌ TODO  │ (needs new class)             │
-│ Symbol population      │ ❌ TODO  │ SemanticAnalyzer.cs:523       │
-│ Circular detection     │ ❌ TODO  │ (needs new logic)             │
-│ Transitive imports     │ ❌ TODO  │ (needs new logic)             │
-└────────────────────────┴──────────┴───────────────────────────────┘
+┌────────────────────────────────┬──────────┬───────────────────────────┐
+│ Feature                        │ Status   │ Notes                     │
+├────────────────────────────────┼──────────┼───────────────────────────┤
+│ Parse import a/b/c             │ ✅ DONE  │ Path parsing              │
+│ Parse import as alias          │ ✅ DONE  │ Alias support             │
+│ Parse import {a, b}            │ ❌ TODO  │ Selective imports         │
+│ Store in AST                   │ ✅ DONE  │ ImportDeclaration         │
+│ Module resolution              │ ❌ TODO  │ ModuleResolver class      │
+│ File lookup                    │ ❌ TODO  │ stdlib/ search path       │
+│ Symbol population              │ ❌ TODO  │ Add to symbol table       │
+│ Circular detection             │ ❌ TODO  │ Track loaded modules      │
+│ Transitive imports             │ ❌ TODO  │ Handle nested imports     │
+└────────────────────────────────┴──────────┴───────────────────────────┘
+
+FAILABLE FUNCTIONS & ERROR HANDLING:
+┌────────────────────────────────┬──────────┬───────────────────────────┐
+│ Feature                        │ Status   │ Notes                     │
+├────────────────────────────────┼──────────┼───────────────────────────┤
+│ Parse routine name!()          │ ✅ DONE  │ Failable function syntax  │
+│ Parse fail statement           │ ✅ DONE  │ fail ErrorType(...)       │
+│ Parse absent statement         │ ✅ DONE  │ absent (not found)        │
+│ Detect fail/absent usage       │ ✅ DONE  │ FunctionVariantGenerator  │
+│ Generate try_* variants        │ ✅ DONE  │ Returns Maybe<T>          │
+│ Generate check_* variants      │ ✅ DONE  │ Returns Result<T>         │
+│ Generate find_* variants       │ ✅ DONE  │ Returns Lookup<T>         │
+│ Type constructor __create__!   │ ✅ DONE  │ Failable constructors     │
+└────────────────────────────────┴──────────┴───────────────────────────┘
+
+CONSOLE I/O:
+┌────────────────────────────────┬──────────┬───────────────────────────┐
+│ Feature                        │ Status   │ Notes                     │
+├────────────────────────────────┼──────────┼───────────────────────────┤
+│ show<T>(value)                 │ ✅ DONE  │ Generic stdout output     │
+│ show_line<T>(value)            │ ✅ DONE  │ stdout with newline       │
+│ alert<T>(value)                │ ✅ DONE  │ Generic stderr output     │
+│ alert_line<T>(value)           │ ✅ DONE  │ stderr with newline       │
+│ input_letters(n)               │ ✅ DONE  │ Read n characters         │
+│ input_word()                   │ ✅ DONE  │ Read until whitespace     │
+│ input_line()                   │ ✅ DONE  │ Read until newline        │
+│ input_words()                  │ ✅ DONE  │ Read all words (List)     │
+│ input_lines()                  │ ✅ DONE  │ Read all lines (List)     │
+│ input_all()                    │ ✅ DONE  │ Read until EOF            │
+│ flush(), clear()               │ ✅ DONE  │ Utility functions         │
+│ Target platform detection      │ ✅ DONE  │ Win/Linux/macOS           │
+└────────────────────────────────┴──────────┴───────────────────────────┘
+
+TYPE SYSTEM:
+┌────────────────────────────────┬──────────┬───────────────────────────┐
+│ Feature                        │ Status   │ Notes                     │
+├────────────────────────────────┼──────────┼───────────────────────────┤
+│ Primitive types                │ ✅ DONE  │ s32, u64, f64, bool, etc. │
+│ Generic type arguments         │ ✅ DONE  │ List<s32>                 │
+│ Function types Routine<(T),U>  │ ❌ TODO  │ For itertools callbacks   │
+│ Type inference (basic)         │ ✅ DONE  │ let x = 42                │
+│ Type inference (generics)      │ ⚠️ TODO  │ Infer from context        │
+│ Maybe<T> type                  │ ✅ DONE  │ For try_* variants        │
+│ Result<T> type                 │ ✅ DONE  │ For check_* variants      │
+│ Lookup<T> type                 │ ✅ DONE  │ For find_* variants       │
+└────────────────────────────────┴──────────┴───────────────────────────┘
+
+INTRINSICS:
+┌────────────────────────────────┬──────────┬───────────────────────────┐
+│ Feature                        │ Status   │ Notes                     │
+├────────────────────────────────┼──────────┼───────────────────────────┤
+│ sizeof<T>()                    │ ❌ TODO  │ Type size in bytes        │
+│ crash(message)                 │ ❌ TODO  │ Panic/abort               │
+│ @intrinsic.* operations        │ ✅ DONE  │ Low-level ops             │
+└────────────────────────────────┴──────────┴───────────────────────────┘
+
+ITERTOOLS (stdlib List<T>):
+┌────────────────────────────────┬──────────┬───────────────────────────┐
+│ Feature                        │ Status   │ Notes                     │
+├────────────────────────────────┼──────────┼───────────────────────────┤
+│ select<U>, where, where_not    │ ✅ DONE  │ Stdlib implementation     │
+│ take, take_while               │ ✅ DONE  │ Stdlib implementation     │
+│ skip, skip_while               │ ✅ DONE  │ Stdlib implementation     │
+│ any, all, none, count          │ ✅ DONE  │ Stdlib implementation     │
+│ first, last, *_or_default      │ ✅ DONE  │ Stdlib implementation     │
+│ reverse, extend, chunk         │ ✅ DONE  │ Stdlib implementation     │
+│ fold<U>, for_each, to_list     │ ✅ DONE  │ Stdlib implementation     │
+│ Execution (needs lambda codegen│ ❌ TODO  │ Waiting on compiler       │
+└────────────────────────────────┴──────────┴───────────────────────────┘
+
+
+================================================================================
+                     IMPLEMENTATION PRIORITY PHASES
+================================================================================
+
+Phase 1: Core Generics (Current Focus)
+────────────────────────────────────────
+1. ✅ Generic function monomorphization
+2. ✅ Nested generic type parsing (>> fix)
+3. ⏳ Generic entity/record support
+4. ⏳ Routine<(T), U> type parsing
+
+Phase 2: Module System
+────────────────────────────────────────
+1. Module resolution (file lookup)
+2. Symbol import/export
+3. Transitive imports
+4. Circular import detection
+
+Phase 3: Intrinsics & Runtime
+────────────────────────────────────────
+1. sizeof<T>() intrinsic
+2. crash() intrinsic
+3. Lambda code generation
+4. Closure capture semantics
+
+Phase 4: Advanced Features
+────────────────────────────────────────
+1. Generic constraints (where T: Comparable)
+2. Multiple type parameters (Dict<K, V>)
+3. Option types (T?)
+4. Type inference improvements
 
 
 ================================================================================
@@ -486,8 +758,8 @@ IMPORTS:
 
 ✅ DONE     - Feature fully implemented and working
 ⚠️ PARTIAL  - Feature partially implemented, needs more work
+⏳ TODO     - Feature not implemented yet, in progress
 ❌ TODO     - Feature not implemented yet
-🔧 WIP      - Currently being worked on
 
 Symbols in diagrams:
   ┌─┐  Box (component)
@@ -497,4 +769,3 @@ Symbols in diagrams:
   ├─┤  Branch point
   →    Arrow (direction)
   ▼    Down arrow (flow continues)
-

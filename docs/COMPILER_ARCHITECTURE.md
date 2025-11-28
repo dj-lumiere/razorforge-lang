@@ -68,14 +68,16 @@ src/
 │   ├── SymbolTable.cs          # Symbol tracking & scoping ⭐
 │   ├── MemoryAnalyzer.cs       # Memory safety analysis
 │   ├── MemoryModel.cs          # Memory model definitions
+│   ├── FunctionVariantGenerator.cs  # Generates try_/check_/find_ variants ⭐
+│   ├── ModuleResolver.cs       # Module path resolution
 │   └── Language.cs             # Language mode enums
 └── CodeGen/
     ├── LLVMCodeGenerator.cs    # LLVM IR generation ⭐
     ├── SimpleCodeGenerator.cs  # Readable output generation
     ├── MathLibrarySupport.cs   # Math intrinsics
-    └── TargetPlatform.cs       # Platform-specific config
+    └── TargetPlatform.cs       # Platform-specific config (Win/Linux/macOS)
 
-⭐ = Files with generic/import implementation
+⭐ = Files with generic/import/variant implementation
 ```
 
 ---
@@ -101,11 +103,15 @@ List<Token> tokens = Tokenizer.Tokenize(sourceCode, language);
 ```
 
 **Supported Features:**
-- Keywords: `entity`, `record`, `routine`, `import`, etc.
-- Operators: `+`, `-`, `*`, `/`, `<`, `>`, etc.
+- Keywords: `entity`, `record`, `routine`, `import`, `fail`, `absent`, etc.
+- Operators: `+`, `-`, `*`, `/`, `//`, `<`, `>`, etc.
 - Literals: numbers, strings, characters
+- Duration literals: `5w`, `3d`, `2h`, `30m`, `45s`, `100ms`, `500us`, `1000ns`
+- Memory size literals: `1024b`, `64kb`, `64kib`, `1mb`, `1mib`, `2gb`, `2gib`, `3tb`, `3tib`, `4pb`, `4pib`
 - Generic brackets: `<`, `>` (for `List<T>`)
 - Path separator: `/` (for `import a/b/c`)
+- Failable function marker: `!` suffix (for `routine name!()`)
+- Error handling: `fail`, `absent` keywords
 
 ---
 
@@ -288,7 +294,52 @@ GenericConstraint(
 
 ---
 
-### 6. Code Generation
+### 6. Function Variant Generator
+
+**Location:** `src/Analysis/FunctionVariantGenerator.cs`
+
+**Purpose:** Generate safe function variants from failable (`!`) functions
+
+**How It Works:**
+
+When the compiler encounters a failable function (marked with `!`), it analyzes the function body for:
+- `fail` statements - indicates the function can crash with an error
+- `absent` statements - indicates the function can return "not found"
+
+Based on these, it generates safe variants:
+
+| `fail` | `absent` | Generated Variants |
+|--------|----------|-------------------|
+| no     | no       | Compile Error (must use fail or absent) |
+| no     | yes      | `try_` only (returns `Maybe<T>`) |
+| yes    | no       | `try_`, `check_` (returns `Maybe<T>`, `Result<T>`) |
+| yes    | yes      | `try_`, `find_` (returns `Maybe<T>`, `Lookup<T>`) |
+
+**Example:**
+```razorforge
+# User writes:
+routine divide!(a: s32, b: s32) -> s32 {
+    if b == 0 {
+        fail DivisionError(message: "Division by zero")
+    }
+    return a / b
+}
+
+# Compiler generates:
+routine try_divide(a: s32, b: s32) -> s32? { ... }
+routine check_divide(a: s32, b: s32) -> Result<s32> { ... }
+```
+
+**Type Constructor Support:**
+- Default constructor: `__create__`
+- Failable constructor: `__create__!`
+- Generated variants: `try___create__`, `check___create__`, etc.
+
+See: [RazorForge Error Handling](../wiki/RazorForge-Error-Handling.md)
+
+---
+
+### 7. Code Generation
 
 #### LLVM IR Generator
 
@@ -672,6 +723,8 @@ Source: import Collections/List
 | **Functions** | RazorForgeParser:1685 | Declarations.cs:85 | SemanticAnalyzer:558 | LLVMCodeGenerator:392 |
 | **Types** | RazorForgeParser:1098 | Expressions.cs:506 | SemanticAnalyzer:1353 | LLVMCodeGenerator:1600 |
 | **Memory** | RazorForgeParser:2405 | Expressions.cs:600 | MemoryAnalyzer | LLVMCodeGenerator:2264 |
+| **Variants** | N/A | N/A | FunctionVariantGenerator ✅ | LLVMCodeGenerator ✅ |
+| **Console I/O** | N/A | N/A | N/A | LLVMCodeGenerator ✅ |
 
 ### Common Tasks
 
