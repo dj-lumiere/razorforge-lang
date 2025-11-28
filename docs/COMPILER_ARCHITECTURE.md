@@ -164,6 +164,31 @@ private ImportDeclaration ParseImportDeclaration()
 
 **Issue:** `ConsumeIdentifier()` doesn't accept keywords like `entity`, so `import Collections/entity/List` fails.
 
+**When Statement Pattern Matching:** ✅ **IMPLEMENTED**
+
+```csharp
+// ParseWhenStatement() handles pattern matching
+when value {
+    42 => handle_literal()           // LiteralPattern
+    x => use_variable(x)             // IdentifierPattern
+    _ => handle_default()            // WildcardPattern
+    is SomeType => handle_type()     // TypePattern (no binding)
+    is SomeType x => handle_typed(x) // TypePattern with binding
+}
+```
+
+**Context-Aware Parsing:**
+
+The parser uses `_inWhenClauseBody` flag to prevent `is` expression operator parsing inside when clause bodies. This allows `is TypeName` patterns without conflict with the `expr is Type` expression syntax.
+
+```csharp
+// In ParseIsExpression():
+while (!_inWhenPatternContext && !_inWhenClauseBody && Match(TokenType.Is, ...))
+{
+    // Only parse 'is' as expression operator outside when contexts
+}
+```
+
 ---
 
 ### 3. AST (Abstract Syntax Tree)

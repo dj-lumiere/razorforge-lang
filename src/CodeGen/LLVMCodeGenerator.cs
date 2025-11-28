@@ -158,6 +158,7 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         _output.AppendLine(value: "declare i8* @malloc(i64)"); // Memory allocation
         _output.AppendLine(value: "declare void @free(i8*)"); // Memory deallocation
         _output.AppendLine(value: "declare i64 @strtol(i8*, i8**, i32)"); // String to long
+        _output.AppendLine(value: "declare void @exit(i32)"); // Program exit
         _output.AppendLine(
             value: "declare i8* @__acrt_iob_func(i32)"); // Windows: get stdin/stdout/stderr
         _output.AppendLine();
@@ -948,18 +949,46 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             }
         }
 
+        // Get right operand type info for type matching
+        TypeInfo rightTypeInfo = GetTypeInfo(expr: node.Right);
+
+        // Handle type mismatch - truncate or extend as needed
+        string rightOperand = right;
+        if (rightTypeInfo.LLVMType != operandType && !rightTypeInfo.IsFloatingPoint && !leftTypeInfo.IsFloatingPoint)
+        {
+            // Need to convert right operand to match left operand type
+            int leftBits = GetIntegerBitWidth(llvmType: operandType);
+            int rightBits = GetIntegerBitWidth(llvmType: rightTypeInfo.LLVMType);
+
+            if (rightBits > leftBits)
+            {
+                // Truncate right operand to match left
+                string truncTemp = GetNextTemp();
+                _output.AppendLine(handler: $"  {truncTemp} = trunc {rightTypeInfo.LLVMType} {right} to {operandType}");
+                rightOperand = truncTemp;
+            }
+            else if (rightBits < leftBits)
+            {
+                // Extend right operand to match left
+                string extTemp = GetNextTemp();
+                string extOp = rightTypeInfo.IsUnsigned ? "zext" : "sext";
+                _output.AppendLine(handler: $"  {extTemp} = {extOp} {rightTypeInfo.LLVMType} {right} to {operandType}");
+                rightOperand = extTemp;
+            }
+        }
+
         // Generate the operation with proper type
         if (op.StartsWith(value: "icmp"))
         {
             // Comparison operations return i1
-            _output.AppendLine(handler: $"  {result} = {op} {operandType} {left}, {right}");
+            _output.AppendLine(handler: $"  {result} = {op} {operandType} {left}, {rightOperand}");
             _tempTypes[key: result] = new TypeInfo(LLVMType: "i1", IsUnsigned: false,
                 IsFloatingPoint: false, RazorForgeType: "bool");
         }
         else
         {
             // Arithmetic operations maintain operand type
-            _output.AppendLine(handler: $"  {result} = {op} {operandType} {left}, {right}");
+            _output.AppendLine(handler: $"  {result} = {op} {operandType} {left}, {rightOperand}");
             _tempTypes[key: result] = leftTypeInfo; // Result has same type as operands
         }
 
@@ -1882,6 +1911,21 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             : "sdiv";
     }
 
+    // Get bit width of an LLVM integer type
+    private int GetIntegerBitWidth(string llvmType)
+    {
+        return llvmType switch
+        {
+            "i1" => 1,
+            "i8" => 8,
+            "i16" => 16,
+            "i32" => 32,
+            "i64" => 64,
+            "i128" => 128,
+            _ => 32 // Default to 32-bit
+        };
+    }
+
     // Check if LLVM type is floating point
     private bool IsFloatingPointType(string llvmType)
     {
@@ -2213,7 +2257,80 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     }
     public string VisitUnaryExpression(UnaryExpression node)
     {
-        return "";
+        // Special case: negative integer literals should be handled directly
+        // to avoid type issues (e.g., -2147483648 should be i32, not i64)
+        if (node.Operator == UnaryOperator.Minus && node.Operand is LiteralExpression lit)
+        {
+            // Check if this is an integer literal that we can negate directly
+            if (lit.Value is long longVal)
+            {
+                long negated = -longVal;
+                // Check if negated value fits in i32 (s32 range)
+                if (negated >= int.MinValue && negated <= int.MaxValue)
+                {
+                    // Return as i32 literal
+                    _tempTypes[key: negated.ToString()] = new TypeInfo(
+                        LLVMType: "i32", IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: "s32");
+                    return negated.ToString();
+                }
+                return negated.ToString();
+            }
+            else if (lit.Value is int intVal)
+            {
+                return (-intVal).ToString();
+            }
+            else if (lit.Value is double doubleVal)
+            {
+                return (-doubleVal).ToString(format: "G");
+            }
+            else if (lit.Value is float floatVal)
+            {
+                return (-floatVal).ToString(format: "G");
+            }
+        }
+
+        string operand = node.Operand.Accept(visitor: this);
+        TypeInfo operandType = GetTypeInfo(expr: node.Operand);
+        string llvmType = operandType.LLVMType;
+
+        switch (node.Operator)
+        {
+            case UnaryOperator.Plus:
+                // Unary plus is a no-op, just return the operand
+                return operand;
+
+            case UnaryOperator.Minus:
+                // Negation: 0 - operand for integers, fneg for floats
+                string result = GetNextTemp();
+                if (operandType.IsFloatingPoint)
+                {
+                    _output.AppendLine(handler: $"  {result} = fneg {llvmType} {operand}");
+                }
+                else
+                {
+                    _output.AppendLine(handler: $"  {result} = sub {llvmType} 0, {operand}");
+                }
+                _tempTypes[key: result] = operandType;
+                return result;
+
+            case UnaryOperator.Not:
+                // Logical NOT: xor with 1 for i1 (bool)
+                string notResult = GetNextTemp();
+                _output.AppendLine(handler: $"  {notResult} = xor i1 {operand}, 1");
+                _tempTypes[key: notResult] = new TypeInfo(LLVMType: "i1", IsUnsigned: false,
+                    IsFloatingPoint: false, RazorForgeType: "bool");
+                return notResult;
+
+            case UnaryOperator.BitwiseNot:
+                // Bitwise NOT: xor with -1 (all 1s)
+                string bitwiseResult = GetNextTemp();
+                _output.AppendLine(handler: $"  {bitwiseResult} = xor {llvmType} {operand}, -1");
+                _tempTypes[key: bitwiseResult] = operandType;
+                return bitwiseResult;
+
+            default:
+                return operand;
+        }
     }
     public string VisitMemberExpression(MemberExpression node)
     {
@@ -2703,57 +2820,57 @@ public class LLVMCodeGenerator : IAstVisitor<string>
 
     public string VisitThrowStatement(ThrowStatement node)
     {
-        // For now, throw statements will be handled similarly to return statements
-        // In the future, this should construct a Result<T> with an error variant
-        // and return it from the function
+        // throw statement in failable function crashes the program
+        // The try_/check_ variants transform this to return None/Error respectively
         _hasReturn = true;
         _blockTerminated = true;
 
-        // Generate the error expression (for side effects like print, etc.)
+        // Generate the error expression to get the error message
         string error = node.Error.Accept(visitor: this);
 
-        // For now, return a sentinel value compatible with the function's return type
-        // TODO: Wrap this in a Result<T> error variant when Result types are implemented
-        _output.AppendLine(handler: $"  ; throw {error} - returning error sentinel");
+        // Print error message and crash
+        _output.AppendLine(handler: $"  ; throw - crashing with error");
 
-        // Return appropriate sentinel value based on current function return type
-        if (_currentFunctionReturnType == "void")
+        // If error is a string pointer, print it
+        if (_tempTypes.TryGetValue(key: error, out TypeInfo? errorType) &&
+            (errorType.LLVMType == "i8*" || errorType.LLVMType == "ptr"))
         {
-            _output.AppendLine(value: "  ret void");
+            _output.AppendLine(handler: $"  call i32 @puts(i8* {error})");
         }
-        else if (_currentFunctionReturnType.StartsWith(value: "i") ||
-                 _currentFunctionReturnType == "i32")
-        {
-            // For integer types, return -1 as error sentinel
-            _output.AppendLine(handler: $"  ret {_currentFunctionReturnType} -1");
-        }
-        else if (_currentFunctionReturnType.StartsWith(value: "float") ||
-                 _currentFunctionReturnType.StartsWith(value: "double"))
-        {
-            // For float types, return NaN would be ideal but use 0.0 for simplicity
-            _output.AppendLine(handler: $"  ret {_currentFunctionReturnType} 0.0");
-        }
-        else
-        {
-            // For pointer/other types, return null
-            _output.AppendLine(handler: $"  ret {_currentFunctionReturnType} null");
-        }
+
+        _output.AppendLine(handler: $"  call void @exit(i32 1)");
+        _output.AppendLine(handler: $"  unreachable");
 
         return "";
     }
 
     public string VisitAbsentStatement(AbsentStatement node)
     {
-        // For now, absent statements will be handled similarly to return statements
-        // In the future, this should construct a Lookup<T> with an absent variant
-        // and return it from the function
+        // absent statement crashes the program with AbsentValueError
+        // This is the expected behavior - absent indicates "not found" which is a crash condition
         _hasReturn = true;
         _blockTerminated = true;
 
-        // For now, just generate a return with a sentinel value (null/0)
-        // TODO: Wrap this in a Lookup<T> absent variant when Lookup types are implemented
-        _output.AppendLine(handler: $"  ; absent - returning 'not found' sentinel");
-        _output.AppendLine(handler: $"  ret {_currentFunctionReturnType} null");
+        // Generate a crash with AbsentValueError message
+        string errorMsg = "Value not found (absent)";
+        string strConst = $"@.str_absent{_tempCounter++}";
+        int len = errorMsg.Length + 1;
+
+        // Store string constant
+        if (_stringConstants == null)
+        {
+            _stringConstants = new List<string>();
+        }
+        _stringConstants.Add(
+            item: $"{strConst} = private unnamed_addr constant [{len} x i8] c\"{errorMsg}\\00\", align 1");
+
+        // Print error message and call abort/exit
+        string msgPtr = GetNextTemp();
+        _output.AppendLine(handler: $"  ; absent - crashing with AbsentValueError");
+        _output.AppendLine(handler: $"  {msgPtr} = getelementptr [{len} x i8], [{len} x i8]* {strConst}, i32 0, i32 0");
+        _output.AppendLine(handler: $"  call i32 @puts(i8* {msgPtr})");
+        _output.AppendLine(handler: $"  call void @exit(i32 1)");
+        _output.AppendLine(handler: $"  unreachable");
 
         return "";
     }

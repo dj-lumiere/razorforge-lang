@@ -11,6 +11,7 @@ public class RazorForgeParser : BaseParser
 {
     private readonly string? _fileName;
     private bool _inWhenPatternContext = false;
+    private bool _inWhenClauseBody = false;  // Prevents 'is' expression parsing in when clause bodies
 
     public RazorForgeParser(List<Token> tokens, string? fileName = null) : base(tokens: tokens)
     {
@@ -979,7 +980,6 @@ public class RazorForgeParser : BaseParser
 
             Pattern pattern;
             SourceLocation clauseLocation = GetLocation();
-
             // Handle 'is' keyword pattern: is None, is SomeType, is SomeType varName
             if (Match(type: TokenType.Is))
             {
@@ -1014,7 +1014,11 @@ public class RazorForgeParser : BaseParser
             }
 
             Consume(type: TokenType.FatArrow, errorMessage: "Expected '=>' after pattern");
+
+            // Set flag to prevent 'is' expression parsing in when clause bodies
+            _inWhenClauseBody = true;
             Statement? body = ParseStatement();
+            _inWhenClauseBody = false;
 
             clauses.Add(
                 item: new WhenClause(Pattern: pattern, Body: body, Location: GetLocation()));
@@ -1315,8 +1319,10 @@ public class RazorForgeParser : BaseParser
     {
         Expression expr = ParseBitwiseOr();
 
-        // Handle is/from/follows expressions when not in entity context
-        while (Match(TokenType.Is, TokenType.From, TokenType.Follows))
+        // Handle is/from/follows expressions when not in when pattern/clause context
+        // When inside a when clause body, we don't want to parse 'is' as an expression operator
+        // because it would consume the 'is' from the next when clause pattern
+        while (!_inWhenPatternContext && !_inWhenClauseBody && Match(TokenType.Is, TokenType.From, TokenType.Follows))
         {
             Token op = PeekToken(offset: -1);
             SourceLocation location = GetLocation(token: op);

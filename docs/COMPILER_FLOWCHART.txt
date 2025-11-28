@@ -695,6 +695,23 @@ TYPE SYSTEM:
 │ Lookup<T> type                 │ ✅ DONE  │ For find_* variants       │
 └────────────────────────────────┴──────────┴───────────────────────────┘
 
+WHEN STATEMENT PATTERN MATCHING:
+┌────────────────────────────────┬──────────┬───────────────────────────┐
+│ Feature                        │ Status   │ Notes                     │
+├────────────────────────────────┼──────────┼───────────────────────────┤
+│ Parse when statement           │ ✅ DONE  │ when value { ... }        │
+│ Literal patterns               │ ✅ DONE  │ 42 => ...                 │
+│ Identifier patterns            │ ✅ DONE  │ x => ... (binds value)    │
+│ Wildcard pattern               │ ✅ DONE  │ _ => ...                  │
+│ Type pattern (is Type)         │ ✅ DONE  │ is Foo => ...             │
+│ Type pattern with binding      │ ✅ DONE  │ is Foo x => ...           │
+│ Multiple is patterns           │ ✅ DONE  │ Context-aware parsing     │
+│ else pattern                   │ ⏳ TODO  │ else val => ...           │
+│ is None pattern                │ ⏳ TODO  │ is None => ...            │
+│ Guard expressions              │ ❌ TODO  │ x if x > 0 => ...         │
+│ Destructuring patterns         │ ❌ TODO  │ is Foo(a, b) => ...       │
+└────────────────────────────────┴──────────┴───────────────────────────┘
+
 INTRINSICS:
 ┌────────────────────────────────┬──────────┬───────────────────────────┐
 │ Feature                        │ Status   │ Notes                     │

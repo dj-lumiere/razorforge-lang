@@ -450,13 +450,71 @@ public class SimpleCodeGenerator : IAstVisitor<string>
 
         foreach (WhenClause clause in node.Clauses)
         {
-            // Pattern matching would go here
-            WriteLine(text: "pattern => statement");
+            string patternStr = FormatPattern(pattern: clause.Pattern);
+
+            // Check if body is a simple expression statement (single-line case)
+            if (clause.Body is ExpressionStatement exprStmt)
+            {
+                string bodyStr = exprStmt.Expression.Accept(visitor: this);
+                WriteLine(text: $"{patternStr} => {bodyStr}");
+            }
+            else if (clause.Body is BlockStatement blockStmt && blockStmt.Statements.Count == 1
+                     && blockStmt.Statements[0] is ExpressionStatement singleExpr)
+            {
+                string bodyStr = singleExpr.Expression.Accept(visitor: this);
+                WriteLine(text: $"{patternStr} => {bodyStr}");
+            }
+            else
+            {
+                // Multi-statement body - output as block
+                WriteLine(text: $"{patternStr} =>");
+                WriteLine(text: "{");
+                Indent();
+                clause.Body.Accept(visitor: this);
+                Dedent();
+                WriteLine(text: "}");
+            }
         }
 
         Dedent();
         WriteLine(text: "}");
         return "";
+    }
+
+    /// <summary>
+    /// Formats a pattern for output in when statements.
+    /// </summary>
+    private string FormatPattern(Pattern pattern)
+    {
+        return pattern switch
+        {
+            LiteralPattern lit => FormatLiteralValue(value: lit.Value),
+            IdentifierPattern id => id.Name,
+            WildcardPattern => "_",
+            ExpressionPattern expr => expr.Expression.Accept(visitor: this),
+            TypePattern tp => tp.VariableName != null
+                ? $"is {tp.Type.Accept(visitor: this)} {tp.VariableName}"
+                : $"is {tp.Type.Accept(visitor: this)}",
+            _ => pattern.ToString() ?? "?"
+        };
+    }
+
+    /// <summary>
+    /// Formats a literal value for pattern output.
+    /// </summary>
+    private string FormatLiteralValue(object value)
+    {
+        return value switch
+        {
+            bool b => b.ToString().ToLower(),
+            int i => i.ToString(),
+            long l => l.ToString() + "L",
+            float f => f.ToString() + "f",
+            double d => d.ToString(),
+            string s => $"\"{s}\"",
+            null => "null",
+            _ => value.ToString() ?? "?"
+        };
     }
 
     public string VisitBlockStatement(BlockStatement node)

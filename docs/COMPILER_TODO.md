@@ -288,6 +288,35 @@ List<List<s32>>         # >> no longer parsed as right-shift
 List<Text<letter8>>     # Works correctly
 ```
 
+### When Statement Pattern Matching (Done)
+
+Pattern matching in `when` statements now supports:
+
+```razorforge
+when value {
+    42 => handle_specific_value()           # Literal pattern
+    x => use_variable(x)                    # Identifier pattern (binds value)
+    _ => handle_default()                   # Wildcard pattern
+    is SomeType => handle_type()            # Type pattern (no binding)
+    is SomeType x => handle_typed(x)        # Type pattern with binding
+}
+```
+
+**Parser Implementation:**
+
+- Added `_inWhenClauseBody` flag to prevent `is` expression operator parsing inside when clause bodies
+- `ParseIsExpression()` checks `!_inWhenClauseBody` before matching `is` as expression operator
+- This allows `is TypeName` patterns in when clauses without conflict
+
+**Pattern Types:**
+
+| Pattern | Example | Description |
+|---------|---------|-------------|
+| `LiteralPattern` | `42`, `"hello"` | Matches specific values |
+| `IdentifierPattern` | `x` | Binds matched value to variable |
+| `WildcardPattern` | `_` | Matches anything, no binding |
+| `TypePattern` | `is Foo`, `is Foo x` | Type check with optional binding |
+
 ### Itertools Methods (Done)
 
 Added to `List<T>`:
