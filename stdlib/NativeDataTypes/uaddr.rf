@@ -1,9 +1,9 @@
-# RazorForge sysuint (system-sized unsigned integer) native type implementation
+# RazorForge uaddr (system-sized unsigned integer) native type implementation
 # Maps to LLVM pointer-sized integer - u32 on 32-bit, u64 on 64-bit platforms
 # Used for array indices, sizes, and pointer arithmetic
 
-# Core sysuint type definition - maps to LLVM iptr/usize
-record sysuint {
+# Core uaddr type definition - maps to LLVM iptr/usize
+record uaddr {
     public value: LlvmNativePtrSizedUInt
 }
 
@@ -12,31 +12,31 @@ record sysuint {
 # ============================================================================
 
 # Default operators use wrapping arithmetic for system types
-routine sysuint.__add__(other: sysuint) -> sysuint {
+routine uaddr.__add__(other: uaddr) -> uaddr {
     danger! {
         return @intrinsic.add.wrapping<uptr>(me, other)
     }
 }
 
-routine sysuint.__sub__(other: sysuint) -> sysuint {
+routine uaddr.__sub__(other: uaddr) -> uaddr {
     danger! {
         return @intrinsic.sub.wrapping<uptr>(me, other)
     }
 }
 
-routine sysuint.__mul__(other: sysuint) -> sysuint {
+routine uaddr.__mul__(other: uaddr) -> uaddr {
     danger! {
         return @intrinsic.mul.wrapping<uptr>(me, other)
     }
 }
 
-routine sysuint.__floordiv__(other: sysuint) -> sysuint {
+routine uaddr.__floordiv__(other: uaddr) -> uaddr {
     danger! {
         return @intrinsic.udiv<uptr>(me, other)
     }
 }
 
-routine sysuint.__mod__(other: sysuint) -> sysuint {
+routine uaddr.__mod__(other: uaddr) -> uaddr {
     danger! {
         return @intrinsic.urem<uptr>(me, other)
     }
@@ -46,37 +46,37 @@ routine sysuint.__mod__(other: sysuint) -> sysuint {
 # Bitwise Operations
 # ============================================================================
 
-routine sysuint.__and__(other: sysuint) -> sysuint {
+routine uaddr.__and__(other: uaddr) -> uaddr {
     danger! {
         return @intrinsic.and<uptr>(me, other)
     }
 }
 
-routine sysuint.__or__(other: sysuint) -> sysuint {
+routine uaddr.__or__(other: uaddr) -> uaddr {
     danger! {
         return @intrinsic.or<uptr>(me, other)
     }
 }
 
-routine sysuint.__xor__(other: sysuint) -> sysuint {
+routine uaddr.__xor__(other: uaddr) -> uaddr {
     danger! {
         return @intrinsic.xor<uptr>(me, other)
     }
 }
 
-routine sysuint.__not__() -> sysuint {
+routine uaddr.__not__() -> uaddr {
     danger! {
         return @intrinsic.not<uptr>(me)
     }
 }
 
-routine sysuint.__shl__(bits: u32) -> sysuint {
+routine uaddr.__shl__(bits: u32) -> uaddr {
     danger! {
         return @intrinsic.shl<uptr>(me, bits)
     }
 }
 
-routine sysuint.__shr__(bits: u32) -> sysuint {
+routine uaddr.__shr__(bits: u32) -> uaddr {
     danger! {
         return @intrinsic.lshr<uptr>(me, bits)
     }
@@ -86,37 +86,37 @@ routine sysuint.__shr__(bits: u32) -> sysuint {
 # Comparison Operations
 # ============================================================================
 
-routine sysuint.__eq__(other: sysuint) -> bool {
+routine uaddr.__eq__(other: uaddr) -> bool {
     danger! {
         return @intrinsic.icmp.eq<uptr>(me, other)
     }
 }
 
-routine sysuint.__ne__(other: sysuint) -> bool {
+routine uaddr.__ne__(other: uaddr) -> bool {
     danger! {
         return @intrinsic.icmp.ne<uptr>(me, other)
     }
 }
 
-routine sysuint.__lt__(other: sysuint) -> bool {
+routine uaddr.__lt__(other: uaddr) -> bool {
     danger! {
         return @intrinsic.icmp.ult<uptr>(me, other)
     }
 }
 
-routine sysuint.__le__(other: sysuint) -> bool {
+routine uaddr.__le__(other: uaddr) -> bool {
     danger! {
         return @intrinsic.icmp.ule<uptr>(me, other)
     }
 }
 
-routine sysuint.__gt__(other: sysuint) -> bool {
+routine uaddr.__gt__(other: uaddr) -> bool {
     danger! {
         return @intrinsic.icmp.ugt<uptr>(me, other)
     }
 }
 
-routine sysuint.__ge__(other: sysuint) -> bool {
+routine uaddr.__ge__(other: uaddr) -> bool {
     danger! {
         return @intrinsic.icmp.uge<uptr>(me, other)
     }
@@ -126,15 +126,15 @@ routine sysuint.__ge__(other: sysuint) -> bool {
 # Math Operations
 # ============================================================================
 
-routine sysuint.min(other: sysuint) -> sysuint {
+routine uaddr.min(other: uaddr) -> uaddr {
     return if me <= other then me else other
 }
 
-routine sysuint.max(other: sysuint) -> sysuint {
+routine uaddr.max(other: uaddr) -> uaddr {
     return if me >= other then me else other
 }
 
-routine sysuint.is_power_of_two() -> bool {
+routine uaddr.is_power_of_two() -> bool {
     return me != 0 and (me & (me - 1)) == 0
 }
 
@@ -142,19 +142,19 @@ routine sysuint.is_power_of_two() -> bool {
 # Type Conversions (constructor syntax)
 # ============================================================================
 
-routine syssint(from: sysuint) -> syssint {
+routine saddr(from: uaddr) -> saddr {
     danger! {
         return @intrinsic.bitcast<iptr>(from)
     }
 }
 
-routine u64(from: sysuint) -> u64 {
+routine u64(from: uaddr) -> u64 {
     danger! {
         return @intrinsic.zext<i64>(from)
     }
 }
 
-routine bool(from: sysuint) -> bool {
+routine bool(from: uaddr) -> bool {
     return from != 0
 }
 
@@ -162,24 +162,24 @@ routine bool(from: sysuint) -> bool {
 # String Conversion
 # ============================================================================
 
-routine sysuint.to_text() -> Text {
+routine uaddr.to_text() -> Text {
     danger! {
-        return @format_sysuint(me)
+        return @format_uaddr(me)
     }
 }
 
 # Parsing constructors using compiler intrinsics
 
 # Fallible constructor - crashes on invalid input
-routine sysuint!(from_text: Text) -> sysuint {
+routine uaddr!(from_text: Text) -> uaddr {
     danger! {
-        return @parse_sysuint(from_text)
+        return @parse_uaddr(from_text)
     }
 }
 
-# Safe constructor - returns Maybe<sysuint>
-routine sysuint?(from_text: Text) -> Maybe<sysuint> {
+# Safe constructor - returns Maybe<uaddr>
+routine uaddr?(from_text: Text) -> Maybe<uaddr> {
     danger! {
-        return @try_parse_sysuint(from_text)
+        return @try_parse_uaddr(from_text)
     }
 }

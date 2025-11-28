@@ -133,9 +133,9 @@ routine test() {
     public void TestExternalDeclarationParsing()
     {
         string code = @"
-external routine heap_alloc!(bytes: sysuint) -> sysuint
-external routine memory_copy!(src: sysuint, dest: sysuint, bytes: sysuint)
-external routine read_as<T>!(address: sysuint) -> T
+external routine heap_alloc!(bytes: uaddr) -> uaddr
+external routine memory_copy!(src: uaddr, dest: uaddr, bytes: uaddr)
+external routine read_as<T>!(address: uaddr) -> T
 ";
 
         Program program = ParseCode(code: code);
@@ -214,8 +214,8 @@ routine test() {
     {
         string code = @"
 routine test() {
-    var buffer = DynamicSlice(""invalid_size"")  # Error: size must be sysuint
-    buffer.write<s32>!(""invalid_offset"", 42)  # Error: offset must be sysuint
+    var buffer = DynamicSlice(""invalid_size"")  # Error: size must be uaddr
+    buffer.write<s32>!(""invalid_offset"", 42)  # Error: offset must be uaddr
 }";
 
         Program program = ParseCode(code: code);
@@ -229,8 +229,8 @@ routine test() {
     public void TestLLVMCodeGeneration()
     {
         string code = @"
-external routine heap_alloc!(bytes: sysuint) -> sysuint
-external routine memory_write_s32!(address: sysuint, offset: sysuint, value: s32)
+external routine heap_alloc!(bytes: uaddr) -> uaddr
+external routine memory_write_s32!(address: uaddr, offset: uaddr, value: s32)
 
 routine test() -> s32 {
     var buffer = DynamicSlice(64)
@@ -258,8 +258,8 @@ routine test() -> s32 {
 import stdlib/memory/DynamicSlice
 import system/console/show
 
-external routine heap_alloc!(bytes: sysuint) -> sysuint
-external routine heap_free!(address: sysuint)
+external routine heap_alloc!(bytes: uaddr) -> uaddr
+external routine heap_free!(address: uaddr)
 
 routine main() -> s32 {
     var buffer = DynamicSlice(128)

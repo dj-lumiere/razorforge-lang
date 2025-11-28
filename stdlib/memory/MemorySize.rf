@@ -1,7 +1,7 @@
 record MemorySize {
-    private value: sysuint
+    private value: uaddr
 
-    public routine __create__(bytes: sysuint) {
+    public routine __create__(bytes: uaddr) {
         me.value = bytes
     }
 

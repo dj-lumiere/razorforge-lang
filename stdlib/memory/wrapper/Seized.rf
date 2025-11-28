@@ -29,8 +29,8 @@
 # This type is a marker for the type system - the compiler handles lock operations.
 
 record Seized<T> {
-    private address: sysuint
-    private lock_guard: sysuint
+    private address: uaddr
+    private lock_guard: uaddr
 }
 
 # NOTE: No constructors, no manual methods - all operations handled by compiler

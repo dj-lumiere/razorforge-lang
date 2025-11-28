@@ -20,7 +20,7 @@
 # This type is a marker for the type system - the compiler handles all operations.
 
 record Viewed<T> {
-    private address: sysuint
+    private address: uaddr
 }
 
 # NOTE: No constructors, no methods - all operations handled by compiler

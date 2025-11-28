@@ -21,7 +21,7 @@
 # This is the "escape hatch" for unsafe code - use with extreme caution!
 
 record Snatched<T> {
-    public address: sysuint  # Public direct address access
+    public address: uaddr  # Public direct address access
 }
 
 # Create snatched pointer from any object (danger! only)
@@ -36,7 +36,7 @@ routine T.snatch!() -> Snatched<T> {
 }
 
 # Constructor (internal use only)
-routine Snatched<T>.Snatched<T>(address: sysuint) -> Snatched<T> {
+routine Snatched<T>.Snatched<T>(address: uaddr) -> Snatched<T> {
     me.address = address
     return me
 }
@@ -97,12 +97,12 @@ routine Snatched<T>.invalidate!() {
 
 # Create none snatched pointer
 routine snatched_none<T>() -> Snatched<T> {
-    return Snatched<T>(address: 0_sysuint)
+    return Snatched<T>(address: 0_uaddr)
 }
 
 # Check if pointer is none
 routine Snatched<T>.is_none() -> bool {
-    return me.address == 0_sysuint
+    return me.address == 0_uaddr
 }
 
 # Offset pointer by bytes (pointer arithmetic)

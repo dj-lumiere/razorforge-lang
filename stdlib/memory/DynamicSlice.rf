@@ -9,13 +9,13 @@ import system/memory/native
 ### Reference counting is handled separately by the wrapper type system.
 ###
 record DynamicSlice {
-    private starting_address: sysuint
-    private allocated_bytes: sysuint
+    private starting_address: uaddr
+    private allocated_bytes: uaddr
 
     ### Creates a new heap slice with specified byte size
     ### @param bytes - Number of bytes to allocate on heap
     ### @return New DynamicSlice instance
-    public routine __create__(bytes: sysuint) -> DynamicSlice {
+    public routine __create__(bytes: uaddr) -> DynamicSlice {
         if bytes == 0 {
             me.starting_address = 0
             me.allocated_bytes = 0
@@ -58,13 +58,13 @@ record DynamicSlice {
 
     ### Gets the total allocated bytes
     ### @return Number of bytes allocated for this slice
-    public routine size() -> sysuint {
+    public routine size() -> uaddr {
         return me.allocated_bytes
     }
 
     ### Gets the starting memory address
     ### @return Memory address where slice data begins
-    public routine address() -> sysuint {
+    public routine address() -> uaddr {
         return me.starting_address
     }
 
@@ -78,7 +78,7 @@ record DynamicSlice {
     ### @param offset - Byte offset within the slice
     ### @param dest - Destination address to copy bytes to
     ### @param count - Number of bytes to read
-    public routine read_bytes!(offset: sysuint, dest: sysuint, count: sysuint) {
+    public routine read_bytes!(offset: uaddr, dest: uaddr, count: uaddr) {
         if offset + count > me.allocated_bytes {
             crash!(f"Read operation would exceed slice bounds")
         }
@@ -91,7 +91,7 @@ record DynamicSlice {
     ### @param offset - Byte offset within the slice
     ### @param src - Source address to copy bytes from
     ### @param count - Number of bytes to write
-    public routine write_bytes!(offset: sysuint, src: sysuint, count: sysuint) {
+    public routine write_bytes!(offset: uaddr, src: uaddr, count: uaddr) {
         if offset + count > me.allocated_bytes {
             crash!(f"Write operation would exceed slice bounds")
         }
@@ -103,7 +103,7 @@ record DynamicSlice {
     ### Reads a typed value from the slice at given offset
     ### @param offset - Byte offset within the slice
     ### @return Value of type T read from the slice
-    public routine read<T>!(offset: sysuint) -> T {
+    public routine read<T>!(offset: uaddr) -> T {
         let type_size = sizeof<T>()
 
         if offset + type_size > me.allocated_bytes {
@@ -117,7 +117,7 @@ record DynamicSlice {
     ### Writes a typed value to the slice at given offset
     ### @param offset - Byte offset within the slice
     ### @param value - Value of type T to write to the slice
-    public routine write<T>!(offset: sysuint, value: T) {
+    public routine write<T>!(offset: uaddr, value: T) {
         let type_size = sizeof<T>()
 
         if offset + type_size > me.allocated_bytes {
@@ -131,7 +131,7 @@ record DynamicSlice {
     ### Gets unsafe pointer to data at offset
     ### @param offset - Byte offset within the slice
     ### @return Raw memory address at the specified offset
-    public routine snatch!(offset: sysuint) -> sysuint {
+    public routine snatch!(offset: uaddr) -> uaddr {
         return me.starting_address + offset
     }
 
@@ -139,7 +139,7 @@ record DynamicSlice {
     ### @param offset - Starting byte offset for sub-slice
     ### @param bytes - Number of bytes in sub-slice
     ### @return New DynamicSlice representing the sub-range
-    public routine slice!(offset: sysuint, bytes: sysuint) -> DynamicSlice {
+    public routine slice!(offset: uaddr, bytes: uaddr) -> DynamicSlice {
         if offset + bytes > me.allocated_bytes {
             crash!(f"Slice range exceeds bounds")
         }
@@ -153,7 +153,7 @@ record DynamicSlice {
     ### Resizes the heap slice (may reallocate memory)
     ### @param new_bytes - New size in bytes for the slice
     ### @return Reference to this slice after resizing
-    public routine resize!(new_bytes: sysuint) -> DynamicSlice {
+    public routine resize!(new_bytes: uaddr) -> DynamicSlice {
         if new_bytes == 0 {
             me.__destroy__()
             return me
@@ -187,8 +187,8 @@ record DynamicSlice {
     ### @param src_offset - Starting offset in source slice
     ### @param dest_offset - Starting offset in destination slice
     ### @param count - Number of bytes to copy
-    public routine copy_from!(source: DynamicSlice, src_offset: sysuint,
-                           dest_offset: sysuint, count: sysuint) {
+    public routine copy_from!(source: DynamicSlice, src_offset: uaddr,
+                           dest_offset: uaddr, count: uaddr) {
         if src_offset + count > source.allocated_bytes {
             crash!("Source range exceeds bounds")
         }
@@ -207,8 +207,8 @@ record DynamicSlice {
     ### @param src_offset - Starting offset in source slice
     ### @param dest_offset - Starting offset in destination slice
     ### @param count - Number of bytes to copy
-    public routine copy_from_stack!(source: TemporarySlice, src_offset: sysuint,
-                                 dest_offset: sysuint, count: sysuint) {
+    public routine copy_from_stack!(source: TemporarySlice, src_offset: uaddr,
+                                 dest_offset: uaddr, count: uaddr) {
         if src_offset + count > source.size() {
             crash!("Source range exceeds bounds")
         }
@@ -247,29 +247,29 @@ record DynamicSlice {
 
     ### Gets a reference to the raw memory (for wrapper type system)
     ### @return Raw memory address for wrapper type operations
-    public routine refer!() -> sysuint {
+    public routine refer!() -> uaddr {
         return me.starting_address
     }
 }
 
 # Native runtime functions for dynamic memory operations
-external("C") routine claim_dynamic!(bytes: sysuint) -> sysuint
-external("C") routine release_dynamic!(address: sysuint)
-external("C") routine resize_dynamic!(address: sysuint, new_bytes: sysuint) -> sysuint
-external("C") routine memory_copy!(src: sysuint, dest: sysuint, bytes: sysuint)
-external("C") routine memory_fill!(address: sysuint, pattern: u8, bytes: sysuint)
-external("C") routine memory_zero!(address: sysuint, bytes: sysuint)
-external("C") routine memory_read<T>!(address: sysuint) -> T
-external("C") routine memory_write<T>!(address: sysuint, value: T)
-external("C") routine sizeof<T>() -> sysuint
+external("C") routine claim_dynamic!(bytes: uaddr) -> uaddr
+external("C") routine release_dynamic!(address: uaddr)
+external("C") routine resize_dynamic!(address: uaddr, new_bytes: uaddr) -> uaddr
+external("C") routine memory_copy!(src: uaddr, dest: uaddr, bytes: uaddr)
+external("C") routine memory_fill!(address: uaddr, pattern: u8, bytes: uaddr)
+external("C") routine memory_zero!(address: uaddr, bytes: uaddr)
+external("C") routine memory_read<T>!(address: uaddr) -> T
+external("C") routine memory_write<T>!(address: uaddr, value: T)
+external("C") routine sizeof<T>() -> uaddr
 
 # Danger zone operations - raw memory access without safety checks
-external("C") routine read_as<T>!(address: sysuint) -> T
-external("C") routine write_as<T>!(address: sysuint, value: T)
-external("C") routine volatile_read<T>!(address: sysuint) -> T
-external("C") routine volatile_write<T>!(address: sysuint, value: T)
-external("C") routine obtain_as<T>!(object: auto) -> sysuint
-external("C") routine reveal_as<T>!(address: sysuint) -> T
-external("C") routine address_of!(object: auto) -> sysuint
+external("C") routine read_as<T>!(address: uaddr) -> T
+external("C") routine write_as<T>!(address: uaddr, value: T)
+external("C") routine volatile_read<T>!(address: uaddr) -> T
+external("C") routine volatile_write<T>!(address: uaddr, value: T)
+external("C") routine obtain_as<T>!(object: auto) -> uaddr
+external("C") routine reveal_as<T>!(address: uaddr) -> T
+external("C") routine address_of!(object: auto) -> uaddr
 external("C") routine invalidate<T>!(object: T)
 external("C") routine crash!(message: text)

@@ -275,8 +275,8 @@ public record TypeSymbol(string Name, TypeInfo TypeInfo, VisibilityModifier Visi
 /// It provides convenient properties to classify primitive types according to
 /// RazorForge's type system:
 /// <list type="bullet">
-/// <item>Signed integers: s8, s16, s32, s64, s128, syssint</item>
-/// <item>Unsigned integers: u8, u16, u32, u64, u128, sysuint</item>
+/// <item>Signed integers: s8, s16, s32, s64, s128, saddr</item>
+/// <item>Unsigned integers: u8, u16, u32, u64, u128, uaddr</item>
 /// <item>IEEE754 binary floating point: f16, f32, f64, f128</item>
 /// <item>IEEE754 decimal floating point: d32, d64, d128</item>
 /// <item>Character types: letter8, letter16, letter</item>
@@ -292,18 +292,18 @@ public record TypeInfo(
     /// <summary>true if this is any numeric type (integer, floating point, or decimal)</summary>
     public bool IsNumeric => Name.StartsWith(value: "s") || Name.StartsWith(value: "u") ||
                              Name.StartsWith(value: "f") || Name.StartsWith(value: "d") ||
-                             Name == "syssint" || Name == "sysuint";
+                             Name == "saddr" || Name == "uaddr";
 
     /// <summary>true if this is any integer type (signed or unsigned)</summary>
     public bool IsInteger => Name.StartsWith(value: "s") || Name.StartsWith(value: "u") ||
-                             Name == "syssint" || Name == "sysuint";
+                             Name == "saddr" || Name == "uaddr";
 
     /// <summary>true if this is any floating point type (binary or decimal)</summary>
     public bool IsFloatingPoint => Name.StartsWith(value: "f") || Name.StartsWith(value: "d");
 
     /// <summary>true if this is a signed numeric type</summary>
     public bool IsSigned => Name.StartsWith(value: "s") || Name.StartsWith(value: "f") ||
-                            Name.StartsWith(value: "d") || Name == "syssint";
+                            Name.StartsWith(value: "d") || Name == "saddr";
 
     /// <summary>true if this is a generic type (has generic arguments)</summary>
     public bool IsGeneric => GenericArguments != null && GenericArguments.Count > 0;

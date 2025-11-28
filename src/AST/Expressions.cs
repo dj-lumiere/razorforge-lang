@@ -37,7 +37,7 @@ public abstract record Expression(SourceLocation Location) : AstNode(Location: L
 /// <remarks>
 /// Supports the full range of RazorForge/Suflae literal types:
 /// <list type="bullet">
-/// <item>Integers: s8, s16, s32, s64, s128, syssint, u8, u16, u32, u64, u128, sysuint</item>
+/// <item>Integers: s8, s16, s32, s64, s128, saddr, u8, u16, u32, u64, u128, uaddr</item>
 /// <item>Floats: f16, f32, f64, f128</item>
 /// <item>Decimals: d32, d64, d128</item>
 /// <item>Text and characters: letter, text</item>
@@ -590,7 +590,7 @@ public record TypeConversionExpression(
 /// <list type="bullet">
 /// <item>DynamicSlice(64) - allocates 64 bytes on heap</item>
 /// <item>TemporarySlice(40) - allocates 40 bytes on stack</item>
-/// <item>Size expression must evaluate to sysuint type</item>
+/// <item>Size expression must evaluate to uaddr type</item>
 /// <item>Constructor calls trigger runtime allocation functions</item>
 /// </list>
 /// </remarks>

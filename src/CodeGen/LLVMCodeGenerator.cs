@@ -64,6 +64,22 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     private readonly Dictionary<string, FunctionDeclaration> _genericFunctionTemplates = new();
     private readonly List<string> _pendingGenericInstantiations = new();
 
+    // Generic type (record/entity) templates for monomorphization
+    private readonly Dictionary<string, StructDeclaration> _genericRecordTemplates = new();
+    private readonly Dictionary<string, ClassDeclaration> _genericEntityTemplates = new();
+    private readonly Dictionary<string, List<List<string>>> _genericTypeInstantiations = new();
+    private readonly List<string> _pendingRecordInstantiations = new();
+    private readonly List<string> _pendingEntityInstantiations = new();
+    private readonly HashSet<string> _emittedTypes = new(); // Track already emitted type definitions
+
+    // CompilerService intrinsic tracking
+    private string? _currentFileName;
+    private string? _currentFunctionName;
+
+    // Lambda code generation tracking
+    private int _lambdaCounter;
+    private List<string> _pendingLambdaDefinitions = new();
+
     /// <summary>
     /// Initializes a new LLVM IR code generator for the specified language and mode configuration.
     /// Sets up the internal state required for AST traversal and IR generation.
@@ -367,7 +383,7 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     /// <list type="bullet">
     /// <item>Math library types (d32, d64, d128, bigint, decimal) are handled first</item>
     /// <item>Unsigned integers use the same LLVM types as signed (signedness tracked separately)</item>
-    /// <item>System-dependent types (syssint, sysuint) map to 64-bit on x86_64</item>
+    /// <item>System-dependent types (saddr, uaddr) map to 64-bit on x86_64</item>
     /// <item>Text types map to i8* (null-terminated C strings)</item>
     /// <item>Unknown types default to i8* for maximum compatibility</item>
     /// </list>
@@ -378,6 +394,12 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         if (MathLibrarySupport.IsMathLibraryType(type: rfType))
         {
             return MathLibrarySupport.MapMathTypeToLLVM(rfType: rfType);
+        }
+
+        // Check for generic type syntax: TypeName<T1, T2, ...>
+        if (rfType.Contains('<') && rfType.Contains('>'))
+        {
+            return MapGenericTypeToLLVM(genericType: rfType);
         }
 
         return rfType switch
@@ -397,9 +419,9 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             "u128" => "i128",
 
             // System-dependent integers (pointer-sized, architecture-dependent)
-            "syssint" => _targetPlatform
+            "saddr" => _targetPlatform
                .GetPointerSizedIntType(), // intptr_t - varies by architecture
-            "sysuint" => _targetPlatform
+            "uaddr" => _targetPlatform
                .GetPointerSizedIntType(), // uintptr_t - varies by architecture
 
             // IEEE 754 floating point types
@@ -446,11 +468,94 @@ public class LLVMCodeGenerator : IAstVisitor<string>
 
             // C FFI types - Special types
             "cvoid" => _targetPlatform
-               .GetPointerSizedIntType(), // void (represented as sysuint in RazorForge)
+               .GetPointerSizedIntType(), // void (represented as uaddr in RazorForge)
             "cbool" => "i1", // C bool (_Bool)
 
             _ => "i8*" // Default to pointer for unknown types (including cptr<T>)
         };
+    }
+
+    /// <summary>
+    /// Maps a generic type like List&lt;s32&gt; to its monomorphized LLVM type.
+    /// Parses the generic syntax, instantiates the type if needed, and returns the LLVM type.
+    /// </summary>
+    private string MapGenericTypeToLLVM(string genericType)
+    {
+        // Parse the generic type: TypeName<T1, T2, ...>
+        int openBracket = genericType.IndexOf('<');
+        int closeBracket = genericType.LastIndexOf('>');
+
+        if (openBracket < 0 || closeBracket < 0 || closeBracket <= openBracket)
+        {
+            return "i8*"; // Invalid format, fallback
+        }
+
+        string baseName = genericType.Substring(0, openBracket);
+        string typeArgsStr = genericType.Substring(openBracket + 1, closeBracket - openBracket - 1);
+
+        // Split type arguments (handle nested generics carefully)
+        var typeArguments = ParseTypeArguments(typeArgsStr);
+
+        // Try to instantiate as a generic record or entity
+        string mangledName;
+        if (_genericRecordTemplates.ContainsKey(baseName))
+        {
+            mangledName = InstantiateGenericRecord(baseName, typeArguments);
+        }
+        else if (_genericEntityTemplates.ContainsKey(baseName))
+        {
+            mangledName = InstantiateGenericEntity(baseName, typeArguments);
+        }
+        else
+        {
+            // Unknown generic type - just create a mangled name
+            mangledName = $"{baseName}_{string.Join("_", typeArguments)}";
+        }
+
+        // Return as a pointer to the monomorphized struct
+        return $"%{mangledName}*";
+    }
+
+    /// <summary>
+    /// Parses type arguments from a comma-separated string, handling nested generics.
+    /// For example: "s32, List&lt;u8&gt;" -> ["s32", "List&lt;u8&gt;"]
+    /// </summary>
+    private List<string> ParseTypeArguments(string typeArgsStr)
+    {
+        var result = new List<string>();
+        int depth = 0;
+        int start = 0;
+
+        for (int i = 0; i < typeArgsStr.Length; i++)
+        {
+            char c = typeArgsStr[i];
+            if (c == '<')
+            {
+                depth++;
+            }
+            else if (c == '>')
+            {
+                depth--;
+            }
+            else if (c == ',' && depth == 0)
+            {
+                string arg = typeArgsStr.Substring(start, i - start).Trim();
+                if (!string.IsNullOrEmpty(arg))
+                {
+                    result.Add(arg);
+                }
+                start = i + 1;
+            }
+        }
+
+        // Don't forget the last argument
+        string lastArg = typeArgsStr.Substring(start).Trim();
+        if (!string.IsNullOrEmpty(lastArg))
+        {
+            result.Add(lastArg);
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -466,8 +571,14 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             decl.Accept(visitor: this);
         }
 
+        // Generate all pending generic type instantiations at the end
+        GeneratePendingTypeInstantiations();
+
         // Generate all pending generic function instantiations at the end
         GeneratePendingInstantiations();
+
+        // Emit all pending lambda function definitions
+        EmitPendingLambdaDefinitions();
 
         return "";
     }
@@ -506,6 +617,9 @@ public class LLVMCodeGenerator : IAstVisitor<string>
 
         // Set the current function return type for return statement processing
         _currentFunctionReturnType = returnType;
+
+        // Track current function name for CompilerService intrinsics
+        _currentFunctionName = mangledName ?? node.Name;
 
         // Clear parameter tracking for this function
         _functionParameters.Clear();
@@ -649,6 +763,28 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         }
 
         _pendingGenericInstantiations.Clear();
+    }
+
+    /// <summary>
+    /// Emits all pending lambda function definitions.
+    /// Should be called after all program code is generated.
+    /// </summary>
+    private void EmitPendingLambdaDefinitions()
+    {
+        if (_pendingLambdaDefinitions.Count == 0)
+        {
+            return;
+        }
+
+        _output.AppendLine();
+        _output.AppendLine("; Lambda function definitions");
+
+        foreach (string lambdaDefinition in _pendingLambdaDefinitions)
+        {
+            _output.Append(lambdaDefinition);
+        }
+
+        _pendingLambdaDefinitions.Clear();
     }
 
     // Variable declaration
@@ -1195,6 +1331,13 @@ public class LLVMCodeGenerator : IAstVisitor<string>
                 return HandleNonGenericDangerZoneFunction(node: node,
                     functionName: dangerfunctionName, resultTemp: result);
             }
+
+            // Check for non-generic CompilerService intrinsics (source location)
+            if (IsSourceLocationIntrinsic(functionName: dangerfunctionName))
+            {
+                return HandleSourceLocationIntrinsic(node: node,
+                    functionName: dangerfunctionName, resultTemp: result);
+            }
         }
 
         var args = new List<string>();
@@ -1712,14 +1855,256 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         };
     }
 
-    // Other visitor methods (stubs for now)
+    // Type declarations
+    /// <summary>
+    /// Generates LLVM IR for entity (class) declarations.
+    /// For generic entities, stores the template for later instantiation.
+    /// For non-generic entities, generates the struct type definition immediately.
+    /// </summary>
     public string VisitClassDeclaration(ClassDeclaration node)
     {
-        return "";
+        // Check if this is a generic entity
+        if (node.GenericParameters != null && node.GenericParameters.Count > 0)
+        {
+            // Store the template for later instantiation
+            _genericEntityTemplates[node.Name] = node;
+            _output.AppendLine($"; Generic entity template: {node.Name}<{string.Join(", ", node.GenericParameters)}>");
+            return "";
+        }
+
+        // Non-generic entity - generate type definition
+        return GenerateEntityType(node: node, typeSubstitutions: null, mangledName: null);
     }
+
+    /// <summary>
+    /// Generates LLVM IR for record (struct) declarations.
+    /// For generic records, stores the template for later instantiation.
+    /// For non-generic records, generates the struct type definition immediately.
+    /// </summary>
     public string VisitStructDeclaration(StructDeclaration node)
     {
+        // Check if this is a generic record
+        if (node.GenericParameters != null && node.GenericParameters.Count > 0)
+        {
+            // Store the template for later instantiation
+            _genericRecordTemplates[node.Name] = node;
+            _output.AppendLine($"; Generic record template: {node.Name}<{string.Join(", ", node.GenericParameters)}>");
+            return "";
+        }
+
+        // Non-generic record - generate type definition
+        return GenerateRecordType(node: node, typeSubstitutions: null, mangledName: null);
+    }
+
+    /// <summary>
+    /// Generates LLVM struct type definition for an entity (class).
+    /// </summary>
+    private string GenerateEntityType(ClassDeclaration node, Dictionary<string, string>? typeSubstitutions, string? mangledName)
+    {
+        string typeName = mangledName ?? node.Name;
+
+        // Avoid emitting the same type twice
+        if (_emittedTypes.Contains(typeName))
+        {
+            return "";
+        }
+        _emittedTypes.Add(typeName);
+
+        // Collect field types
+        var fieldTypes = new List<string>();
+        var fieldNames = new List<string>(); // For comments
+
+        foreach (Declaration member in node.Members)
+        {
+            if (member is VariableDeclaration field)
+            {
+                string fieldType = field.Type != null
+                    ? MapTypeWithSubstitution(typeName: field.Type.Name, substitutions: typeSubstitutions)
+                    : "i32";
+                fieldTypes.Add(item: fieldType);
+                fieldNames.Add(item: field.Name);
+            }
+        }
+
+        // Generate LLVM struct type
+        string fieldList = string.Join(separator: ", ", values: fieldTypes);
+        _output.AppendLine($"; Entity type: {typeName}");
+        _output.AppendLine($"%{typeName} = type {{ {fieldList} }}");
+
+        // Add comment with field names for debugging
+        if (fieldNames.Count > 0)
+        {
+            _output.AppendLine($"; Fields: {string.Join(", ", fieldNames.Select((n, i) => $"{n}: {fieldTypes[i]}"))}");
+        }
+        _output.AppendLine();
+
         return "";
+    }
+
+    /// <summary>
+    /// Generates LLVM struct type definition for a record (struct).
+    /// </summary>
+    private string GenerateRecordType(StructDeclaration node, Dictionary<string, string>? typeSubstitutions, string? mangledName)
+    {
+        string typeName = mangledName ?? node.Name;
+
+        // Avoid emitting the same type twice
+        if (_emittedTypes.Contains(typeName))
+        {
+            return "";
+        }
+        _emittedTypes.Add(typeName);
+
+        // Collect field types
+        var fieldTypes = new List<string>();
+        var fieldNames = new List<string>(); // For comments
+
+        foreach (Declaration member in node.Members)
+        {
+            if (member is VariableDeclaration field)
+            {
+                string fieldType = field.Type != null
+                    ? MapTypeWithSubstitution(typeName: field.Type.Name, substitutions: typeSubstitutions)
+                    : "i32";
+                fieldTypes.Add(item: fieldType);
+                fieldNames.Add(item: field.Name);
+            }
+        }
+
+        // Generate LLVM struct type
+        string fieldList = string.Join(separator: ", ", values: fieldTypes);
+        _output.AppendLine($"; Record type: {typeName}");
+        _output.AppendLine($"%{typeName} = type {{ {fieldList} }}");
+
+        // Add comment with field names for debugging
+        if (fieldNames.Count > 0)
+        {
+            _output.AppendLine($"; Fields: {string.Join(", ", fieldNames.Select((n, i) => $"{n}: {fieldTypes[i]}"))}");
+        }
+        _output.AppendLine();
+
+        return "";
+    }
+
+    /// <summary>
+    /// Instantiates a generic record with concrete type arguments.
+    /// </summary>
+    public string InstantiateGenericRecord(string recordName, List<string> typeArguments)
+    {
+        if (!_genericRecordTemplates.TryGetValue(recordName, out StructDeclaration? template))
+        {
+            return recordName; // Not a generic record
+        }
+
+        // Generate mangled name
+        string mangledName = $"{recordName}_{string.Join("_", typeArguments)}";
+
+        // Check if already instantiated
+        if (_emittedTypes.Contains(mangledName))
+        {
+            return mangledName;
+        }
+
+        // Track and queue for later generation
+        if (!_genericTypeInstantiations.ContainsKey(recordName))
+        {
+            _genericTypeInstantiations[recordName] = new List<List<string>>();
+        }
+        _genericTypeInstantiations[recordName].Add(typeArguments);
+        _pendingRecordInstantiations.Add($"{recordName}|{string.Join(",", typeArguments)}");
+
+        return mangledName;
+    }
+
+    /// <summary>
+    /// Instantiates a generic entity with concrete type arguments.
+    /// </summary>
+    public string InstantiateGenericEntity(string entityName, List<string> typeArguments)
+    {
+        if (!_genericEntityTemplates.TryGetValue(entityName, out ClassDeclaration? template))
+        {
+            return entityName; // Not a generic entity
+        }
+
+        // Generate mangled name
+        string mangledName = $"{entityName}_{string.Join("_", typeArguments)}";
+
+        // Check if already instantiated
+        if (_emittedTypes.Contains(mangledName))
+        {
+            return mangledName;
+        }
+
+        // Track and queue for later generation
+        if (!_genericTypeInstantiations.ContainsKey(entityName))
+        {
+            _genericTypeInstantiations[entityName] = new List<List<string>>();
+        }
+        _genericTypeInstantiations[entityName].Add(typeArguments);
+        _pendingEntityInstantiations.Add($"{entityName}|{string.Join(",", typeArguments)}");
+
+        return mangledName;
+    }
+
+    /// <summary>
+    /// Generates all pending generic type instantiations.
+    /// Should be called after all program code is generated.
+    /// </summary>
+    private void GeneratePendingTypeInstantiations()
+    {
+        // Process pending record instantiations
+        foreach (string pending in _pendingRecordInstantiations)
+        {
+            string[] parts = pending.Split('|');
+            string recordName = parts[0];
+            List<string> typeArguments = parts[1].Split(',').ToList();
+
+            if (!_genericRecordTemplates.TryGetValue(recordName, out StructDeclaration? template))
+            {
+                continue;
+            }
+
+            // Create type substitution map
+            var substitutions = new Dictionary<string, string>();
+            for (int i = 0; i < Math.Min(template.GenericParameters!.Count, typeArguments.Count); i++)
+            {
+                substitutions[template.GenericParameters[i]] = typeArguments[i];
+            }
+
+            // Generate mangled name
+            string mangledName = $"{recordName}_{string.Join("_", typeArguments)}";
+
+            // Generate the instantiated record type
+            GenerateRecordType(node: template, typeSubstitutions: substitutions, mangledName: mangledName);
+        }
+        _pendingRecordInstantiations.Clear();
+
+        // Process pending entity instantiations
+        foreach (string pending in _pendingEntityInstantiations)
+        {
+            string[] parts = pending.Split('|');
+            string entityName = parts[0];
+            List<string> typeArguments = parts[1].Split(',').ToList();
+
+            if (!_genericEntityTemplates.TryGetValue(entityName, out ClassDeclaration? template))
+            {
+                continue;
+            }
+
+            // Create type substitution map
+            var substitutions = new Dictionary<string, string>();
+            for (int i = 0; i < Math.Min(template.GenericParameters!.Count, typeArguments.Count); i++)
+            {
+                substitutions[template.GenericParameters[i]] = typeArguments[i];
+            }
+
+            // Generate mangled name
+            string mangledName = $"{entityName}_{string.Join("_", typeArguments)}";
+
+            // Generate the instantiated entity type
+            GenerateEntityType(node: template, typeSubstitutions: substitutions, mangledName: mangledName);
+        }
+        _pendingEntityInstantiations.Clear();
     }
     public string VisitMenuDeclaration(MenuDeclaration node)
     {
@@ -1865,9 +2250,234 @@ public class LLVMCodeGenerator : IAstVisitor<string>
 
         return finalResult;
     }
+    /// <summary>
+    /// Generates LLVM IR for lambda expressions.
+    /// Creates an anonymous function and returns a function pointer to it.
+    /// </summary>
+    /// <param name="node">The lambda expression AST node</param>
+    /// <returns>A function pointer reference to the generated lambda</returns>
+    /// <remarks>
+    /// Lambda implementation strategy:
+    /// <list type="bullet">
+    /// <item>Generate a unique function name (e.g., __lambda_0, __lambda_1)</item>
+    /// <item>Create the function definition with appropriate signature</item>
+    /// <item>Queue the definition for emission after main code</item>
+    /// <item>Return a function pointer to the lambda</item>
+    /// </list>
+    /// Note: This implementation does not yet support closure capture.
+    /// All variables used in the lambda must be parameters.
+    /// </remarks>
     public string VisitLambdaExpression(LambdaExpression node)
     {
-        return "";
+        // Generate unique lambda name
+        string lambdaName = $"__lambda_{_lambdaCounter++}";
+
+        // Build parameter list and determine types
+        var paramTypes = new List<string>();
+        var paramList = new List<string>();
+
+        foreach (Parameter param in node.Parameters)
+        {
+            string paramType = param.Type != null
+                ? MapRazorForgeTypeToLLVM(razorForgeType: param.Type.Name)
+                : "i32"; // Default to i32 if no type specified
+
+            paramTypes.Add(item: paramType);
+            paramList.Add(item: $"{paramType} %{param.Name}");
+        }
+
+        // Infer return type from body expression
+        // For now, evaluate the body to determine the type
+        // We'll generate the body later in the function definition
+        string returnType = InferLambdaReturnType(body: node.Body, parameters: node.Parameters);
+
+        // Build function signature string for the type
+        string paramTypeStr = string.Join(separator: ", ", values: paramTypes);
+        string funcPtrType = $"{returnType} ({paramTypeStr})*";
+
+        // Generate the lambda function definition
+        var lambdaBuilder = new StringBuilder();
+        lambdaBuilder.AppendLine();
+        lambdaBuilder.AppendLine($"; Lambda function {lambdaName}");
+        lambdaBuilder.AppendLine($"define private {returnType} @{lambdaName}({string.Join(", ", paramList)}) {{");
+        lambdaBuilder.AppendLine("entry:");
+
+        // Save current state
+        var savedSymbolTypes = new Dictionary<string, string>(_symbolTypes);
+        var savedFunctionParameters = new HashSet<string>(_functionParameters);
+        bool savedHasReturn = _hasReturn;
+        bool savedBlockTerminated = _blockTerminated;
+        var savedTypeSubstitutions = _currentTypeSubstitutions;
+
+        // Save the current output position to extract lambda body later
+        int outputStartPos = _output.Length;
+
+        _hasReturn = false;
+        _blockTerminated = false;
+        _functionParameters.Clear();
+
+        // Register parameters in symbol table
+        for (int i = 0; i < node.Parameters.Count; i++)
+        {
+            _symbolTypes[key: node.Parameters[i].Name] = paramTypes[i];
+            _functionParameters.Add(item: node.Parameters[i].Name);
+        }
+
+        // Generate lambda body directly into _output
+        string bodyResult = node.Body.Accept(visitor: this);
+
+        // Extract the lambda body code that was generated
+        string lambdaBodyCode = _output.ToString().Substring(startIndex: outputStartPos);
+
+        // Remove the lambda body code from main output
+        _output.Length = outputStartPos;
+
+        // Add the body code and return to lambda builder
+        lambdaBuilder.Append(value: lambdaBodyCode);
+
+        // Add return statement with the result
+        if (returnType != "void")
+        {
+            lambdaBuilder.AppendLine($"  ret {returnType} {bodyResult}");
+        }
+        else
+        {
+            lambdaBuilder.AppendLine("  ret void");
+        }
+
+        lambdaBuilder.AppendLine("}");
+
+        // Restore state
+        _symbolTypes.Clear();
+        foreach (var kvp in savedSymbolTypes)
+        {
+            _symbolTypes[key: kvp.Key] = kvp.Value;
+        }
+        _functionParameters.Clear();
+        foreach (string param in savedFunctionParameters)
+        {
+            _functionParameters.Add(item: param);
+        }
+        _hasReturn = savedHasReturn;
+        _blockTerminated = savedBlockTerminated;
+        _currentTypeSubstitutions = savedTypeSubstitutions;
+
+        // Queue the lambda definition for later emission
+        _pendingLambdaDefinitions.Add(item: lambdaBuilder.ToString());
+
+        // Return a reference to the function pointer
+        // In LLVM, a function reference is just @function_name
+        // When used as a value, we need to cast it to the appropriate function pointer type
+        string resultTemp = GetNextTemp();
+        _output.AppendLine($"  {resultTemp} = bitcast {returnType} ({paramTypeStr})* @{lambdaName} to ptr");
+
+        // Track the type
+        _tempTypes[key: resultTemp] = new TypeInfo(
+            LLVMType: "ptr",
+            IsUnsigned: false,
+            IsFloatingPoint: false,
+            RazorForgeType: $"lambda<{string.Join(", ", paramTypes)}>->{returnType}");
+
+        return resultTemp;
+    }
+
+    /// <summary>
+    /// Infers the return type of a lambda expression from its body.
+    /// </summary>
+    private string InferLambdaReturnType(Expression body, List<Parameter> parameters)
+    {
+        // Create a temporary scope to infer types
+        var tempSymbolTypes = new Dictionary<string, string>();
+        foreach (Parameter param in parameters)
+        {
+            string paramType = param.Type != null
+                ? MapRazorForgeTypeToLLVM(razorForgeType: param.Type.Name)
+                : "i32";
+            tempSymbolTypes[key: param.Name] = paramType;
+        }
+
+        // Infer type based on expression kind
+        return body switch
+        {
+            LiteralExpression lit => InferLiteralType(lit: lit),
+            BinaryExpression bin => InferBinaryExpressionType(bin: bin, symbolTypes: tempSymbolTypes),
+            IdentifierExpression id => tempSymbolTypes.TryGetValue(id.Name, out string? t) ? t : "i32",
+            CallExpression => "i32", // Default for function calls
+            ConditionalExpression cond => InferLambdaReturnType(body: cond.TrueExpression, parameters: parameters),
+            _ => "i32" // Default to i32
+        };
+    }
+
+    /// <summary>
+    /// Infers the LLVM type from a literal expression.
+    /// For RazorForge: unsuffixed integers default to i64, unsuffixed floats default to f64 (double)
+    /// For Suflae: TokenType.Integer and TokenType.Decimal are arbitrary precision (handled separately)
+    /// </summary>
+    private string InferLiteralType(LiteralExpression lit)
+    {
+        return lit.LiteralType switch
+        {
+            // Integer types - map to appropriate LLVM integer widths
+            TokenType.S8Literal or TokenType.U8Literal => "i8",
+            TokenType.S16Literal or TokenType.U16Literal => "i16",
+            TokenType.S32Literal or TokenType.U32Literal => "i32",
+            TokenType.S64Literal or TokenType.U64Literal or
+            TokenType.SyssintLiteral or TokenType.SysuintLiteral => "i64",
+            TokenType.S128Literal or TokenType.U128Literal => "i128",
+
+            // RazorForge unsuffixed integer -> i64
+            // Suflae Integer is arbitrary precision (would need bigint library)
+            TokenType.Integer => _language == Language.RazorForge ? "i64" : "ptr", // ptr for bigint struct
+
+            // Float types - map to appropriate LLVM floating point widths
+            TokenType.F16Literal => "half",
+            TokenType.F32Literal => "float",
+            TokenType.F64Literal => "double",
+            TokenType.F128Literal => "fp128",
+
+            // RazorForge unsuffixed decimal -> f64 (double)
+            // Suflae Decimal is arbitrary precision (would need decimal library)
+            TokenType.Decimal => _language == Language.RazorForge ? "double" : "ptr", // ptr for decimal struct
+
+            // Boolean
+            TokenType.True or TokenType.False => "i1",
+
+            // Text/String types (TextLiteral is the default 32-bit text)
+            TokenType.TextLiteral or TokenType.Text8Literal or TokenType.Text16Literal => "ptr",
+
+            // Character types - map to appropriate bit widths
+            TokenType.Letter8Literal => "i8",
+            TokenType.Letter16Literal => "i16",
+            TokenType.LetterLiteral => "i32", // Default letter is 32-bit (Unicode codepoint)
+
+            _ => "i32"
+        };
+    }
+
+    /// <summary>
+    /// Infers the result type of a binary expression.
+    /// </summary>
+    private string InferBinaryExpressionType(BinaryExpression bin, Dictionary<string, string> symbolTypes)
+    {
+        // Comparison operators always return bool
+        if (bin.Operator is BinaryOperator.Equal or BinaryOperator.NotEqual or
+            BinaryOperator.Less or BinaryOperator.LessEqual or
+            BinaryOperator.Greater or BinaryOperator.GreaterEqual or
+            BinaryOperator.And or BinaryOperator.Or)
+        {
+            return "i1";
+        }
+
+        // For arithmetic, infer from operands
+        string leftType = bin.Left switch
+        {
+            LiteralExpression lit => InferLiteralType(lit: lit),
+            IdentifierExpression id => symbolTypes.TryGetValue(id.Name, out string? t) ? t : "i32",
+            BinaryExpression nested => InferBinaryExpressionType(bin: nested, symbolTypes: symbolTypes),
+            _ => "i32"
+        };
+
+        return leftType;
     }
     public string VisitTypeExpression(TypeExpression node)
     {
@@ -2110,6 +2720,13 @@ public class LLVMCodeGenerator : IAstVisitor<string>
                     resultTemp: resultTemp);
             }
 
+            // Check for CompilerService intrinsics
+            if (IsCompilerServiceIntrinsic(functionName: functionName))
+            {
+                return HandleCompilerServiceIntrinsic(node: node, functionName: functionName,
+                    resultTemp: resultTemp);
+            }
+
             // Check for user-defined generic function
             if (_genericFunctionTemplates.ContainsKey(functionName))
             {
@@ -2302,14 +2919,14 @@ public class LLVMCodeGenerator : IAstVisitor<string>
                 _output.AppendLine(
                     handler: $"  {resultTemp} = call i64 @slice_size(ptr {objectTemp})");
                 _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i64", IsUnsigned: false,
-                    IsFloatingPoint: false, RazorForgeType: "sysuint");
+                    IsFloatingPoint: false, RazorForgeType: "uaddr");
                 break;
 
             case "address":
                 _output.AppendLine(
                     handler: $"  {resultTemp} = call i64 @slice_address(ptr {objectTemp})");
                 _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i64", IsUnsigned: false,
-                    IsFloatingPoint: false, RazorForgeType: "sysuint");
+                    IsFloatingPoint: false, RazorForgeType: "uaddr");
                 break;
 
             case "is_valid":
@@ -2326,7 +2943,7 @@ public class LLVMCodeGenerator : IAstVisitor<string>
                     handler:
                     $"  {resultTemp} = call i64 @slice_unsafe_ptr(ptr {objectTemp}, i64 {offsetTemp})");
                 _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i64", IsUnsigned: false,
-                    IsFloatingPoint: false, RazorForgeType: "sysuint");
+                    IsFloatingPoint: false, RazorForgeType: "uaddr");
                 break;
 
             case "slice":
@@ -2362,7 +2979,7 @@ public class LLVMCodeGenerator : IAstVisitor<string>
                 _output.AppendLine(
                     handler: $"  {resultTemp} = call i64 @slice_refer(ptr {objectTemp})");
                 _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i64", IsUnsigned: false,
-                    IsFloatingPoint: false, RazorForgeType: "sysuint");
+                    IsFloatingPoint: false, RazorForgeType: "uaddr");
                 break;
 
             default:
@@ -2530,7 +3147,7 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             "u32" => "i32",
             "u64" => "i64",
             "u128" => "i128",
-            "sysuint" or "syssint" => _targetPlatform
+            "uaddr" or "saddr" => _targetPlatform
                .GetPointerSizedIntType(), // Architecture-dependent
             "f16" => "half",
             "f32" => "float",
@@ -2628,6 +3245,231 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             "write_as" or "read_as" or "volatile_write" or "volatile_read" => true,
             _ => false
         };
+    }
+
+    /// <summary>
+    /// Checks if the function is a CompilerService intrinsic.
+    /// </summary>
+    private bool IsCompilerServiceIntrinsic(string functionName)
+    {
+        return functionName switch
+        {
+            "size_of" or "align_of" or "get_compile_type_name" or
+            "field_names" or "field_count" or "has_method" => true,
+            _ => false
+        };
+    }
+
+    /// <summary>
+    /// Handles CompilerService intrinsic calls.
+    /// These are compile-time evaluated and embedded as constants.
+    /// </summary>
+    private string HandleCompilerServiceIntrinsic(GenericMethodCallExpression node,
+        string functionName, string resultTemp)
+    {
+        // Get the type argument
+        if (node.TypeArguments.Count == 0)
+        {
+            throw new InvalidOperationException(
+                $"CompilerService intrinsic {functionName} requires a type argument");
+        }
+
+        TypeExpression typeArg = node.TypeArguments.First();
+        string typeName = typeArg.Name;
+
+        switch (functionName)
+        {
+            case "size_of":
+                // Get size of type in bytes using LLVM's getelementptr trick
+                int size = GetTypeSize(typeName: typeName);
+                _output.AppendLine($"  {resultTemp} = add i64 0, {size}");
+                _tempTypes[resultTemp] = new TypeInfo(LLVMType: "i64", IsUnsigned: true,
+                    IsFloatingPoint: false, RazorForgeType: "uaddr");
+                return resultTemp;
+
+            case "align_of":
+                // Get alignment of type
+                int alignment = GetAlignment(typeName: typeName);
+                _output.AppendLine($"  {resultTemp} = add i64 0, {alignment}");
+                _tempTypes[resultTemp] = new TypeInfo(LLVMType: "i64", IsUnsigned: true,
+                    IsFloatingPoint: false, RazorForgeType: "uaddr");
+                return resultTemp;
+
+            case "get_compile_type_name":
+                // Return the type name as a string constant
+                string typeNameStr = typeName;
+                string strConstName = GetOrCreateStringConstant(typeNameStr);
+                _output.AppendLine($"  {resultTemp} = getelementptr [{typeNameStr.Length + 1} x i8], [{typeNameStr.Length + 1} x i8]* {strConstName}, i32 0, i32 0");
+                _tempTypes[resultTemp] = new TypeInfo(LLVMType: "i8*", IsUnsigned: false,
+                    IsFloatingPoint: false, RazorForgeType: "Text<letter8>");
+                return resultTemp;
+
+            case "field_count":
+                // Get number of fields in a struct/record type
+                int fieldCount = GetFieldCount(typeName: typeName);
+                _output.AppendLine($"  {resultTemp} = add i64 0, {fieldCount}");
+                _tempTypes[resultTemp] = new TypeInfo(LLVMType: "i64", IsUnsigned: true,
+                    IsFloatingPoint: false, RazorForgeType: "uaddr");
+                return resultTemp;
+
+            case "field_names":
+                // TODO: Return list of field names - requires runtime list construction
+                _output.AppendLine($"  ; TODO: field_names<{typeName}>() - requires List<Text> construction");
+                _output.AppendLine($"  {resultTemp} = inttoptr i64 0 to ptr");
+                return resultTemp;
+
+            case "has_method":
+                // TODO: Check if type has a method - requires symbol table lookup
+                _output.AppendLine($"  ; TODO: has_method<{typeName}>() - requires symbol table lookup");
+                _output.AppendLine($"  {resultTemp} = add i1 0, 0");
+                return resultTemp;
+
+            default:
+                throw new NotImplementedException(
+                    $"CompilerService intrinsic {functionName} not implemented");
+        }
+    }
+
+    /// <summary>
+    /// Gets the size of a type in bytes.
+    /// </summary>
+    private int GetTypeSize(string typeName)
+    {
+        return typeName switch
+        {
+            "s8" or "u8" or "bool" or "letter8" => 1,
+            "s16" or "u16" or "letter16" => 2,
+            "s32" or "u32" or "f32" or "letter32" => 4,
+            "s64" or "u64" or "f64" => 8,
+            "s128" or "u128" or "f128" => 16,
+            "uaddr" or "saddr" => 8, // Assume 64-bit platform
+            _ => 8 // Default to pointer size for unknown types
+        };
+    }
+
+    /// <summary>
+    /// Gets the number of fields in a struct/record type.
+    /// Returns 1 for primitive types.
+    /// </summary>
+    private int GetFieldCount(string typeName)
+    {
+        // For primitive types, return 0
+        if (IsPrimitiveType(typeName))
+        {
+            return 1;
+        }
+
+        // TODO: Look up type in symbol table to get field count
+        // For now, return 1 for unknown types
+        return 1;
+    }
+
+    /// <summary>
+    /// Checks if a type is a primitive (non-compound) type.
+    /// </summary>
+    private bool IsPrimitiveType(string typeName)
+    {
+        return typeName switch
+        {
+            "s8" or "s16" or "s32" or "s64" or "s128" or
+            "u8" or "u16" or "u32" or "u64" or "u128" or
+            "f16" or "f32" or "f64" or "f128" or
+            "bool" or "letter8" or "letter16" or "letter32" or
+            "uaddr" or "saddr" => true,
+            _ => false
+        };
+    }
+
+    /// <summary>
+    /// Gets or creates a string constant and returns its LLVM name.
+    /// </summary>
+    private string GetOrCreateStringConstant(string value)
+    {
+        string strConst = $"@.str_cs{_tempCounter++}";
+        int len = value.Length + 1;
+
+        if (_stringConstants == null)
+        {
+            _stringConstants = new List<string>();
+        }
+
+        // Escape special characters for LLVM string literal
+        string escaped = value.Replace("\\", "\\5C").Replace("\"", "\\22");
+        _stringConstants.Add($"{strConst} = private unnamed_addr constant [{len} x i8] c\"{escaped}\\00\", align 1");
+
+        return strConst;
+    }
+
+    /// <summary>
+    /// Checks if the function is a source location intrinsic.
+    /// </summary>
+    private bool IsSourceLocationIntrinsic(string functionName)
+    {
+        return functionName switch
+        {
+            "get_line_number" or "get_column_number" or
+            "get_file_name" or "get_caller_name" or
+            "get_current_module" => true,
+            _ => false
+        };
+    }
+
+    /// <summary>
+    /// Handles source location intrinsic calls.
+    /// These are compile-time evaluated based on the AST node's source location.
+    /// </summary>
+    private string HandleSourceLocationIntrinsic(CallExpression node,
+        string functionName, string resultTemp)
+    {
+        switch (functionName)
+        {
+            case "get_line_number":
+                int line = node.Location.Line;
+                _output.AppendLine($"  {resultTemp} = add i64 0, {line}");
+                _tempTypes[resultTemp] = new TypeInfo(LLVMType: "i64", IsUnsigned: false,
+                    IsFloatingPoint: false, RazorForgeType: "s64");
+                return resultTemp;
+
+            case "get_column_number":
+                int column = node.Location.Column;
+                _output.AppendLine($"  {resultTemp} = add i64 0, {column}");
+                _tempTypes[resultTemp] = new TypeInfo(LLVMType: "i64", IsUnsigned: false,
+                    IsFloatingPoint: false, RazorForgeType: "s64");
+                return resultTemp;
+
+            case "get_file_name":
+                // Get file name from current context (would need to be passed through)
+                string fileName = _currentFileName ?? "unknown";
+                string fileNameConst = GetOrCreateStringConstant(fileName);
+                _output.AppendLine($"  {resultTemp} = getelementptr [{fileName.Length + 1} x i8], [{fileName.Length + 1} x i8]* {fileNameConst}, i32 0, i32 0");
+                _tempTypes[resultTemp] = new TypeInfo(LLVMType: "i8*", IsUnsigned: false,
+                    IsFloatingPoint: false, RazorForgeType: "Text<letter8>");
+                return resultTemp;
+
+            case "get_caller_name":
+                // Get the current function name
+                string callerName = _currentFunctionName ?? "unknown";
+                string callerConst = GetOrCreateStringConstant(callerName);
+                _output.AppendLine($"  {resultTemp} = getelementptr [{callerName.Length + 1} x i8], [{callerName.Length + 1} x i8]* {callerConst}, i32 0, i32 0");
+                _tempTypes[resultTemp] = new TypeInfo(LLVMType: "i8*", IsUnsigned: false,
+                    IsFloatingPoint: false, RazorForgeType: "Text<letter8>");
+                return resultTemp;
+
+            case "get_current_module":
+                // Get module name from file path
+                string moduleName = _currentFileName != null
+                    ? Path.GetFileNameWithoutExtension(_currentFileName)
+                    : "unknown";
+                string moduleConst = GetOrCreateStringConstant(moduleName);
+                _output.AppendLine($"  {resultTemp} = getelementptr [{moduleName.Length + 1} x i8], [{moduleName.Length + 1} x i8]* {moduleConst}, i32 0, i32 0");
+                _tempTypes[resultTemp] = new TypeInfo(LLVMType: "i8*", IsUnsigned: false,
+                    IsFloatingPoint: false, RazorForgeType: "Text<letter8>");
+                return resultTemp;
+
+            default:
+                throw new NotImplementedException(
+                    $"Source location intrinsic {functionName} not implemented");
+        }
     }
 
     /// <summary>
@@ -2930,7 +3772,7 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         switch (functionName)
         {
             case "address_of":
-                // address_of!(variable) -> sysuint (address of variable)
+                // address_of!(variable) -> uaddr (address of variable)
                 // Expects a single identifier argument
                 if (node.Arguments.Count != 1)
                 {
@@ -2946,7 +3788,7 @@ public class LLVMCodeGenerator : IAstVisitor<string>
                     _output.AppendLine(
                         handler: $"  {resultTemp} = ptrtoint ptr %{varIdent.Name} to i64");
                     _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i64", IsUnsigned: false,
-                        IsFloatingPoint: true, RazorForgeType: "sysuint"); // sysuint is unsigned
+                        IsFloatingPoint: true, RazorForgeType: "uaddr"); // uaddr is unsigned
                     return resultTemp;
                 }
                 else
@@ -2955,7 +3797,7 @@ public class LLVMCodeGenerator : IAstVisitor<string>
                     string argTemp = argument.Accept(visitor: this);
                     _output.AppendLine(handler: $"  {resultTemp} = ptrtoint ptr {argTemp} to i64");
                     _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i64", IsUnsigned: false,
-                        IsFloatingPoint: true, RazorForgeType: "sysuint"); // sysuint is unsigned
+                        IsFloatingPoint: true, RazorForgeType: "uaddr"); // uaddr is unsigned
                     return resultTemp;
                 }
 

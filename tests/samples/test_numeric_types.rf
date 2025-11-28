@@ -98,12 +98,12 @@ routine test_mixed_operations() {
 
 routine test_system_sized_types() {
     # System-sized types (pointer-sized)
-    let sys_signed: syssint = 9223372036854775807syssint
-    let sys_unsigned: sysuint = 18446744073709551615sysuint
+    let sys_signed: saddr = 9223372036854775807saddr
+    let sys_unsigned: uaddr = 18446744073709551615uaddr
 
     # These are typically used for memory addresses and sizes
-    let size: sysuint = 1024sysuint
-    let offset: syssint = -100syssint
+    let size: uaddr = 1024uaddr
+    let offset: saddr = -100saddr
 }
 
 routine main() -> s32 {

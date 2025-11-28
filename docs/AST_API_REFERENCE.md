@@ -951,7 +951,7 @@ public record ExternalDeclaration(
 **Example:**
 
 ```razorforge
-external("C") routine malloc(size: sysuint) -> cptr<cvoid>
+external("C") routine malloc(size: uaddr) -> cptr<cvoid>
 ```
 
 ---

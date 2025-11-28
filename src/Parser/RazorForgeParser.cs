@@ -1725,13 +1725,13 @@ public class RazorForgeParser : BaseParser
                                      .Replace(oldValue: "s32", newValue: "")
                                      .Replace(oldValue: "s64", newValue: "")
                                      .Replace(oldValue: "s128", newValue: "")
-                                     .Replace(oldValue: "syssint", newValue: "")
+                                     .Replace(oldValue: "saddr", newValue: "")
                                      .Replace(oldValue: "u8", newValue: "")
                                      .Replace(oldValue: "u16", newValue: "")
                                      .Replace(oldValue: "u32", newValue: "")
                                      .Replace(oldValue: "u64", newValue: "")
                                      .Replace(oldValue: "u128", newValue: "")
-                                     .Replace(oldValue: "sysuint", newValue: "")
+                                     .Replace(oldValue: "uaddr", newValue: "")
                                      .Replace(oldValue: "_", newValue: ""); // Remove underscores
 
             long intVal;
@@ -2614,9 +2614,9 @@ public class RazorForgeParser : BaseParser
         return name switch
         {
             // Signed integers
-            "s8" or "s16" or "s32" or "s64" or "s128" or "syssint" => true,
+            "s8" or "s16" or "s32" or "s64" or "s128" or "saddr" => true,
             // Unsigned integers
-            "u8" or "u16" or "u32" or "u64" or "u128" or "sysuint" => true,
+            "u8" or "u16" or "u32" or "u64" or "u128" or "uaddr" => true,
             // Floating point (IEEE754 binary)
             "f16" or "f32" or "f64" or "f128" => true,
             // Floating point (IEEE754 decimal)

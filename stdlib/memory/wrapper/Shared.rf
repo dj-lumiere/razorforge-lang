@@ -2,9 +2,9 @@
 # Supports Mutex, MultiReadLock, and RejectEdit policies
 
 record Shared<T, Policy> {
-    private controller_address: sysuint
-    private data_address: sysuint
-    private lock_address: sysuint
+    private controller_address: uaddr
+    private data_address: uaddr
+    private lock_address: uaddr
 }
 
 # Create thread-safe shared reference with policy (default: Mutex)
@@ -46,7 +46,7 @@ routine T.share(policy: Policy) -> Shared<T, Policy> {
 }
 
 # Constructor for Shared<T, Policy>
-routine Shared<T, Policy>.Shared<T, Policy>(controller_address: sysuint, data_address: sysuint, lock_address: sysuint) {
+routine Shared<T, Policy>.Shared<T, Policy>(controller_address: uaddr, data_address: uaddr, lock_address: uaddr) {
     me.controller_address = controller_address
     me.data_address = data_address
     me.lock_address = lock_address

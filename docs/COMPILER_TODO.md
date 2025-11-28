@@ -114,9 +114,9 @@ crash(message: Text)              # Panic/abort with message
 
 ### Already Have (external C):
 ```razorforge
-external("C") routine rf_memory_alloc(bytes: sysuint) -> sysuint
-external("C") routine rf_memory_free(address: sysuint)
-external("C") routine rf_memory_copy(src: sysuint, dest: sysuint, bytes: sysuint)
+external("C") routine rf_memory_alloc(bytes: uaddr) -> uaddr
+external("C") routine rf_memory_free(address: uaddr)
+external("C") routine rf_memory_copy(src: uaddr, dest: uaddr, bytes: uaddr)
 ```
 
 ---

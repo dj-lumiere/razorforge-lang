@@ -338,7 +338,7 @@ public record FeatureDeclaration(
 /// <remarks>
 /// Implementation blocks serve two purposes:
 /// <list type="bullet">
-/// <item>Inherent impls: String follows { routine length() -> sysuint }</item>
+/// <item>Inherent impls: String follows { routine length() -> uaddr }</item>
 /// <item>Trait impls: MyType follows Drawable { routine draw() { ... } }</item>
 /// <item>Extension methods: add methods to existing types</item>
 /// <item>Organized code: group related methods together</item>
@@ -585,9 +585,9 @@ public record UsingDeclaration(TypeExpression Type, string Alias, SourceLocation
 /// <remarks>
 /// External declarations link RazorForge to native runtime:
 /// <list type="bullet">
-/// <item>external("C") routine malloc(size: sysuint) -> cptr&lt;cvoid&gt;</item>
+/// <item>external("C") routine malloc(size: uaddr) -> cptr&lt;cvoid&gt;</item>
 /// <item>external("C") routine free(ptr: cptr&lt;cvoid&gt;)</item>
-/// <item>external routine heap_alloc!(bytes: sysuint) -> sysuint (default C convention)</item>
+/// <item>external routine heap_alloc!(bytes: uaddr) -> uaddr (default C convention)</item>
 /// <item>No function body - implementation provided by native runtime</item>
 /// <item>Links to C functions at compile time</item>
 /// </list>

@@ -1,8 +1,8 @@
-# RazorForge syssint (system-sized signed integer) native type implementation
+# RazorForge saddr (system-sized signed integer) native type implementation
 # Maps to LLVM pointer-sized integer - s32 on 32-bit, s64 on 64-bit platforms
 
-# Core syssint type definition - maps to LLVM iptr/isize
-record syssint {
+# Core saddr type definition - maps to LLVM iptr/isize
+record saddr {
     public value: LlvmNativePtrSizedInt
 }
 
@@ -11,37 +11,37 @@ record syssint {
 # ============================================================================
 
 # Default operators use wrapping arithmetic for system types
-routine syssint.__add__(other: syssint) -> syssint {
+routine saddr.__add__(other: saddr) -> saddr {
     danger! {
         return @intrinsic.add.wrapping<iptr>(me, other)
     }
 }
 
-routine syssint.__sub__(other: syssint) -> syssint {
+routine saddr.__sub__(other: saddr) -> saddr {
     danger! {
         return @intrinsic.sub.wrapping<iptr>(me, other)
     }
 }
 
-routine syssint.__mul__(other: syssint) -> syssint {
+routine saddr.__mul__(other: saddr) -> saddr {
     danger! {
         return @intrinsic.mul.wrapping<iptr>(me, other)
     }
 }
 
-routine syssint.__floordiv__(other: syssint) -> syssint {
+routine saddr.__floordiv__(other: saddr) -> saddr {
     danger! {
         return @intrinsic.sdiv<iptr>(me, other)
     }
 }
 
-routine syssint.__mod__(other: syssint) -> syssint {
+routine saddr.__mod__(other: saddr) -> saddr {
     danger! {
         return @intrinsic.srem<iptr>(me, other)
     }
 }
 
-routine syssint.__neg__() -> syssint {
+routine saddr.__neg__() -> saddr {
     danger! {
         return @intrinsic.neg<iptr>(me)
     }
@@ -51,37 +51,37 @@ routine syssint.__neg__() -> syssint {
 # Bitwise Operations
 # ============================================================================
 
-routine syssint.__and__(other: syssint) -> syssint {
+routine saddr.__and__(other: saddr) -> saddr {
     danger! {
         return @intrinsic.and<iptr>(me, other)
     }
 }
 
-routine syssint.__or__(other: syssint) -> syssint {
+routine saddr.__or__(other: saddr) -> saddr {
     danger! {
         return @intrinsic.or<iptr>(me, other)
     }
 }
 
-routine syssint.__xor__(other: syssint) -> syssint {
+routine saddr.__xor__(other: saddr) -> saddr {
     danger! {
         return @intrinsic.xor<iptr>(me, other)
     }
 }
 
-routine syssint.__not__() -> syssint {
+routine saddr.__not__() -> saddr {
     danger! {
         return @intrinsic.not<iptr>(me)
     }
 }
 
-routine syssint.__shl__(bits: u32) -> syssint {
+routine saddr.__shl__(bits: u32) -> saddr {
     danger! {
         return @intrinsic.shl<iptr>(me, bits)
     }
 }
 
-routine syssint.__shr__(bits: u32) -> syssint {
+routine saddr.__shr__(bits: u32) -> saddr {
     danger! {
         return @intrinsic.ashr<iptr>(me, bits)
     }
@@ -91,37 +91,37 @@ routine syssint.__shr__(bits: u32) -> syssint {
 # Comparison Operations
 # ============================================================================
 
-routine syssint.__eq__(other: syssint) -> bool {
+routine saddr.__eq__(other: saddr) -> bool {
     danger! {
         return @intrinsic.icmp.eq<iptr>(me, other)
     }
 }
 
-routine syssint.__ne__(other: syssint) -> bool {
+routine saddr.__ne__(other: saddr) -> bool {
     danger! {
         return @intrinsic.icmp.ne<iptr>(me, other)
     }
 }
 
-routine syssint.__lt__(other: syssint) -> bool {
+routine saddr.__lt__(other: saddr) -> bool {
     danger! {
         return @intrinsic.icmp.slt<iptr>(me, other)
     }
 }
 
-routine syssint.__le__(other: syssint) -> bool {
+routine saddr.__le__(other: saddr) -> bool {
     danger! {
         return @intrinsic.icmp.sle<iptr>(me, other)
     }
 }
 
-routine syssint.__gt__(other: syssint) -> bool {
+routine saddr.__gt__(other: saddr) -> bool {
     danger! {
         return @intrinsic.icmp.sgt<iptr>(me, other)
     }
 }
 
-routine syssint.__ge__(other: syssint) -> bool {
+routine saddr.__ge__(other: saddr) -> bool {
     danger! {
         return @intrinsic.icmp.sge<iptr>(me, other)
     }
@@ -131,15 +131,15 @@ routine syssint.__ge__(other: syssint) -> bool {
 # Math Operations
 # ============================================================================
 
-routine syssint.abs() -> syssint {
+routine saddr.abs() -> saddr {
     return if me >= 0 then me else -me
 }
 
-routine syssint.min(other: syssint) -> syssint {
+routine saddr.min(other: saddr) -> saddr {
     return if me <= other then me else other
 }
 
-routine syssint.max(other: syssint) -> syssint {
+routine saddr.max(other: saddr) -> saddr {
     return if me >= other then me else other
 }
 
@@ -147,19 +147,19 @@ routine syssint.max(other: syssint) -> syssint {
 # Type Conversions (constructor syntax)
 # ============================================================================
 
-routine sysuint(from: syssint) -> sysuint {
+routine uaddr(from: saddr) -> uaddr {
     danger! {
         return @intrinsic.bitcast<uptr>(from)
     }
 }
 
-routine s64(from: syssint) -> s64 {
+routine s64(from: saddr) -> s64 {
     danger! {
         return @intrinsic.sext<i64>(from)
     }
 }
 
-routine bool(from: syssint) -> bool {
+routine bool(from: saddr) -> bool {
     return from != 0
 }
 
@@ -167,24 +167,24 @@ routine bool(from: syssint) -> bool {
 # String Conversion
 # ============================================================================
 
-routine syssint.to_text() -> Text {
+routine saddr.to_text() -> Text {
     danger! {
-        return @format_syssint(me)
+        return @format_saddr(me)
     }
 }
 
 # Parsing constructors using compiler intrinsics
 
 # Fallible constructor - crashes on invalid input
-routine syssint!(from_text: Text) -> syssint {
+routine saddr!(from_text: Text) -> saddr {
     danger! {
-        return @parse_syssint(from_text)
+        return @parse_saddr(from_text)
     }
 }
 
-# Safe constructor - returns Maybe<syssint>
-routine syssint?(from_text: Text) -> Maybe<syssint> {
+# Safe constructor - returns Maybe<saddr>
+routine saddr?(from_text: Text) -> Maybe<saddr> {
     danger! {
-        return @try_parse_syssint(from_text)
+        return @try_parse_saddr(from_text)
     }
 }

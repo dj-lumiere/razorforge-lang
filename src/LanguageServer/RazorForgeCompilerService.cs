@@ -326,7 +326,7 @@ public class RazorForgeCompilerService : IRazorForgeCompilerService
             "Text",
             "void",
             "any",
-            "sysuint"
+            "uaddr"
         };
 
         return keywords.Select(selector: keyword => new CompletionSuggestion

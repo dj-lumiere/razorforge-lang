@@ -93,7 +93,7 @@ routine Console.alert_line() {
 # ============================================================================
 
 # External C runtime input functions
-external("C") routine rf_console_input_letters(count: sysuint) -> Text<letter8>
+external("C") routine rf_console_input_letters(count: uaddr) -> Text<letter8>
 external("C") routine rf_console_input_word() -> Text<letter8>
 external("C") routine rf_console_input_line() -> Text<letter8>
 external("C") routine rf_console_input_words() -> List<Text<letter8>>
@@ -101,7 +101,7 @@ external("C") routine rf_console_input_lines() -> List<Text<letter8>>
 external("C") routine rf_console_input_all() -> Text<letter8>
 
 # Read exactly n letters from input
-routine Console.input_letters(count: sysuint) -> Text<letter8> {
+routine Console.input_letters(count: uaddr) -> Text<letter8> {
     danger! {
         let text8 = rf_console_input_letters(count)
         return text8.to_text()

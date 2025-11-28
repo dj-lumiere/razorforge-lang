@@ -116,7 +116,7 @@ public enum TokenType
     /// <summary>128-bit signed integer literal (42i128)</summary>
     S128Literal,
 
-    /// <summary>System pointer-sized signed integer literal (42syssint)</summary>
+    /// <summary>System pointer-sized signed integer literal (42saddr)</summary>
     SyssintLiteral,
 
     // Unsigned integers

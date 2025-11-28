@@ -5,15 +5,15 @@
 
 # Base generic record - works for Tracked<Retained<T>> (2 fields)
 record Tracked<T> {
-    private controller_address: sysuint
-    private data_address: sysuint
+    private controller_address: uaddr
+    private data_address: uaddr
 }
 
 # Specialized for Tracked<Shared<T, Policy>> (3 fields needed)
 record Tracked<Shared<T, Policy>> {
-    private controller_address: sysuint
-    private data_address: sysuint
-    private lock_address: sysuint
+    private controller_address: uaddr
+    private data_address: uaddr
+    private lock_address: uaddr
 }
 
 # Create weak reference from Retained<T>
@@ -44,14 +44,14 @@ routine Shared<T, Policy>.track(me: Shared<T, Policy>) -> Tracked<Shared<T, Poli
 }
 
 # Constructor for Tracked<Retained<T>>
-routine Tracked<Retained<T>>.Tracked<Retained<T>>(controller_address: sysuint, data_address: sysuint) -> Tracked<Retained<T>> {
+routine Tracked<Retained<T>>.Tracked<Retained<T>>(controller_address: uaddr, data_address: uaddr) -> Tracked<Retained<T>> {
     me.controller_address = controller_address
     me.data_address = data_address
     return me
 }
 
 # Constructor for Tracked<Shared<T, Policy>>
-routine Tracked<Shared<T, Policy>>.Tracked<Shared<T, Policy>>(controller_address: sysuint, data_address: sysuint, lock_address: sysuint) -> Tracked<Shared<T, Policy>> {
+routine Tracked<Shared<T, Policy>>.Tracked<Shared<T, Policy>>(controller_address: uaddr, data_address: uaddr, lock_address: uaddr) -> Tracked<Shared<T, Policy>> {
     me.controller_address = controller_address
     me.data_address = data_address
     me.lock_address = lock_address

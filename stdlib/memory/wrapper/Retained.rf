@@ -1,6 +1,6 @@
 record Retained<T> {
-    private controller_address: sysuint
-    private data_address: sysuint
+    private controller_address: uaddr
+    private data_address: uaddr
 }
 
 routine T.retain() -> Retained<T> {
@@ -17,7 +17,7 @@ routine T.retain() -> Retained<T> {
     }
 }
 
-routine Retained<T>.Retained<T>(controller_address: sysuint, data_address: sysuint) {
+routine Retained<T>.Retained<T>(controller_address: uaddr, data_address: uaddr) {
     me.controller_address = controller_address
     me.data_address = data_address
     return me

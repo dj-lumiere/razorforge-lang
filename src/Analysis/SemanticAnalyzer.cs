@@ -132,8 +132,8 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         _symbolTable.TryDeclare(symbol: stackSliceSymbol);
 
         // Register primitive types
-        RegisterPrimitiveType(typeName: "sysuint");
-        RegisterPrimitiveType(typeName: "syssint");
+        RegisterPrimitiveType(typeName: "uaddr");
+        RegisterPrimitiveType(typeName: "saddr");
         RegisterPrimitiveType(typeName: "u8");
         RegisterPrimitiveType(typeName: "u16");
         RegisterPrimitiveType(typeName: "u32");
@@ -1086,13 +1086,13 @@ public class SemanticAnalyzer : IAstVisitor<object?>
             TokenType.S32Literal => new TypeInfo(Name: "s32", IsReference: false),
             TokenType.S64Literal => new TypeInfo(Name: "s64", IsReference: false),
             TokenType.S128Literal => new TypeInfo(Name: "s128", IsReference: false),
-            TokenType.SyssintLiteral => new TypeInfo(Name: "syssint", IsReference: false),
+            TokenType.SyssintLiteral => new TypeInfo(Name: "saddr", IsReference: false),
             TokenType.U8Literal => new TypeInfo(Name: "u8", IsReference: false),
             TokenType.U16Literal => new TypeInfo(Name: "u16", IsReference: false),
             TokenType.U32Literal => new TypeInfo(Name: "u32", IsReference: false),
             TokenType.U64Literal => new TypeInfo(Name: "u64", IsReference: false),
             TokenType.U128Literal => new TypeInfo(Name: "u128", IsReference: false),
-            TokenType.SysuintLiteral => new TypeInfo(Name: "sysuint", IsReference: false),
+            TokenType.SysuintLiteral => new TypeInfo(Name: "uaddr", IsReference: false),
 
             // Untyped integer: RazorForge defaults to s64, Suflae defaults to Integer (arbitrary precision)
             TokenType.Integer => new TypeInfo(
@@ -1703,8 +1703,8 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     {
         return typeName switch
         {
-            "s8" or "s16" or "s32" or "s64" or "s128" or "syssint" or "u8" or "u16" or "u32"
-                or "u64" or "u128" or "sysuint" or "f16" or "f32" or "f64" or "f128" or "d32"
+            "s8" or "s16" or "s32" or "s64" or "s128" or "saddr" or "u8" or "u16" or "u32"
+                or "u64" or "u128" or "uaddr" or "f16" or "f32" or "f64" or "f128" or "d32"
                 or "d64" or "d128" or "bool" or "letter8" or "letter16" or "letter32" => true,
             _ => false
         };
@@ -1721,8 +1721,8 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     {
         return typeName switch
         {
-            "s8" or "s16" or "s32" or "s64" or "s128" or "syssint" or "u8" or "u16" or "u32"
-                or "u64" or "u128" or "sysuint" or "f16" or "f32" or "f64" or "f128" or "d32"
+            "s8" or "s16" or "s32" or "s64" or "s128" or "saddr" or "u8" or "u16" or "u32"
+                or "u64" or "u128" or "uaddr" or "f16" or "f32" or "f64" or "f128" or "d32"
                 or "d64" or "d128" => true,
             _ => false
         };
@@ -2029,13 +2029,13 @@ public class SemanticAnalyzer : IAstVisitor<object?>
             TokenType.S32Literal => new TypeInfo(Name: "s32", IsReference: false),
             TokenType.S64Literal => new TypeInfo(Name: "s64", IsReference: false),
             TokenType.S128Literal => new TypeInfo(Name: "s128", IsReference: false),
-            TokenType.SyssintLiteral => new TypeInfo(Name: "syssint", IsReference: false),
+            TokenType.SyssintLiteral => new TypeInfo(Name: "saddr", IsReference: false),
             TokenType.U8Literal => new TypeInfo(Name: "u8", IsReference: false),
             TokenType.U16Literal => new TypeInfo(Name: "u16", IsReference: false),
             TokenType.U32Literal => new TypeInfo(Name: "u32", IsReference: false),
             TokenType.U64Literal => new TypeInfo(Name: "u64", IsReference: false),
             TokenType.U128Literal => new TypeInfo(Name: "u128", IsReference: false),
-            TokenType.SysuintLiteral => new TypeInfo(Name: "sysuint", IsReference: false),
+            TokenType.SysuintLiteral => new TypeInfo(Name: "uaddr", IsReference: false),
 
             // Untyped integer: RazorForge defaults to s64, Suflae defaults to Integer (arbitrary precision)
             TokenType.Integer => new TypeInfo(
@@ -2615,25 +2615,25 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// <returns>TypeInfo of the slice</returns>
     public object? VisitSliceConstructorExpression(SliceConstructorExpression node)
     {
-        // Validate size expression is compatible with sysuint type
+        // Validate size expression is compatible with uaddr type
         var sizeType = node.SizeExpression.Accept(visitor: this) as TypeInfo;
         if (sizeType == null)
         {
             AddError(message: $"Slice size expression has unknown type", location: node.Location);
         }
-        else if (sizeType.Name != "sysuint")
+        else if (sizeType.Name != "uaddr")
         {
-            // Allow integer literals to be coerced to sysuint
+            // Allow integer literals to be coerced to uaddr
             if (sizeType.IsInteger)
             {
-                // Implicit conversion from any integer type to sysuint for slice sizes
+                // Implicit conversion from any integer type to uaddr for slice sizes
                 // This handles cases like DynamicSlice(64) where 64 might be typed as s32, s64, etc.
             }
             else
             {
                 AddError(
                     message:
-                    $"Slice size must be of type sysuint or compatible integer type, found {sizeType.Name}",
+                    $"Slice size must be of type uaddr or compatible integer type, found {sizeType.Name}",
                     location: node.Location);
             }
         }
@@ -2902,7 +2902,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         switch (methodName)
         {
             case "read":
-                // read<T>!(offset: sysuint) -> T
+                // read<T>!(offset: uaddr) -> T
                 if (args.Count != 1)
                 {
                     AddError(message: "read<T>! requires exactly one argument (offset)",
@@ -2912,16 +2912,16 @@ public class SemanticAnalyzer : IAstVisitor<object?>
 
                 var offsetType = args[index: 0]
                    .Accept(visitor: this) as TypeInfo;
-                if (offsetType?.Name != "sysuint" && !IsIntegerType(typeName: offsetType?.Name))
+                if (offsetType?.Name != "uaddr" && !IsIntegerType(typeName: offsetType?.Name))
                 {
-                    AddError(message: "read<T>! offset must be of type sysuint",
+                    AddError(message: "read<T>! offset must be of type uaddr",
                         location: node.Location);
                 }
 
                 return new TypeInfo(Name: targetType.Name, IsReference: false);
 
             case "write":
-                // write<T>!(offset: sysuint, value: T)
+                // write<T>!(offset: uaddr, value: T)
                 if (args.Count != 2)
                 {
                     AddError(message: "write<T>! requires exactly two arguments (offset, value)",
@@ -2934,10 +2934,10 @@ public class SemanticAnalyzer : IAstVisitor<object?>
                 var valueType = args[index: 1]
                    .Accept(visitor: this) as TypeInfo;
 
-                if (writeOffsetType?.Name != "sysuint" &&
+                if (writeOffsetType?.Name != "uaddr" &&
                     !IsIntegerType(typeName: writeOffsetType?.Name))
                 {
-                    AddError(message: "write<T>! offset must be of type sysuint",
+                    AddError(message: "write<T>! offset must be of type uaddr",
                         location: node.Location);
                 }
 
@@ -2972,7 +2972,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
                         location: node.Location);
                 }
 
-                return new TypeInfo(Name: "sysuint", IsReference: false);
+                return new TypeInfo(Name: "uaddr", IsReference: false);
 
             case "address":
                 if (args.Count != 0)
@@ -2981,7 +2981,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
                         location: node.Location);
                 }
 
-                return new TypeInfo(Name: "sysuint", IsReference: false);
+                return new TypeInfo(Name: "uaddr", IsReference: false);
 
             case "is_valid":
                 if (args.Count != 0)
@@ -3002,13 +3002,13 @@ public class SemanticAnalyzer : IAstVisitor<object?>
 
                 var offsetType = args[index: 0]
                    .Accept(visitor: this) as TypeInfo;
-                if (offsetType?.Name != "sysuint")
+                if (offsetType?.Name != "uaddr")
                 {
-                    AddError(message: "unsafe_ptr! offset must be of type sysuint",
+                    AddError(message: "unsafe_ptr! offset must be of type uaddr",
                         location: node.Location);
                 }
 
-                return new TypeInfo(Name: "sysuint", IsReference: false);
+                return new TypeInfo(Name: "uaddr", IsReference: false);
 
             case "slice":
                 if (args.Count != 2)
@@ -3173,8 +3173,8 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     {
         return typeName switch
         {
-            "s8" or "s16" or "s32" or "s64" or "s128" or "syssint" => true,
-            "u8" or "u16" or "u32" or "u64" or "u128" or "sysuint" => true,
+            "s8" or "s16" or "s32" or "s64" or "s128" or "saddr" => true,
+            "u8" or "u16" or "u32" or "u64" or "u128" or "uaddr" => true,
             _ => false
         };
     }
@@ -3337,7 +3337,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         }
 
         // Return pointer-sized integer (address)
-        return new TypeInfo(Name: "sysuint", IsReference: false);
+        return new TypeInfo(Name: "uaddr", IsReference: false);
     }
 
     private object? ValidateInvalidate(List<Expression> args, SourceLocation location)
@@ -3419,7 +3419,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         }
 
         // Return pointer-sized integer (address)
-        return new TypeInfo(Name: "sysuint", IsReference: false);
+        return new TypeInfo(Name: "uaddr", IsReference: false);
     }
 
     private object? ValidateInvalidateFunction(List<Expression> args, SourceLocation location)
@@ -3534,8 +3534,8 @@ public class SemanticAnalyzer : IAstVisitor<object?>
             "d128",
             "bool",
             "letter",
-            "syssint",
-            "sysuint"
+            "saddr",
+            "uaddr"
         };
 
         return primitiveTypes.Contains(value: type.Name);
@@ -3730,7 +3730,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
             "s32",
             "s64",
             "s128",
-            "syssint"
+            "saddr"
         };
         string[] unsignedInts =
         {
@@ -3739,7 +3739,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
             "u32",
             "u64",
             "u128",
-            "sysuint"
+            "uaddr"
         };
         string[] floats =
         {
@@ -3809,8 +3809,8 @@ public class SemanticAnalyzer : IAstVisitor<object?>
             "bool",
             "letter",
             "Text",
-            "syssint",
-            "sysuint",
+            "saddr",
+            "uaddr",
             "DynamicSlice",
             "TemporarySlice"
         };
@@ -3827,8 +3827,8 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         // Check primitive types
         string[] primitiveTypes =
         {
-            "s8", "s16", "s32", "s64", "s128", "syssint",
-            "u8", "u16", "u32", "u64", "u128", "sysuint",
+            "s8", "s16", "s32", "s64", "s128", "saddr",
+            "u8", "u16", "u32", "u64", "u128", "uaddr",
             "f16", "f32", "f64", "f128",
             "d32", "d64", "d128",
             "bool", "letter", "letter8", "letter16",

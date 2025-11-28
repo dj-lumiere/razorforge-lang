@@ -109,7 +109,7 @@
     {
       "comment": "Built-in primitive types",
       "name": "storage.type.primitive.razorforge",
-      "match": "\\b(s8|s16|s32|s64|s128|u8|u16|u32|u64|u128|f16|f32|f64|f128|d32|d64|d128|bool|Bool|sysuint|syssint|letter|cptr)\\b"
+      "match": "\\b(s8|s16|s32|s64|s128|u8|u16|u32|u64|u128|f16|f32|f64|f128|d32|d64|d128|bool|Bool|uaddr|saddr|letter|cptr)\\b"
     },
     {
       "comment": "User-defined types (PascalCase)",

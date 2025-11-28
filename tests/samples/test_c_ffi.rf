@@ -1,16 +1,16 @@
 # Test C FFI with calling conventions and C types
 
 # External C function declarations with explicit calling convention
-external("C") routine malloc(size: sysuint) -> sysuint
-external("C") routine free(ptr: sysuint)
-external("C") routine printf(fmt: sysuint, ...) -> cint
+external("C") routine malloc(size: uaddr) -> uaddr
+external("C") routine free(ptr: uaddr)
+external("C") routine printf(fmt: uaddr, ...) -> cint
 
 # External C function with C types
 external("C") routine add(a: cint, b: cint) -> cint
 external("C") routine multiply(x: clong, y: clong) -> clong
 
 # Test with default calling convention (implicitly "C")
-external routine strlen(s: sysuint) -> sysuint
+external routine strlen(s: uaddr) -> uaddr
 
 # Main function to test the FFI
 routine main() -> s32 {

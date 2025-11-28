@@ -2,14 +2,14 @@
 # Provides fundamental types and operations
 
 # Memory management functions - C FFI
-external("C") routine malloc(size: sysuint) -> sysuint
-external("C") routine free(ptr: sysuint)
-external("C") routine memcpy(dest: sysuint, src: sysuint, size: sysuint) -> sysuint
-external("C") routine memset(ptr: sysuint, value: cint, size: sysuint) -> sysuint
+external("C") routine malloc(size: uaddr) -> uaddr
+external("C") routine free(ptr: uaddr)
+external("C") routine memcpy(dest: uaddr, src: uaddr, size: uaddr) -> uaddr
+external("C") routine memset(ptr: uaddr, value: cint, size: uaddr) -> uaddr
 
 # Basic I/O (temporarily using C functions)
-external("C") routine printf(format: sysuint, ...) -> cint
-external("C") routine scanf(format: sysuint, ...) -> cint
+external("C") routine printf(format: uaddr, ...) -> cint
+external("C") routine scanf(format: uaddr, ...) -> cint
 
 # Core print function for integers
 routine print_i32(value: i32) {

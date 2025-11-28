@@ -1512,13 +1512,13 @@ public class SuflaeParser : BaseParser
                                      .Replace(oldValue: "s32", newValue: "")
                                      .Replace(oldValue: "s64", newValue: "")
                                      .Replace(oldValue: "s128", newValue: "")
-                                     .Replace(oldValue: "syssint", newValue: "")
+                                     .Replace(oldValue: "saddr", newValue: "")
                                      .Replace(oldValue: "u8", newValue: "")
                                      .Replace(oldValue: "u16", newValue: "")
                                      .Replace(oldValue: "u32", newValue: "")
                                      .Replace(oldValue: "u64", newValue: "")
                                      .Replace(oldValue: "u128", newValue: "")
-                                     .Replace(oldValue: "sysuint", newValue: "")
+                                     .Replace(oldValue: "uaddr", newValue: "")
                                      .Replace(oldValue: "_", newValue: ""); // Remove underscores
             if (long.TryParse(s: cleanValue, result: out long intVal))
             {
