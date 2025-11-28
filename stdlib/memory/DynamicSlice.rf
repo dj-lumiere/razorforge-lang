@@ -4,19 +4,17 @@
 import system/memory/native
 
 ###
-Heap-allocated memory slice for dynamic data storage.
-Non-generic structure that can hold any type of data.
-Reference counting is handled separately by the wrapper type system.
+### Heap-allocated memory slice for dynamic data storage.
+### Non-generic structure that can hold any type of data.
+### Reference counting is handled separately by the wrapper type system.
 ###
 record DynamicSlice {
     private starting_address: sysuint
     private allocated_bytes: sysuint
 
-    ###
-    Creates a new heap slice with specified byte size
-    @param bytes - Number of bytes to allocate on heap
-    @return New DynamicSlice instance
-    ###
+    ### Creates a new heap slice with specified byte size
+    ### @param bytes - Number of bytes to allocate on heap
+    ### @return New DynamicSlice instance
     public routine __create__(bytes: sysuint) -> DynamicSlice {
         if bytes == 0 {
             me.starting_address = 0
@@ -36,11 +34,9 @@ record DynamicSlice {
         return me
     }
 
-    ###
-    Creates a copy of another DynamicSlice (shallow copy of data)
-    @param other - Source DynamicSlice to copy from
-    @return New DynamicSlice with copied data
-    ###
+    ### Creates a copy of another DynamicSlice (shallow copy of data)
+    ### @param other - Source DynamicSlice to copy from
+    ### @return New DynamicSlice with copied data
     public routine __copy__(other: DynamicSlice) -> DynamicSlice {
         if other.allocated_bytes == 0 {
             return DynamicSlice(0)
@@ -51,9 +47,7 @@ record DynamicSlice {
         return new_slice
     }
 
-    ###
-    Destructor that frees heap memory
-    ###
+    ### Destructor that frees heap memory
     public routine __destroy__() {
         if me.starting_address != 0 {
             release_dynamic!(me.starting_address)
@@ -62,36 +56,28 @@ record DynamicSlice {
         }
     }
 
-    ###
-    Gets the total allocated bytes
-    @return Number of bytes allocated for this slice
-    ###
+    ### Gets the total allocated bytes
+    ### @return Number of bytes allocated for this slice
     public routine size() -> sysuint {
         return me.allocated_bytes
     }
 
-    ###
-    Gets the starting memory address
-    @return Memory address where slice data begins
-    ###
+    ### Gets the starting memory address
+    ### @return Memory address where slice data begins
     public routine address() -> sysuint {
         return me.starting_address
     }
 
-    ###
-    Checks if this slice is valid (has allocated memory)
-    @return true if slice has valid memory allocation
-    ###
+    ### Checks if this slice is valid (has allocated memory)
+    ### @return true if slice has valid memory allocation
     public routine is_valid() -> bool {
         return me.starting_address != 0
     }
 
-    ###
-    Reads raw bytes from the slice
-    @param offset - Byte offset within the slice
-    @param dest - Destination address to copy bytes to
-    @param count - Number of bytes to read
-    ###
+    ### Reads raw bytes from the slice
+    ### @param offset - Byte offset within the slice
+    ### @param dest - Destination address to copy bytes to
+    ### @param count - Number of bytes to read
     public routine read_bytes!(offset: sysuint, dest: sysuint, count: sysuint) {
         if offset + count > me.allocated_bytes {
             crash!(f"Read operation would exceed slice bounds")
@@ -101,12 +87,10 @@ record DynamicSlice {
         memory_copy!(src_addr, dest, count)
     }
 
-    ###
-    Writes raw bytes to the slice
-    @param offset - Byte offset within the slice
-    @param src - Source address to copy bytes from
-    @param count - Number of bytes to write
-    ###
+    ### Writes raw bytes to the slice
+    ### @param offset - Byte offset within the slice
+    ### @param src - Source address to copy bytes from
+    ### @param count - Number of bytes to write
     public routine write_bytes!(offset: sysuint, src: sysuint, count: sysuint) {
         if offset + count > me.allocated_bytes {
             crash!(f"Write operation would exceed slice bounds")
@@ -116,11 +100,9 @@ record DynamicSlice {
         memory_copy!(src, dest_addr, count)
     }
 
-    ###
-    Reads a typed value from the slice at given offset
-    @param offset - Byte offset within the slice
-    @return Value of type T read from the slice
-    ###
+    ### Reads a typed value from the slice at given offset
+    ### @param offset - Byte offset within the slice
+    ### @return Value of type T read from the slice
     public routine read<T>!(offset: sysuint) -> T {
         let type_size = sizeof<T>()
 
@@ -132,11 +114,9 @@ record DynamicSlice {
         return memory_read<T>!(addr)
     }
 
-    ###
-    Writes a typed value to the slice at given offset
-    @param offset - Byte offset within the slice
-    @param value - Value of type T to write to the slice
-    ###
+    ### Writes a typed value to the slice at given offset
+    ### @param offset - Byte offset within the slice
+    ### @param value - Value of type T to write to the slice
     public routine write<T>!(offset: sysuint, value: T) {
         let type_size = sizeof<T>()
 
@@ -148,21 +128,17 @@ record DynamicSlice {
         return memory_write<T>!(addr, value)
     }
 
-    ###
-    Gets unsafe pointer to data at offset
-    @param offset - Byte offset within the slice
-    @return Raw memory address at the specified offset
-    ###
+    ### Gets unsafe pointer to data at offset
+    ### @param offset - Byte offset within the slice
+    ### @return Raw memory address at the specified offset
     public routine snatch!(offset: sysuint) -> sysuint {
         return me.starting_address + offset
     }
 
-    ###
-    Creates a sub-slice view of this slice (shares same memory)
-    @param offset - Starting byte offset for sub-slice
-    @param bytes - Number of bytes in sub-slice
-    @return New DynamicSlice representing the sub-range
-    ###
+    ### Creates a sub-slice view of this slice (shares same memory)
+    ### @param offset - Starting byte offset for sub-slice
+    ### @param bytes - Number of bytes in sub-slice
+    ### @return New DynamicSlice representing the sub-range
     public routine slice!(offset: sysuint, bytes: sysuint) -> DynamicSlice {
         if offset + bytes > me.allocated_bytes {
             crash!(f"Slice range exceeds bounds")
@@ -174,11 +150,9 @@ record DynamicSlice {
         return sub_slice
     }
 
-    ###
-    Resizes the heap slice (may reallocate memory)
-    @param new_bytes - New size in bytes for the slice
-    @return Reference to this slice after resizing
-    ###
+    ### Resizes the heap slice (may reallocate memory)
+    ### @param new_bytes - New size in bytes for the slice
+    ### @return Reference to this slice after resizing
     public routine resize!(new_bytes: sysuint) -> DynamicSlice {
         if new_bytes == 0 {
             me.__destroy__()
@@ -202,21 +176,17 @@ record DynamicSlice {
         return me
     }
 
-    ###
-    Fills the slice with a byte pattern
-    @param pattern - Byte value to fill the entire slice with
-    ###
+    ### Fills the slice with a byte pattern
+    ### @param pattern - Byte value to fill the entire slice with
     public routine fill!(pattern: u8) {
         memory_fill!(me.starting_address, pattern, me.allocated_bytes)
     }
 
-    ###
-    Copies data from another DynamicSlice
-    @param source - Source DynamicSlice to copy from
-    @param src_offset - Starting offset in source slice
-    @param dest_offset - Starting offset in destination slice
-    @param count - Number of bytes to copy
-    ###
+    ### Copies data from another DynamicSlice
+    ### @param source - Source DynamicSlice to copy from
+    ### @param src_offset - Starting offset in source slice
+    ### @param dest_offset - Starting offset in destination slice
+    ### @param count - Number of bytes to copy
     public routine copy_from!(source: DynamicSlice, src_offset: sysuint,
                            dest_offset: sysuint, count: sysuint) {
         if src_offset + count > source.allocated_bytes {
@@ -232,13 +202,11 @@ record DynamicSlice {
         memory_copy!(src_addr, dest_addr, count)
     }
 
-    ###
-    Copies from TemporarySlice to this DynamicSlice
-    @param source - Source TemporarySlice to copy from
-    @param src_offset - Starting offset in source slice
-    @param dest_offset - Starting offset in destination slice
-    @param count - Number of bytes to copy
-    ###
+    ### Copies from TemporarySlice to this DynamicSlice
+    ### @param source - Source TemporarySlice to copy from
+    ### @param src_offset - Starting offset in source slice
+    ### @param dest_offset - Starting offset in destination slice
+    ### @param count - Number of bytes to copy
     public routine copy_from_stack!(source: TemporarySlice, src_offset: sysuint,
                                  dest_offset: sysuint, count: sysuint) {
         if src_offset + count > source.size() {
@@ -254,18 +222,14 @@ record DynamicSlice {
         memory_copy!(src_addr, dest_addr, count)
     }
 
-    ###
-    Zeros out all memory in the slice
-    ###
+    ### Zeros out all memory in the slice
     public routine zero!() {
         memory_zero!(me.starting_address, me.allocated_bytes)
     }
 
-    ###
-    Transfers ownership from another DynamicSlice (moves data)
-    @param other - Source DynamicSlice to take ownership from
-    @return Reference to this slice after hijacking
-    ###
+    ### Transfers ownership from another DynamicSlice (moves data)
+    ### @param other - Source DynamicSlice to take ownership from
+    ### @return Reference to this slice after hijacking
     public routine hijack!(other: DynamicSlice) -> DynamicSlice {
         # Free our current memory
         me.__destroy__()
@@ -281,10 +245,8 @@ record DynamicSlice {
         return me
     }
 
-    ###
-    Gets a reference to the raw memory (for wrapper type system)
-    @return Raw memory address for wrapper type operations
-    ###
+    ### Gets a reference to the raw memory (for wrapper type system)
+    ### @return Raw memory address for wrapper type operations
     public routine refer!() -> sysuint {
         return me.starting_address
     }
