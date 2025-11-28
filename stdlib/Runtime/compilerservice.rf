@@ -1,0 +1,69 @@
+# CompilerService - Compile-time information available at runtime
+# All functions are compiler intrinsics with zero runtime overhead
+# Data is embedded during compilation
+
+# ============================================================================
+# Type Information
+# ============================================================================
+
+# Returns the memory size of the type in bytes
+# Compiler intrinsic: replaced with constant at compile time
+@intrinsic("size_of")
+routine size_of<T>() -> uaddr
+
+# Returns the memory alignment requirement of the type
+@intrinsic("align_of")
+routine align_of<T>() -> uaddr
+
+# Returns the compile-time type name as it appears in source code
+# Example: get_compile_type_name<List<s32>>() returns "List<s32>"
+@intrinsic("get_compile_type_name")
+routine get_compile_type_name<T>() -> Text<letter8>
+
+# Returns a list of field names for records and entities
+@intrinsic("field_names")
+routine field_names<T>() -> List<Text<letter8>>
+
+# Returns the number of fields in the type
+@intrinsic("field_count")
+routine field_count<T>() -> uaddr
+
+# ============================================================================
+# Source Location
+# ============================================================================
+
+# Returns the current line number in source code
+@intrinsic("get_line_number")
+routine get_line_number() -> s64
+
+# Returns the current column position in source code
+@intrinsic("get_column_number")
+routine get_column_number() -> s64
+
+# Returns the current source file name
+@intrinsic("get_file_name")
+routine get_file_name() -> Text<letter8>
+
+# Returns the name of the calling function
+@intrinsic("get_caller_name")
+routine get_caller_name() -> Text<letter8>
+
+# Returns the variable name as it appears in source code
+@intrinsic("get_variable_name")
+routine get_variable_name<T>(var: T) -> Text<letter8>
+
+# ============================================================================
+# Module and Attributes
+# ============================================================================
+
+# Returns the current module name
+@intrinsic("get_current_module")
+routine get_current_module() -> Text<letter8>
+
+# ============================================================================
+# Method Inspection
+# ============================================================================
+
+# Checks if a type has a method with the given name at compile time
+@intrinsic("has_method")
+routine has_method<T>(name: Text<letter8>) -> bool

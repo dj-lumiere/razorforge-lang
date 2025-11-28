@@ -1,0 +1,10 @@
+# IntegerOverflowError - Error for integer conversion overflow
+# Used when converting between integer types and the value doesn't fit
+
+record IntegerOverflowError follows Crashable {
+    public message: ValueText<letter32, 256>
+
+    routine crash_message(me) -> Text<letter32> {
+        return me.message
+    }
+}
