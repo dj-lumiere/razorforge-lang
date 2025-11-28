@@ -159,19 +159,19 @@ public class TargetPlatform
     public static TargetPlatform Default()
     {
         // Detect current OS
-        TargetOS os = OperatingSystem.IsWindows() ? TargetOS.Windows
-                    : OperatingSystem.IsMacOS() ? TargetOS.MacOS
-                    : TargetOS.Linux;
+        TargetOS os = OperatingSystem.IsWindows() ? TargetOS.Windows :
+            OperatingSystem.IsMacOS() ? TargetOS.MacOS : TargetOS.Linux;
 
         // Detect current architecture
-        TargetArchitecture arch = System.Runtime.InteropServices.RuntimeInformation.OSArchitecture switch
-        {
-            System.Runtime.InteropServices.Architecture.X64 => TargetArchitecture.X86_64,
-            System.Runtime.InteropServices.Architecture.X86 => TargetArchitecture.X86,
-            System.Runtime.InteropServices.Architecture.Arm64 => TargetArchitecture.ARM64,
-            System.Runtime.InteropServices.Architecture.Arm => TargetArchitecture.ARM,
-            _ => TargetArchitecture.X86_64 // Default fallback
-        };
+        TargetArchitecture arch =
+            System.Runtime.InteropServices.RuntimeInformation.OSArchitecture switch
+            {
+                System.Runtime.InteropServices.Architecture.X64 => TargetArchitecture.X86_64,
+                System.Runtime.InteropServices.Architecture.X86 => TargetArchitecture.X86,
+                System.Runtime.InteropServices.Architecture.Arm64 => TargetArchitecture.ARM64,
+                System.Runtime.InteropServices.Architecture.Arm => TargetArchitecture.ARM,
+                _ => TargetArchitecture.X86_64 // Default fallback
+            };
 
         return new TargetPlatform(architecture: arch, os: os);
     }

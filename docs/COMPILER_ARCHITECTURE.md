@@ -1,6 +1,7 @@
 # RazorForge Compiler Architecture
 
 ## Table of Contents
+
 1. [Compilation Pipeline](#compilation-pipeline)
 2. [Directory Structure](#directory-structure)
 3. [Key Components](#key-components)
@@ -91,18 +92,21 @@ src/
 **Purpose:** Convert source text into tokens
 
 **Key Classes:**
+
 - `Tokenizer` - Static entry point
 - `RazorForgeTokenizer` / `SuflaeTokenizer` - Language-specific implementations
 - `Token` - Data: type, value, location
 - `TokenType` - Enum of all token types
 
 **Flow:**
+
 ```csharp
 string sourceCode = File.ReadAllText(filePath);
 List<Token> tokens = Tokenizer.Tokenize(sourceCode, language);
 ```
 
 **Supported Features:**
+
 - Keywords: `entity`, `record`, `routine`, `import`, `throw`, `absent`, etc.
 - Operators: `+`, `-`, `*`, `/`, `//`, `<`, `>`, etc.
 - Literals: numbers, strings, characters
@@ -122,6 +126,7 @@ List<Token> tokens = Tokenizer.Tokenize(sourceCode, language);
 **Purpose:** Build Abstract Syntax Tree from tokens
 
 **Key Methods:**
+
 - `ParseDeclaration()` - Top-level declarations
 - `ParseExpression()` - All expression types
 - `ParseStatement()` - Control flow, assignments
@@ -129,6 +134,7 @@ List<Token> tokens = Tokenizer.Tokenize(sourceCode, language);
 - `ParseImportDeclaration()` - Import statements
 
 **Generic Parsing:** ✅ **IMPLEMENTED**
+
 ```csharp
 // Lines 425-437: Parses entity Buffer<T>
 private ClassDeclaration ParseClassDeclaration(VisibilityModifier visibility)
@@ -140,6 +146,7 @@ private ClassDeclaration ParseClassDeclaration(VisibilityModifier visibility)
 ```
 
 **Import Parsing:** ⚠️ **PARTIAL**
+
 ```csharp
 // Lines 269-302: Parses import stdlib/memory/DynamicSlice
 private ImportDeclaration ParseImportDeclaration()
@@ -168,6 +175,7 @@ private ImportDeclaration ParseImportDeclaration()
 **Key Node Types:**
 
 #### Declarations (`Declarations.cs`)
+
 ```csharp
 // Generic entity declaration
 ClassDeclaration(
@@ -186,6 +194,7 @@ ImportDeclaration(
 ```
 
 #### Expressions (`Expressions.cs`)
+
 ```csharp
 // Generic type reference
 TypeExpression(
@@ -215,6 +224,7 @@ GenericMethodCallExpression(
 **Key Features:**
 
 #### Generic Type Resolution ✅ **PARTIAL**
+
 ```csharp
 // Lines 1353-1375: Resolves List<s32> to concrete type
 private TypeInfo? ResolveGenericType(
@@ -227,6 +237,7 @@ private TypeInfo? ResolveGenericType(
 ```
 
 #### Generic Method Calls ✅ **IMPLEMENTED**
+
 ```csharp
 // Lines 2092-2122: Handles buffer.read<T>!()
 public object? VisitGenericMethodCallExpression(
@@ -243,6 +254,7 @@ public object? VisitGenericMethodCallExpression(
 ```
 
 #### Import Processing ❌ **NOT IMPLEMENTED**
+
 ```csharp
 // Line 523
 public object? VisitImportDeclaration(ImportDeclaration node)
@@ -281,6 +293,7 @@ ClassSymbol(
 ```
 
 **Generic Constraints:**
+
 ```csharp
 GenericConstraint(
     ParameterName: "T",
@@ -303,19 +316,21 @@ GenericConstraint(
 **How It Works:**
 
 When the compiler encounters a failable function (marked with `!`), it analyzes the function body for:
+
 - `throw` statements - indicates the function can crash with an error
 - `absent` statements - indicates the function can return "not found"
 
 Based on these, it generates safe variants:
 
-| `throw` | `absent` | Generated Variants |
-|---------|----------|-------------------|
-| no      | no       | Compile Error (must use throw or absent) |
-| no     | yes      | `try_` only (returns `Maybe<T>`) |
-| yes    | no       | `try_`, `check_` (returns `Maybe<T>`, `Result<T>`) |
-| yes    | yes      | `try_`, `find_` (returns `Maybe<T>`, `Lookup<T>`) |
+| `throw` | `absent` | Generated Variants                                 |
+|---------|----------|----------------------------------------------------|
+| no      | no       | Compile Error (must use throw or absent)           |
+| no      | yes      | `try_` only (returns `Maybe<T>`)                   |
+| yes     | no       | `try_`, `check_` (returns `Maybe<T>`, `Result<T>`) |
+| yes     | yes      | `try_`, `find_` (returns `Maybe<T>`, `Lookup<T>`)  |
 
 **Example:**
+
 ```razorforge
 # User writes:
 routine divide!(a: s32, b: s32) -> s32 {
@@ -331,6 +346,7 @@ routine check_divide(a: s32, b: s32) -> Result<s32> { ... }
 ```
 
 **Type Constructor Support:**
+
 - Default constructor: `__create__`
 - Failable constructor: `__create__!`
 - Generated variants: `try___create__`, `check___create__`, etc.
@@ -363,6 +379,7 @@ private string MangleGenericName(string baseName, List<TypeInfo> typeArgs)
 ```
 
 **Generic Method Calls:** ✅ **IMPLEMENTED**
+
 ```csharp
 // Lines 1744-1857: Handles read<T>!(), write<T>!()
 public string VisitGenericMethodCallExpression(
@@ -376,6 +393,7 @@ public string VisitGenericMethodCallExpression(
 ```
 
 **TODO:**
+
 - Generic member access (Line 1861)
 - Full monomorphization (currently only tracks, doesn't generate all instances)
 
@@ -386,25 +404,25 @@ public string VisitGenericMethodCallExpression(
 ### ✅ Implemented (Working)
 
 1. **Parser Support**
-   - Entity/record/variant with generic parameters: `entity Buffer<T>`
-   - Generic type references: `List<s32>`
-   - Generic method calls: `buffer.read<T>!()`
-   - Multiple type parameters: `Dict<K, V>`
+    - Entity/record/variant with generic parameters: `entity Buffer<T>`
+    - Generic type references: `List<s32>`
+    - Generic method calls: `buffer.read<T>!()`
+    - Multiple type parameters: `Dict<K, V>`
 
 2. **AST Representation**
-   - `TypeExpression.GenericArguments`
-   - `GenericMethodCallExpression`
-   - `GenericConstraint` definitions
+    - `TypeExpression.GenericArguments`
+    - `GenericMethodCallExpression`
+    - `GenericConstraint` definitions
 
 3. **Symbol Table**
-   - `FunctionSymbol.GenericParameters`
-   - `ClassSymbol.GenericParameters`
-   - Generic constraint storage
+    - `FunctionSymbol.GenericParameters`
+    - `ClassSymbol.GenericParameters`
+    - Generic constraint storage
 
 4. **Code Generation**
-   - Generic method call handling (for DynamicSlice operations)
-   - Name mangling for generic types
-   - Instantiation tracking
+    - Generic method call handling (for DynamicSlice operations)
+    - Name mangling for generic types
+    - Instantiation tracking
 
 5. **Real Working Examples**
    ```razorforge
@@ -421,20 +439,20 @@ public string VisitGenericMethodCallExpression(
 ### ⚠️ Partial / TODO
 
 1. **Semantic Validation**
-   - Generic constraint checking (Line 1483: "TODO: Check actual inheritance")
-   - Generic type instantiation validation (count/kind of type args)
-   - Type parameter inference (partial support)
+    - Generic constraint checking (Line 1483: "TODO: Check actual inheritance")
+    - Generic type instantiation validation (count/kind of type args)
+    - Type parameter inference (partial support)
 
 2. **Code Generation**
-   - Full monomorphization (generate code for all used instantiations)
-   - Generic member access (Line 1861: "TODO: Implement")
-   - Generic trait/feature methods
+    - Full monomorphization (generate code for all used instantiations)
+    - Generic member access (Line 1861: "TODO: Implement")
+    - Generic trait/feature methods
 
 3. **Advanced Features**
-   - Generic specialization
-   - Variance (covariance/contravariance)
-   - Default type parameters
-   - Associated types
+    - Generic specialization
+    - Variance (covariance/contravariance)
+    - Default type parameters
+    - Associated types
 
 ### ❌ Not Implemented
 
@@ -449,15 +467,15 @@ public string VisitGenericMethodCallExpression(
 ### ✅ Implemented (Working)
 
 1. **Parser Support**
-   - Basic import paths: `import stdlib/memory`
-   - Nested paths with `/`: `import a/b/c/d`
-   - Import aliases: `import std as S`
+    - Basic import paths: `import stdlib/memory`
+    - Nested paths with `/`: `import a/b/c/d`
+    - Import aliases: `import std as S`
 
 2. **AST Representation**
-   - `ImportDeclaration` node with all fields
+    - `ImportDeclaration` node with all fields
 
 3. **Token Support**
-   - `Import`, `As`, `Slash` tokens
+    - `Import`, `As`, `Slash` tokens
 
 ### ⚠️ Partial
 
@@ -475,13 +493,13 @@ public string VisitGenericMethodCallExpression(
 ### ❌ Not Implemented
 
 1. **Module Resolution** (Line 523: "TODO: Module system")
-   - No file lookup
-   - No symbol table population from imports
-   - No transitive import handling
+    - No file lookup
+    - No symbol table population from imports
+    - No transitive import handling
 
 2. **Namespace Management**
-   - No module scopes
-   - No qualified access (`std::vector` style)
+    - No module scopes
+    - No qualified access (`std::vector` style)
 
 3. **Using Declarations** (Line 545: "TODO: Handle type alias")
    ```razorforge
@@ -494,9 +512,9 @@ public string VisitGenericMethodCallExpression(
    ```
 
 5. **Import Validation**
-   - No circular import detection
-   - No duplicate import warnings
-   - No unused import warnings
+    - No circular import detection
+    - No duplicate import warnings
+    - No unused import warnings
 
 ---
 
@@ -716,30 +734,33 @@ Source: import Collections/List
 
 ### Key Files by Feature
 
-| Feature | Parser | AST | Semantic | CodeGen |
-|---------|--------|-----|----------|---------|
-| **Generics** | RazorForgeParser:425 | Declarations.cs:56 | SemanticAnalyzer:1353 | LLVMCodeGenerator:201 |
-| **Imports** | RazorForgeParser:269 | Declarations.cs:339 | SemanticAnalyzer:523 ❌ | N/A ❌ |
-| **Functions** | RazorForgeParser:1685 | Declarations.cs:85 | SemanticAnalyzer:558 | LLVMCodeGenerator:392 |
-| **Types** | RazorForgeParser:1098 | Expressions.cs:506 | SemanticAnalyzer:1353 | LLVMCodeGenerator:1600 |
-| **Memory** | RazorForgeParser:2405 | Expressions.cs:600 | MemoryAnalyzer | LLVMCodeGenerator:2264 |
-| **Variants** | N/A | N/A | FunctionVariantGenerator ✅ | LLVMCodeGenerator ✅ |
-| **Console I/O** | N/A | N/A | N/A | LLVMCodeGenerator ✅ |
+| Feature         | Parser                | AST                 | Semantic                   | CodeGen                |
+|-----------------|-----------------------|---------------------|----------------------------|------------------------|
+| **Generics**    | RazorForgeParser:425  | Declarations.cs:56  | SemanticAnalyzer:1353      | LLVMCodeGenerator:201  |
+| **Imports**     | RazorForgeParser:269  | Declarations.cs:339 | SemanticAnalyzer:523 ❌     | N/A ❌                  |
+| **Functions**   | RazorForgeParser:1685 | Declarations.cs:85  | SemanticAnalyzer:558       | LLVMCodeGenerator:392  |
+| **Types**       | RazorForgeParser:1098 | Expressions.cs:506  | SemanticAnalyzer:1353      | LLVMCodeGenerator:1600 |
+| **Memory**      | RazorForgeParser:2405 | Expressions.cs:600  | MemoryAnalyzer             | LLVMCodeGenerator:2264 |
+| **Variants**    | N/A                   | N/A                 | FunctionVariantGenerator ✅ | LLVMCodeGenerator ✅    |
+| **Console I/O** | N/A                   | N/A                 | N/A                        | LLVMCodeGenerator ✅    |
 
 ### Common Tasks
 
 **Add new keyword:**
+
 1. `src/Lexer/TokenType.cs` - Add to enum
 2. `src/Lexer/RazorForgeTokenizer.cs` - Add to keyword map
 3. Parser - Handle in appropriate method
 
 **Add new AST node:**
+
 1. `src/AST/` - Add record type
 2. Parser - Create parse method
 3. `SemanticAnalyzer` - Add Visit method
 4. `LLVMCodeGenerator` - Add Visit method
 
 **Debug compilation:**
+
 1. Set breakpoint in `Program.cs:94`
 2. Inspect tokens after tokenization
 3. Inspect AST after parsing
@@ -749,16 +770,19 @@ Source: import Collections/List
 ### Important Line Numbers
 
 **Generic Type Resolution:**
+
 - Parse: `RazorForgeParser.cs:425-437`
 - Analyze: `SemanticAnalyzer.cs:1353-1375`
 - Generate: `LLVMCodeGenerator.cs:201-227`
 
 **Import Processing:**
+
 - Parse: `RazorForgeParser.cs:269-302`
 - Analyze: `SemanticAnalyzer.cs:523` ⚠️ TODO
 - Generate: N/A ⚠️ Not needed
 
 **Generic Method Calls:**
+
 - Parse: `RazorForgeParser.cs:2405-2442`
 - Analyze: `SemanticAnalyzer.cs:2092-2122`
 - Generate: `LLVMCodeGenerator.cs:1744-1857`
@@ -768,6 +792,7 @@ Source: import Collections/List
 ## Next Steps for Full stdlib Support
 
 ### Priority 1: Complete Import System
+
 1. Implement `ModuleResolver` class
 2. Resolve import paths to file paths
 3. Parse imported files
@@ -777,6 +802,7 @@ Source: import Collections/List
 **Estimated Effort:** 2-3 days
 
 ### Priority 2: Complete Generic Validation
+
 1. Validate generic constraint satisfaction
 2. Check type parameter counts match
 3. Infer generic arguments where possible
@@ -785,6 +811,7 @@ Source: import Collections/List
 **Estimated Effort:** 1-2 days
 
 ### Priority 3: Full Monomorphization
+
 1. Generate code for all used generic instantiations
 2. Deduplicate identical instantiations
 3. Handle recursive generic types
@@ -796,6 +823,7 @@ Source: import Collections/List
 ## Conclusion
 
 The compiler has **excellent foundation** for generics and imports:
+
 - ✅ Syntax parsing works
 - ✅ AST representation complete
 - ✅ Symbol table supports generics

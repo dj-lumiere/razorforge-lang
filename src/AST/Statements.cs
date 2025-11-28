@@ -178,8 +178,7 @@ public record ThrowStatement(Expression Error, SourceLocation Location)
 /// Compiler generates: try_get_user() -> User?, find_get_user() -> Lookup<User>
 /// Pattern matching: is Crashable e / is None / else user
 /// </remarks>
-public record AbsentStatement(SourceLocation Location)
-    : Statement(Location: Location)
+public record AbsentStatement(SourceLocation Location) : Statement(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
     public override T Accept<T>(IAstVisitor<T> visitor)
@@ -426,7 +425,8 @@ public abstract record Pattern(SourceLocation Location);
 /// <remarks>
 /// Examples: when x { 42 => ..., "hello" => ..., true => ... }
 /// </remarks>
-public record LiteralPattern(object Value, TokenType LiteralType, SourceLocation Location) : Pattern(Location: Location);
+public record LiteralPattern(object Value, TokenType LiteralType, SourceLocation Location)
+    : Pattern(Location: Location);
 
 /// <summary>
 /// Pattern that binds a matched value to a variable name for use in the action.

@@ -49,7 +49,9 @@ public class SuflaeParser : BaseParser
             }
             catch (ParseException ex)
             {
-                Token errorToken = Position < Tokens.Count ? Tokens[Position] : Tokens[^1];
+                Token errorToken = Position < Tokens.Count
+                    ? Tokens[index: Position]
+                    : Tokens[^1];
                 string location = _fileName != null
                     ? $"[{_fileName}:{errorToken.Line}:{errorToken.Column}]"
                     : $"[{errorToken.Line}:{errorToken.Column}]";
@@ -989,7 +991,8 @@ public class SuflaeParser : BaseParser
         Expression expr = ParsePrimary();
         if (expr is LiteralExpression literal)
         {
-            return new LiteralPattern(Value: literal.Value, LiteralType: literal.LiteralType, Location: location);
+            return new LiteralPattern(Value: literal.Value, LiteralType: literal.LiteralType,
+                Location: location);
         }
 
         throw new ParseException(message: $"Expected pattern, got {CurrentToken.Type}");

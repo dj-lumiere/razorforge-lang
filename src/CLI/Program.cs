@@ -18,20 +18,24 @@ internal class Program
             return;
         }
 
-        string command = args[0].ToLowerInvariant();
+        string command = args[0]
+           .ToLowerInvariant();
 
         // Check if first arg is a command or a file
-        bool isCommand = command == "compile" || command == "run" || command == "compileandrun" || command == "lsp";
+        bool isCommand = command == "compile" || command == "run" || command == "compileandrun" ||
+                         command == "lsp";
 
         if (!isCommand)
         {
             // Old behavior: just a file path, compile it
-            CompileFile(args[0], executeAfter: false, Array.Empty<string>());
+            CompileFile(sourceFile: args[0], executeAfter: false,
+                programArgs: Array.Empty<string>());
         }
         else if (command == "lsp")
         {
-            Console.WriteLine("Language Server not yet implemented.");
-            Console.WriteLine("This would start the RazorForge Language Server Protocol implementation.");
+            Console.WriteLine(value: "Language Server not yet implemented.");
+            Console.WriteLine(
+                value: "This would start the RazorForge Language Server Protocol implementation.");
         }
         else
         {
@@ -43,16 +47,20 @@ internal class Program
             }
 
             string sourceFile = args[1];
-            string[] programArgs = args.Length > 2 ? args[2..] : Array.Empty<string>();
+            string[] programArgs = args.Length > 2
+                ? args[2..]
+                : Array.Empty<string>();
 
             switch (command)
             {
                 case "compile":
-                    CompileFile(sourceFile, executeAfter: false, programArgs);
+                    CompileFile(sourceFile: sourceFile, executeAfter: false,
+                        programArgs: programArgs);
                     break;
                 case "run":
                 case "compileandrun":
-                    CompileFile(sourceFile, executeAfter: true, programArgs);
+                    CompileFile(sourceFile: sourceFile, executeAfter: true,
+                        programArgs: programArgs);
                     break;
                 default:
                     PrintUsage();
@@ -63,15 +71,24 @@ internal class Program
 
     private static void PrintUsage()
     {
-        Console.WriteLine("Usage:");
-        Console.WriteLine("  RazorForge <source-file>                          - Compile file (legacy)");
-        Console.WriteLine("  RazorForge compile <source-file>                  - Compile file");
-        Console.WriteLine("  RazorForge run <source-file> [args...]            - Compile and run file with optional arguments");
-        Console.WriteLine("  RazorForge compileandrun <source-file> [args...]  - Compile and run file with optional arguments");
-        Console.WriteLine("  RazorForge lsp                                    - Start language server");
+        Console.WriteLine(value: "Usage:");
+        Console.WriteLine(
+            value: "  RazorForge <source-file>                          - Compile file (legacy)");
+        Console.WriteLine(
+            value: "  RazorForge compile <source-file>                  - Compile file");
+        Console.WriteLine(
+            value:
+            "  RazorForge run <source-file> [args...]            - Compile and run file with optional arguments");
+        Console.WriteLine(
+            value:
+            "  RazorForge compileandrun <source-file> [args...]  - Compile and run file with optional arguments");
+        Console.WriteLine(
+            value: "  RazorForge lsp                                    - Start language server");
         Console.WriteLine();
-        Console.WriteLine("  <source-file>: .rf file for RazorForge or .sf file for Suflae");
-        Console.WriteLine("  [args...]:     Optional arguments to pass to the compiled program");
+        Console.WriteLine(
+            value: "  <source-file>: .rf file for RazorForge or .sf file for Suflae");
+        Console.WriteLine(
+            value: "  [args...]:     Optional arguments to pass to the compiled program");
     }
 
     private static void CompileFile(string sourceFile, bool executeAfter, string[] programArgs)
@@ -100,14 +117,15 @@ internal class Program
             List<Token> tokens = Tokenizer.Tokenize(source: code, language: language);
             Console.WriteLine(value: $"Generated {tokens.Count} tokens");
             // DEBUG: Print tokens
-            if (sourceFile.Contains("test_tokens"))
+            if (sourceFile.Contains(value: "test_tokens"))
             {
-                Console.WriteLine("=== TOKENS ===");
-                foreach (var tok in tokens)
+                Console.WriteLine(value: "=== TOKENS ===");
+                foreach (Token tok in tokens)
                 {
-                    Console.WriteLine($"  {tok.Line}:{tok.Column} {tok.Type} '{tok.Text}'");
+                    Console.WriteLine(value: $"  {tok.Line}:{tok.Column} {tok.Type} '{tok.Text}'");
                 }
-                Console.WriteLine("=== END TOKENS ===");
+
+                Console.WriteLine(value: "=== END TOKENS ===");
             }
 
             // Parse the code
@@ -121,7 +139,8 @@ internal class Program
 
             // Semantic analysis
             Console.WriteLine(value: "=== SEMANTIC ANALYSIS ===");
-            var analyzer = new SemanticAnalyzer(language: language, mode: mode, fileName: sourceFile);
+            var analyzer =
+                new SemanticAnalyzer(language: language, mode: mode, fileName: sourceFile);
             List<SemanticError> semanticErrors = analyzer.Analyze(program: ast);
 
             if (semanticErrors.Count > 0)
@@ -161,22 +180,24 @@ internal class Program
             if (variantGenerator.GeneratedVariants.Count > 0)
             {
                 Console.WriteLine(
-                    value: $"Generated {variantGenerator.GeneratedVariants.Count} function variants:");
+                    value:
+                    $"Generated {variantGenerator.GeneratedVariants.Count} function variants:");
                 foreach (FunctionDeclaration variant in variantGenerator.GeneratedVariants)
                 {
                     Console.WriteLine(value: $"  - {variant.Name}()");
                 }
 
                 // Add generated variants to the AST
-                var updatedDeclarations = new List<IAstNode>(ast.Declarations);
-                updatedDeclarations.AddRange(variantGenerator.GeneratedVariants.Cast<IAstNode>());
-                ast = new Compilers.Shared.AST.Program(
-                    Declarations: updatedDeclarations,
+                var updatedDeclarations = new List<IAstNode>(collection: ast.Declarations);
+                updatedDeclarations.AddRange(
+                    collection: variantGenerator.GeneratedVariants.Cast<IAstNode>());
+                ast = new Compilers.Shared.AST.Program(Declarations: updatedDeclarations,
                     Location: ast.Location);
             }
             else
             {
-                Console.WriteLine(value: "No function variants generated (no throw/absent detected)");
+                Console.WriteLine(
+                    value: "No function variants generated (no throw/absent detected)");
             }
 
             // Code generation
@@ -210,7 +231,7 @@ internal class Program
                     Console.WriteLine(value: "=== RUNNING PROGRAM ===");
                     Console.WriteLine();
 
-                    RunExecutable(executablePath, programArgs);
+                    RunExecutable(executablePath: executablePath, programArgs: programArgs);
                 }
             }
             else
@@ -300,9 +321,11 @@ internal class Program
             var runProcess = new System.Diagnostics.ProcessStartInfo
             {
                 FileName = executablePath,
-                Arguments = string.Join(" ", programArgs.Select(arg => $"\"{arg}\"")),
+                Arguments =
+                    string.Join(separator: " ",
+                        values: programArgs.Select(selector: arg => $"\"{arg}\"")),
                 UseShellExecute = false,
-                RedirectStandardOutput = false,  // Let output go directly to console
+                RedirectStandardOutput = false, // Let output go directly to console
                 RedirectStandardError = false,
                 RedirectStandardInput = false,
                 CreateNoWindow = false
@@ -311,14 +334,14 @@ internal class Program
             using var process = System.Diagnostics.Process.Start(startInfo: runProcess);
             if (process == null)
             {
-                Console.WriteLine("Failed to start executable.");
+                Console.WriteLine(value: "Failed to start executable.");
                 return;
             }
 
             process.WaitForExit();
 
             Console.WriteLine();
-            Console.WriteLine($"Program exited with code: {process.ExitCode}");
+            Console.WriteLine(value: $"Program exited with code: {process.ExitCode}");
         }
         catch (Exception ex)
         {

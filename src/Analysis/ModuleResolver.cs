@@ -49,34 +49,39 @@ public class ModuleResolver
         var paths = new List<string>();
 
         // Add stdlib directory
-        string? exeDir = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
+        string? exeDir = Path.GetDirectoryName(path: System
+                                                    .Reflection.Assembly.GetExecutingAssembly()
+                                                    .Location);
         if (exeDir != null)
         {
             // Try to find stdlib relative to executable
-            string stdlibPath = Path.Combine(exeDir, "stdlib");
-            if (Directory.Exists(stdlibPath))
+            string stdlibPath = Path.Combine(path1: exeDir, path2: "stdlib");
+            if (Directory.Exists(path: stdlibPath))
             {
-                paths.Add(stdlibPath);
+                paths.Add(item: stdlibPath);
             }
             else
             {
                 // Try parent directories (for development builds)
-                string? parent = Directory.GetParent(exeDir)?.FullName;
+                string? parent = Directory.GetParent(path: exeDir)
+                                         ?.FullName;
                 for (int i = 0; i < 5 && parent != null; i++)
                 {
-                    stdlibPath = Path.Combine(parent, "stdlib");
-                    if (Directory.Exists(stdlibPath))
+                    stdlibPath = Path.Combine(path1: parent, path2: "stdlib");
+                    if (Directory.Exists(path: stdlibPath))
                     {
-                        paths.Add(stdlibPath);
+                        paths.Add(item: stdlibPath);
                         break;
                     }
-                    parent = Directory.GetParent(parent)?.FullName;
+
+                    parent = Directory.GetParent(path: parent)
+                                     ?.FullName;
                 }
             }
         }
 
         // Add current directory
-        paths.Add(Directory.GetCurrentDirectory());
+        paths.Add(item: Directory.GetCurrentDirectory());
 
         return paths;
     }
@@ -89,29 +94,32 @@ public class ModuleResolver
     public string? ResolveImportPath(string importPath)
     {
         // Normalize the import path
-        string normalizedPath = importPath.Replace('/', Path.DirectorySeparatorChar);
+        string normalizedPath =
+            importPath.Replace(oldChar: '/', newChar: Path.DirectorySeparatorChar);
 
         // Try with language-specific extension
-        string extension = _language == Language.RazorForge ? ".rf" : ".sf";
+        string extension = _language == Language.RazorForge
+            ? ".rf"
+            : ".sf";
         string fileNameWithExt = normalizedPath + extension;
 
         // Search in all search paths
         foreach (string searchPath in _searchPaths)
         {
-            string fullPath = Path.Combine(searchPath, fileNameWithExt);
-            if (File.Exists(fullPath))
+            string fullPath = Path.Combine(path1: searchPath, path2: fileNameWithExt);
+            if (File.Exists(path: fullPath))
             {
-                return Path.GetFullPath(fullPath);
+                return Path.GetFullPath(path: fullPath);
             }
         }
 
         // Try without adding extension (in case it's already in the import path)
         foreach (string searchPath in _searchPaths)
         {
-            string fullPath = Path.Combine(searchPath, normalizedPath);
-            if (File.Exists(fullPath))
+            string fullPath = Path.Combine(path1: searchPath, path2: normalizedPath);
+            if (File.Exists(path: fullPath))
             {
-                return Path.GetFullPath(fullPath);
+                return Path.GetFullPath(path: fullPath);
             }
         }
 
@@ -126,37 +134,37 @@ public class ModuleResolver
     public ModuleInfo? LoadModule(string importPath)
     {
         // Check cache first
-        if (_moduleCache.TryGetValue(importPath, out ModuleInfo? cached))
+        if (_moduleCache.TryGetValue(key: importPath, value: out ModuleInfo? cached))
         {
             return cached;
         }
 
         // Check for circular dependencies
-        if (_loadingModules.Contains(importPath))
+        if (_loadingModules.Contains(item: importPath))
         {
-            throw new ModuleException($"Circular dependency detected: {importPath}");
+            throw new ModuleException(message: $"Circular dependency detected: {importPath}");
         }
 
         // Resolve the file path
-        string? filePath = ResolveImportPath(importPath);
+        string? filePath = ResolveImportPath(importPath: importPath);
         if (filePath == null)
         {
-            throw new ModuleException($"Module not found: {importPath}");
+            throw new ModuleException(message: $"Module not found: {importPath}");
         }
 
         // Mark as loading (for circular detection)
-        _loadingModules.Add(importPath);
+        _loadingModules.Add(item: importPath);
 
         try
         {
             // Read and tokenize the file
-            string source = File.ReadAllText(filePath);
-            List<Token> tokens = Tokenizer.Tokenize(source, _language);
+            string source = File.ReadAllText(path: filePath);
+            List<Token> tokens = Tokenizer.Tokenize(source: source, language: _language);
 
             // Parse the file
             BaseParser parser = _language == Language.RazorForge
-                ? new RazorForgeParser(tokens, fileName: filePath)
-                : new SuflaeParser(tokens, fileName: filePath);
+                ? new RazorForgeParser(tokens: tokens, fileName: filePath)
+                : new SuflaeParser(tokens: tokens, fileName: filePath);
 
             Compilers.Shared.AST.Program ast = parser.Parse();
 
@@ -166,27 +174,24 @@ public class ModuleResolver
             {
                 if (declaration is ImportDeclaration import)
                 {
-                    dependencies.Add(import.ModulePath);
+                    dependencies.Add(item: import.ModulePath);
                 }
             }
 
             // Create module info
-            var moduleInfo = new ModuleInfo(
-                ModulePath: importPath,
-                FilePath: filePath,
-                Ast: ast,
+            var moduleInfo = new ModuleInfo(ModulePath: importPath, FilePath: filePath, Ast: ast,
                 Dependencies: dependencies);
 
             // Cache it
-            _moduleCache[importPath] = moduleInfo;
-            _loadedModules.Add(importPath);
+            _moduleCache[key: importPath] = moduleInfo;
+            _loadedModules.Add(item: importPath);
 
             return moduleInfo;
         }
         finally
         {
             // Remove from loading set
-            _loadingModules.Remove(importPath);
+            _loadingModules.Remove(item: importPath);
         }
     }
 
@@ -201,32 +206,32 @@ public class ModuleResolver
         var toLoad = new Queue<string>();
         var loaded = new HashSet<string>();
 
-        toLoad.Enqueue(importPath);
+        toLoad.Enqueue(item: importPath);
 
         while (toLoad.Count > 0)
         {
             string currentPath = toLoad.Dequeue();
 
-            if (loaded.Contains(currentPath))
+            if (loaded.Contains(item: currentPath))
             {
                 continue;
             }
 
-            ModuleInfo? moduleInfo = LoadModule(currentPath);
+            ModuleInfo? moduleInfo = LoadModule(importPath: currentPath);
             if (moduleInfo == null)
             {
-                throw new ModuleException($"Failed to load module: {currentPath}");
+                throw new ModuleException(message: $"Failed to load module: {currentPath}");
             }
 
-            loadedModules.Add(moduleInfo);
-            loaded.Add(currentPath);
+            loadedModules.Add(item: moduleInfo);
+            loaded.Add(item: currentPath);
 
             // Enqueue dependencies
             foreach (string dependency in moduleInfo.Dependencies)
             {
-                if (!loaded.Contains(dependency))
+                if (!loaded.Contains(item: dependency))
                 {
-                    toLoad.Enqueue(dependency);
+                    toLoad.Enqueue(item: dependency);
                 }
             }
         }
@@ -255,6 +260,9 @@ public class ModuleResolver
 /// </summary>
 public class ModuleException : Exception
 {
-    public ModuleException(string message) : base(message) { }
-    public ModuleException(string message, Exception innerException) : base(message, innerException) { }
+    public ModuleException(string message) : base(message: message) { }
+    public ModuleException(string message, Exception innerException) : base(message: message,
+        innerException: innerException)
+    {
+    }
 }

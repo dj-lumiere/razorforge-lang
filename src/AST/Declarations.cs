@@ -47,10 +47,13 @@ public enum ConstraintKind
 {
     /// <summary>Protocol/interface implementation (T follows Comparable)</summary>
     Follows,
+
     /// <summary>Type inheritance (T from BaseType)</summary>
     From,
+
     /// <summary>Value type constraint (T: record)</summary>
     ValueType,
+
     /// <summary>Reference type constraint (T: entity)</summary>
     ReferenceType
 }
@@ -124,7 +127,8 @@ public record FunctionDeclaration(
     List<string> Attributes, // For decorators like @[everywhere get]
     SourceLocation Location,
     List<string>? GenericParameters = null,
-    List<GenericConstraintDeclaration>? GenericConstraints = null) : Declaration(Location: Location)
+    List<GenericConstraintDeclaration>? GenericConstraints = null)
+    : Declaration(Location: Location)
 {
     public override T Accept<T>(IAstVisitor<T> visitor)
     {
@@ -165,7 +169,8 @@ public record ClassDeclaration(
     List<Declaration> Members,
     VisibilityModifier Visibility,
     SourceLocation Location,
-    List<GenericConstraintDeclaration>? GenericConstraints = null) : Declaration(Location: Location)
+    List<GenericConstraintDeclaration>? GenericConstraints = null)
+    : Declaration(Location: Location)
 {
     public override T Accept<T>(IAstVisitor<T> visitor)
     {
@@ -286,7 +291,8 @@ public record VariantDeclaration(
     VisibilityModifier Visibility,
     VariantKind Kind, // Track which keyword was used
     SourceLocation Location,
-    List<GenericConstraintDeclaration>? GenericConstraints = null) : Declaration(Location: Location)
+    List<GenericConstraintDeclaration>? GenericConstraints = null)
+    : Declaration(Location: Location)
 {
     public override T Accept<T>(IAstVisitor<T> visitor)
     {
@@ -319,7 +325,8 @@ public record FeatureDeclaration(
     List<FunctionSignature> Methods,
     VisibilityModifier Visibility,
     SourceLocation Location,
-    List<GenericConstraintDeclaration>? GenericConstraints = null) : Declaration(Location: Location)
+    List<GenericConstraintDeclaration>? GenericConstraints = null)
+    : Declaration(Location: Location)
 {
     public override T Accept<T>(IAstVisitor<T> visitor)
     {

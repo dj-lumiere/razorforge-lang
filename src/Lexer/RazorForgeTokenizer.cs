@@ -232,13 +232,18 @@ public class RazorForgeTokenizer : BaseTokenizer
                 if (Peek() == 'i' && PeekWord() == "intrinsic")
                 {
                     // Consume "intrinsic"
-                    for (int i = 0; i < 9; i++) Advance();
+                    for (int i = 0; i < 9; i++)
+                    {
+                        Advance();
+                    }
+
                     AddToken(type: TokenType.Intrinsic);
                 }
                 else
                 {
                     AddToken(type: TokenType.At);
                 }
+
                 break;
 
             // Numbers
@@ -382,10 +387,10 @@ public class RazorForgeTokenizer : BaseTokenizer
 
         while (true)
         {
-            char c = Peek(offset);
-            if (char.IsLetterOrDigit(c) || c == '_')
+            char c = Peek(offset: offset);
+            if (char.IsLetterOrDigit(c: c) || c == '_')
             {
-                sb.Append(c);
+                sb.Append(value: c);
                 offset++;
             }
             else

@@ -94,8 +94,7 @@ public class SymbolTable
                 if (existing is FunctionSymbol existingFunc)
                 {
                     // Convert single function to overload set
-                    var overloadSet = new FunctionOverloadSet(
-                        Name: symbol.Name,
+                    var overloadSet = new FunctionOverloadSet(Name: symbol.Name,
                         Overloads: new List<FunctionSymbol> { existingFunc, newFunc },
                         Visibility: existingFunc.Visibility);
                     currentScope[key: symbol.Name] = overloadSet;
@@ -104,7 +103,7 @@ public class SymbolTable
                 else if (existing is FunctionOverloadSet existingSet)
                 {
                     // Add to existing overload set
-                    existingSet.AddOverload(newFunc);
+                    existingSet.AddOverload(overload: newFunc);
                     return true;
                 }
             }
@@ -185,11 +184,13 @@ public record FunctionSymbol(
 public record FunctionOverloadSet(
     string Name,
     List<FunctionSymbol> Overloads,
-    VisibilityModifier Visibility)
-    : Symbol(Name: Name, Type: null, Visibility: Visibility)
+    VisibilityModifier Visibility) : Symbol(Name: Name, Type: null, Visibility: Visibility)
 {
     /// <summary>Adds an overload to this set</summary>
-    public void AddOverload(FunctionSymbol overload) => Overloads.Add(overload);
+    public void AddOverload(FunctionSymbol overload)
+    {
+        Overloads.Add(item: overload);
+    }
 }
 
 /// <summary>
@@ -344,9 +345,9 @@ public record GenericConstraint(
 /// generic function and type definitions.
 /// </summary>
 /// <param name="Name">The name of the type parameter (e.g., "T", "K", "V")</param>
-public record TypeParameterSymbol(string Name)
-    : Symbol(Name: Name, Type: new TypeInfo(Name: Name, IsReference: false, IsGenericParameter: true),
-        Visibility: VisibilityModifier.Private);
+public record TypeParameterSymbol(string Name) : Symbol(Name: Name,
+    Type: new TypeInfo(Name: Name, IsReference: false, IsGenericParameter: true),
+    Visibility: VisibilityModifier.Private);
 
 /// <summary>
 /// Semantic error information

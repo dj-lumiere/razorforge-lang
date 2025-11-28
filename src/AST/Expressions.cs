@@ -197,10 +197,8 @@ public record CallExpression(
 /// <item>Optional parameter selection: connect(host: "localhost", port: 8080)</item>
 /// </list>
 /// </remarks>
-public record NamedArgumentExpression(
-    string Name,
-    Expression Value,
-    SourceLocation Location) : Expression(Location: Location)
+public record NamedArgumentExpression(string Name, Expression Value, SourceLocation Location)
+    : Expression(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
     public override T Accept<T>(IAstVisitor<T> visitor)

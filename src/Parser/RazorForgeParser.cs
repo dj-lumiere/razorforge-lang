@@ -39,7 +39,9 @@ public class RazorForgeParser : BaseParser
             }
             catch (ParseException ex)
             {
-                Token errorToken = Position < Tokens.Count ? Tokens[Position] : Tokens[^1];
+                Token errorToken = Position < Tokens.Count
+                    ? Tokens[index: Position]
+                    : Tokens[^1];
                 string location = _fileName != null
                     ? $"[{_fileName}:{errorToken.Line}:{errorToken.Column}]"
                     : $"[{errorToken.Line}:{errorToken.Column}]";
@@ -109,7 +111,8 @@ public class RazorForgeParser : BaseParser
 
         // Field declaration in records: public name: Type or name: Type
         // Detected by identifier followed by colon (no var/let keyword needed)
-        if (Check(type: TokenType.Identifier) && PeekToken(offset: 1).Type == TokenType.Colon)
+        if (Check(type: TokenType.Identifier) && PeekToken(offset: 1)
+               .Type == TokenType.Colon)
         {
             return ParseFieldDeclaration(visibility: visibility);
         }
@@ -489,14 +492,15 @@ public class RazorForgeParser : BaseParser
         }
 
         // Parse generic constraints (where clause)
-        List<GenericConstraintDeclaration>? constraints = ParseGenericConstraints(genericParams);
+        List<GenericConstraintDeclaration>? constraints =
+            ParseGenericConstraints(genericParams: genericParams);
 
         // Body
         BlockStatement body = ParseBlockStatement();
 
         return new FunctionDeclaration(Name: name, Parameters: parameters, ReturnType: returnType,
-            Body: body, Visibility: visibility, Attributes: new List<string>(),
-            Location: location, GenericParameters: genericParams, GenericConstraints: constraints);
+            Body: body, Visibility: visibility, Attributes: new List<string>(), Location: location,
+            GenericParameters: genericParams, GenericConstraints: constraints);
     }
 
     private ClassDeclaration ParseClassDeclaration(
@@ -522,7 +526,8 @@ public class RazorForgeParser : BaseParser
         }
 
         // Parse generic constraints (where clause)
-        List<GenericConstraintDeclaration>? constraints = ParseGenericConstraints(genericParams);
+        List<GenericConstraintDeclaration>? constraints =
+            ParseGenericConstraints(genericParams: genericParams);
 
         // Base entity - can use "from Animal" syntax
         TypeExpression? baseClass = null;
@@ -580,7 +585,8 @@ public class RazorForgeParser : BaseParser
         }
 
         // Parse generic constraints (where clause)
-        List<GenericConstraintDeclaration>? constraints = ParseGenericConstraints(genericParams);
+        List<GenericConstraintDeclaration>? constraints =
+            ParseGenericConstraints(genericParams: genericParams);
 
         // Parse interfaces/protocols the record follows
         var interfaces = new List<TypeExpression>();
@@ -686,7 +692,8 @@ public class RazorForgeParser : BaseParser
         }
 
         // Parse generic constraints (where clause)
-        List<GenericConstraintDeclaration>? constraints = ParseGenericConstraints(genericParams);
+        List<GenericConstraintDeclaration>? constraints =
+            ParseGenericConstraints(genericParams: genericParams);
 
         Consume(type: TokenType.LeftBrace, errorMessage: "Expected '{' after variant header");
 
@@ -771,7 +778,8 @@ public class RazorForgeParser : BaseParser
         }
 
         // Parse generic constraints (where clause)
-        List<GenericConstraintDeclaration>? constraints = ParseGenericConstraints(genericParams);
+        List<GenericConstraintDeclaration>? constraints =
+            ParseGenericConstraints(genericParams: genericParams);
 
         Consume(type: TokenType.LeftBrace, errorMessage: "Expected '{' after feature header");
 
@@ -983,9 +991,11 @@ public class RazorForgeParser : BaseParser
             else if (Match(type: TokenType.Else))
             {
                 // Check for variable binding: else varName =>
-                if (Check(type: TokenType.Identifier) && PeekToken(offset: 1).Type == TokenType.FatArrow)
+                if (Check(type: TokenType.Identifier) && PeekToken(offset: 1)
+                       .Type == TokenType.FatArrow)
                 {
-                    string varName = ConsumeIdentifier(errorMessage: "Expected variable name after 'else'");
+                    string varName =
+                        ConsumeIdentifier(errorMessage: "Expected variable name after 'else'");
                     pattern = new IdentifierPattern(Name: varName, Location: clauseLocation);
                 }
                 else
@@ -1058,7 +1068,8 @@ public class RazorForgeParser : BaseParser
         // If it's a literal, treat as literal pattern
         if (expr is LiteralExpression literal)
         {
-            return new LiteralPattern(Value: literal.Value, LiteralType: literal.LiteralType, Location: location);
+            return new LiteralPattern(Value: literal.Value, LiteralType: literal.LiteralType,
+                Location: location);
         }
 
         // Otherwise, treat as expression pattern (guard condition)
@@ -1501,9 +1512,11 @@ public class RazorForgeParser : BaseParser
                 int savedPos = Position;
                 Advance(); // consume '<'
 
-                bool isLikelyGeneric = Check(TokenType.TypeIdentifier) ||
-                                      (Check(TokenType.Identifier) && char.IsUpper(CurrentToken.Text[0])) ||
-                                      (Check(TokenType.Identifier) && IsPrimitiveTypeName(CurrentToken.Text));
+                bool isLikelyGeneric = Check(type: TokenType.TypeIdentifier) ||
+                                       Check(type: TokenType.Identifier) &&
+                                       char.IsUpper(c: CurrentToken.Text[index: 0]) ||
+                                       Check(type: TokenType.Identifier) &&
+                                       IsPrimitiveTypeName(name: CurrentToken.Text);
 
                 Position = savedPos; // restore position
 
@@ -1554,13 +1567,14 @@ public class RazorForgeParser : BaseParser
                 }
             }
             // Throwable function call: identifier!(args) with named arguments
-            else if (Check(type: TokenType.Bang) && PeekToken(offset: 1).Type == TokenType.LeftParen)
+            else if (Check(type: TokenType.Bang) && PeekToken(offset: 1)
+                        .Type == TokenType.LeftParen)
             {
                 Advance(); // consume '!'
                 Advance(); // consume '('
 
                 // Function call - supports named arguments (name: value)
-                var args = ParseArgumentList();
+                List<Expression> args = ParseArgumentList();
 
                 Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after arguments");
 
@@ -1568,8 +1582,8 @@ public class RazorForgeParser : BaseParser
                 if (expr is IdentifierExpression identExpr)
                 {
                     expr = new CallExpression(
-                        Callee: new IdentifierExpression(Name: identExpr.Name + "!", Location: identExpr.Location),
-                        Arguments: args,
+                        Callee: new IdentifierExpression(Name: identExpr.Name + "!",
+                            Location: identExpr.Location), Arguments: args,
                         Location: expr.Location);
                 }
                 else
@@ -1581,7 +1595,7 @@ public class RazorForgeParser : BaseParser
             else if (Match(type: TokenType.LeftParen))
             {
                 // Function call - supports named arguments (name: value)
-                var args = ParseArgumentList();
+                List<Expression> args = ParseArgumentList();
 
                 Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after arguments");
 
@@ -1930,7 +1944,8 @@ public class RazorForgeParser : BaseParser
         // Arrow lambda expression: x => expr (single parameter, no parens)
         // ONLY parse as lambda if we're NOT inside a when clause pattern.
         // Inside when blocks, patterns like: a < b => action should not treat b => action as lambda.
-        if (!_inWhenPatternContext && Check(TokenType.Identifier) && PeekToken(offset: 1).Type == TokenType.FatArrow)
+        if (!_inWhenPatternContext && Check(type: TokenType.Identifier) && PeekToken(offset: 1)
+               .Type == TokenType.FatArrow)
         {
             return ParseArrowLambdaExpression(location: location);
         }
@@ -2041,7 +2056,7 @@ public class RazorForgeParser : BaseParser
 
         var parameters = new List<Parameter>
         {
-            new Parameter(Name: paramName, Type: null, DefaultValue: null, Location: location)
+            new(Name: paramName, Type: null, DefaultValue: null, Location: location)
         };
 
         Expression body = ParseExpression();
@@ -2059,10 +2074,10 @@ public class RazorForgeParser : BaseParser
         try
         {
             // Empty params case: () =>
-            if (Check(TokenType.RightParen))
+            if (Check(type: TokenType.RightParen))
             {
                 Advance(); // consume )
-                bool result = Check(TokenType.FatArrow);
+                bool result = Check(type: TokenType.FatArrow);
                 Position = savedPosition;
                 return result;
             }
@@ -2071,38 +2086,49 @@ public class RazorForgeParser : BaseParser
             while (true)
             {
                 // Must start with identifier
-                if (!Check(TokenType.Identifier))
+                if (!Check(type: TokenType.Identifier))
                 {
                     Position = savedPosition;
                     return false;
                 }
+
                 Advance(); // consume identifier
 
                 // Optional type annotation
-                if (Check(TokenType.Colon))
+                if (Check(type: TokenType.Colon))
                 {
                     Advance(); // consume :
                     // Skip the type (simplified - just skip until comma or rparen)
                     int depth = 0;
                     while (!IsAtEnd)
                     {
-                        if (Check(TokenType.Less)) depth++;
-                        else if (Check(TokenType.Greater)) depth--;
-                        else if (depth == 0 && (Check(TokenType.Comma) || Check(TokenType.RightParen)))
+                        if (Check(type: TokenType.Less))
+                        {
+                            depth++;
+                        }
+                        else if (Check(type: TokenType.Greater))
+                        {
+                            depth--;
+                        }
+                        else if (depth == 0 && (Check(type: TokenType.Comma) ||
+                                                Check(type: TokenType.RightParen)))
+                        {
                             break;
+                        }
+
                         Advance();
                     }
                 }
 
                 // Check for comma (more params) or end
-                if (Check(TokenType.Comma))
+                if (Check(type: TokenType.Comma))
                 {
                     Advance(); // consume comma, continue loop
                 }
-                else if (Check(TokenType.RightParen))
+                else if (Check(type: TokenType.RightParen))
                 {
                     Advance(); // consume )
-                    bool result = Check(TokenType.FatArrow);
+                    bool result = Check(type: TokenType.FatArrow);
                     Position = savedPosition;
                     return result;
                 }
@@ -2129,25 +2155,26 @@ public class RazorForgeParser : BaseParser
     {
         var parameters = new List<Parameter>();
 
-        if (!Check(TokenType.RightParen))
+        if (!Check(type: TokenType.RightParen))
         {
             do
             {
-                string paramName = ConsumeIdentifier(errorMessage: "Expected parameter name in lambda");
+                string paramName =
+                    ConsumeIdentifier(errorMessage: "Expected parameter name in lambda");
                 TypeExpression? paramType = null;
 
-                if (Match(TokenType.Colon))
+                if (Match(type: TokenType.Colon))
                 {
                     paramType = ParseType();
                 }
 
-                parameters.Add(new Parameter(Name: paramName, Type: paramType,
+                parameters.Add(item: new Parameter(Name: paramName, Type: paramType,
                     DefaultValue: null, Location: GetLocation()));
-            } while (Match(TokenType.Comma));
+            } while (Match(type: TokenType.Comma));
         }
 
-        Consume(TokenType.RightParen, "Expected ')' after lambda parameters");
-        Consume(TokenType.FatArrow, "Expected '=>' after lambda parameters");
+        Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after lambda parameters");
+        Consume(type: TokenType.FatArrow, errorMessage: "Expected '=>' after lambda parameters");
 
         Expression body = ParseExpression();
         return new LambdaExpression(Parameters: parameters, Body: body, Location: location);
@@ -2161,12 +2188,14 @@ public class RazorForgeParser : BaseParser
         Consume(type: TokenType.Dot, errorMessage: "Expected '.' after '@intrinsic'");
 
         // Parse intrinsic operation name (can contain dots like "add.wrapping", "icmp.slt")
-        string intrinsicName = ConsumeIdentifier(errorMessage: "Expected intrinsic operation name");
+        string intrinsicName =
+            ConsumeIdentifier(errorMessage: "Expected intrinsic operation name");
 
         // Handle dotted names like "add.wrapping" or "icmp.slt"
         while (Match(type: TokenType.Dot))
         {
-            intrinsicName += "." + ConsumeIdentifier(errorMessage: "Expected identifier after '.'");
+            intrinsicName +=
+                "." + ConsumeIdentifier(errorMessage: "Expected identifier after '.'");
         }
 
         // Parse optional type arguments: <T> or <T, U>
@@ -2179,7 +2208,8 @@ public class RazorForgeParser : BaseParser
                 // (more complex type expressions could be supported later)
                 if (Match(TokenType.Identifier, TokenType.TypeIdentifier))
                 {
-                    typeArgs.Add(PeekToken(offset: -1).Text);
+                    typeArgs.Add(item: PeekToken(offset: -1)
+                       .Text);
                 }
                 else
                 {
@@ -2187,13 +2217,11 @@ public class RazorForgeParser : BaseParser
                 }
             } while (Match(type: TokenType.Comma));
 
-            Consume(type: TokenType.Greater,
-                errorMessage: "Expected '>' after type arguments");
+            Consume(type: TokenType.Greater, errorMessage: "Expected '>' after type arguments");
         }
 
         // Parse arguments: (arg1, arg2, ...)
-        Consume(type: TokenType.LeftParen,
-            errorMessage: "Expected '(' after intrinsic name");
+        Consume(type: TokenType.LeftParen, errorMessage: "Expected '(' after intrinsic name");
 
         var args = new List<Expression>();
         if (!Check(type: TokenType.RightParen))
@@ -2207,11 +2235,8 @@ public class RazorForgeParser : BaseParser
         Consume(type: TokenType.RightParen,
             errorMessage: "Expected ')' after intrinsic arguments");
 
-        return new IntrinsicCallExpression(
-            IntrinsicName: intrinsicName,
-            TypeArguments: typeArgs,
-            Arguments: args,
-            Location: location);
+        return new IntrinsicCallExpression(IntrinsicName: intrinsicName, TypeArguments: typeArgs,
+            Arguments: args, Location: location);
     }
 
     private TypeExpression ParseType()
@@ -2268,11 +2293,8 @@ public class RazorForgeParser : BaseParser
             // '>>' was tokenized as RightShift - we need to split it
             // Replace the current RightShift token with a single Greater token
             // and leave a Greater for the next parse
-            var currentToken = CurrentToken;
-            var newGreater = new Token(
-                Type: TokenType.Greater,
-                Text: ">",
-                Line: currentToken.Line,
+            Token currentToken = CurrentToken;
+            var newGreater = new Token(Type: TokenType.Greater, Text: ">", Line: currentToken.Line,
                 Column: currentToken.Column + 1); // Second > is one position after
 
             // Advance past the RightShift
@@ -2280,12 +2302,14 @@ public class RazorForgeParser : BaseParser
 
             // Insert a Greater token to be consumed next
             // We do this by adjusting the position and inserting
-            InsertToken(newGreater);
+            InsertToken(token: newGreater);
             return;
         }
 
         // Neither > nor >> found - error
-        throw new ParseException(message: $"{errorMessage} at line {CurrentToken.Line}, column {CurrentToken.Column}. " +
+        throw new ParseException(
+            message:
+            $"{errorMessage} at line {CurrentToken.Line}, column {CurrentToken.Column}. " +
             $"Expected Greater, got {CurrentToken.Type}.");
     }
 
@@ -2295,17 +2319,20 @@ public class RazorForgeParser : BaseParser
     /// </summary>
     private void InsertToken(Token token)
     {
-        Tokens.Insert(Position, token);
+        Tokens.Insert(index: Position, item: token);
     }
 
     /// <summary>
     /// Parses generic constraints for type parameters.
     /// Supports inline constraints (T follows Protocol) and where clauses.
     /// </summary>
-    private List<GenericConstraintDeclaration>? ParseGenericConstraints(List<string>? genericParams)
+    private List<GenericConstraintDeclaration>? ParseGenericConstraints(
+        List<string>? genericParams)
     {
         if (genericParams == null || genericParams.Count == 0)
+        {
             return null;
+        }
 
         var constraints = new List<GenericConstraintDeclaration>();
 
@@ -2318,10 +2345,11 @@ public class RazorForgeParser : BaseParser
                 string paramName = ConsumeIdentifier(errorMessage: "Expected type parameter name");
 
                 // Verify this parameter was declared
-                if (!genericParams.Contains(paramName))
+                if (!genericParams.Contains(item: paramName))
                 {
                     throw new ParseException(
-                        message: $"Type parameter '{paramName}' not declared in generic parameters");
+                        message:
+                        $"Type parameter '{paramName}' not declared in generic parameters");
                 }
 
                 // Parse constraint kind and types
@@ -2334,19 +2362,16 @@ public class RazorForgeParser : BaseParser
                         constraintTypes.Add(item: ParseType());
                     } while (Match(type: TokenType.Comma) && !Check(type: TokenType.Identifier));
 
-                    constraints.Add(new GenericConstraintDeclaration(
-                        ParameterName: paramName,
-                        ConstraintType: ConstraintKind.Follows,
-                        ConstraintTypes: constraintTypes,
-                        Location: location));
+                    constraints.Add(item: new GenericConstraintDeclaration(
+                        ParameterName: paramName, ConstraintType: ConstraintKind.Follows,
+                        ConstraintTypes: constraintTypes, Location: location));
                 }
                 else if (Match(type: TokenType.From))
                 {
                     // T from BaseType
-                    var baseType = ParseType();
-                    constraints.Add(new GenericConstraintDeclaration(
-                        ParameterName: paramName,
-                        ConstraintType: ConstraintKind.From,
+                    TypeExpression baseType = ParseType();
+                    constraints.Add(item: new GenericConstraintDeclaration(
+                        ParameterName: paramName, ConstraintType: ConstraintKind.From,
                         ConstraintTypes: new List<TypeExpression> { baseType },
                         Location: location));
                 }
@@ -2356,19 +2381,15 @@ public class RazorForgeParser : BaseParser
                     Advance(); // consume ':'
                     if (Match(type: TokenType.Record))
                     {
-                        constraints.Add(new GenericConstraintDeclaration(
-                            ParameterName: paramName,
-                            ConstraintType: ConstraintKind.ValueType,
-                            ConstraintTypes: null,
-                            Location: location));
+                        constraints.Add(item: new GenericConstraintDeclaration(
+                            ParameterName: paramName, ConstraintType: ConstraintKind.ValueType,
+                            ConstraintTypes: null, Location: location));
                     }
                     else if (Match(type: TokenType.Entity))
                     {
-                        constraints.Add(new GenericConstraintDeclaration(
-                            ParameterName: paramName,
-                            ConstraintType: ConstraintKind.ReferenceType,
-                            ConstraintTypes: null,
-                            Location: location));
+                        constraints.Add(item: new GenericConstraintDeclaration(
+                            ParameterName: paramName, ConstraintType: ConstraintKind.ReferenceType,
+                            ConstraintTypes: null, Location: location));
                     }
                     else
                     {
@@ -2386,7 +2407,9 @@ public class RazorForgeParser : BaseParser
             } while (Match(type: TokenType.Comma));
         }
 
-        return constraints.Count > 0 ? constraints : null;
+        return constraints.Count > 0
+            ? constraints
+            : null;
     }
 
     private void ConsumeStatementTerminator()
@@ -2410,7 +2433,7 @@ public class RazorForgeParser : BaseParser
         }
 
         // Allow 'me' (Self token) as a valid identifier for method parameters
-        if (Match(TokenType.Self))
+        if (Match(type: TokenType.Self))
         {
             return "me";
         }
@@ -2485,7 +2508,8 @@ public class RazorForgeParser : BaseParser
         }
 
         // Parse generic constraints (where clause)
-        List<GenericConstraintDeclaration>? constraints = ParseGenericConstraints(genericParams);
+        List<GenericConstraintDeclaration>? constraints =
+            ParseGenericConstraints(genericParams: genericParams);
 
         ConsumeStatementTerminator();
 
@@ -2642,7 +2666,8 @@ public class RazorForgeParser : BaseParser
 
         // Check if this is a named argument: identifier followed by colon
         // We need to look ahead to distinguish between named argument and ternary/type annotation
-        if (Check(TokenType.Identifier) && PeekToken(offset: 1).Type == TokenType.Colon)
+        if (Check(type: TokenType.Identifier) && PeekToken(offset: 1)
+               .Type == TokenType.Colon)
         {
             // Could be named argument, check that what follows isn't a type (for ternary with typed vars)
             // Named arguments: name: expression
@@ -2654,7 +2679,8 @@ public class RazorForgeParser : BaseParser
             // Parse the value expression
             Expression value = ParseExpression();
 
-            return new NamedArgumentExpression(Name: potentialName, Value: value, Location: location);
+            return new NamedArgumentExpression(Name: potentialName, Value: value,
+                Location: location);
         }
 
         // Regular positional argument

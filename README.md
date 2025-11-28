@@ -157,7 +157,8 @@ routine main():
 
 ### RazorForge
 
-- **Theatrical Memory Model**: Inline tokens (`.view()`, `.hijack()`) + scoped blocks (`viewing`, `hijacking`) + explicit ownership (`.consume()`)
+- **Theatrical Memory Model**: Inline tokens (`.view()`, `.hijack()`) + scoped blocks (`viewing`, `hijacking`) +
+  explicit ownership (`.consume()`)
 - **No Lifetime Annotations**: Inline-only tokens + scoped blocks - safety without complexity
 - **Zero-Cost Abstractions**: Pay only for what you use
 - **Danger Blocks**: Opt-in unsafe operations for zero-overhead code

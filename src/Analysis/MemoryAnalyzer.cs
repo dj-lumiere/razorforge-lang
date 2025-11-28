@@ -307,10 +307,14 @@ public class MemoryAnalyzer
             MemoryOperation.Snatch => HandleSnatch(obj: obj, location: location),
             MemoryOperation.Recover => HandleRecover(obj: obj, location: location),
             // Fallible lock operations handled via seizing/observing statements
-            MemoryOperation.TrySeize or MemoryOperation.CheckSeize => throw new NotImplementedException(
-                "try_seize/check_seize should be handled via seizing statement syntax"),
-            MemoryOperation.TryObserve or MemoryOperation.CheckObserve => throw new NotImplementedException(
-                "try_observe/check_observe should be handled via observing statement syntax"),
+            MemoryOperation.TrySeize or MemoryOperation.CheckSeize => throw
+                new NotImplementedException(
+                    message:
+                    "try_seize/check_seize should be handled via seizing statement syntax"),
+            MemoryOperation.TryObserve or MemoryOperation.CheckObserve => throw
+                new NotImplementedException(
+                    message:
+                    "try_observe/check_observe should be handled via observing statement syntax"),
             _ => throw new ArgumentException(message: $"Unknown memory operation: {operation}")
         };
     }
@@ -818,7 +822,8 @@ public class MemoryAnalyzer
                 errors: errors),
             // Fallible lock operations handled via seizing/observing statements
             MemoryOperation.TrySeize or MemoryOperation.CheckSeize or MemoryOperation.TryObserve
-                or MemoryOperation.CheckObserve => WrapperType.Owned, // Placeholder - shouldn't reach here
+                or MemoryOperation.CheckObserve =>
+                WrapperType.Owned, // Placeholder - shouldn't reach here
             _ => WrapperType.Owned
         };
 
