@@ -1,0 +1,26 @@
+# RazorForge Hijacked<T> - Scoped exclusive access token
+#
+# Hijacked<T> is created ONLY by the `hijacking` syntax, NOT by constructors.
+# It provides exclusive mutable access to entities/residents within a scoped block.
+#
+# Syntax:
+#   hijacking <entity_or_resident> as h {
+#       h.field = 42  # Exclusive write access
+#   } # h destroyed here, cannot escape scope
+#
+# Properties:
+# - Created by compiler via `hijacking` syntax
+# - Scope-bound: cannot be stored, returned, or escape
+# - Exclusive: cannot be copied (only one handle at a time)
+# - Temporary: source is invalidated during scope, restored on exit
+# - Single-threaded: for multi-threaded use, see Seized<T>
+#
+# This type is a marker for the type system - the compiler handles all operations.
+
+record Hijacked<T> {
+    private address: sysuint
+}
+
+# NOTE: No constructors, no methods - all operations handled by compiler
+# The address field is managed internally by the hijacking syntax implementation
+# Users should NEVER create Hijacked<T> values directly

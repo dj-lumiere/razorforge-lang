@@ -17,7 +17,7 @@ routine memory_example() {
 
     # Danger zone operations (require explicit danger blocks)
     danger {
-        let ptr = address_of!(counter)
+        let ptr = counter.snatch!().address
         let value = read_as<u32>!(ptr)
         write_as<u32>!(ptr, value + 1)
     }

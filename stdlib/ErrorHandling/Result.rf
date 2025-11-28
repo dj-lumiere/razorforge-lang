@@ -1,0 +1,2 @@
+﻿record Result<T> {
+    bool is_valid

@@ -249,7 +249,7 @@ void volatile_write_bytes(sysuint address, const void* input, sysuint bytes)
 /*
  * Get address of any object (danger! only)
  */
-sysuint addr_of(const void* object)
+sysuint address_of(const void* object)
 {
     return (sysuint)object;
 }

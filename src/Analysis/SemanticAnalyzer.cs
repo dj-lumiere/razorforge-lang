@@ -1,4 +1,5 @@
 using Compilers.Shared.AST;
+using Compilers.Shared.Lexer;
 
 namespace Compilers.Shared.Analysis;
 
@@ -46,11 +47,49 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// <summary>Language mode for additional behavior customization</summary>
     private readonly LanguageMode _mode;
 
+    /// <summary>Module resolver for handling imports</summary>
+    private readonly ModuleResolver _moduleResolver;
+
+    /// <summary>Source file name for error reporting</summary>
+    private readonly string? _fileName;
+
     /// <summary>Tracks whether we're currently inside a danger block</summary>
     private bool _isInDangerMode = false;
 
     /// <summary>Tracks whether we're currently inside a mayhem block</summary>
     private bool _isInMayhemMode = false;
+
+    /// <summary>Tracks whether we're currently inside a 'when' expression condition</summary>
+    private bool _isInWhenCondition = false;
+
+    /// <summary>Tracks whether we're currently inside a usurping function that can return Hijacked tokens</summary>
+    private bool _isInUsurpingFunction = false;
+
+    /// <summary>
+    /// Tracks scoped token variables that cannot escape their scope.
+    /// Maps token variable name to the scope depth where it was created.
+    /// These tokens (Viewed, Hijacked, Seized, Observed) cannot be:
+    /// - Assigned to variables outside the scoped statement
+    /// - Returned from non-usurping functions
+    /// - Passed to functions (unless consumed immediately)
+    /// </summary>
+    private readonly Dictionary<string, int> _scopedTokens = new();
+
+    /// <summary>Current scope depth for tracking scoped tokens</summary>
+    private int _scopeDepth = 0;
+
+    /// <summary>
+    /// Tracks source variables that are temporarily invalidated during scoped access.
+    /// Maps source variable name to (scope depth, access type).
+    /// When a source is invalidated, it cannot be used until the scoped statement exits.
+    ///
+    /// Examples:
+    /// - viewing x as v { ... } - x is invalidated (cannot read or write)
+    /// - hijacking x as h { ... } - x is invalidated (cannot read or write)
+    /// - seizing shared_x as s { ... } - shared_x is invalidated (lock held)
+    /// - observing shared_x as o { ... } - shared_x is invalidated (lock held)
+    /// </summary>
+    private readonly Dictionary<string, (int scopeDepth, string accessType)> _invalidatedSources = new();
 
     /// <summary>
     /// Initialize semantic analyzer with integrated memory safety analysis.
@@ -59,13 +98,17 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// </summary>
     /// <param name="language">Target language (RazorForge or Suflae)</param>
     /// <param name="mode">Language mode for behavior customization</param>
-    public SemanticAnalyzer(Language language, LanguageMode mode)
+    /// <param name="searchPaths">Optional custom search paths for module resolution</param>
+    /// <param name="fileName">Source file name for error reporting</param>
+    public SemanticAnalyzer(Language language, LanguageMode mode, List<string>? searchPaths = null, string? fileName = null)
     {
         _symbolTable = new SymbolTable();
         _memoryAnalyzer = new MemoryAnalyzer(language: language, mode: mode);
+        _moduleResolver = new ModuleResolver(language, mode, searchPaths);
         _errors = new List<SemanticError>();
         _language = language;
         _mode = mode;
+        _fileName = fileName;
 
         InitializeBuiltInTypes();
     }
@@ -185,6 +228,17 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         // Type check initializer expression if present
         if (node.Initializer != null)
         {
+            // CRITICAL: Check for inline-only method calls (.view(), .hijack())
+            // These produce temporary tokens that cannot be stored in variables
+            if (IsInlineOnlyMethodCall(expr: node.Initializer, out string? methodName))
+            {
+                AddError(
+                    message: $"Cannot store result of '.{methodName}()' in a variable. " +
+                             $"Inline tokens must be used directly (e.g., 'obj.{methodName}().field') " +
+                             $"or use scoped syntax (e.g., '{(methodName == "view" ? "viewing" : "hijacking")} obj as handle {{ ... }}').",
+                    location: node.Location);
+            }
+
             var initType = node.Initializer.Accept(visitor: this) as TypeInfo;
 
             // Validate type compatibility when explicit type is declared
@@ -250,6 +304,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         {
             // Enable usurping mode for exclusive token returns
             _memoryAnalyzer.EnterUsurpingFunction();
+            _isInUsurpingFunction = true;
         }
 
         // Enter new lexical scopes for function parameters and body isolation
@@ -258,6 +313,17 @@ public class SemanticAnalyzer : IAstVisitor<object?>
 
         try
         {
+            // Register generic type parameters if this is a generic function
+            if (node.GenericParameters != null && node.GenericParameters.Count > 0)
+            {
+                foreach (string typeParam in node.GenericParameters)
+                {
+                    // Register type parameter as a special type symbol
+                    var typeParamSymbol = new TypeParameterSymbol(Name: typeParam);
+                    _symbolTable.TryDeclare(symbol: typeParamSymbol);
+                }
+            }
+
             // Process function parameters - add to both symbol table and memory analyzer
             foreach (Parameter param in node.Parameters)
             {
@@ -301,13 +367,19 @@ public class SemanticAnalyzer : IAstVisitor<object?>
             if (isUsurping)
             {
                 _memoryAnalyzer.ExitUsurpingFunction();
+                _isInUsurpingFunction = false;
             }
         }
 
-        // Add function to symbol table
+        // Add function to symbol table (with generic parameters if present)
         TypeInfo? returnType = ResolveType(typeExpr: node.ReturnType);
-        var funcSymbol = new FunctionSymbol(Name: node.Name, Parameters: node.Parameters,
-            ReturnType: returnType, Visibility: node.Visibility, IsUsurping: isUsurping);
+        var funcSymbol = new FunctionSymbol(
+            Name: node.Name,
+            Parameters: node.Parameters,
+            ReturnType: returnType,
+            Visibility: node.Visibility,
+            IsUsurping: isUsurping,
+            GenericParameters: node.GenericParameters?.ToList());
         if (!_symbolTable.TryDeclare(symbol: funcSymbol))
         {
             AddError(message: $"Function '{node.Name}' is already declared",
@@ -486,8 +558,117 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// <returns>Null</returns>
     public object? VisitImportDeclaration(ImportDeclaration node)
     {
-        // TODO: Module system
-        return null;
+        try
+        {
+            // Load the module and all its dependencies
+            List<ModuleResolver.ModuleInfo> modules =
+                _moduleResolver.LoadModuleWithDependencies(node.ModulePath);
+
+            // Process each loaded module (dependencies first, then the requested module)
+            foreach (ModuleResolver.ModuleInfo moduleInfo in modules)
+            {
+                ProcessImportedModule(moduleInfo, node);
+            }
+
+            return null;
+        }
+        catch (ModuleException ex)
+        {
+            AddError(
+                message: $"Failed to import module '{node.ModulePath}': {ex.Message}",
+                location: node.Location);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Processes an imported module by adding its symbols to the symbol table.
+    /// </summary>
+    private void ProcessImportedModule(ModuleResolver.ModuleInfo moduleInfo, ImportDeclaration importDecl)
+    {
+        // Analyze the imported module's AST to extract symbols
+        foreach (IAstNode declaration in moduleInfo.Ast.Declarations)
+        {
+            // Skip import declarations in the imported module (already handled by transitive loading)
+            if (declaration is ImportDeclaration)
+            {
+                continue;
+            }
+
+            // Add the declaration's symbols to our symbol table
+            if (declaration is FunctionDeclaration funcDecl)
+            {
+                // Create function symbol (reuse the Parameter objects from AST)
+                var funcSymbol = new FunctionSymbol(
+                    Name: funcDecl.Name,
+                    Parameters: funcDecl.Parameters,
+                    ReturnType: funcDecl.ReturnType != null
+                        ? ResolveTypeExpression(funcDecl.ReturnType)
+                        : new TypeInfo(Name: "void", IsReference: false),
+                    Visibility: funcDecl.Visibility,
+                    IsUsurping: false,
+                    GenericParameters: funcDecl.GenericParameters,
+                    GenericConstraints: new List<GenericConstraint>());
+
+                if (!_symbolTable.TryDeclare(funcSymbol))
+                {
+                    AddError(
+                        message: $"Imported symbol '{funcDecl.Name}' conflicts with existing declaration",
+                        location: importDecl.Location);
+                }
+            }
+            else if (declaration is ClassDeclaration classDecl)
+            {
+                // Create class/entity symbol
+                var classSymbol = new ClassSymbol(
+                    Name: classDecl.Name,
+                    BaseClass: null,
+                    Interfaces: new List<TypeExpression>(),
+                    Visibility: classDecl.Visibility,
+                    GenericParameters: classDecl.GenericParameters,
+                    GenericConstraints: new List<GenericConstraint>());
+
+                if (!_symbolTable.TryDeclare(classSymbol))
+                {
+                    AddError(
+                        message: $"Imported type '{classDecl.Name}' conflicts with existing declaration",
+                        location: importDecl.Location);
+                }
+            }
+            else if (declaration is StructDeclaration structDecl)
+            {
+                // Create struct/record symbol
+                var structSymbol = new StructSymbol(
+                    Name: structDecl.Name,
+                    Visibility: structDecl.Visibility);
+
+                if (!_symbolTable.TryDeclare(structSymbol))
+                {
+                    AddError(
+                        message: $"Imported type '{structDecl.Name}' conflicts with existing declaration",
+                        location: importDecl.Location);
+                }
+            }
+            else if (declaration is VariantDeclaration variantDecl)
+            {
+                // Create variant symbol (chimera/variant/mutant)
+                var variantSymbol = new ClassSymbol(
+                    Name: variantDecl.Name,
+                    BaseClass: null,
+                    Interfaces: new List<TypeExpression>(),
+                    Visibility: variantDecl.Visibility,
+                    GenericParameters: variantDecl.GenericParameters,
+                    GenericConstraints: new List<GenericConstraint>());
+
+                if (!_symbolTable.TryDeclare(variantSymbol))
+                {
+                    AddError(
+                        message: $"Imported type '{variantDecl.Name}' conflicts with existing declaration",
+                        location: importDecl.Location);
+                }
+            }
+            // TODO: Handle other declaration types (FeatureDeclaration, MenuDeclaration, etc.)
+        }
     }
 
     /// <summary>
@@ -565,6 +746,43 @@ public class SemanticAnalyzer : IAstVisitor<object?>
                 location: node.Location);
         }
 
+        // CRITICAL: Check for inline-only method calls (.view(), .hijack())
+        // These produce temporary tokens that cannot be stored via assignment
+        if (IsInlineOnlyMethodCall(expr: node.Value, out string? methodName))
+        {
+            AddError(
+                message: $"Cannot assign result of '.{methodName}()' to a variable. " +
+                         $"Inline tokens must be used directly (e.g., 'obj.{methodName}().field') " +
+                         $"or use scoped syntax (e.g., '{(methodName == "view" ? "viewing" : "hijacking")} obj as handle {{ ... }}').",
+                location: node.Location);
+        }
+
+        // CRITICAL: Prevent mutation through read-only wrapper types
+        // Viewed<T> and Observed<T> provide read-only access - cannot mutate through them
+        if (node.Target is MemberExpression memberTarget)
+        {
+            var objectType = memberTarget.Object.Accept(visitor: this) as TypeInfo;
+            if (objectType != null && IsReadOnlyWrapperType(objectType.Name))
+            {
+                AddError(
+                    message: $"Cannot mutate field through read-only wrapper '{objectType.Name}'. " +
+                             $"Read-only wrappers (Viewed<T>, Observed<T>) do not allow mutation. " +
+                             $"Use hijacking or seizing for mutable access.",
+                    location: node.Location);
+            }
+        }
+
+        // CRITICAL: Prevent scoped tokens from escaping their scope
+        // Scoped tokens (Viewed, Hijacked, Seized, Observed) cannot be assigned to variables
+        if (node.Value is IdentifierExpression valIdent && IsScopedToken(valIdent.Name))
+        {
+            AddError(
+                message: $"Cannot assign scoped token '{valIdent.Name}' to a variable. " +
+                         $"Scoped tokens are bound to their declaring scope and cannot escape. " +
+                         $"Use the token directly within the scoped statement block.",
+                location: node.Location);
+        }
+
         // CRITICAL: Language-specific memory model handling for assignments
         if (node.Target is IdentifierExpression targetId &&
             node.Value is IdentifierExpression valueId)
@@ -620,7 +838,40 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     {
         if (node.Value != null)
         {
-            node.Value.Accept(visitor: this);
+            var returnType = node.Value.Accept(visitor: this) as TypeInfo;
+
+            // CRITICAL: Prevent inline-only tokens from being returned (no-return rule)
+            // .view() and .hijack() produce tokens that cannot escape the immediate expression
+            if (IsInlineOnlyMethodCall(expr: node.Value, out string? methodName))
+            {
+                AddError(
+                    message: $"Cannot return result of '.{methodName}()' from a routine. " +
+                             $"Inline tokens (Viewed<T>, Hijacked<T>) cannot escape their usage context. " +
+                             $"Return the extracted value instead, or use a callback pattern.",
+                    location: node.Location);
+            }
+
+            // CRITICAL: Prevent scoped tokens from escaping via return
+            // Only usurping functions can return Hijacked<T> tokens
+            // Viewed, Seized, Observed tokens can NEVER escape (even from usurping functions)
+            if (node.Value is IdentifierExpression returnId && IsScopedToken(returnId.Name))
+            {
+                // Check if this is a Hijacked<T> token and we're in a usurping function
+                if (returnType != null && returnType.Name.StartsWith("Hijacked<") && _isInUsurpingFunction)
+                {
+                    // Allowed: usurping functions can return Hijacked<T>
+                }
+                else
+                {
+                    string tokenType = returnType?.Name ?? "scoped token";
+                    AddError(
+                        message: $"Cannot return scoped token '{returnId.Name}' of type {tokenType}. " +
+                                 $"Scoped tokens are bound to their declaring scope and cannot escape. " +
+                                 $"Only usurping functions can return Hijacked<T> tokens. " +
+                                 $"Viewed, Seized, and Observed tokens can never escape.",
+                        location: node.Location);
+                }
+            }
         }
 
         return null;
@@ -703,16 +954,26 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// <returns>Null</returns>
     public object? VisitWhenStatement(WhenStatement node)
     {
+        // Set context flag - operations like try_seize/check_seize must be in when condition
+        bool wasInWhenCondition = _isInWhenCondition;
+        _isInWhenCondition = true;
+
         var expressionType = node.Expression.Accept(visitor: this) as TypeInfo;
+
+        // Reset context after evaluating the condition
+        _isInWhenCondition = wasInWhenCondition;
 
         foreach (WhenClause clause in node.Clauses)
         {
-            // Enter new scope for pattern variables
+            // Enter new scope for pattern variables and scoped tokens
             _symbolTable.EnterScope();
+            _memoryAnalyzer.EnterScope();
+            _scopeDepth++;
 
             try
             {
                 // Type check pattern against expression and bind pattern variables
+                // This may register scoped tokens from fallible lock operations
                 ValidatePatternMatch(pattern: clause.Pattern, expressionType: expressionType,
                     location: clause.Location);
 
@@ -720,6 +981,11 @@ public class SemanticAnalyzer : IAstVisitor<object?>
             }
             finally
             {
+                // Clean up scoped tokens and restore sources when clause exits
+                RestoreInvalidatedSources();
+                ExitScopeCleanupTokens();
+                _scopeDepth--;
+                _memoryAnalyzer.ExitScope();
                 _symbolTable.ExitScope();
             }
         }
@@ -779,6 +1045,29 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         return null;
     }
 
+    /// <summary>
+    /// Visits a fail statement that returns an error via Result.
+    /// </summary>
+    /// <param name="node">Fail statement node</param>
+    /// <returns>Null</returns>
+    public object? VisitFailStatement(FailStatement node)
+    {
+        // Visit the error expression
+        node.Error.Accept(visitor: this);
+        return null;
+    }
+
+    /// <summary>
+    /// Visits an absent statement that indicates value not found.
+    /// </summary>
+    /// <param name="node">Absent statement node</param>
+    /// <returns>Null</returns>
+    public object? VisitAbsentStatement(AbsentStatement node)
+    {
+        // No expression to visit for absent
+        return null;
+    }
+
     // Expressions
     /// <summary>
     /// Visits a literal expression and infers its type.
@@ -787,7 +1076,77 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// <returns>TypeInfo representing the literal type</returns>
     public object? VisitLiteralExpression(LiteralExpression node)
     {
-        return InferLiteralType(value: node.Value);
+        // Use the explicit LiteralType from the token to determine the type
+        // This is more accurate than inferring from C# runtime type
+        return node.LiteralType switch
+        {
+            // Explicitly typed integer literals (same for both languages)
+            TokenType.S8Literal => new TypeInfo(Name: "s8", IsReference: false),
+            TokenType.S16Literal => new TypeInfo(Name: "s16", IsReference: false),
+            TokenType.S32Literal => new TypeInfo(Name: "s32", IsReference: false),
+            TokenType.S64Literal => new TypeInfo(Name: "s64", IsReference: false),
+            TokenType.S128Literal => new TypeInfo(Name: "s128", IsReference: false),
+            TokenType.SyssintLiteral => new TypeInfo(Name: "syssint", IsReference: false),
+            TokenType.U8Literal => new TypeInfo(Name: "u8", IsReference: false),
+            TokenType.U16Literal => new TypeInfo(Name: "u16", IsReference: false),
+            TokenType.U32Literal => new TypeInfo(Name: "u32", IsReference: false),
+            TokenType.U64Literal => new TypeInfo(Name: "u64", IsReference: false),
+            TokenType.U128Literal => new TypeInfo(Name: "u128", IsReference: false),
+            TokenType.SysuintLiteral => new TypeInfo(Name: "sysuint", IsReference: false),
+
+            // Untyped integer: RazorForge defaults to s64, Suflae defaults to Integer (arbitrary precision)
+            TokenType.Integer => new TypeInfo(
+                Name: _language == Language.Suflae ? "Integer" : "s64",
+                IsReference: false),
+
+            // Explicitly typed floating-point literals (same for both languages)
+            TokenType.F16Literal => new TypeInfo(Name: "f16", IsReference: false),
+            TokenType.F32Literal => new TypeInfo(Name: "f32", IsReference: false),
+            TokenType.F64Literal => new TypeInfo(Name: "f64", IsReference: false),
+            TokenType.F128Literal => new TypeInfo(Name: "f128", IsReference: false),
+            TokenType.D32Literal => new TypeInfo(Name: "d32", IsReference: false),
+            TokenType.D64Literal => new TypeInfo(Name: "d64", IsReference: false),
+            TokenType.D128Literal => new TypeInfo(Name: "d128", IsReference: false),
+
+            // Untyped decimal: RazorForge defaults to f64, Suflae defaults to Decimal (arbitrary precision)
+            TokenType.Decimal => new TypeInfo(
+                Name: _language == Language.Suflae ? "Decimal" : "f64",
+                IsReference: false),
+
+            // Text literals: RazorForge has Text<letter>/Text<letter8>/Text<letter16>, Suflae has Text (UTF-8) and Bytes (no Text16)
+            TokenType.TextLiteral or TokenType.FormattedText or TokenType.RawText or TokenType.RawFormattedText =>
+                new TypeInfo(Name: _language == Language.Suflae ? "Text" : "Text<letter>", IsReference: false),
+            TokenType.Text8Literal or TokenType.Text8FormattedText or TokenType.Text8RawText or TokenType.Text8RawFormattedText =>
+                new TypeInfo(Name: _language == Language.Suflae ? "Bytes" : "Text<letter8>", IsReference: false),
+            // Text16 literals: Only supported in RazorForge, not in Suflae
+            TokenType.Text16Literal or TokenType.Text16FormattedText or TokenType.Text16RawText or TokenType.Text16RawFormattedText =>
+                HandleText16Literal(node),
+
+            // Suflae-only bytes literals (b"", br"", bf"", brf"")
+            TokenType.BytesLiteral or TokenType.BytesRawLiteral or TokenType.BytesFormatted or TokenType.BytesRawFormatted =>
+                HandleBytesLiteral(node),
+
+            // Duration literals - all produce Duration type
+            TokenType.WeekLiteral or TokenType.DayLiteral or TokenType.HourLiteral or TokenType.MinuteLiteral
+                or TokenType.SecondLiteral or TokenType.MillisecondLiteral or TokenType.MicrosecondLiteral
+                or TokenType.NanosecondLiteral =>
+                new TypeInfo(Name: "Duration", IsReference: false),
+
+            // Memory size literals - all produce MemorySize type
+            TokenType.ByteLiteral or TokenType.KilobyteLiteral or TokenType.KibibyteLiteral
+                or TokenType.KilobitLiteral or TokenType.KibibitLiteral or TokenType.MegabyteLiteral
+                or TokenType.MebibyteLiteral or TokenType.MegabitLiteral or TokenType.MebibitLiteral
+                or TokenType.GigabyteLiteral or TokenType.GibibyteLiteral or TokenType.GigabitLiteral
+                or TokenType.GibibitLiteral or TokenType.TerabyteLiteral or TokenType.TebibyteLiteral
+                or TokenType.TerabitLiteral or TokenType.TebibitLiteral or TokenType.PetabyteLiteral
+                or TokenType.PebibyteLiteral or TokenType.PetabitLiteral or TokenType.PebibitLiteral =>
+                new TypeInfo(Name: "MemorySize", IsReference: false),
+
+            // Boolean and none literals (same for both languages)
+            TokenType.True or TokenType.False => new TypeInfo(Name: "Bool", IsReference: false),
+            TokenType.None => new TypeInfo(Name: "none", IsReference: false),
+            _ => InferLiteralType(value: node.Value) // Fallback to runtime type inference
+        };
     }
 
     /// <summary>
@@ -802,6 +1161,17 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         {
             AddError(message: $"Undefined identifier '{node.Name}'", location: node.Location);
             return null;
+        }
+
+        // CRITICAL: Check if this source variable is invalidated by a scoped access statement
+        if (IsSourceInvalidated(node.Name))
+        {
+            string? accessType = GetInvalidationAccessType(node.Name);
+            AddError(
+                message: $"Cannot access '{node.Name}' while it is being accessed via {accessType} statement. " +
+                         $"The source is temporarily unavailable while the scoped token exists. " +
+                         $"Access the data through the scoped token instead.",
+                location: node.Location);
         }
 
         return symbol.Type;
@@ -830,6 +1200,18 @@ public class SemanticAnalyzer : IAstVisitor<object?>
             }
         }
 
+        // Comparison operators return Bool
+        if (IsComparisonOperator(op: node.Operator))
+        {
+            return new TypeInfo(Name: "Bool", IsReference: false);
+        }
+
+        // Logical operators return Bool
+        if (IsLogicalOperator(op: node.Operator))
+        {
+            return new TypeInfo(Name: "Bool", IsReference: false);
+        }
+
         // Return the common type (they should be the same if we reach here)
         return leftType ?? rightType;
     }
@@ -856,8 +1238,39 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         };
     }
 
+    private bool IsComparisonOperator(BinaryOperator op)
+    {
+        return op switch
+        {
+            BinaryOperator.Equal or BinaryOperator.NotEqual
+                or BinaryOperator.Less or BinaryOperator.LessEqual
+                or BinaryOperator.Greater or BinaryOperator.GreaterEqual
+                or BinaryOperator.In or BinaryOperator.NotIn
+                or BinaryOperator.Is or BinaryOperator.IsNot
+                or BinaryOperator.From or BinaryOperator.NotFrom
+                or BinaryOperator.Follows or BinaryOperator.NotFollows => true,
+            _ => false
+        };
+    }
+
+    private bool IsLogicalOperator(BinaryOperator op)
+    {
+        return op switch
+        {
+            BinaryOperator.And or BinaryOperator.Or => true,
+            _ => false
+        };
+    }
+
     private bool AreTypesCompatible(TypeInfo left, TypeInfo right)
     {
+        // If either type is a generic parameter, they are compatible
+        // (concrete type checking happens at instantiation time)
+        if (left.IsGenericParameter || right.IsGenericParameter)
+        {
+            return true;
+        }
+
         // Types are compatible if they are exactly the same
         return left.Name == right.Name && left.IsReference == right.IsReference;
     }
@@ -889,10 +1302,30 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// </summary>
     public object? VisitCallExpression(CallExpression node)
     {
-        // Check if this is a standalone danger zone function call (addr_of!, invalidate!)
+        // Check if this is a standalone danger zone function call (address_of!, invalidate!)
         if (node.Callee is IdentifierExpression identifierExpr)
         {
             string functionName = identifierExpr.Name;
+
+            // Check for failable type conversion: s32!(expr), u64!(expr), Text!(expr), etc.
+            // Type conversion functions end with '!' and the base name is a type
+            if (functionName.EndsWith("!"))
+            {
+                string baseTypeName = functionName.TrimEnd('!');
+                if (IsTypeName(baseTypeName))
+                {
+                    // This is a failable type conversion
+                    // Type check all arguments (should be exactly 1)
+                    foreach (Expression arg in node.Arguments)
+                    {
+                        arg.Accept(visitor: this);
+                    }
+
+                    // Return the target type as the result type
+                    return new TypeInfo(Name: baseTypeName, IsReference: false);
+                }
+            }
+
             if (IsNonGenericDangerZoneFunction(functionName: functionName))
             {
                 // Only allow these functions in danger mode
@@ -921,8 +1354,43 @@ public class SemanticAnalyzer : IAstVisitor<object?>
                 location: node.Location);
         }
 
+        // Handle namespaced function calls (e.g., Console.show_line())
+        // When callee is a MemberExpression with an IdentifierExpression as object,
+        // check if this is a namespaced function call before treating it as a method call
+        if (node.Callee is MemberExpression namespacedCall &&
+            namespacedCall.Object is IdentifierExpression namespaceId)
+        {
+            string qualifiedName = $"{namespaceId.Name}.{namespacedCall.PropertyName}";
+            Symbol? funcSymbol = _symbolTable.Lookup(name: qualifiedName);
+            if (funcSymbol != null)
+            {
+                // Type check all arguments
+                foreach (Expression arg in node.Arguments)
+                {
+                    arg.Accept(visitor: this);
+                }
+
+                // Return the function's return type
+                if (funcSymbol is FunctionSymbol func)
+                {
+                    return func.ReturnType;
+                }
+                else if (funcSymbol is FunctionOverloadSet overloadSet && overloadSet.Overloads.Count > 0)
+                {
+                    // TODO: Proper overload resolution based on argument types
+                    // For now, return the first overload's return type
+                    return overloadSet.Overloads[0].ReturnType;
+                }
+
+                return funcSymbol.Type;
+            }
+        }
+
         // Standard function call type checking
         var functionType = node.Callee.Accept(visitor: this) as TypeInfo;
+
+        // CRITICAL: Validate arguments for inline-only and scoped token rules
+        ValidateCallArguments(node);
 
         // Type check all arguments
         foreach (Expression arg in node.Arguments)
@@ -935,6 +1403,66 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     }
 
     /// <summary>
+    /// Validates function call arguments for memory safety rules:
+    /// 1. Inline-only tokens (.view()/.hijack()) cannot be passed to container methods (push, insert, etc.)
+    /// 2. Scoped tokens cannot be passed to container methods
+    /// 3. Same Hijacked&lt;T&gt; token cannot be passed twice in the same call
+    /// </summary>
+    private void ValidateCallArguments(CallExpression node)
+    {
+        // Check for container methods that store values
+        bool isContainerStorageMethod = false;
+        if (node.Callee is MemberExpression memberCall)
+        {
+            isContainerStorageMethod = memberCall.PropertyName is
+                "push" or "append" or "insert" or "add" or "set" or "put" or
+                "enqueue" or "push_front" or "push_back";
+        }
+
+        // Track Hijacked tokens to detect duplicates
+        var hijackedTokens = new HashSet<string>();
+
+        foreach (var arg in node.Arguments)
+        {
+            // Rule 1: Check for inline-only method calls being stored in containers
+            if (isContainerStorageMethod && IsInlineOnlyMethodCall(arg, out string? methodName))
+            {
+                AddError(
+                    message: $"Cannot store result of '.{methodName}()' in a container. " +
+                             $"Inline tokens (Viewed<T>, Hijacked<T>) cannot be stored. " +
+                             $"Extract the value first, or use ownership transfer with .consume().",
+                    location: node.Location);
+            }
+
+            // Rule 2: Check for scoped tokens being stored in containers
+            if (isContainerStorageMethod && arg is IdentifierExpression argIdent && IsScopedToken(argIdent.Name))
+            {
+                AddError(
+                    message: $"Cannot store scoped token '{argIdent.Name}' in a container. " +
+                             $"Scoped tokens are bound to their scope and cannot escape. " +
+                             $"Extract the value first, or restructure to keep the token local.",
+                    location: node.Location);
+            }
+
+            // Rule 3: Check for duplicate Hijacked<T> tokens in same call
+            if (arg is IdentifierExpression tokenIdent)
+            {
+                var tokenType = _symbolTable.Lookup(tokenIdent.Name)?.Type;
+                if (tokenType != null && tokenType.Name.StartsWith("Hijacked<"))
+                {
+                    if (!hijackedTokens.Add(tokenIdent.Name))
+                    {
+                        AddError(
+                            message: $"Cannot pass the same Hijacked<T> token '{tokenIdent.Name}' twice in a single call. " +
+                                     $"Hijacked<T> represents unique exclusive access and cannot be duplicated.",
+                            location: node.Location);
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>
     /// Visits a member access expression and validates the member exists.
     /// </summary>
     /// <param name="node">Member expression node</param>
@@ -942,8 +1470,56 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     public object? VisitMemberExpression(MemberExpression node)
     {
         var objectType = node.Object.Accept(visitor: this) as TypeInfo;
-        // TODO: Check if member exists on type
+
+        if (objectType == null)
+        {
+            return null;
+        }
+
+        // Check if accessing field through a wrapper type that allows transparent access
+        // Hijacked<T>, Viewed<T>, Retained<T> all allow direct field access on inner type T
+        if (IsTransparentWrapperType(objectType.Name, out string? innerTypeName))
+        {
+            // Unwrap to get the inner type and check member on that type
+            // For now, we'll return a generic TypeInfo - full field validation would need type lookup
+            // TODO: Look up field type from type definition of innerTypeName
+            return new TypeInfo(Name: "unknown", IsReference: false);
+        }
+
+        // TODO: Check if member exists on objectType directly
         return null;
+    }
+
+    /// <summary>
+    /// Checks if a type is a transparent wrapper that allows direct field access.
+    /// Transparent wrappers: Hijacked&lt;T&gt;, Viewed&lt;T&gt;, Retained&lt;T&gt;, Observed&lt;T&gt;, Seized&lt;T&gt;
+    /// Note: Snatched&lt;T&gt; requires explicit .reveal_as&lt;U&gt;() - not transparent
+    /// </summary>
+    private bool IsTransparentWrapperType(string typeName, out string? innerType)
+    {
+        // Match patterns: Hijacked<T>, Viewed<T>, Retained<T>, Observed<T>, Seized<T>
+        foreach (var wrapperPrefix in new[] { "Hijacked<", "Viewed<", "Retained<", "Observed<", "Seized<" })
+        {
+            if (typeName.StartsWith(wrapperPrefix) && typeName.EndsWith(">"))
+            {
+                // Extract inner type T from Wrapper<T>
+                innerType = typeName.Substring(wrapperPrefix.Length,
+                    typeName.Length - wrapperPrefix.Length - 1);
+                return true;
+            }
+        }
+
+        innerType = null;
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if a type is a read-only wrapper that does not allow mutation.
+    /// Read-only wrappers: Viewed<T>, Observed<T>
+    /// </summary>
+    private bool IsReadOnlyWrapperType(string typeName)
+    {
+        return typeName.StartsWith("Viewed<") || typeName.StartsWith("Observed<");
     }
 
     /// <summary>
@@ -1165,6 +1741,14 @@ public class SemanticAnalyzer : IAstVisitor<object?>
             return null;
         }
 
+        // Check if this is a type parameter (e.g., T in a generic function)
+        Symbol? symbol = _symbolTable.Lookup(name: typeExpr.Name);
+        if (symbol is TypeParameterSymbol typeParam)
+        {
+            // Return type info marked as a generic parameter
+            return new TypeInfo(Name: typeExpr.Name, IsReference: false, IsGenericParameter: true);
+        }
+
         // Handle generic types with type arguments
         if (typeExpr.GenericArguments != null && typeExpr.GenericArguments.Count > 0)
         {
@@ -1382,6 +1966,133 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         return InferLiteralType(value: value);
     }
 
+    /// <summary>
+    /// Handles Text16 literals - only supported in RazorForge, not in Suflae.
+    /// Text16 literals (t16"...", t16f"...", t16r"...", t16rf"...") produce Text&lt;letter16&gt; in RazorForge.
+    /// In Suflae, these literals are a compile error since Suflae doesn't support UTF-16 text.
+    /// </summary>
+    /// <param name="node">The literal expression node</param>
+    /// <returns>TypeInfo for Text&lt;letter16&gt; in RazorForge, or error for Suflae</returns>
+    private TypeInfo HandleText16Literal(LiteralExpression node)
+    {
+        if (_language == Language.Suflae)
+        {
+            AddError(
+                message: "Text16 literals (t16\"...\") are not supported in Suflae. " +
+                         "Suflae uses Text (UTF-8) and Bytes. Use regular string literals (\"...\") for Text " +
+                         "or bytes literals (b\"...\") for raw byte data.",
+                location: node.Location);
+            // Return Text as fallback type for error recovery
+            return new TypeInfo(Name: "Text", IsReference: false);
+        }
+
+        // RazorForge: Text16 literals produce Text<letter16>
+        return new TypeInfo(Name: "Text<letter16>", IsReference: false);
+    }
+
+    /// <summary>
+    /// Handles Suflae bytes literals (b"", br"", bf"", brf"").
+    /// These are Suflae-only - they produce Bytes type for raw byte data.
+    /// In RazorForge, use Text&lt;letter8&gt; for UTF-8 byte strings instead.
+    /// </summary>
+    /// <param name="node">The literal expression node</param>
+    /// <returns>TypeInfo for Bytes in Suflae, or error for RazorForge</returns>
+    private TypeInfo HandleBytesLiteral(LiteralExpression node)
+    {
+        if (_language == Language.RazorForge)
+        {
+            AddError(
+                message: "Bytes literals (b\"...\", br\"...\", bf\"...\", brf\"...\") are Suflae-only syntax. " +
+                         "In RazorForge, use t8\"...\" for Text<letter8> (UTF-8) byte strings, " +
+                         "or use a DynamicSlice for raw byte data.",
+                location: node.Location);
+            // Return Text<letter8> as fallback type for error recovery
+            return new TypeInfo(Name: "Text<letter8>", IsReference: false);
+        }
+
+        // Suflae: Bytes literals produce Bytes type
+        return new TypeInfo(Name: "Bytes", IsReference: false);
+    }
+
+    /// <summary>
+    /// Infers the type of a pattern literal using its explicit TokenType.
+    /// This ensures typed literals like 1_s32 in patterns are correctly identified as s32
+    /// instead of defaulting to s64 based on C# runtime type.
+    /// </summary>
+    private TypeInfo InferPatternLiteralType(object? value, TokenType literalType)
+    {
+        return literalType switch
+        {
+            // Explicitly typed integer literals (same for both languages)
+            TokenType.S8Literal => new TypeInfo(Name: "s8", IsReference: false),
+            TokenType.S16Literal => new TypeInfo(Name: "s16", IsReference: false),
+            TokenType.S32Literal => new TypeInfo(Name: "s32", IsReference: false),
+            TokenType.S64Literal => new TypeInfo(Name: "s64", IsReference: false),
+            TokenType.S128Literal => new TypeInfo(Name: "s128", IsReference: false),
+            TokenType.SyssintLiteral => new TypeInfo(Name: "syssint", IsReference: false),
+            TokenType.U8Literal => new TypeInfo(Name: "u8", IsReference: false),
+            TokenType.U16Literal => new TypeInfo(Name: "u16", IsReference: false),
+            TokenType.U32Literal => new TypeInfo(Name: "u32", IsReference: false),
+            TokenType.U64Literal => new TypeInfo(Name: "u64", IsReference: false),
+            TokenType.U128Literal => new TypeInfo(Name: "u128", IsReference: false),
+            TokenType.SysuintLiteral => new TypeInfo(Name: "sysuint", IsReference: false),
+
+            // Untyped integer: RazorForge defaults to s64, Suflae defaults to Integer (arbitrary precision)
+            TokenType.Integer => new TypeInfo(
+                Name: _language == Language.Suflae ? "Integer" : "s64",
+                IsReference: false),
+
+            // Explicitly typed floating-point literals (same for both languages)
+            TokenType.F16Literal => new TypeInfo(Name: "f16", IsReference: false),
+            TokenType.F32Literal => new TypeInfo(Name: "f32", IsReference: false),
+            TokenType.F64Literal => new TypeInfo(Name: "f64", IsReference: false),
+            TokenType.F128Literal => new TypeInfo(Name: "f128", IsReference: false),
+            TokenType.D32Literal => new TypeInfo(Name: "d32", IsReference: false),
+            TokenType.D64Literal => new TypeInfo(Name: "d64", IsReference: false),
+            TokenType.D128Literal => new TypeInfo(Name: "d128", IsReference: false),
+
+            // Untyped decimal: RazorForge defaults to f64, Suflae defaults to Decimal (arbitrary precision)
+            TokenType.Decimal => new TypeInfo(
+                Name: _language == Language.Suflae ? "Decimal" : "f64",
+                IsReference: false),
+
+            // Text literals
+            TokenType.TextLiteral or TokenType.FormattedText or TokenType.RawText or TokenType.RawFormattedText =>
+                new TypeInfo(Name: _language == Language.Suflae ? "Text" : "Text<letter>", IsReference: false),
+            TokenType.Text8Literal or TokenType.Text8FormattedText or TokenType.Text8RawText or TokenType.Text8RawFormattedText =>
+                new TypeInfo(Name: _language == Language.Suflae ? "Bytes" : "Text<letter8>", IsReference: false),
+            TokenType.Text16Literal or TokenType.Text16FormattedText or TokenType.Text16RawText or TokenType.Text16RawFormattedText =>
+                new TypeInfo(Name: "Text<letter16>", IsReference: false),
+
+            // Suflae-only bytes literals
+            TokenType.BytesLiteral or TokenType.BytesRawLiteral or TokenType.BytesFormatted or TokenType.BytesRawFormatted =>
+                new TypeInfo(Name: "Bytes", IsReference: false),
+
+            // Duration literals - all produce Duration type
+            TokenType.WeekLiteral or TokenType.DayLiteral or TokenType.HourLiteral or TokenType.MinuteLiteral
+                or TokenType.SecondLiteral or TokenType.MillisecondLiteral or TokenType.MicrosecondLiteral
+                or TokenType.NanosecondLiteral =>
+                new TypeInfo(Name: "Duration", IsReference: false),
+
+            // Memory size literals - all produce MemorySize type
+            TokenType.ByteLiteral or TokenType.KilobyteLiteral or TokenType.KibibyteLiteral
+                or TokenType.KilobitLiteral or TokenType.KibibitLiteral or TokenType.MegabyteLiteral
+                or TokenType.MebibyteLiteral or TokenType.MegabitLiteral or TokenType.MebibitLiteral
+                or TokenType.GigabyteLiteral or TokenType.GibibyteLiteral or TokenType.GigabitLiteral
+                or TokenType.GibibitLiteral or TokenType.TerabyteLiteral or TokenType.TebibyteLiteral
+                or TokenType.TerabitLiteral or TokenType.TebibitLiteral or TokenType.PetabyteLiteral
+                or TokenType.PebibyteLiteral or TokenType.PetabitLiteral or TokenType.PebibitLiteral =>
+                new TypeInfo(Name: "MemorySize", IsReference: false),
+
+            // Boolean and none literals (same for both languages)
+            TokenType.True or TokenType.False => new TypeInfo(Name: "Bool", IsReference: false),
+            TokenType.None => new TypeInfo(Name: "none", IsReference: false),
+
+            // Fallback to runtime type inference for unknown types
+            _ => InferLiteralType(value: value)
+        };
+    }
+
     private bool IsAssignable(TypeInfo target, TypeInfo? source)
     {
         if (source == null)
@@ -1395,6 +2106,12 @@ public class SemanticAnalyzer : IAstVisitor<object?>
 
     private bool AreComparable(TypeInfo type1, TypeInfo type2)
     {
+        // If either type is a generic parameter, defer comparison to instantiation time
+        if (type1.IsGenericParameter || type2.IsGenericParameter)
+        {
+            return true;
+        }
+
         // TODO: Implement proper comparability rules
         // For now, allow comparison between same types and numeric types
         return type1.Name == type2.Name ||
@@ -1414,7 +2131,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
 
     private void AddError(string message, SourceLocation location)
     {
-        _errors.Add(item: new SemanticError(Message: message, Location: location));
+        _errors.Add(item: new SemanticError(Message: message, Location: location, FileName: _fileName));
     }
 
     /// <summary>
@@ -1445,9 +2162,45 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         {
             // Core memory transformation operations
             "retain" or "share" or "track" or "snatch!"
-                or "try_recover" or "recover!" => true,
+                or "try_recover" or "recover!"
+                or "try_seize" or "check_seize" or "try_observe" or "check_observe" => true,
             _ => false
         };
+    }
+
+    /// <summary>
+    /// Check if an expression is an inline-only method call (.view() or .hijack()).
+    ///
+    /// These methods produce temporary tokens (Viewed&lt;T&gt; or Hijacked&lt;T&gt;) that:
+    /// - Cannot be stored in variables (inline-only)
+    /// - Cannot be returned from routines (no-return rule)
+    /// - Must be used directly: obj.view().field or obj.hijack().method()
+    ///
+    /// For multiple operations on the same entity, use scoped syntax instead:
+    /// - viewing obj as v { ... }
+    /// - hijacking obj as h { ... }
+    ///
+    /// This restriction eliminates the need for lifetime annotations by ensuring
+    /// tokens never escape their immediate usage context.
+    /// </summary>
+    /// <param name="expr">Expression to check</param>
+    /// <param name="methodName">Output: the method name if inline-only, null otherwise</param>
+    /// <returns>True if this is an inline-only method call</returns>
+    private bool IsInlineOnlyMethodCall(Expression expr, out string? methodName)
+    {
+        methodName = null;
+
+        // Check for method call pattern: obj.view() or obj.hijack()
+        if (expr is CallExpression call && call.Callee is MemberExpression member)
+        {
+            if (member.PropertyName is "view" or "hijack")
+            {
+                methodName = member.PropertyName;
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -1511,6 +2264,17 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         if (operation == null)
         {
             AddError(message: $"Unknown memory operation: {operationName}", location: location);
+            return null;
+        }
+
+        // Validate that fallible lock operations are used in 'when' context
+        if (RequiresWhenContext(operation: operation.Value) && !_isInWhenCondition)
+        {
+            AddError(
+                message:
+                $"Operation '{operationName}' returns a scope-bound token and must be used directly in a 'when' expression. " +
+                $"Tokens cannot be stored in variables.",
+                location: location);
             return null;
         }
 
@@ -1588,6 +2352,12 @@ public class SemanticAnalyzer : IAstVisitor<object?>
             // Group 3: Multi-threaded reference counting
             "share" => MemoryOperation.Share,
 
+            // Fallible lock acquisition (must be used with 'when')
+            "try_seize" => MemoryOperation.TrySeize,
+            "check_seize" => MemoryOperation.CheckSeize,
+            "try_observe" => MemoryOperation.TryObserve,
+            "check_observe" => MemoryOperation.CheckObserve,
+
             // Unsafe operations (danger! block only)
             "snatch!" => MemoryOperation.Snatch,
             _ => null
@@ -1597,6 +2367,204 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     private MemoryOperation? ParseMemoryOperation(string operationName, SourceLocation location)
     {
         return ParseMemoryOperation(operationName: operationName);
+    }
+
+    /// <summary>
+    /// Check if a memory operation returns a scope-bound token that must be used in 'when' expression.
+    /// These operations return Maybe&lt;Token&gt; or Result&lt;Token, Error&gt; that cannot be stored.
+    /// </summary>
+    /// <param name="operation">The memory operation to check</param>
+    /// <returns>True if operation requires immediate 'when' usage</returns>
+    private bool RequiresWhenContext(MemoryOperation operation)
+    {
+        return operation switch
+        {
+            MemoryOperation.TrySeize or MemoryOperation.CheckSeize
+                or MemoryOperation.TryObserve or MemoryOperation.CheckObserve => true,
+            _ => false
+        };
+    }
+
+    /// <summary>
+    /// Check if a type is a scoped token type that cannot escape its scope.
+    /// Scoped tokens: Viewed&lt;T&gt;, Hijacked&lt;T&gt;, Seized&lt;T&gt;, Observed&lt;T&gt;.
+    /// These are created by scoped access statements (viewing, hijacking, seizing, observing).
+    /// </summary>
+    /// <param name="type">Type to check</param>
+    /// <returns>True if type is a scoped token</returns>
+    private bool IsScopedTokenType(TypeInfo? type)
+    {
+        if (type == null) return false;
+
+        string typeName = type.Name;
+        return typeName.StartsWith("Viewed<") ||
+               typeName.StartsWith("Hijacked<") ||
+               typeName.StartsWith("Seized<") ||
+               typeName.StartsWith("Observed<");
+    }
+
+    /// <summary>
+    /// Check if a type is a fallible lock token (from try_seize, check_seize, try_observe, check_observe).
+    /// These operations return Maybe&lt;Seized&lt;T&gt;&gt;, Result&lt;Seized&lt;T&gt;, E&gt;,
+    /// Maybe&lt;Observed&lt;T&gt;&gt;, or Result&lt;Observed&lt;T&gt;, E&gt;.
+    /// </summary>
+    /// <param name="type">Type to check</param>
+    /// <returns>True if type is a fallible lock token wrapper</returns>
+    private bool IsFallibleLockToken(TypeInfo? type)
+    {
+        if (type == null) return false;
+
+        string typeName = type.Name;
+
+        // Check for Maybe<Seized<T>> or Maybe<Observed<T>>
+        if (typeName.StartsWith("Maybe<"))
+        {
+            string inner = ExtractGenericTypeArgument(typeName, "Maybe");
+            return inner.StartsWith("Seized<") || inner.StartsWith("Observed<");
+        }
+
+        // Check for Result<Seized<T>, E> or Result<Observed<T>, E>
+        if (typeName.StartsWith("Result<"))
+        {
+            string firstArg = ExtractFirstGenericTypeArgument(typeName, "Result");
+            return firstArg.StartsWith("Seized<") || firstArg.StartsWith("Observed<");
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Extract the type argument from a generic type (e.g., Maybe&lt;Seized&lt;T&gt;&gt; → Seized&lt;T&gt;).
+    /// </summary>
+    private string ExtractGenericTypeArgument(string typeName, string wrapperName)
+    {
+        int startIdx = typeName.IndexOf('<');
+        int endIdx = typeName.LastIndexOf('>');
+
+        if (startIdx > 0 && endIdx > startIdx)
+        {
+            return typeName.Substring(startIdx + 1, endIdx - startIdx - 1);
+        }
+
+        return string.Empty;
+    }
+
+    /// <summary>
+    /// Extract the first type argument from a multi-parameter generic type
+    /// (e.g., Result&lt;Seized&lt;T&gt;, Error&gt; → Seized&lt;T&gt;).
+    /// </summary>
+    private string ExtractFirstGenericTypeArgument(string typeName, string wrapperName)
+    {
+        int startIdx = typeName.IndexOf('<');
+        if (startIdx <= 0) return string.Empty;
+
+        // Find the matching comma that separates first and second type arguments
+        // Need to track angle bracket depth to handle nested generics
+        int depth = 0;
+        for (int i = startIdx + 1; i < typeName.Length; i++)
+        {
+            if (typeName[i] == '<') depth++;
+            else if (typeName[i] == '>') depth--;
+            else if (typeName[i] == ',' && depth == 0)
+            {
+                return typeName.Substring(startIdx + 1, i - startIdx - 1).Trim();
+            }
+        }
+
+        // If no comma found, return the entire inner content
+        int endIdx = typeName.LastIndexOf('>');
+        if (endIdx > startIdx)
+        {
+            return typeName.Substring(startIdx + 1, endIdx - startIdx - 1).Trim();
+        }
+
+        return string.Empty;
+    }
+
+    /// <summary>
+    /// Register a scoped token variable that cannot escape the current scope.
+    /// </summary>
+    /// <param name="tokenName">Name of the token variable</param>
+    private void RegisterScopedToken(string tokenName)
+    {
+        _scopedTokens[tokenName] = _scopeDepth;
+    }
+
+    /// <summary>
+    /// Check if a variable is a scoped token that cannot escape its scope.
+    /// </summary>
+    /// <param name="variableName">Name of the variable to check</param>
+    /// <returns>True if variable is a scoped token</returns>
+    private bool IsScopedToken(string variableName)
+    {
+        return _scopedTokens.ContainsKey(variableName);
+    }
+
+    /// <summary>
+    /// Clean up scoped tokens that are going out of scope.
+    /// Called when exiting a scope to remove tokens bound to that scope.
+    /// </summary>
+    private void ExitScopeCleanupTokens()
+    {
+        // Remove all tokens that were created at the current scope depth
+        var tokensToRemove = _scopedTokens
+            .Where(kvp => kvp.Value == _scopeDepth)
+            .Select(kvp => kvp.Key)
+            .ToList();
+
+        foreach (var token in tokensToRemove)
+        {
+            _scopedTokens.Remove(token);
+        }
+    }
+
+    /// <summary>
+    /// Invalidate a source variable during a scoped access statement.
+    /// The source cannot be accessed while the scoped token exists.
+    /// </summary>
+    /// <param name="sourceName">Name of the source variable to invalidate</param>
+    /// <param name="accessType">Type of access (viewing, hijacking, seizing, observing)</param>
+    private void InvalidateSource(string sourceName, string accessType)
+    {
+        _invalidatedSources[sourceName] = (_scopeDepth, accessType);
+    }
+
+    /// <summary>
+    /// Check if a source variable is currently invalidated.
+    /// </summary>
+    /// <param name="sourceName">Name of the source variable</param>
+    /// <returns>True if source is invalidated</returns>
+    private bool IsSourceInvalidated(string sourceName)
+    {
+        return _invalidatedSources.ContainsKey(sourceName);
+    }
+
+    /// <summary>
+    /// Get the access type for an invalidated source.
+    /// </summary>
+    /// <param name="sourceName">Name of the source variable</param>
+    /// <returns>Access type (e.g., "viewing", "hijacking") or null if not invalidated</returns>
+    private string? GetInvalidationAccessType(string sourceName)
+    {
+        return _invalidatedSources.TryGetValue(sourceName, out var info) ? info.accessType : null;
+    }
+
+    /// <summary>
+    /// Restore invalidated sources when exiting a scope.
+    /// Called when a scoped statement exits to re-enable source access.
+    /// </summary>
+    private void RestoreInvalidatedSources()
+    {
+        // Remove all sources that were invalidated at the current scope depth
+        var sourcesToRestore = _invalidatedSources
+            .Where(kvp => kvp.Value.scopeDepth == _scopeDepth)
+            .Select(kvp => kvp.Key)
+            .ToList();
+
+        foreach (var source in sourcesToRestore)
+        {
+            _invalidatedSources.Remove(source);
+        }
     }
 
     /// <summary>
@@ -1769,28 +2737,33 @@ public class SemanticAnalyzer : IAstVisitor<object?>
 
         // Handle other memory operations through memory analyzer
         MemoryOperation? memOp = GetMemoryOperation(operationName: node.OperationName);
-        if (memOp != null)
+        if (memOp == null)
         {
-            MemoryObject? memoryObject =
-                _memoryAnalyzer.GetMemoryObject(name: node.Object.ToString() ?? "");
-            if (memoryObject != null)
-            {
-                MemoryOperationResult result = _memoryAnalyzer.ValidateMemoryOperation(
-                    memoryObject: memoryObject, operation: memOp.Value, location: node.Location);
-                if (!result.IsSuccess)
-                {
-                    foreach (MemoryError error in result.Errors)
-                    {
-                        AddError(message: error.Message, location: error.Location);
-                    }
-                }
-
-                return CreateWrapperTypeInfo(baseType: memoryObject.BaseType,
-                    wrapper: result.NewWrapperType);
-            }
+            return objectType;
         }
 
-        return objectType;
+        MemoryObject? memoryObject =
+            _memoryAnalyzer.GetMemoryObject(name: node.Object.ToString() ?? "");
+        if (memoryObject == null)
+        {
+            return objectType;
+        }
+
+        MemoryOperationResult result = _memoryAnalyzer.ValidateMemoryOperation(
+            memoryObject: memoryObject, operation: memOp.Value, location: node.Location);
+        if (result.IsSuccess)
+        {
+            return CreateWrapperTypeInfo(baseType: memoryObject.BaseType,
+                wrapper: result.NewWrapperType);
+        }
+
+        foreach (MemoryError error in result.Errors)
+        {
+            AddError(message: error.Message, location: error.Location);
+        }
+
+        return CreateWrapperTypeInfo(baseType: memoryObject.BaseType,
+            wrapper: result.NewWrapperType);
     }
 
     /// <summary>
@@ -1859,6 +2832,27 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         }
 
         return null;
+    }
+
+    public object? VisitIntrinsicCallExpression(IntrinsicCallExpression node)
+    {
+        // Intrinsics can only be used inside danger! blocks
+        if (!_isInDangerMode)
+        {
+            AddError(message: $"Intrinsic '{node.IntrinsicName}' can only be used inside danger! blocks",
+                location: node.Location);
+            return null;
+        }
+
+        // Visit arguments for type checking
+        foreach (var arg in node.Arguments)
+        {
+            arg.Accept(visitor: this);
+        }
+
+        // For now, return a generic type - intrinsics will be validated in codegen
+        // We could add more sophisticated type checking here based on the intrinsic name
+        return new TypeInfo(Name: "intrinsic_result", IsReference: false);
     }
 
     /// <summary>
@@ -2042,6 +3036,61 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     private object? ValidateGenericMethodCall(GenericMethodCallExpression node,
         TypeInfo objectType)
     {
+        // Check if this is actually a generic function call (not a method on an object)
+        if (node.Object is IdentifierExpression funcIdent)
+        {
+            // Look up the function in the symbol table
+            Symbol? funcSymbol = _symbolTable.Lookup(name: funcIdent.Name);
+
+            // Check for function overload set
+            if (funcSymbol is FunctionOverloadSet overloadSet)
+            {
+                // Find a matching overload with the right number of generic parameters
+                foreach (FunctionSymbol overload in overloadSet.Overloads)
+                {
+                    if (overload.GenericParameters != null &&
+                        overload.GenericParameters.Count == node.TypeArguments.Count)
+                    {
+                        funcSymbol = overload;
+                        break;
+                    }
+                }
+            }
+
+            if (funcSymbol is FunctionSymbol func &&
+                func.GenericParameters != null &&
+                func.GenericParameters.Count > 0)
+            {
+                // This is a generic function call - resolve the return type
+                // by substituting the type arguments
+
+                // Create binding map from type parameters to concrete types
+                var genericBindings = new Dictionary<string, TypeInfo>();
+                for (int i = 0; i < Math.Min(func.GenericParameters.Count, node.TypeArguments.Count); i++)
+                {
+                    string paramName = func.GenericParameters[i];
+                    TypeInfo? argType = ResolveType(typeExpr: node.TypeArguments[i]);
+                    if (argType != null)
+                    {
+                        genericBindings[paramName] = argType;
+                    }
+                }
+
+                // Resolve return type with generic substitution
+                if (func.ReturnType != null)
+                {
+                    // If return type is a generic parameter, substitute it
+                    if (genericBindings.TryGetValue(func.ReturnType.Name, out TypeInfo? resolvedReturnType))
+                    {
+                        return resolvedReturnType;
+                    }
+                    return func.ReturnType;
+                }
+
+                return new TypeInfo(Name: "void", IsReference: false);
+            }
+        }
+
         // TODO: Implement validation for other generic method calls
         return new TypeInfo(Name: "unknown", IsReference: false);
     }
@@ -2150,7 +3199,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     {
         return functionName switch
         {
-            "write_as" or "read_as" or "volatile_write" or "volatile_read" or "addr_of"
+            "write_as" or "read_as" or "volatile_write" or "volatile_read" or "address_of"
                 or "invalidate" => true,
             _ => false
         };
@@ -2178,7 +3227,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
                 location: node.Location),
             "volatile_read" => ValidateVolatileRead(args: args, typeArgs: typeArgs,
                 location: node.Location),
-            "addr_of" => ValidateAddrOf(args: args, location: node.Location),
+            "address_of" => ValidateAddrOf(args: args, location: node.Location),
             "invalidate" => ValidateInvalidate(args: args, location: node.Location),
             _ => throw new InvalidOperationException(
                 message: $"Unknown danger zone function: {functionName}")
@@ -2273,7 +3322,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     {
         if (args.Count != 1)
         {
-            AddError(message: "addr_of! requires exactly one argument (variable)",
+            AddError(message: "address_of! requires exactly one argument (variable)",
                 location: location);
             return null;
         }
@@ -2283,7 +3332,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
            .Accept(visitor: this) as TypeInfo;
         if (argType == null)
         {
-            AddError(message: "addr_of! argument must be a valid variable", location: location);
+            AddError(message: "address_of! argument must be a valid variable", location: location);
             return null;
         }
 
@@ -2318,7 +3367,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     {
         return functionName switch
         {
-            "addr_of" or "invalidate" => true,
+            "address_of" or "invalidate" => true,
             _ => false
         };
     }
@@ -2335,7 +3384,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
 
         return functionName switch
         {
-            "addr_of" => ValidateAddrOfFunction(args: node.Arguments, location: node.Location),
+            "address_of" => ValidateAddrOfFunction(args: node.Arguments, location: node.Location),
             "invalidate" => ValidateInvalidateFunction(args: node.Arguments,
                 location: node.Location),
             _ => throw new InvalidOperationException(
@@ -2347,7 +3396,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     {
         if (args.Count != 1)
         {
-            AddError(message: "addr_of! requires exactly one argument (variable)",
+            AddError(message: "address_of! requires exactly one argument (variable)",
                 location: location);
             return null;
         }
@@ -2356,7 +3405,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         Expression arg = args[index: 0];
         if (arg is not IdentifierExpression)
         {
-            AddError(message: "addr_of! argument must be a variable identifier",
+            AddError(message: "address_of! argument must be a variable identifier",
                 location: location);
             return null;
         }
@@ -2365,7 +3414,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         var argType = arg.Accept(visitor: this) as TypeInfo;
         if (argType == null)
         {
-            AddError(message: "addr_of! argument must be a valid variable", location: location);
+            AddError(message: "address_of! argument must be a valid variable", location: location);
             return null;
         }
 
@@ -2553,7 +3602,8 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         {
             case LiteralPattern literalPattern:
                 // Literal patterns: check that literal type matches expression type
-                TypeInfo literalType = InferLiteralType(value: literalPattern.Value);
+                // Use the explicit LiteralType from the pattern to determine the type accurately
+                TypeInfo literalType = InferPatternLiteralType(literalPattern.Value, literalPattern.LiteralType);
                 if (expressionType != null &&
                     !AreTypesCompatible(left: literalType, right: expressionType))
                 {
@@ -2574,6 +3624,16 @@ public class SemanticAnalyzer : IAstVisitor<object?>
                         IsMutable: false, // Pattern variables are immutable by default
                         Visibility: VisibilityModifier.Private);
                     _symbolTable.TryDeclare(symbol: patternVar);
+
+                    // CRITICAL: Check if this is a fallible lock token (from try_seize/check_seize/try_observe/check_observe)
+                    // These return Maybe<Seized<T>>, Result<Seized<T>, E>, Maybe<Observed<T>>, or Result<Observed<T>, E>
+                    // The inner token (Seized/Observed) is scoped and cannot escape
+                    if (IsFallibleLockToken(expressionType))
+                    {
+                        // Register the pattern variable as a scoped token
+                        // Even though it's wrapped in Maybe/Result, the success case contains a scoped token
+                        RegisterScopedToken(identifierPattern.Name);
+                    }
                 }
 
                 break;
@@ -2608,6 +3668,18 @@ public class SemanticAnalyzer : IAstVisitor<object?>
 
             case WildcardPattern:
                 // Wildcard patterns match everything, no type checking needed
+                break;
+
+            case ExpressionPattern expressionPattern:
+                // Expression patterns are used for guard conditions in standalone when blocks
+                // The expression should evaluate to a boolean
+                TypeInfo? exprType = expressionPattern.Expression.Accept(visitor: this) as TypeInfo;
+                if (exprType != null && exprType.Name != "Bool" && exprType.Name != "bool")
+                {
+                    AddError(
+                        message: $"Expression pattern must be a boolean expression, got '{exprType.Name}'",
+                        location: location);
+                }
                 break;
 
             default:
@@ -2744,6 +3816,44 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         };
 
         return builtInTypes.Contains(value: typeName);
+    }
+
+    /// <summary>
+    /// Checks if a name is a valid type name (primitive, built-in, or declared type).
+    /// Used for detecting failable type conversions like s32!(expr).
+    /// </summary>
+    private bool IsTypeName(string name)
+    {
+        // Check primitive types
+        string[] primitiveTypes =
+        {
+            "s8", "s16", "s32", "s64", "s128", "syssint",
+            "u8", "u16", "u32", "u64", "u128", "sysuint",
+            "f16", "f32", "f64", "f128",
+            "d32", "d64", "d128",
+            "bool", "letter", "letter8", "letter16",
+            "Text", "Bytes"
+        };
+
+        if (primitiveTypes.Contains(name))
+        {
+            return true;
+        }
+
+        // Check built-in types
+        if (IsBuiltInType(name))
+        {
+            return true;
+        }
+
+        // Check declared types in symbol table
+        Symbol? symbol = _symbolTable.Lookup(name);
+        if (symbol is TypeSymbol or StructSymbol or ClassSymbol or VariantSymbol)
+        {
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -2942,6 +4052,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         // Create a new scope for the viewing block
         _symbolTable.EnterScope();
         _memoryAnalyzer.EnterScope();
+        _scopeDepth++;
 
         try
         {
@@ -2958,12 +4069,25 @@ public class SemanticAnalyzer : IAstVisitor<object?>
                     location: node.Location);
             }
 
+            // CRITICAL: Register this as a scoped token that cannot escape
+            RegisterScopedToken(node.Handle);
+
+            // CRITICAL: Invalidate source during scope - prevent concurrent access
+            // The source should not be accessible while the Viewed<T> token exists
+            if (node.Source is IdentifierExpression sourceIdent)
+            {
+                InvalidateSource(sourceIdent.Name, "viewing");
+            }
+
             // Visit the body with the handle available
             node.Body.Accept(visitor: this);
         }
         finally
         {
-            // Exit the scope - handle goes out of scope
+            // Exit the scope - handle goes out of scope, source is restored
+            RestoreInvalidatedSources();
+            ExitScopeCleanupTokens();
+            _scopeDepth--;
             _memoryAnalyzer.ExitScope();
             _symbolTable.ExitScope();
         }
@@ -2991,6 +4115,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         // Create a new scope for the hijacking block
         _symbolTable.EnterScope();
         _memoryAnalyzer.EnterScope();
+        _scopeDepth++;
 
         try
         {
@@ -3008,12 +4133,26 @@ public class SemanticAnalyzer : IAstVisitor<object?>
                     location: node.Location);
             }
 
+            // CRITICAL: Register this as a scoped token that cannot escape
+            // Note: Hijacked<T> CAN escape from usurping functions, but that's validated in return statement
+            RegisterScopedToken(node.Handle);
+
+            // CRITICAL: Invalidate source during scope - prevent concurrent access
+            // The source should not be accessible while the Hijacked<T> token exists
+            if (node.Source is IdentifierExpression sourceIdent)
+            {
+                InvalidateSource(sourceIdent.Name, "hijacking");
+            }
+
             // Visit the body with the handle available
             node.Body.Accept(visitor: this);
         }
         finally
         {
-            // Exit the scope - handle goes out of scope
+            // Exit the scope - handle goes out of scope, source is restored
+            RestoreInvalidatedSources();
+            ExitScopeCleanupTokens();
+            _scopeDepth--;
             _memoryAnalyzer.ExitScope();
             _symbolTable.ExitScope();
         }
@@ -3062,15 +4201,16 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         // Create a new scope for the observing block
         _symbolTable.EnterScope();
         _memoryAnalyzer.EnterScope();
+        _scopeDepth++;
 
         try
         {
-            // Create a Witnessed<T> type for the handle
-            var witnessedType = new TypeInfo(Name: $"Witnessed<{sourceType.Name}>",
+            // Create an Observed<T> type for the handle (not Witnessed<T>)
+            var observedType = new TypeInfo(Name: $"Observed<{sourceType.Name}>",
                 IsReference: true);
 
             // Declare the handle variable in the scope
-            var handleSymbol = new VariableSymbol(Name: node.Handle, Type: witnessedType,
+            var handleSymbol = new VariableSymbol(Name: node.Handle, Type: observedType,
                 Visibility: VisibilityModifier.Private, IsMutable: false);
 
             if (!_symbolTable.TryDeclare(symbol: handleSymbol))
@@ -3079,12 +4219,25 @@ public class SemanticAnalyzer : IAstVisitor<object?>
                     location: node.Location);
             }
 
+            // CRITICAL: Register this as a scoped token that cannot escape
+            RegisterScopedToken(node.Handle);
+
+            // CRITICAL: Acquire read lock on source - invalidate during lock
+            // The source Shared<T, MultiReadLock> must have its read lock acquired
+            if (node.Source is IdentifierExpression sourceIdent)
+            {
+                InvalidateSource(sourceIdent.Name, "observing");
+            }
+
             // Visit the body with the handle available
             node.Body.Accept(visitor: this);
         }
         finally
         {
-            // Exit the scope - read lock released, handle goes out of scope
+            // Exit the scope - read lock released, handle goes out of scope, source is restored
+            RestoreInvalidatedSources();
+            ExitScopeCleanupTokens();
+            _scopeDepth--;
             _memoryAnalyzer.ExitScope();
             _symbolTable.ExitScope();
         }
@@ -3113,6 +4266,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         // Create a new scope for the seizing block
         _symbolTable.EnterScope();
         _memoryAnalyzer.EnterScope();
+        _scopeDepth++;
 
         try
         {
@@ -3129,16 +4283,39 @@ public class SemanticAnalyzer : IAstVisitor<object?>
                     location: node.Location);
             }
 
+            // CRITICAL: Register this as a scoped token that cannot escape
+            RegisterScopedToken(node.Handle);
+
+            // CRITICAL: Acquire write lock on source - invalidate during lock
+            // The source Shared<T, Policy> must have its write lock acquired
+            if (node.Source is IdentifierExpression sourceIdent)
+            {
+                InvalidateSource(sourceIdent.Name, "seizing");
+            }
+
             // Visit the body with the handle available
             node.Body.Accept(visitor: this);
         }
         finally
         {
-            // Exit the scope - write lock released, handle goes out of scope
+            // Exit the scope - write lock released, handle goes out of scope, source is restored
+            RestoreInvalidatedSources();
+            ExitScopeCleanupTokens();
+            _scopeDepth--;
             _memoryAnalyzer.ExitScope();
             _symbolTable.ExitScope();
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Visits a named argument expression (name: value).
+    /// Named arguments allow explicit specification of which parameter receives which value.
+    /// </summary>
+    public object? VisitNamedArgumentExpression(NamedArgumentExpression node)
+    {
+        // Type check the value expression
+        return node.Value.Accept(visitor: this);
     }
 }

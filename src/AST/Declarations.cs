@@ -18,6 +18,43 @@ namespace Compilers.Shared.AST;
 /// </remarks>
 public abstract record Declaration(SourceLocation Location) : AstNode(Location: Location);
 
+/// <summary>
+/// Generic constraint declaration for type parameters.
+/// Specifies requirements that generic type arguments must satisfy.
+/// </summary>
+/// <param name="ParameterName">The name of the generic type parameter (e.g., "T")</param>
+/// <param name="ConstraintType">The type of constraint (follows, from, record, entity)</param>
+/// <param name="ConstraintTypes">List of types that the parameter must satisfy</param>
+/// <remarks>
+/// Supports various constraint syntaxes:
+/// <list type="bullet">
+/// <item>Protocol constraint: T follows Comparable</item>
+/// <item>Inheritance constraint: T from BaseType</item>
+/// <item>Value type constraint: T: record</item>
+/// <item>Reference type constraint: T: entity</item>
+/// </list>
+/// </remarks>
+public record GenericConstraintDeclaration(
+    string ParameterName,
+    ConstraintKind ConstraintType,
+    List<TypeExpression>? ConstraintTypes = null,
+    SourceLocation Location = default);
+
+/// <summary>
+/// Types of generic constraints
+/// </summary>
+public enum ConstraintKind
+{
+    /// <summary>Protocol/interface implementation (T follows Comparable)</summary>
+    Follows,
+    /// <summary>Type inheritance (T from BaseType)</summary>
+    From,
+    /// <summary>Value type constraint (T: record)</summary>
+    ValueType,
+    /// <summary>Reference type constraint (T: entity)</summary>
+    ReferenceType
+}
+
 #endregion
 
 #region Variable and Function Declarations
@@ -86,7 +123,8 @@ public record FunctionDeclaration(
     VisibilityModifier Visibility,
     List<string> Attributes, // For decorators like @[everywhere get]
     SourceLocation Location,
-    List<string>? GenericParameters = null) : Declaration(Location: Location)
+    List<string>? GenericParameters = null,
+    List<GenericConstraintDeclaration>? GenericConstraints = null) : Declaration(Location: Location)
 {
     public override T Accept<T>(IAstVisitor<T> visitor)
     {
@@ -126,7 +164,8 @@ public record ClassDeclaration(
     List<TypeExpression> Interfaces, // implements/follows
     List<Declaration> Members,
     VisibilityModifier Visibility,
-    SourceLocation Location) : Declaration(Location: Location)
+    SourceLocation Location,
+    List<GenericConstraintDeclaration>? GenericConstraints = null) : Declaration(Location: Location)
 {
     public override T Accept<T>(IAstVisitor<T> visitor)
     {
@@ -158,7 +197,9 @@ public record StructDeclaration(
     List<string>? GenericParameters,
     List<Declaration> Members,
     VisibilityModifier Visibility,
-    SourceLocation Location) : Declaration(Location: Location)
+    SourceLocation Location,
+    List<GenericConstraintDeclaration>? GenericConstraints = null,
+    List<TypeExpression>? Interfaces = null) : Declaration(Location: Location)
 {
     public override T Accept<T>(IAstVisitor<T> visitor)
     {
@@ -244,7 +285,8 @@ public record VariantDeclaration(
     List<FunctionDeclaration> Methods,
     VisibilityModifier Visibility,
     VariantKind Kind, // Track which keyword was used
-    SourceLocation Location) : Declaration(Location: Location)
+    SourceLocation Location,
+    List<GenericConstraintDeclaration>? GenericConstraints = null) : Declaration(Location: Location)
 {
     public override T Accept<T>(IAstVisitor<T> visitor)
     {
@@ -276,7 +318,8 @@ public record FeatureDeclaration(
     List<string>? GenericParameters,
     List<FunctionSignature> Methods,
     VisibilityModifier Visibility,
-    SourceLocation Location) : Declaration(Location: Location)
+    SourceLocation Location,
+    List<GenericConstraintDeclaration>? GenericConstraints = null) : Declaration(Location: Location)
 {
     public override T Accept<T>(IAstVisitor<T> visitor)
     {
@@ -552,6 +595,7 @@ public record UsingDeclaration(TypeExpression Type, string Alias, SourceLocation
 public record ExternalDeclaration(
     string Name,
     List<string>? GenericParameters,
+    List<GenericConstraintDeclaration>? GenericConstraints,
     List<Parameter> Parameters,
     TypeExpression? ReturnType,
     string? CallingConvention,

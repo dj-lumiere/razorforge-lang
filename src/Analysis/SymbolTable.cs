@@ -79,14 +79,37 @@ public class SymbolTable
     /// This method only checks for name conflicts within the current scope.
     /// It is valid to shadow symbols from outer scopes. The symbol is added
     /// to the current (topmost) scope on the stack.
+    /// Function symbols support overloading - multiple functions with the same name
+    /// but different signatures can coexist in the same scope.
     /// </remarks>
     public bool TryDeclare(Symbol symbol)
     {
         Dictionary<string, Symbol> currentScope = _scopes.Peek();
 
-        if (currentScope.ContainsKey(key: symbol.Name))
+        if (currentScope.TryGetValue(key: symbol.Name, value: out Symbol? existing))
         {
-            return false; // Already declared in current scope
+            // Handle function overloading
+            if (symbol is FunctionSymbol newFunc)
+            {
+                if (existing is FunctionSymbol existingFunc)
+                {
+                    // Convert single function to overload set
+                    var overloadSet = new FunctionOverloadSet(
+                        Name: symbol.Name,
+                        Overloads: new List<FunctionSymbol> { existingFunc, newFunc },
+                        Visibility: existingFunc.Visibility);
+                    currentScope[key: symbol.Name] = overloadSet;
+                    return true;
+                }
+                else if (existing is FunctionOverloadSet existingSet)
+                {
+                    // Add to existing overload set
+                    existingSet.AddOverload(newFunc);
+                    return true;
+                }
+            }
+
+            return false; // Non-function symbol conflict
         }
 
         currentScope[key: symbol.Name] = symbol;
@@ -153,6 +176,20 @@ public record FunctionSymbol(
 {
     /// <summary>true if this function has generic parameters</summary>
     public bool IsGeneric => GenericParameters != null && GenericParameters.Count > 0;
+}
+
+/// <summary>
+/// Contains multiple function overloads with the same name but different signatures.
+/// This enables function overloading in RazorForge.
+/// </summary>
+public record FunctionOverloadSet(
+    string Name,
+    List<FunctionSymbol> Overloads,
+    VisibilityModifier Visibility)
+    : Symbol(Name: Name, Type: null, Visibility: Visibility)
+{
+    /// <summary>Adds an overload to this set</summary>
+    public void AddOverload(FunctionSymbol overload) => Overloads.Add(overload);
 }
 
 /// <summary>
@@ -302,6 +339,16 @@ public record GenericConstraint(
     bool IsReferenceType = false);
 
 /// <summary>
+/// Symbol representing a generic type parameter (e.g., T in routine swap&lt;T&gt;()).
+/// Used during semantic analysis to recognize type parameters as valid types within
+/// generic function and type definitions.
+/// </summary>
+/// <param name="Name">The name of the type parameter (e.g., "T", "K", "V")</param>
+public record TypeParameterSymbol(string Name)
+    : Symbol(Name: Name, Type: new TypeInfo(Name: Name, IsReference: false, IsGenericParameter: true),
+        Visibility: VisibilityModifier.Private);
+
+/// <summary>
 /// Semantic error information
 /// </summary>
-public record SemanticError(string Message, SourceLocation Location);
+public record SemanticError(string Message, SourceLocation Location, string? FileName = null);

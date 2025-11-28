@@ -1,4 +1,4 @@
-﻿# RazorForge s32 (signed 32-bit integer) native type implementation
+# RazorForge s32 (signed 32-bit integer) native type implementation
 # Maps directly to LLVM i32 type and native machine integers
 
 # Core s32 type definition - maps to LLVM i32
@@ -6,236 +6,417 @@ record s32 {
     public value: LlvmNativeI32
 }
 
-# Constants for s32 limits (LLVM constant values)
-preset S32_MIN: s32 = -2_147_483_648_s32
-preset S32_MAX: s32 = 2_147_483_647_s32
-preset S32_ZERO: s32 = 0_s32
-preset S32_ONE: s32 = 1_s32
-
-# Basic arithmetic operations (LLVM intrinsics: add, sub, mul, sdiv, srem)
-
-# Addition with overflow checking
-routine s32.add(me: s32, other: s32) -> s32 {
-    return llvm_intrinsic("llvm.sadd.with.overflow.i32", me, other)
-}
-
-# Subtraction with overflow checking
-routine s32.sub(me: s32, other: s32) -> s32 {
-    return llvm_intrinsic("llvm.ssub.with.overflow.i32", me, other)
-}
-
-# Multiplication with overflow checking
-routine s32.mul(me: s32, other: s32) -> s32 {
-    return llvm_intrinsic("llvm.smul.with.overflow.i32", me, other)
-}
-
-# Division (signed) - maps to LLVM sdiv
-routine s32.floordiv(me: s32, other: s32) -> s32 {
-    when (other) {
-        0 => throw panic("Division by zero"),
-        _ => return llvm_intrinsic("sdiv", me, other)
+# Failable constructor from Text - called as s32!(text)
+# Compiler automatically generates try_s32.__create__(text) -> Maybe<s32>
+routine s32.__create__!(from_text: Text<Letterlikes>) -> s32 {
+    danger! {
+        return @parse_s32(from_text)
     }
 }
 
-# Remainder (signed) - maps to LLVM srem
-routine s32.rem(me: s32, other: s32) -> s32 {
-    when (other) {
-        0 => throw panic("Division by zero"),
-        _ => return llvm_intrinsic("srem", me, other)
+# ============================================================================
+# Arithmetic Operations
+# ============================================================================
+
+routine s32.__add__(other: s32) -> s32 {
+    danger! {
+        return @intrinsic.add<i32>(me, other)
     }
 }
 
-# Bitwise operations (direct LLVM mapping)
-routine s32.and(me: s32, other: s32) -> s32 {
-    return llvm_intrinsic("and", me, other)
-}
-
-routine s32.or(me: s32, other: s32) -> s32 {
-    return llvm_intrinsic("or", me, other)
-}
-
-routine s32.xor(me: s32, other: s32) -> s32 {
-    return llvm_intrinsic("xor", me, other)
-}
-
-routine s32.not(me: s32) -> s32 {
-    return llvm_intrinsic("xor", me, -1)
-}
-
-# Bit shifting operations
-routine s32.shl(me: s32, bits: s32) -> s32 {
-    return llvm_intrinsic("shl", me, bits)
-}
-
-routine s32.shr(me: s32, bits: s32) -> s32 {
-    return llvm_intrinsic("ashr", me, bits)  # Arithmetic right shift for signed
-}
-
-# Comparison operations (LLVM icmp)
-routine s32.eq(me: s32, other: s32) -> bool {
-    return llvm_intrinsic("icmp eq", me, other)
-}
-
-routine s32.ne(me: s32, other: s32) -> bool {
-    return llvm_intrinsic("icmp ne", me, other)
-}
-
-routine s32.lt(me: s32, other: s32) -> bool {
-    return llvm_intrinsic("icmp slt", me, other)  # Signed less than
-}
-
-routine s32.le(me: s32, other: s32) -> bool {
-    return llvm_intrinsic("icmp sle", me, other)  # Signed less equal
-}
-
-routine s32.gt(me: s32, other: s32) -> bool {
-    return llvm_intrinsic("icmp sgt", me, other)  # Signed greater than
-}
-
-routine s32.ge(me: s32, other: s32) -> bool {
-    return llvm_intrinsic("icmp sge", me, other)  # Signed greater equal
-}
-
-# Advanced math operations using LLVM intrinsics
-routine s32.abs(me: s32) -> s32 {
-    when (me) {
-        >= 0 => return me,
-        _ => return -me
+routine s32.__sub__(other: s32) -> s32 {
+    danger! {
+        return @intrinsic.sub<i32>(me, other)
     }
 }
 
-routine s32.min(me: s32, other: s32) -> s32 {
+routine s32.__mul__(other: s32) -> s32 {
+    danger! {
+        return @intrinsic.mul<i32>(me, other)
+    }
+}
+
+routine s32.__floordiv__(other: s32) -> s32 {
+    danger! {
+        return @intrinsic.sdiv<i32>(me, other)
+    }
+}
+
+routine s32.__mod__(other: s32) -> s32 {
+    danger! {
+        return @intrinsic.srem<i32>(me, other)
+    }
+}
+
+routine s32.__neg__() -> s32 {
+    danger! {
+        return @intrinsic.neg<i32>(me)
+    }
+}
+
+# ============================================================================
+# Wrapping Arithmetic (+%, -%, *%)
+# ============================================================================
+
+routine s32.__add_wrap__(other: s32) -> s32 {
+    danger! {
+        return @intrinsic.add.wrapping<i32>(me, other)
+    }
+}
+
+routine s32.__sub_wrap__(other: s32) -> s32 {
+    danger! {
+        return @intrinsic.sub.wrapping<i32>(me, other)
+    }
+}
+
+routine s32.__mul_wrap__(other: s32) -> s32 {
+    danger! {
+        return @intrinsic.mul.wrapping<i32>(me, other)
+    }
+}
+
+# ============================================================================
+# Saturating Arithmetic (+^, -^, *^)
+# ============================================================================
+
+routine s32.__add_sat__(other: s32) -> s32 {
+    danger! {
+        return @intrinsic.add.saturating<i32>(me, other)
+    }
+}
+
+routine s32.__sub_sat__(other: s32) -> s32 {
+    danger! {
+        return @intrinsic.sub.saturating<i32>(me, other)
+    }
+}
+
+routine s32.__mul_sat__(other: s32) -> s32 {
+    danger! {
+        return @intrinsic.mul.saturating<i32>(me, other)
+    }
+}
+
+# ============================================================================
+# Checked Arithmetic (+?, -?, *?) - returns Maybe<T>
+# ============================================================================
+
+routine s32.__add_checked__(other: s32) -> Maybe<s32> {
+    danger! {
+        let (result, overflow) = @intrinsic.add.overflow<i32>(me, other)
+        return if overflow { None } else { result }
+    }
+}
+
+routine s32.__sub_checked__(other: s32) -> Maybe<s32> {
+    danger! {
+        let (result, overflow) = @intrinsic.sub.overflow<i32>(me, other)
+        return if overflow { None } else { result }
+    }
+}
+
+routine s32.__mul_checked__(other: s32) -> Maybe<s32> {
+    danger! {
+        let (result, overflow) = @intrinsic.mul.overflow<i32>(me, other)
+        return if overflow { None } else { result }
+    }
+}
+
+# ============================================================================
+# Bitwise Operations
+# ============================================================================
+
+routine s32.__and__(other: s32) -> s32 {
+    danger! {
+        return @intrinsic.and<i32>(me, other)
+    }
+}
+
+routine s32.__or__(other: s32) -> s32 {
+    danger! {
+        return @intrinsic.or<i32>(me, other)
+    }
+}
+
+routine s32.__xor__(other: s32) -> s32 {
+    danger! {
+        return @intrinsic.xor<i32>(me, other)
+    }
+}
+
+routine s32.__not__() -> s32 {
+    danger! {
+        return @intrinsic.not<i32>(me)
+    }
+}
+
+routine s32.__shl__(bits: u32) -> s32 {
+    danger! {
+        return @intrinsic.shl<i32>(me, bits)
+    }
+}
+
+routine s32.__shr__(bits: u32) -> s32 {
+    danger! {
+        return @intrinsic.ashr<i32>(me, bits)
+    }
+}
+
+# ============================================================================
+# Comparison Operations
+# ============================================================================
+
+routine s32.__eq__(other: s32) -> bool {
+    danger! {
+        return @intrinsic.icmp.eq<i32>(me, other)
+    }
+}
+
+routine s32.__ne__(other: s32) -> bool {
+    danger! {
+        return @intrinsic.icmp.ne<i32>(me, other)
+    }
+}
+
+routine s32.__lt__(other: s32) -> bool {
+    danger! {
+        return @intrinsic.icmp.slt<i32>(me, other)
+    }
+}
+
+routine s32.__le__(other: s32) -> bool {
+    danger! {
+        return @intrinsic.icmp.sle<i32>(me, other)
+    }
+}
+
+routine s32.__gt__(other: s32) -> bool {
+    danger! {
+        return @intrinsic.icmp.sgt<i32>(me, other)
+    }
+}
+
+routine s32.__ge__(other: s32) -> bool {
+    danger! {
+        return @intrinsic.icmp.sge<i32>(me, other)
+    }
+}
+
+# ============================================================================
+# Math Operations
+# ============================================================================
+
+routine s32.abs() -> s32 {
+    danger! {
+        return @intrinsic.abs<i32>(me)
+    }
+}
+
+routine s32.min(other: s32) -> s32 {
     return if me <= other then me else other
 }
 
-routine s32.max(me: s32, other: s32) -> s32 {
+routine s32.max(other: s32) -> s32 {
     return if me >= other then me else other
 }
 
-# Bit manipulation utilities
-routine s32.count_leading_zeros(me: s32) -> s32 {
-    return llvm_intrinsic("llvm.ctlz.i32", me, false)
+routine s32.clamp(min_val: s32, max_val: s32) -> s32 {
+    return me.min(max_val).max(min_val)
 }
 
-routine s32.count_trailing_zeros(me: s32) -> s32 {
-    return llvm_intrinsic("llvm.cttz.i32", me, false)
-}
+# ============================================================================
+# Bit Manipulation
+# ============================================================================
 
-routine s32.count_ones(me: s32) -> s32 {
-    return llvm_intrinsic("llvm.ctpop.i32", me)
-}
-
-# Byte swapping for endianness conversion
-routine s32.swap_bytes(me: s32) -> s32 {
-    return llvm_intrinsic("llvm.bswap.i32", me)
-}
-
-# Type conversions to other native types (using constructor syntax)
-routine u32(from_s32: s32) -> u32 {
-    return llvm_intrinsic("bitcast", from_s32)  # Direct bit reinterpretation
-}
-
-routine f64(from_s32: s32) -> f64 {
-    return llvm_intrinsic("sitofp", from_s32)   # Signed int to double
-}
-
-routine s64(from_s32: s32) -> s64 {
-    return llvm_intrinsic("sext", from_s32)     # Sign-extend to 64-bit
-}
-
-routine bool(from_s32: s32) -> bool {
-    return from_s32 != 0
-}
-
-# Parsing and formatting using constructor syntax
-routine s32(from_text: Text) -> s32 {
-    # Parse Text to s32 using LLVM constant folding when possible
-    # Implementation would use text parsing logic
-    return 0  # Placeholder
-}
-
-routine Text(from_s32: s32) -> Text {
-    # Convert s32 to Text representation
-    # Implementation would use formatting logic
-    return ""  # Placeholder
-}
-
-# SIMD operations for vectorized s32 processing
-routine s32_vec_add(a: slice<s32>, b: slice<s32>) -> slice<s32> {
-    let result = new_slice<s32>(a.length())
-
-    # This loop will be auto-vectorized by LLVM using SSE/AVX
-    for i in 0..a.length() {
-        result[i] = a[i] + b[i]
+routine s32.count_ones() -> s32 {
+    danger! {
+        return @intrinsic.ctpop<i32>(me)
     }
-
-    return result
 }
 
-# Example usage demonstrating LLVM optimizations
+routine s32.count_zeros() -> s32 {
+    return 32_s32 - me.count_ones()
+}
+
+routine s32.leading_zeros() -> s32 {
+    danger! {
+        return @intrinsic.ctlz<i32>(me)
+    }
+}
+
+routine s32.trailing_zeros() -> s32 {
+    danger! {
+        return @intrinsic.cttz<i32>(me)
+    }
+}
+
+routine s32.leading_ones() -> s32 {
+    return me.__not__().leading_zeros()
+}
+
+routine s32.trailing_ones() -> s32 {
+    return me.__not__().trailing_zeros()
+}
+
+routine s32.reverse_bits() -> s32 {
+    danger! {
+        return @intrinsic.bitreverse<i32>(me)
+    }
+}
+
+routine s32.swap_bytes() -> s32 {
+    danger! {
+        return @intrinsic.bswap<i32>(me)
+    }
+}
+
+# ============================================================================
+# Type Conversions (constructor syntax)
+# ============================================================================
+
+# Bitcast to unsigned
+routine u32(from: s32) -> u32 {
+    danger! {
+        return @intrinsic.bitcast<i32, i32>(from)
+    }
+}
+
+# Sign-extend to larger types
+routine s64(from: s32) -> s64 {
+    danger! {
+        return @intrinsic.sext<i32, i64>(from)
+    }
+}
+
+routine s128(from: s32) -> s128 {
+    danger! {
+        return @intrinsic.sext<i32, i128>(from)
+    }
+}
+
+# Truncate to smaller types (may lose data)
+routine s16(from: s32) -> s16 {
+    danger! {
+        return @intrinsic.trunc<i32, i16>(from)
+    }
+}
+
+routine s8(from: s32) -> s8 {
+    danger! {
+        return @intrinsic.trunc<i32, i8>(from)
+    }
+}
+
+# Convert to floating point
+routine f64(from: s32) -> f64 {
+    danger! {
+        return @intrinsic.sitofp<i32, double>(from)
+    }
+}
+
+routine f32(from: s32) -> f32 {
+    danger! {
+        return @intrinsic.sitofp<i32, float>(from)
+    }
+}
+
+# Convert to boolean
+routine bool(from: s32) -> bool {
+    danger! {
+        return @intrinsic.icmp.ne<i32>(from, 0_s32)
+    }
+}
+
+# ============================================================================
+# Utility Methods
+# ============================================================================
+
+routine s32.is_positive() -> bool {
+    return me > 0_s32
+}
+
+routine s32.is_negative() -> bool {
+    return me < 0_s32
+}
+
+routine s32.is_zero() -> bool {
+    return me == 0_s32
+}
+
+routine s32.is_even() -> bool {
+    danger! {
+        let result = @intrinsic.and<i32>(me, 1_s32)
+        return @intrinsic.icmp.eq<i32>(result, 0_s32)
+    }
+}
+
+routine s32.is_odd() -> bool {
+    return not me.is_even()
+}
+
+routine s32.signum() -> s32 {
+    when {
+        me > 0_s32 => 1_s32,
+        me < 0_s32 => -1_s32,
+        _ => 0_s32
+    }
+}
+
+routine s32.is_power_of_two() -> bool {
+    danger! {
+        let is_pos = @intrinsic.icmp.sgt<i32>(me, 0_s32)
+        let minus_one = @intrinsic.sub.wrapping<i32>(me, 1_s32)
+        let anded = @intrinsic.and<i32>(me, minus_one)
+        let is_zero = @intrinsic.icmp.eq<i32>(anded, 0_s32)
+        return is_pos and is_zero
+    }
+}
+
+# ============================================================================
+# String Conversion
+# ============================================================================
+
+routine s32.to_text() -> Text {
+    danger! {
+        return @format_s32(me)
+    }
+}
+
+
+# ============================================================================
+# Examples
+# ============================================================================
+
 routine fibonacci_s32(n: s32) -> s32 {
-    # Tail recursion optimization by LLVM
-    routine fib_helper(n: s32, a: s32, b: s32) -> s32 {
-        when (n) {
-            0 => a,
-            _ => fib_helper(n - 1, b, a + b)
+    when {
+        n <= 1_s32 => n,
+        _ => {
+            var a: s32 = 0_s32
+            var b: s32 = 1_s32
+            var i: s32 = 2_s32
+
+            while i <= n {
+                let temp = a + b
+                a = b
+                b = temp
+                i = i + 1_s32
+            }
+
+            return b
         }
     }
-
-    return fib_helper(n, 0, 1)
 }
 
-# Hash function using s32 for high performance
-routine s32_hash(value: s32) -> s32 {
-    # FNV-1a hash algorithm optimized by LLVM (32-bit version)
-    let hash: s32 = 2166136261  # FNV offset basis for 32-bit
-    let prime: s32 = 16777619   # FNV prime for 32-bit
+routine gcd_s32(a: s32, b: s32) -> s32 {
+    var x = a.abs()
+    var y = b.abs()
 
-    let bytes = value.to_bytes()
-    for byte in bytes {
-        hash = hash.xor(byte as s32)
-        hash = hash.mul(prime)
+    while y != 0_s32 {
+        let temp = y
+        y = x % y
+        x = temp
     }
 
-    return hash
+    return x
 }
-
-
-/*
-LLVM IR Generation Examples:
-
-RazorForge Code:
-let a: s32 = 42;
-let b: s32 = 13;
-let result: s32 = a + b;
-
-Generated LLVM IR:
-%a = alloca i32
-%b = alloca i32
-%result = alloca i32
-store i32 42, i32* %a
-store i32 13, i32* %b
-%1 = load i32, i32* %a
-%2 = load i32, i32* %b
-%3 = add nsw i32 %1, %2
-store i32 %3, i32* %result
-
-Optimized LLVM IR (after constant folding):
-%result = alloca i32
-store i32 55, i32* %result
-
-LLVM Intrinsics Used:
-- Arithmetic: add, sub, mul, sdiv, srem
-- Bitwise: and, or, xor, shl, ashr
-- Comparison: icmp (eq, ne, slt, sle, sgt, sge)
-- Memory: load, store, alloca
-- Atomic: atomic.load, atomic.store, atomic.rmw.*
-- Math: ctlz, cttz, ctpop, bswap
-- Conversion: trunc, sext, bitcast, sitofp
-
-Target Architecture Mapping:
-- x86_64: Maps to native 64-bit registers (RAX, RBX, etc.)
-- ARM64: Maps to native 64-bit registers (X0, X1, etc.)
-- RISC-V: Maps to XLEN=64 registers
-- WebAssembly: Maps to i32 type with 64-bit operations
-*/

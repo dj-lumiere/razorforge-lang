@@ -323,10 +323,20 @@ routine f128(from_f64: f64) -> f128 {
     return llvm_intrinsic("fpext", from_f64)    # Extend from double precision
 }
 
-# Parsing and formatting using constructor syntax
-routine f128(from_text: Text) -> f128 {
-    # Parse Text to f128 using LLVM constant folding when possible
-    return 0.0  # Placeholder
+# Parsing constructors using compiler intrinsics
+
+# Fallible constructor - crashes on invalid input
+routine f128!(from_text: Text) -> f128 {
+    danger! {
+        return @parse_f128(from_text)
+    }
+}
+
+# Safe constructor - returns Maybe<f128>
+routine f128?(from_text: Text) -> Maybe<f128> {
+    danger! {
+        return @try_parse_f128(from_text)
+    }
 }
 
 routine Text(from_f128: f128, precision: s32) -> Text {

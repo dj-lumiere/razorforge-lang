@@ -1,1 +1,431 @@
-entity List<T>
+# RazorForge List<T> - Dynamic growable array
+# Entity type with heap allocation
+# Grows by doubling capacity for O(1) amortized push
+
+import memory/DynamicSlice
+import Collections/IndexOutOfBoundsError
+
+entity List<T> {
+    private data: DynamicSlice      # Heap-allocated byte array (non-generic)
+    private count: u64                # Current number of elements
+    private capacity: u64           # Total allocated capacity
+}
+
+# Constructors
+
+routine List<T>() -> List<T> {
+    # Create empty list with default capacity
+    return List<T> {
+        data: DynamicSlice(0),
+        count: 0u64,
+        capacity: 0u64
+    }
+}
+
+routine List<T>(capacity: u64) -> List<T> {
+    # Create list with pre-allocated capacity
+    let byte_size = capacity * sizeof<T>()
+    return List<T> {
+        data: DynamicSlice(byte_size),
+        count: 0u64,
+        capacity: capacity
+    }
+}
+
+# Core operations
+
+routine List<T>.count(me: List<T>) -> u64 {
+    # Get current length
+    return me.count
+}
+
+routine List<T>.capacity(me: List<T>) -> u64 {
+    # Get current capacity
+    return me.capacity
+}
+
+routine List<T>.is_empty(me: List<T>) -> bool {
+    return me.count == 0u64
+}
+
+routine List<T>.push(me: List<T>, value: T) {
+    # Append element to end - O(1) amortized
+    if me.count >= me.capacity {
+        # Need to grow - double capacity
+        let new_capacity = if me.capacity == 0u64 {
+            4u64  # Start with 4 elements
+        } else {
+            me.capacity * 2u64
+        }
+        me.reserve(new_capacity)
+    }
+
+    # Store element at byte offset
+    let byte_offset = me.count * sizeof<T>()
+    me.data.write<T>(byte_offset, value)
+    me.count = me.count + 1u64
+}
+
+routine List<T>.pop!(me: List<T>) -> T {
+    # Remove and return last element - O(1)
+    # Uses absent because empty list means "no element to pop"
+    # Compiler generates: try_pop() -> T?
+    if me.is_empty() {
+        absent
+    }
+
+    me.count = me.count - 1u64
+    let byte_offset = me.count * sizeof<T>()
+    return me.data.read<T>(byte_offset)
+}
+
+routine List<T>.get!(me: List<T>, index: u64) -> T {
+    # Get element at index - O(1)
+    # Uses fail with IndexOutOfBoundsError for invalid index
+    # Compiler generates: try_get() -> T?, check_get() -> Result<T>
+    if index >= me.count {
+        fail IndexOutOfBoundsError(index: index, count: me.count)
+    }
+    let byte_offset = index * sizeof<T>()
+    return me.data.read<T>(byte_offset)
+}
+
+routine List<T>.set!(me: List<T>, index: u64, value: T) {
+    # Set element at index - O(1)
+    # Uses fail with IndexOutOfBoundsError for invalid index
+    # Compiler generates: try_set() -> None?, check_set() -> Result<None>
+    if index >= me.count {
+        fail IndexOutOfBoundsError(index: index, count: me.count)
+    }
+    let byte_offset = index * sizeof<T>()
+    me.data.write<T>(byte_offset, value)
+}
+
+routine List<T>.reserve(me: List<T>, new_capacity: u64) {
+    # Ensure capacity is at least new_capacity
+    if new_capacity <= me.capacity {
+        return
+    }
+
+    # Allocate new buffer
+    let new_byte_size = new_capacity * sizeof<T>()
+    let new_data = DynamicSlice(new_byte_size)
+
+    # Copy existing elements byte-by-byte
+    if me.count > 0u64 {
+        let copy_bytes = me.count * sizeof<T>()
+        new_data.copy_from(me.data, 0, 0, copy_bytes)
+    }
+
+    me.data = new_data
+    me.capacity = new_capacity
+}
+
+routine List<T>.clear(me: List<T>) {
+    # Remove all elements
+    me.count = 0u64
+}
+
+# Iteration support (simplified - full version would use iterators)
+
+routine List<T>.iter(me: List<T>) -> ListIterator<T> {
+    return ListIterator<T> {
+        list: me,
+        index: 0u64
+    }
+}
+
+record ListIterator<T> {
+    list: List<T>
+    index: u64
+}
+
+routine ListIterator<T>.next(me: ListIterator<T>) -> T? {
+    if me.index >= me.list.count() {
+        return None
+    }
+    let value = me.list.get!(me.index)
+    me.index = me.index + 1u64
+    return value
+}
+
+# ============================================================================
+# Itertools - LINQ-style collection operations
+# ============================================================================
+
+# Transform each element - select(x => transform(x))
+routine List<T>.select<U>(me: List<T>, mapper: Routine<(T), U>) -> List<U> {
+    let result = List<U>(me.count())
+    let i = 0u64
+    while i < me.count() {
+        let value = me.get!(i)
+        let mapped = mapper(value)
+        result.push(mapped)
+        i = i + 1u64
+    }
+    return result
+}
+
+# Filter elements - where(x => predicate(x))
+routine List<T>.where(me: List<T>, predicate: Routine<(T), bool>) -> List<T> {
+    let result = List<T>()
+    let i = 0u64
+    while i < me.count() {
+        let value = me.get!(i)
+        if predicate(value) {
+            result.push(value)
+        }
+        i = i + 1u64
+    }
+    return result
+}
+
+# Filter out elements NOT matching predicate
+routine List<T>.where_not(me: List<T>, predicate: Routine<(T), bool>) -> List<T> {
+    let result = List<T>()
+    let i = 0u64
+    while i < me.count() {
+        let value = me.get!(i)
+        if not predicate(value) {
+            result.push(value)
+        }
+        i = i + 1u64
+    }
+    return result
+}
+
+# Flatten nested collections - select_many(x => x.children)
+routine List<T>.select_many<U>(me: List<T>, selector: Routine<(T), List<U>>) -> List<U> {
+    let result = List<U>()
+    let i = 0u64
+    while i < me.count() {
+        let value = me.get!(i)
+        let inner = selector(value)
+        let j = 0u64
+        while j < inner.count() {
+            result.push(inner.get!(j))
+            j = j + 1u64
+        }
+        i = i + 1u64
+    }
+    return result
+}
+
+# Take first n elements
+routine List<T>.take(me: List<T>, count: u64) -> List<T> {
+    let n = if count < me.count() { count } else { me.count() }
+    let result = List<T>(n)
+    let i = 0u64
+    while i < n {
+        result.push(me.get!(i))
+        i = i + 1u64
+    }
+    return result
+}
+
+# Take elements while predicate is true
+routine List<T>.take_while(me: List<T>, predicate: Routine<(T), bool>) -> List<T> {
+    let result = List<T>()
+    let i = 0u64
+    while i < me.count() {
+        let value = me.get!(i)
+        if not predicate(value) {
+            return result
+        }
+        result.push(value)
+        i = i + 1u64
+    }
+    return result
+}
+
+# Skip first n elements
+routine List<T>.skip(me: List<T>, count: u64) -> List<T> {
+    let start = if count < me.count() { count } else { me.count() }
+    let result = List<T>(me.count() - start)
+    let i = start
+    while i < me.count() {
+        result.push(me.get!(i))
+        i = i + 1u64
+    }
+    return result
+}
+
+# Skip elements while predicate is true
+routine List<T>.skip_while(me: List<T>, predicate: Routine<(T), bool>) -> List<T> {
+    let result = List<T>()
+    let skipping = true
+    let i = 0u64
+    while i < me.count() {
+        let value = me.get!(i)
+        if skipping and not predicate(value) {
+            skipping = false
+        }
+        if not skipping {
+            result.push(value)
+        }
+        i = i + 1u64
+    }
+    return result
+}
+
+# Check if any element matches predicate
+routine List<T>.any(me: List<T>, predicate: Routine<(T), bool>) -> bool {
+    let i = 0u64
+    while i < me.count() {
+        if predicate(me.get!(i)) {
+            return true
+        }
+        i = i + 1u64
+    }
+    return false
+}
+
+# Check if all elements match predicate
+routine List<T>.all(me: List<T>, predicate: Routine<(T), bool>) -> bool {
+    let i = 0u64
+    while i < me.count() {
+        if not predicate(me.get!(i)) {
+            return false
+        }
+        i = i + 1u64
+    }
+    return true
+}
+
+# Check if no elements match predicate
+routine List<T>.none(me: List<T>, predicate: Routine<(T), bool>) -> bool {
+    return not me.any(predicate)
+}
+
+# Count elements matching predicate
+routine List<T>.count(me: List<T>, predicate: Routine<(T), bool>) -> u64 {
+    let result = 0u64
+    let i = 0u64
+    while i < me.count() {
+        if predicate(me.get!(i)) {
+            result = result + 1u64
+        }
+        i = i + 1u64
+    }
+    return result
+}
+
+# Get first element (absent if empty)
+routine List<T>.first!(me: List<T>) -> T {
+    # Uses absent because empty list means "no first element"
+    # Compiler generates: try_first() -> T?
+    if me.is_empty() {
+        absent
+    }
+    return me.get!(0u64)
+}
+
+# Get first element or default
+routine List<T>.first_or_default(me: List<T>, default_value: T) -> T {
+    if me.is_empty() {
+        return default_value
+    }
+    return me.get!(0u64)
+}
+
+# Get first element matching predicate (absent if not found)
+routine List<T>.first!(me: List<T>, predicate: Routine<(T), bool>) -> T {
+    # Uses absent because no matching element means "not found"
+    # Compiler generates: try_first(predicate) -> T?
+    let i = 0u64
+    while i < me.count() {
+        let value = me.get!(i)
+        if predicate(value) {
+            return value
+        }
+        i = i + 1u64
+    }
+    absent
+}
+
+# Get last element (absent if empty)
+routine List<T>.last!(me: List<T>) -> T {
+    # Uses absent because empty list means "no last element"
+    # Compiler generates: try_last() -> T?
+    if me.is_empty() {
+        absent
+    }
+    return me.get!(me.count() - 1u64)
+}
+
+# Get last element or default
+routine List<T>.last_or_default(me: List<T>, default_value: T) -> T {
+    if me.is_empty() {
+        return default_value
+    }
+    return me.get!(me.count() - 1u64)
+}
+
+# Reverse the list
+routine List<T>.reverse(me: List<T>) -> List<T> {
+    let result = List<T>(me.count())
+    let i = me.count()
+    while i > 0u64 {
+        i = i - 1u64
+        result.push(me.get!(i))
+    }
+    return result
+}
+
+# Extend with another list
+routine List<T>.extend(me: List<T>, other: List<T>) -> List<T> {
+    let result = List<T>(me.count() + other.count())
+    let i = 0u64
+    while i < me.count() {
+        result.push(me.get!(i))
+        i = i + 1u64
+    }
+    i = 0u64
+    while i < other.count() {
+        result.push(other.get!(i))
+        i = i + 1u64
+    }
+    return result
+}
+
+# Split into chunks of given size
+routine List<T>.chunk(me: List<T>, size: u64) -> List<List<T>> {
+    let result = List<List<T>>()
+    let i = 0u64
+    while i < me.count() {
+        let chunk = List<T>(size)
+        let j = 0u64
+        while j < size and (i + j) < me.count() {
+            chunk.push(me.get!(i + j))
+            j = j + 1u64
+        }
+        result.push(chunk)
+        i = i + size
+    }
+    return result
+}
+
+# Fold/reduce with initial value
+routine List<T>.fold<U>(me: List<T>, initial: U, folder: Routine<(U, T), U>) -> U {
+    let acc = initial
+    let i = 0u64
+    while i < me.count() {
+        acc = folder(acc, me.get!(i))
+        i = i + 1u64
+    }
+    return acc
+}
+
+# Execute action for each element
+routine List<T>.for_each(me: List<T>, action: Routine<(T), void>) {
+    let i = 0u64
+    while i < me.count() {
+        action(me.get!(i))
+        i = i + 1u64
+    }
+}
+
+# Materialize - for List this is identity (useful for iterator chains)
+routine List<T>.to_list(me: List<T>) -> List<T> {
+    return me
+}

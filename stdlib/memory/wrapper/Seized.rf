@@ -1,0 +1,41 @@
+# RazorForge Seized<T> - Thread-safe write lock token
+#
+# Seized<T> is created ONLY by the `seizing` syntax on Shared<T, Policy>.
+# It provides thread-safe exclusive access with automatic lock acquisition/release.
+#
+# Syntax:
+#   let shared = data.share(policy: Mutex)
+#   seizing shared as seized {
+#       seized.value = 42  # Exclusive write access, lock held
+#   } # Lock automatically released
+#
+# Properties:
+# - Created by compiler via `seizing` syntax on Shared<T, Policy>
+# - Scope-bound: cannot be stored, returned, or escape
+# - Exclusive: cannot be copied (only one handle at a time)
+# - Mutable: allows mutation through this handle
+# - Thread-safe: holds Mutex or RwLock write lock
+# - Temporary: source is invalidated during scope, restored on exit
+# - Blocks ALL other access (both read and write) while held
+#
+# Locking Policy Behavior:
+# - Mutex: Exclusive access only (most common)
+# - MultiReadLock: Write lock - blocks all readers and writers
+# - RejectEdit: NOT allowed - compiler error (immutable shared data)
+#
+# Downgrading:
+# - Can create observing block within seizing block (downgrade write to read)
+#
+# This type is a marker for the type system - the compiler handles lock operations.
+
+record Seized<T> {
+    private address: sysuint
+    private lock_guard: sysuint
+}
+
+# NOTE: No constructors, no manual methods - all operations handled by compiler
+# The seizing syntax acquires the Mutex or RwLock write lock and creates this token
+# The lock is automatically released when the scope exits
+# Only ONE thread can hold a write lock at a time
+#
+# Lock acquisition can fail (e.g., poisoned lock) - use try_seizing for fallible acquisition

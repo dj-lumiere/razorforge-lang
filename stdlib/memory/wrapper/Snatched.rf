@@ -1,0 +1,130 @@
+# RazorForge Snatched<T> - Unsafe raw pointer wrapper
+#
+# Snatched<T> is created ONLY via .snatch!() method inside danger! blocks.
+# It represents raw, unsafe memory access with NO safety guarantees.
+#
+# Syntax:
+#   danger! {
+#       let raw = obj.snatch!()  # Snatched<T>
+#       let value = raw.read()   # Type-safe read
+#       raw.write(new_value)     # Type-safe write
+#   }
+#
+# Properties:
+# - Created ONLY inside danger! blocks via .snatch!()
+# - NO lifetime tracking - can become dangling
+# - NO borrow checking - can alias freely
+# - NO reference counting - manual management required
+# - Undefined behavior if used after deallocation
+# - Use ONLY for FFI, low-level code, or unsafe optimizations
+#
+# This is the "escape hatch" for unsafe code - use with extreme caution!
+
+record Snatched<T> {
+    public address: sysuint  # Public direct address access
+}
+
+# Create snatched pointer from any object (danger! only)
+routine T.snatch!() -> Snatched<T> {
+    danger! {
+        # Get the address of 'me' - this is a compiler built-in
+        # For now we use a placeholder until address_of is implemented
+        return Snatched<T>(
+            address: address_of(me)
+        )
+    }
+}
+
+# Constructor (internal use only)
+routine Snatched<T>.Snatched<T>(address: sysuint) -> Snatched<T> {
+    me.address = address
+    return me
+}
+
+# Type-safe read (uses T from Snatched<T>)
+routine Snatched<T>.read() -> T {
+    danger! {
+        return @intrinsic.load<T>(me.address)
+    }
+}
+
+# Type-safe write (uses T from Snatched<T>)
+routine Snatched<T>.write(value: T) {
+    danger! {
+        @intrinsic.store<T>(me.address, value)
+    }
+}
+
+# Volatile read (prevents compiler optimizations)
+routine Snatched<T>.volatile_read() -> T {
+    danger! {
+        return @intrinsic.volatile_load<T>(me.address)
+    }
+}
+
+# Volatile write (prevents compiler optimizations)
+routine Snatched<T>.volatile_write(value: T) {
+    danger! {
+        @intrinsic.volatile_store<T>(me.address, value)
+    }
+}
+
+# Type-pun read - read as different type U
+routine Snatched<T>.reveal_as<U>() -> U {
+    danger! {
+        return @intrinsic.load<U>(me.address)
+    }
+}
+
+# Type-pun write - write as different type U
+routine Snatched<T>.write_as<U>(value: U) {
+    danger! {
+        @intrinsic.store<U>(me.address, value)
+    }
+}
+
+# Cast pointer type - reinterpret Snatched<T> as Snatched<U>
+routine Snatched<T>.obtain_as<U>() -> Snatched<U> {
+    return Snatched<U>(address: me.address)
+}
+
+# Free memory at this address
+routine Snatched<T>.invalidate!() {
+    danger! {
+        @intrinsic.invalidate(me.address)
+    }
+}
+
+# Create none snatched pointer
+routine snatched_none<T>() -> Snatched<T> {
+    return Snatched<T>(address: 0_sysuint)
+}
+
+# Check if pointer is none
+routine Snatched<T>.is_none() -> bool {
+    return me.address == 0_sysuint
+}
+
+# Offset pointer by bytes (pointer arithmetic)
+routine Snatched<T>.offset(bytes: MemorySize) -> Snatched<T> {
+    return Snatched<T>(address: me.address + bytes)
+}
+
+# Compare addresses
+routine Snatched<T>.__eq__(other: Snatched<T>) -> bool {
+    return me.address == other.address
+}
+
+# NOTE: All operations on Snatched<T> are inherently unsafe
+# Undefined behavior can occur if:
+# - Pointer is dangling (object was deallocated)
+# - Pointer is misaligned
+# - Type U in reveal_as<U>() doesn't match actual data
+# - Writing to read-only memory
+# - Data races in multi-threaded code
+#
+# Use ONLY when:
+# - Interfacing with C/C++ FFI
+# - Implementing low-level memory allocators
+# - Performance-critical code with manual safety verification
+# - You absolutely know what you're doing

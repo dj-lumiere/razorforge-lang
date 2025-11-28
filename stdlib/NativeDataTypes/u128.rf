@@ -177,10 +177,20 @@ routine bool(from_u128: u128) -> bool {
     return from_u128 != 0
 }
 
-# Parsing and formatting using constructor syntax
-routine u128(from_text: Text) -> u128 {
-    # Parse Text to u128 using LLVM constant folding when possible
-    return 0  # Placeholder
+# Parsing constructors using compiler intrinsics
+
+# Fallible constructor - crashes on invalid input
+routine u128!(from_text: Text) -> u128 {
+    danger! {
+        return @parse_u128(from_text)
+    }
+}
+
+# Safe constructor - returns Maybe<u128>
+routine u128?(from_text: Text) -> Maybe<u128> {
+    danger! {
+        return @try_parse_u128(from_text)
+    }
 }
 
 routine Text(from_u128: u128) -> Text {

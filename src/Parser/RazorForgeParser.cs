@@ -9,7 +9,13 @@ namespace Compilers.RazorForge.Parser;
 /// </summary>
 public class RazorForgeParser : BaseParser
 {
-    public RazorForgeParser(List<Token> tokens) : base(tokens: tokens) { }
+    private readonly string? _fileName;
+    private bool _inWhenPatternContext = false;
+
+    public RazorForgeParser(List<Token> tokens, string? fileName = null) : base(tokens: tokens)
+    {
+        _fileName = fileName;
+    }
 
     public override Compilers.Shared.AST.Program Parse()
     {
@@ -33,7 +39,11 @@ public class RazorForgeParser : BaseParser
             }
             catch (ParseException ex)
             {
-                Console.Error.WriteLine(value: $"Parse error: {ex.Message}");
+                Token errorToken = Position < Tokens.Count ? Tokens[Position] : Tokens[^1];
+                string location = _fileName != null
+                    ? $"[{_fileName}:{errorToken.Line}:{errorToken.Column}]"
+                    : $"[{errorToken.Line}:{errorToken.Column}]";
+                Console.Error.WriteLine(value: $"Parse error{location}: {ex.Message}");
                 Synchronize();
             }
         }
@@ -74,7 +84,7 @@ public class RazorForgeParser : BaseParser
             // Check for calling convention: external("C")
             if (Match(type: TokenType.LeftParen))
             {
-                if (Check(type: TokenType.TextLiteral))
+                if (Check(TokenType.TextLiteral, TokenType.Text8Literal))
                 {
                     Token conventionToken = Advance();
                     // Remove quotes from the text literal
@@ -95,6 +105,13 @@ public class RazorForgeParser : BaseParser
         if (Match(TokenType.Var, TokenType.Let))
         {
             return ParseVariableDeclaration(visibility: visibility);
+        }
+
+        // Field declaration in records: public name: Type or name: Type
+        // Detected by identifier followed by colon (no var/let keyword needed)
+        if (Check(type: TokenType.Identifier) && PeekToken(offset: 1).Type == TokenType.Colon)
+        {
+            return ParseFieldDeclaration(visibility: visibility);
         }
 
         // Function declaration
@@ -193,6 +210,16 @@ public class RazorForgeParser : BaseParser
             return ParseContinueStatement();
         }
 
+        if (Match(type: TokenType.Fail))
+        {
+            return ParseFailStatement();
+        }
+
+        if (Match(type: TokenType.Absent))
+        {
+            return ParseAbsentStatement();
+        }
+
         // Danger block
         if (Match(type: TokenType.Danger))
         {
@@ -264,6 +291,33 @@ public class RazorForgeParser : BaseParser
 
         return new VariableDeclaration(Name: name, Type: type, Initializer: initializer,
             Visibility: visibility, IsMutable: isMutable, Location: location);
+    }
+
+    /// <summary>
+    /// Parses a field declaration in records: public name: Type or name: Type
+    /// Fields are declared without var/let keywords.
+    /// </summary>
+    private VariableDeclaration ParseFieldDeclaration(
+        VisibilityModifier visibility = VisibilityModifier.Private)
+    {
+        SourceLocation location = GetLocation();
+
+        string name = ConsumeIdentifier(errorMessage: "Expected field name");
+
+        Consume(type: TokenType.Colon, errorMessage: "Expected ':' after field name");
+        TypeExpression type = ParseType();
+
+        Expression? initializer = null;
+        if (Match(type: TokenType.Assign))
+        {
+            initializer = ParseExpression();
+        }
+
+        ConsumeStatementTerminator();
+
+        // Fields are not mutable by default (use 'var' keyword for mutable fields if needed)
+        return new VariableDeclaration(Name: name, Type: type, Initializer: initializer,
+            Visibility: visibility, IsMutable: false, Location: location);
     }
 
     private ImportDeclaration ParseImportDeclaration()
@@ -370,6 +424,34 @@ public class RazorForgeParser : BaseParser
 
         string name = ConsumeIdentifier(errorMessage: "Expected function name");
 
+        // Support namespace-qualified names like Console.print
+        while (Match(type: TokenType.Dot))
+        {
+            string part = ConsumeIdentifier(errorMessage: "Expected identifier after '.'");
+            name = name + "." + part;
+        }
+
+        // Support ! suffix for failable functions
+        if (Match(type: TokenType.Bang))
+        {
+            name = name + "!";
+        }
+
+        // Generic parameters
+        List<string>? genericParams = null;
+        if (Match(type: TokenType.Less))
+        {
+            genericParams = new List<string>();
+            do
+            {
+                genericParams.Add(
+                    item: ConsumeIdentifier(errorMessage: "Expected generic parameter name"));
+            } while (Match(type: TokenType.Comma));
+
+            Consume(type: TokenType.Greater,
+                errorMessage: "Expected '>' after generic parameters");
+        }
+
         // Parameters
         Consume(type: TokenType.LeftParen, errorMessage: "Expected '(' after function name");
         var parameters = new List<Parameter>();
@@ -406,12 +488,15 @@ public class RazorForgeParser : BaseParser
             returnType = ParseType();
         }
 
+        // Parse generic constraints (where clause)
+        List<GenericConstraintDeclaration>? constraints = ParseGenericConstraints(genericParams);
+
         // Body
         BlockStatement body = ParseBlockStatement();
 
         return new FunctionDeclaration(Name: name, Parameters: parameters, ReturnType: returnType,
             Body: body, Visibility: visibility, Attributes: new List<string>(),
-            Location: location);
+            Location: location, GenericParameters: genericParams, GenericConstraints: constraints);
     }
 
     private ClassDeclaration ParseClassDeclaration(
@@ -435,6 +520,9 @@ public class RazorForgeParser : BaseParser
             Consume(type: TokenType.Greater,
                 errorMessage: "Expected '>' after generic parameters");
         }
+
+        // Parse generic constraints (where clause)
+        List<GenericConstraintDeclaration>? constraints = ParseGenericConstraints(genericParams);
 
         // Base entity - can use "from Animal" syntax
         TypeExpression? baseClass = null;
@@ -465,8 +553,8 @@ public class RazorForgeParser : BaseParser
         Consume(type: TokenType.RightBrace, errorMessage: "Expected '}' after entity body");
 
         return new ClassDeclaration(Name: name, GenericParameters: genericParams,
-            BaseClass: baseClass, Interfaces: interfaces, Members: members, Visibility: visibility,
-            Location: location);
+            GenericConstraints: constraints, BaseClass: baseClass, Interfaces: interfaces,
+            Members: members, Visibility: visibility, Location: location);
     }
 
     private StructDeclaration ParseStructDeclaration(
@@ -491,6 +579,19 @@ public class RazorForgeParser : BaseParser
                 errorMessage: "Expected '>' after generic parameters");
         }
 
+        // Parse generic constraints (where clause)
+        List<GenericConstraintDeclaration>? constraints = ParseGenericConstraints(genericParams);
+
+        // Parse interfaces/protocols the record follows
+        var interfaces = new List<TypeExpression>();
+        if (Match(type: TokenType.Follows))
+        {
+            do
+            {
+                interfaces.Add(item: ParseType());
+            } while (Match(type: TokenType.Comma));
+        }
+
         Consume(type: TokenType.LeftBrace, errorMessage: "Expected '{' after record header");
 
         var members = new List<Declaration>();
@@ -512,7 +613,8 @@ public class RazorForgeParser : BaseParser
         Consume(type: TokenType.RightBrace, errorMessage: "Expected '}' after record body");
 
         return new StructDeclaration(Name: name, GenericParameters: genericParams,
-            Members: members, Visibility: visibility, Location: location);
+            GenericConstraints: constraints, Interfaces: interfaces, Members: members,
+            Visibility: visibility, Location: location);
     }
 
     private MenuDeclaration ParseEnumDeclaration(
@@ -583,6 +685,9 @@ public class RazorForgeParser : BaseParser
                 errorMessage: "Expected '>' after generic parameters");
         }
 
+        // Parse generic constraints (where clause)
+        List<GenericConstraintDeclaration>? constraints = ParseGenericConstraints(genericParams);
+
         Consume(type: TokenType.LeftBrace, errorMessage: "Expected '{' after variant header");
 
         var cases = new List<VariantCase>();
@@ -638,8 +743,9 @@ public class RazorForgeParser : BaseParser
 
         Consume(type: TokenType.RightBrace, errorMessage: "Expected '}' after variant body");
 
-        return new VariantDeclaration(Name: name, GenericParameters: genericParams, Cases: cases,
-            Methods: methods, Visibility: visibility, Kind: kind, Location: location);
+        return new VariantDeclaration(Name: name, GenericParameters: genericParams,
+            GenericConstraints: constraints, Cases: cases, Methods: methods,
+            Visibility: visibility, Kind: kind, Location: location);
     }
 
     private FeatureDeclaration ParseFeatureDeclaration(
@@ -663,6 +769,9 @@ public class RazorForgeParser : BaseParser
             Consume(type: TokenType.Greater,
                 errorMessage: "Expected '>' after generic parameters");
         }
+
+        // Parse generic constraints (where clause)
+        List<GenericConstraintDeclaration>? constraints = ParseGenericConstraints(genericParams);
 
         Consume(type: TokenType.LeftBrace, errorMessage: "Expected '{' after feature header");
 
@@ -714,7 +823,8 @@ public class RazorForgeParser : BaseParser
         Consume(type: TokenType.RightBrace, errorMessage: "Expected '}' after feature body");
 
         return new FeatureDeclaration(Name: name, GenericParameters: genericParams,
-            Methods: methods, Visibility: visibility, Location: location);
+            GenericConstraints: constraints, Methods: methods, Visibility: visibility,
+            Location: location);
     }
 
     private IfStatement ParseIfStatement()
@@ -832,7 +942,20 @@ public class RazorForgeParser : BaseParser
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
 
-        Expression expression = ParseExpression();
+        // Check for standalone when block (pattern matching without subject)
+        // when { pattern => body, ... }
+        Expression expression;
+        if (Check(type: TokenType.LeftBrace))
+        {
+            // Standalone when - use 'true' as the implicit subject
+            expression = new LiteralExpression(Value: true, LiteralType: TokenType.True,
+                Location: location);
+        }
+        else
+        {
+            // Traditional when with explicit subject
+            expression = ParseExpression();
+        }
 
         Consume(type: TokenType.LeftBrace, errorMessage: "Expected '{' after when expression");
 
@@ -846,7 +969,40 @@ public class RazorForgeParser : BaseParser
                 continue;
             }
 
-            Pattern pattern = ParsePattern();
+            Pattern pattern;
+            SourceLocation clauseLocation = GetLocation();
+
+            // Handle 'is' keyword pattern: is None, is SomeType, is SomeType varName
+            if (Match(type: TokenType.Is))
+            {
+                _inWhenPatternContext = true;
+                pattern = ParsePattern();
+                _inWhenPatternContext = false;
+            }
+            // Handle 'else' keyword for default case: else => body or else varName => body
+            else if (Match(type: TokenType.Else))
+            {
+                // Check for variable binding: else varName =>
+                if (Check(type: TokenType.Identifier) && PeekToken(offset: 1).Type == TokenType.FatArrow)
+                {
+                    string varName = ConsumeIdentifier(errorMessage: "Expected variable name after 'else'");
+                    pattern = new IdentifierPattern(Name: varName, Location: clauseLocation);
+                }
+                else
+                {
+                    // Plain else without variable binding - treat as wildcard
+                    pattern = new WildcardPattern(Location: clauseLocation);
+                }
+            }
+            else
+            {
+                // Set context flag to prevent single-param lambdas from being parsed
+                // inside when patterns (e.g., a < b => action should not treat b => action as lambda)
+                _inWhenPatternContext = true;
+                pattern = ParsePattern();
+                _inWhenPatternContext = false;
+            }
+
             Consume(type: TokenType.FatArrow, errorMessage: "Expected '=>' after pattern");
             Statement? body = ParseStatement();
 
@@ -867,9 +1023,9 @@ public class RazorForgeParser : BaseParser
         SourceLocation location = GetLocation();
 
         // Wildcard pattern: _
-        if (Match(type: TokenType.Identifier) && PeekToken(offset: -1)
-               .Text == "_")
+        if (Check(type: TokenType.Identifier) && CurrentToken.Text == "_")
         {
+            Advance();
             return new WildcardPattern(Location: location);
         }
 
@@ -889,21 +1045,24 @@ public class RazorForgeParser : BaseParser
             return new TypePattern(Type: type, VariableName: variableName, Location: location);
         }
 
-        // Identifier pattern: variable binding
-        if (Check(type: TokenType.Identifier))
+        // Try parsing as expression (for standalone when blocks with boolean conditions)
+        // This allows patterns like: b != 0, x > 10, etc.
+        Expression expr = ParseExpression();
+
+        // If it's a simple identifier, treat as identifier pattern (variable binding)
+        if (expr is IdentifierExpression identExpr)
         {
-            string name = ConsumeIdentifier(errorMessage: "Expected identifier for pattern");
-            return new IdentifierPattern(Name: name, Location: location);
+            return new IdentifierPattern(Name: identExpr.Name, Location: location);
         }
 
-        // Literal pattern: constants like 42, "hello", true, etc.
-        Expression expr = ParsePrimary();
+        // If it's a literal, treat as literal pattern
         if (expr is LiteralExpression literal)
         {
-            return new LiteralPattern(Value: literal.Value, Location: location);
+            return new LiteralPattern(Value: literal.Value, LiteralType: literal.LiteralType, Location: location);
         }
 
-        throw new ParseException(message: $"Expected pattern, got {CurrentToken.Type}");
+        // Otherwise, treat as expression pattern (guard condition)
+        return new ExpressionPattern(Expression: expr, Location: location);
     }
 
     private ReturnStatement ParseReturnStatement()
@@ -933,6 +1092,21 @@ public class RazorForgeParser : BaseParser
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
         ConsumeStatementTerminator();
         return new ContinueStatement(Location: location);
+    }
+
+    private FailStatement ParseFailStatement()
+    {
+        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
+        Expression error = ParseExpression();
+        ConsumeStatementTerminator();
+        return new FailStatement(Error: error, Location: location);
+    }
+
+    private AbsentStatement ParseAbsentStatement()
+    {
+        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
+        ConsumeStatementTerminator();
+        return new AbsentStatement(Location: location);
     }
 
     private BlockStatement ParseBlockStatement()
@@ -1317,9 +1491,29 @@ public class RazorForgeParser : BaseParser
         while (true)
         {
             // Handle standalone generic function calls like routine<T>!(args)
+            // Only parse as generics if the identifier is followed by a type identifier or uppercase letter
+            // to avoid confusing comparison operators with generics
             if (expr is IdentifierExpression && Check(type: TokenType.Less))
             {
+                // Lookahead to check if this is likely a generic or a comparison
+                // If the next token after '<' is a lowercase identifier or a comparison would make sense,
+                // don't treat as generic
+                int savedPos = Position;
                 Advance(); // consume '<'
+
+                bool isLikelyGeneric = Check(TokenType.TypeIdentifier) ||
+                                      (Check(TokenType.Identifier) && char.IsUpper(CurrentToken.Text[0])) ||
+                                      (Check(TokenType.Identifier) && IsPrimitiveTypeName(CurrentToken.Text));
+
+                Position = savedPos; // restore position
+
+                if (!isLikelyGeneric)
+                {
+                    // Not a generic, let the comparison operator handle it
+                    break;
+                }
+
+                Advance(); // consume '<' again
                 var typeArgs = new List<TypeExpression>();
                 do
                 {
@@ -1359,18 +1553,35 @@ public class RazorForgeParser : BaseParser
                         Location: expr.Location);
                 }
             }
+            // Failable function call: identifier!(args) with named arguments
+            else if (Check(type: TokenType.Bang) && PeekToken(offset: 1).Type == TokenType.LeftParen)
+            {
+                Advance(); // consume '!'
+                Advance(); // consume '('
+
+                // Function call - supports named arguments (name: value)
+                var args = ParseArgumentList();
+
+                Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after arguments");
+
+                // Mark as failable call by appending ! to the callee name
+                if (expr is IdentifierExpression identExpr)
+                {
+                    expr = new CallExpression(
+                        Callee: new IdentifierExpression(Name: identExpr.Name + "!", Location: identExpr.Location),
+                        Arguments: args,
+                        Location: expr.Location);
+                }
+                else
+                {
+                    expr = new CallExpression(Callee: expr, Arguments: args,
+                        Location: expr.Location);
+                }
+            }
             else if (Match(type: TokenType.LeftParen))
             {
-                // Function call
-                var args = new List<Expression>();
-
-                if (!Check(type: TokenType.RightParen))
-                {
-                    do
-                    {
-                        args.Add(item: ParseExpression());
-                    } while (Match(type: TokenType.Comma));
-                }
+                // Function call - supports named arguments (name: value)
+                var args = ParseArgumentList();
 
                 Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after arguments");
 
@@ -1520,7 +1731,8 @@ public class RazorForgeParser : BaseParser
                                      .Replace(oldValue: "u32", newValue: "")
                                      .Replace(oldValue: "u64", newValue: "")
                                      .Replace(oldValue: "u128", newValue: "")
-                                     .Replace(oldValue: "sysuint", newValue: "");
+                                     .Replace(oldValue: "sysuint", newValue: "")
+                                     .Replace(oldValue: "_", newValue: ""); // Remove underscores
 
             long intVal;
             // Handle hexadecimal literals (0x prefix)
@@ -1572,7 +1784,8 @@ public class RazorForgeParser : BaseParser
                                      .Replace(oldValue: "f128", newValue: "")
                                      .Replace(oldValue: "d32", newValue: "")
                                      .Replace(oldValue: "d64", newValue: "")
-                                     .Replace(oldValue: "d128", newValue: "");
+                                     .Replace(oldValue: "d128", newValue: "")
+                                     .Replace(oldValue: "_", newValue: ""); // Remove underscores
             if (double.TryParse(s: cleanValue, result: out double floatVal))
             {
                 return new LiteralExpression(Value: floatVal, LiteralType: token.Type,
@@ -1714,6 +1927,20 @@ public class RazorForgeParser : BaseParser
             throw new ParseException(message: $"Invalid time literal: {value}");
         }
 
+        // Arrow lambda expression: x => expr (single parameter, no parens)
+        // ONLY parse as lambda if we're NOT inside a when clause pattern.
+        // Inside when blocks, patterns like: a < b => action should not treat b => action as lambda.
+        if (!_inWhenPatternContext && Check(TokenType.Identifier) && PeekToken(offset: 1).Type == TokenType.FatArrow)
+        {
+            return ParseArrowLambdaExpression(location: location);
+        }
+
+        // Self/me keyword - used for referencing the current instance
+        if (Match(type: TokenType.Self))
+        {
+            return new IdentifierExpression(Name: "me", Location: location);
+        }
+
         // Identifiers
         if (Match(TokenType.Identifier, TokenType.TypeIdentifier))
         {
@@ -1721,18 +1948,30 @@ public class RazorForgeParser : BaseParser
                .Text, Location: location);
         }
 
-        // Parenthesized expression
+        // Parenthesized expression or arrow lambda with parenthesized params
         if (Match(type: TokenType.LeftParen))
         {
+            // Check if this is a lambda: (params) => expr
+            if (IsArrowLambdaParameters())
+            {
+                return ParseParenthesizedArrowLambda(location: location);
+            }
+
             Expression expr = ParseExpression();
             Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after expression");
             return expr;
         }
 
-        // Lambda expression
+        // Lambda expression with routine keyword
         if (Match(type: TokenType.Routine))
         {
             return ParseLambdaExpression(location: location);
+        }
+
+        // Intrinsic function call: @intrinsic.operation<T>(args)
+        if (Match(type: TokenType.Intrinsic))
+        {
+            return ParseIntrinsicCall(location: location);
         }
 
         // Conditional expression: if A then B else C
@@ -1791,6 +2030,190 @@ public class RazorForgeParser : BaseParser
         return new LambdaExpression(Parameters: parameters, Body: body, Location: location);
     }
 
+    /// <summary>
+    /// Parse arrow lambda with single unparenthesized parameter: x => expr
+    /// </summary>
+    private LambdaExpression ParseArrowLambdaExpression(SourceLocation location)
+    {
+        // Single parameter without parentheses: x => expr
+        string paramName = ConsumeIdentifier(errorMessage: "Expected parameter name");
+        Consume(type: TokenType.FatArrow, errorMessage: "Expected '=>' in lambda expression");
+
+        var parameters = new List<Parameter>
+        {
+            new Parameter(Name: paramName, Type: null, DefaultValue: null, Location: location)
+        };
+
+        Expression body = ParseExpression();
+        return new LambdaExpression(Parameters: parameters, Body: body, Location: location);
+    }
+
+    /// <summary>
+    /// Check if we're inside parenthesized lambda parameters.
+    /// Called after consuming '(' - scans ahead to see if we have: identifier [, identifier]* ) =>
+    /// </summary>
+    private bool IsArrowLambdaParameters()
+    {
+        int savedPosition = Position;
+
+        try
+        {
+            // Empty params case: () =>
+            if (Check(TokenType.RightParen))
+            {
+                Advance(); // consume )
+                bool result = Check(TokenType.FatArrow);
+                Position = savedPosition;
+                return result;
+            }
+
+            // Look for pattern: identifier [: type]? [, identifier [: type]?]* ) =>
+            while (true)
+            {
+                // Must start with identifier
+                if (!Check(TokenType.Identifier))
+                {
+                    Position = savedPosition;
+                    return false;
+                }
+                Advance(); // consume identifier
+
+                // Optional type annotation
+                if (Check(TokenType.Colon))
+                {
+                    Advance(); // consume :
+                    // Skip the type (simplified - just skip until comma or rparen)
+                    int depth = 0;
+                    while (!IsAtEnd)
+                    {
+                        if (Check(TokenType.Less)) depth++;
+                        else if (Check(TokenType.Greater)) depth--;
+                        else if (depth == 0 && (Check(TokenType.Comma) || Check(TokenType.RightParen)))
+                            break;
+                        Advance();
+                    }
+                }
+
+                // Check for comma (more params) or end
+                if (Check(TokenType.Comma))
+                {
+                    Advance(); // consume comma, continue loop
+                }
+                else if (Check(TokenType.RightParen))
+                {
+                    Advance(); // consume )
+                    bool result = Check(TokenType.FatArrow);
+                    Position = savedPosition;
+                    return result;
+                }
+                else
+                {
+                    // Not a valid lambda parameter list
+                    Position = savedPosition;
+                    return false;
+                }
+            }
+        }
+        catch
+        {
+            Position = savedPosition;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Parse arrow lambda with parenthesized parameters: (x) => expr or (x, y) => expr
+    /// Called after '(' has been consumed and IsArrowLambdaParameters() returned true.
+    /// </summary>
+    private LambdaExpression ParseParenthesizedArrowLambda(SourceLocation location)
+    {
+        var parameters = new List<Parameter>();
+
+        if (!Check(TokenType.RightParen))
+        {
+            do
+            {
+                string paramName = ConsumeIdentifier(errorMessage: "Expected parameter name in lambda");
+                TypeExpression? paramType = null;
+
+                if (Match(TokenType.Colon))
+                {
+                    paramType = ParseType();
+                }
+
+                parameters.Add(new Parameter(Name: paramName, Type: paramType,
+                    DefaultValue: null, Location: GetLocation()));
+            } while (Match(TokenType.Comma));
+        }
+
+        Consume(TokenType.RightParen, "Expected ')' after lambda parameters");
+        Consume(TokenType.FatArrow, "Expected '=>' after lambda parameters");
+
+        Expression body = ParseExpression();
+        return new LambdaExpression(Parameters: parameters, Body: body, Location: location);
+    }
+
+    private IntrinsicCallExpression ParseIntrinsicCall(SourceLocation location)
+    {
+        // Expect: .operation<T>(args)
+        // The @intrinsic token has already been consumed
+
+        Consume(type: TokenType.Dot, errorMessage: "Expected '.' after '@intrinsic'");
+
+        // Parse intrinsic operation name (can contain dots like "add.wrapping", "icmp.slt")
+        string intrinsicName = ConsumeIdentifier(errorMessage: "Expected intrinsic operation name");
+
+        // Handle dotted names like "add.wrapping" or "icmp.slt"
+        while (Match(type: TokenType.Dot))
+        {
+            intrinsicName += "." + ConsumeIdentifier(errorMessage: "Expected identifier after '.'");
+        }
+
+        // Parse optional type arguments: <T> or <T, U>
+        var typeArgs = new List<string>();
+        if (Match(type: TokenType.Less))
+        {
+            do
+            {
+                // For now, parse type arguments as simple identifiers
+                // (more complex type expressions could be supported later)
+                if (Match(TokenType.Identifier, TokenType.TypeIdentifier))
+                {
+                    typeArgs.Add(PeekToken(offset: -1).Text);
+                }
+                else
+                {
+                    throw new ParseException(message: "Expected type argument");
+                }
+            } while (Match(type: TokenType.Comma));
+
+            Consume(type: TokenType.Greater,
+                errorMessage: "Expected '>' after type arguments");
+        }
+
+        // Parse arguments: (arg1, arg2, ...)
+        Consume(type: TokenType.LeftParen,
+            errorMessage: "Expected '(' after intrinsic name");
+
+        var args = new List<Expression>();
+        if (!Check(type: TokenType.RightParen))
+        {
+            do
+            {
+                args.Add(item: ParseExpression());
+            } while (Match(type: TokenType.Comma));
+        }
+
+        Consume(type: TokenType.RightParen,
+            errorMessage: "Expected ')' after intrinsic arguments");
+
+        return new IntrinsicCallExpression(
+            IntrinsicName: intrinsicName,
+            TypeArguments: typeArgs,
+            Arguments: args,
+            Location: location);
+    }
+
     private TypeExpression ParseType()
     {
         SourceLocation location = GetLocation();
@@ -1814,8 +2237,7 @@ public class RazorForgeParser : BaseParser
                     typeArgs.Add(item: ParseType());
                 } while (Match(type: TokenType.Comma));
 
-                Consume(type: TokenType.Greater,
-                    errorMessage: "Expected '>' after type arguments");
+                ConsumeGreaterForGeneric(errorMessage: "Expected '>' after type arguments");
 
                 return new TypeExpression(Name: name, GenericArguments: typeArgs,
                     Location: location);
@@ -1826,6 +2248,145 @@ public class RazorForgeParser : BaseParser
 
         throw new ParseException(
             message: $"Expected type, got {CurrentToken.Type} ('{CurrentToken.Text}')");
+    }
+
+    /// <summary>
+    /// Consumes a '>' token for closing generic type arguments.
+    /// Handles the case where '>>' was tokenized as RightShift by splitting it
+    /// and leaving one '>' for the next parse.
+    /// </summary>
+    private void ConsumeGreaterForGeneric(string errorMessage)
+    {
+        if (Match(type: TokenType.Greater))
+        {
+            // Simple case - just a single '>'
+            return;
+        }
+
+        if (Check(type: TokenType.RightShift))
+        {
+            // '>>' was tokenized as RightShift - we need to split it
+            // Replace the current RightShift token with a single Greater token
+            // and leave a Greater for the next parse
+            var currentToken = CurrentToken;
+            var newGreater = new Token(
+                Type: TokenType.Greater,
+                Text: ">",
+                Line: currentToken.Line,
+                Column: currentToken.Column + 1); // Second > is one position after
+
+            // Advance past the RightShift
+            Advance();
+
+            // Insert a Greater token to be consumed next
+            // We do this by adjusting the position and inserting
+            InsertToken(newGreater);
+            return;
+        }
+
+        // Neither > nor >> found - error
+        throw new ParseException(message: $"{errorMessage} at line {CurrentToken.Line}, column {CurrentToken.Column}. " +
+            $"Expected Greater, got {CurrentToken.Type}.");
+    }
+
+    /// <summary>
+    /// Inserts a token at the current position to be parsed next.
+    /// Used for splitting '>>' into two '>' tokens.
+    /// </summary>
+    private void InsertToken(Token token)
+    {
+        Tokens.Insert(Position, token);
+    }
+
+    /// <summary>
+    /// Parses generic constraints for type parameters.
+    /// Supports inline constraints (T follows Protocol) and where clauses.
+    /// </summary>
+    private List<GenericConstraintDeclaration>? ParseGenericConstraints(List<string>? genericParams)
+    {
+        if (genericParams == null || genericParams.Count == 0)
+            return null;
+
+        var constraints = new List<GenericConstraintDeclaration>();
+
+        // Check for where clause: where T follows Protocol, U from BaseType
+        if (Match(type: TokenType.Where))
+        {
+            do
+            {
+                SourceLocation location = GetLocation();
+                string paramName = ConsumeIdentifier(errorMessage: "Expected type parameter name");
+
+                // Verify this parameter was declared
+                if (!genericParams.Contains(paramName))
+                {
+                    throw new ParseException(
+                        message: $"Type parameter '{paramName}' not declared in generic parameters");
+                }
+
+                // Parse constraint kind and types
+                if (Match(type: TokenType.Follows))
+                {
+                    // T follows Protocol1, Protocol2
+                    var constraintTypes = new List<TypeExpression>();
+                    do
+                    {
+                        constraintTypes.Add(item: ParseType());
+                    } while (Match(type: TokenType.Comma) && !Check(type: TokenType.Identifier));
+
+                    constraints.Add(new GenericConstraintDeclaration(
+                        ParameterName: paramName,
+                        ConstraintType: ConstraintKind.Follows,
+                        ConstraintTypes: constraintTypes,
+                        Location: location));
+                }
+                else if (Match(type: TokenType.From))
+                {
+                    // T from BaseType
+                    var baseType = ParseType();
+                    constraints.Add(new GenericConstraintDeclaration(
+                        ParameterName: paramName,
+                        ConstraintType: ConstraintKind.From,
+                        ConstraintTypes: new List<TypeExpression> { baseType },
+                        Location: location));
+                }
+                else if (Check(type: TokenType.Colon))
+                {
+                    // T: record or T: entity
+                    Advance(); // consume ':'
+                    if (Match(type: TokenType.Record))
+                    {
+                        constraints.Add(new GenericConstraintDeclaration(
+                            ParameterName: paramName,
+                            ConstraintType: ConstraintKind.ValueType,
+                            ConstraintTypes: null,
+                            Location: location));
+                    }
+                    else if (Match(type: TokenType.Entity))
+                    {
+                        constraints.Add(new GenericConstraintDeclaration(
+                            ParameterName: paramName,
+                            ConstraintType: ConstraintKind.ReferenceType,
+                            ConstraintTypes: null,
+                            Location: location));
+                    }
+                    else
+                    {
+                        throw new ParseException(
+                            message: "Expected 'record' or 'entity' after ':' in constraint");
+                    }
+                }
+                else
+                {
+                    throw new ParseException(
+                        message: "Expected 'follows', 'from', or ':' in generic constraint");
+                }
+
+                // Continue parsing if there's a comma
+            } while (Match(type: TokenType.Comma));
+        }
+
+        return constraints.Count > 0 ? constraints : null;
     }
 
     private void ConsumeStatementTerminator()
@@ -1848,6 +2409,12 @@ public class RazorForgeParser : BaseParser
                .Text;
         }
 
+        // Allow 'me' (Self token) as a valid identifier for method parameters
+        if (Match(TokenType.Self))
+        {
+            return "me";
+        }
+
         Token current = CurrentToken;
         throw new ParseException(
             message: $"{errorMessage} at line {current.Line}, column {current.Column}. " +
@@ -1864,6 +2431,19 @@ public class RazorForgeParser : BaseParser
 
         string name = ConsumeIdentifier(errorMessage: "Expected function name");
 
+        // Support namespace-qualified names like Console.print
+        while (Match(type: TokenType.Dot))
+        {
+            string part = ConsumeIdentifier(errorMessage: "Expected identifier after '.'");
+            name = name + "." + part;
+        }
+
+        // Support ! suffix for failable functions
+        if (Match(type: TokenType.Bang))
+        {
+            name = name + "!";
+        }
+
         // Check for generic parameters
         List<string>? genericParams = null;
         if (Match(type: TokenType.Less))
@@ -1878,9 +2458,6 @@ public class RazorForgeParser : BaseParser
             Consume(type: TokenType.Greater,
                 errorMessage: "Expected '>' after generic parameters");
         }
-
-        // Handle external functions with ! suffix (memory operations)
-        Match(type: TokenType.Bang);
 
         // Parameters
         Consume(type: TokenType.LeftParen, errorMessage: "Expected '(' after function name");
@@ -1907,13 +2484,16 @@ public class RazorForgeParser : BaseParser
             returnType = ParseType();
         }
 
+        // Parse generic constraints (where clause)
+        List<GenericConstraintDeclaration>? constraints = ParseGenericConstraints(genericParams);
+
         ConsumeStatementTerminator();
 
         // Default to "C" calling convention if not specified
         string effectiveCallingConvention = callingConvention ?? "C";
 
         return new ExternalDeclaration(Name: name, GenericParameters: genericParams,
-            Parameters: parameters, ReturnType: returnType,
+            GenericConstraints: constraints, Parameters: parameters, ReturnType: returnType,
             CallingConvention: effectiveCallingConvention, Location: location);
     }
 
@@ -2024,5 +2604,79 @@ public class RazorForgeParser : BaseParser
 
         return new SliceConstructorExpression(SliceType: typeName, SizeExpression: sizeExpr,
             Location: location);
+    }
+
+    /// <summary>
+    /// Checks if a name is a primitive type name (used for generic argument disambiguation).
+    /// </summary>
+    private static bool IsPrimitiveTypeName(string name)
+    {
+        return name switch
+        {
+            // Signed integers
+            "s8" or "s16" or "s32" or "s64" or "s128" or "syssint" => true,
+            // Unsigned integers
+            "u8" or "u16" or "u32" or "u64" or "u128" or "sysuint" => true,
+            // Floating point (IEEE754 binary)
+            "f16" or "f32" or "f64" or "f128" => true,
+            // Floating point (IEEE754 decimal)
+            "d32" or "d64" or "d128" => true,
+            // Boolean
+            "bool" => true,
+            // Character types
+            "letter" or "letter8" or "letter16" => true,
+            // Text types
+            "text" or "text8" or "text16" => true,
+            // Void type
+            "void" => true,
+            _ => false
+        };
+    }
+
+    /// <summary>
+    /// Parses a single argument which may be named (name: value) or positional (value).
+    /// </summary>
+    private Expression ParseArgument()
+    {
+        SourceLocation location = GetLocation();
+
+        // Check if this is a named argument: identifier followed by colon
+        // We need to look ahead to distinguish between named argument and ternary/type annotation
+        if (Check(TokenType.Identifier) && PeekToken(offset: 1).Type == TokenType.Colon)
+        {
+            // Could be named argument, check that what follows isn't a type (for ternary with typed vars)
+            // Named arguments: name: expression
+            int savedPos = Position;
+            string potentialName = CurrentToken.Text;
+            Advance(); // consume identifier
+            Advance(); // consume colon
+
+            // Parse the value expression
+            Expression value = ParseExpression();
+
+            return new NamedArgumentExpression(Name: potentialName, Value: value, Location: location);
+        }
+
+        // Regular positional argument
+        return ParseExpression();
+    }
+
+    /// <summary>
+    /// Parses a comma-separated list of arguments (named or positional).
+    /// Called after '(' has been consumed.
+    /// </summary>
+    private List<Expression> ParseArgumentList()
+    {
+        var args = new List<Expression>();
+
+        if (!Check(type: TokenType.RightParen))
+        {
+            do
+            {
+                args.Add(item: ParseArgument());
+            } while (Match(type: TokenType.Comma));
+        }
+
+        return args;
     }
 }

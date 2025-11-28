@@ -282,10 +282,20 @@ routine f32(from_f128: f128) -> f32 {
     return llvm_intrinsic("fptrunc", from_f128) # Truncate from quad precision
 }
 
-# Parsing and formatting using constructor syntax
-routine f32(from_text: Text) -> f32 {
-    # Parse Text to f32 using LLVM constant folding when possible
-    return 0.0  # Placeholder
+# Parsing constructors using compiler intrinsics
+
+# Fallible constructor - crashes on invalid input
+routine f32!(from_text: Text) -> f32 {
+    danger! {
+        return @parse_f32(from_text)
+    }
+}
+
+# Safe constructor - returns Maybe<f32>
+routine f32?(from_text: Text) -> Maybe<f32> {
+    danger! {
+        return @try_parse_f32(from_text)
+    }
 }
 
 routine Text(from_f32: f32, precision: s32) -> Text {

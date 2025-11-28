@@ -106,9 +106,9 @@ routine letter8.ge(me: letter8, other: letter8) -> bool {
 }
 
 # Type conversions
-routine letter(from_letter8: letter8) -> letter {
-    # Extend to full Unicode letter
-    return letter(codepoint: from_letter8.codepoint() as u32)
+routine letter32(from_letter8: letter8) -> letter32 {
+    # Extend to full Unicode letter32
+    return letter32(codepoint: from_letter8.codepoint() as u32)
 }
 
 routine letter16(from_letter8: letter8) -> letter16 {

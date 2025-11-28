@@ -132,6 +132,11 @@ public interface IAstVisitor<T>
     /// <returns>Result of visiting the call expression</returns>
     T VisitCallExpression(CallExpression node);
 
+    /// <summary>Visits a named argument expression node (name: value syntax in calls)</summary>
+    /// <param name="node">The named argument expression to visit</param>
+    /// <returns>Result of visiting the named argument expression</returns>
+    T VisitNamedArgumentExpression(NamedArgumentExpression node);
+
     /// <summary>Visits a member expression node (property/field access like obj.field)</summary>
     /// <param name="node">The member expression to visit</param>
     /// <returns>Result of visiting the member expression</returns>
@@ -194,6 +199,11 @@ public interface IAstVisitor<T>
     /// <returns>Result of visiting the memory operation expression</returns>
     T VisitMemoryOperationExpression(MemoryOperationExpression node);
 
+    /// <summary>Visits an intrinsic call expression node (@intrinsic.* operations)</summary>
+    /// <param name="node">The intrinsic call expression to visit</param>
+    /// <returns>Result of visiting the intrinsic call expression</returns>
+    T VisitIntrinsicCallExpression(IntrinsicCallExpression node);
+
     // Statement visitor methods - handle all statement node types
 
     /// <summary>Visits an expression statement node (expressions executed for side effects)</summary>
@@ -215,6 +225,16 @@ public interface IAstVisitor<T>
     /// <param name="node">The return statement to visit</param>
     /// <returns>Result of visiting the return statement</returns>
     T VisitReturnStatement(ReturnStatement node);
+
+    /// <summary>Visits a fail statement node (error return via Result<T>)</summary>
+    /// <param name="node">The fail statement to visit</param>
+    /// <returns>Result of visiting the fail statement</returns>
+    T VisitFailStatement(FailStatement node);
+
+    /// <summary>Visits an absent statement node (value not found, triggers Lookup<T>)</summary>
+    /// <param name="node">The absent statement to visit</param>
+    /// <returns>Result of visiting the absent statement</returns>
+    T VisitAbsentStatement(AbsentStatement node);
 
     /// <summary>Visits an if statement node (conditional branching)</summary>
     /// <param name="node">The if statement to visit</param>

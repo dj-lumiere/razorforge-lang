@@ -181,10 +181,20 @@ routine s128.divide_with_remainder(me: s128, other: s128) -> (s128, s128) {
     }
 }
 
-# Parsing and formatting using constructor syntax
-routine s128(from_text: Text) -> s128 {
-    # Parse Text to s128 using LLVM constant folding when possible
-    return 0  # Placeholder
+# Parsing constructors using compiler intrinsics
+
+# Fallible constructor - crashes on invalid input
+routine s128!(from_text: Text) -> s128 {
+    danger! {
+        return @parse_s128(from_text)
+    }
+}
+
+# Safe constructor - returns Maybe<s128>
+routine s128?(from_text: Text) -> Maybe<s128> {
+    danger! {
+        return @try_parse_s128(from_text)
+    }
 }
 
 routine Text(from_s128: s128) -> Text {
@@ -236,7 +246,7 @@ routine s128.mod_pow(base: s128, exponent: s128, modulus: s128) -> s128 {
 /*
 LLVM IR Mapping:
 - RazorForge s128 -> LLVM i128 -> __int128_t (GCC/Clang)
-- Range: �2^127 (about �1.7 � 10^38)
+- Range: -2^127 (about -1.7 * 10^38)
 - 128-bit storage for extended precision arithmetic
 - Used for cryptography, financial calculations, and UUID storage
 - May use software emulation on platforms without native 128-bit support

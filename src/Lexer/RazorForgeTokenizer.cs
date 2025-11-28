@@ -39,6 +39,8 @@ public class RazorForgeTokenizer : BaseTokenizer
         [key: "break"] = TokenType.Break,
         [key: "continue"] = TokenType.Continue,
         [key: "return"] = TokenType.Return,
+        [key: "fail"] = TokenType.Fail,
+        [key: "absent"] = TokenType.Absent,
         [key: "for"] = TokenType.For,
         [key: "loop"] = TokenType.Loop,
         [key: "while"] = TokenType.While,
@@ -52,7 +54,6 @@ public class RazorForgeTokenizer : BaseTokenizer
         [key: "as"] = TokenType.As,
         [key: "pass"] = TokenType.Pass,
         [key: "danger"] = TokenType.Danger,
-        [key: "mayhem"] = TokenType.Mayhem,
         [key: "with"] = TokenType.With,
         [key: "where"] = TokenType.Where,
         [key: "isnot"] = TokenType.IsNot,
@@ -226,7 +227,19 @@ public class RazorForgeTokenizer : BaseTokenizer
             case '|': AddToken(type: TokenType.Pipe); break;
             case '^': AddToken(type: TokenType.Caret); break;
             case '~': AddToken(type: TokenType.Tilde); break;
-            case '@': AddToken(type: TokenType.At); break;
+            case '@':
+                // Check for @intrinsic
+                if (Peek() == 'i' && PeekWord() == "intrinsic")
+                {
+                    // Consume "intrinsic"
+                    for (int i = 0; i < 9; i++) Advance();
+                    AddToken(type: TokenType.Intrinsic);
+                }
+                else
+                {
+                    AddToken(type: TokenType.At);
+                }
+                break;
 
             // Numbers
             case '0':
@@ -352,6 +365,36 @@ public class RazorForgeTokenizer : BaseTokenizer
         }
 
         AddToken(type: tokenType);
+    }
+
+    #endregion
+
+    #region Helper Methods
+
+    /// <summary>
+    /// Peeks ahead to check if the next characters match a specific word.
+    /// </summary>
+    /// <returns>The word starting at the current peek position, or empty string if not an identifier</returns>
+    private string PeekWord()
+    {
+        int offset = 0;
+        var sb = new System.Text.StringBuilder();
+
+        while (true)
+        {
+            char c = Peek(offset);
+            if (char.IsLetterOrDigit(c) || c == '_')
+            {
+                sb.Append(c);
+                offset++;
+            }
+            else
+            {
+                break;
+            }
+        }
+
+        return sb.ToString();
     }
 
     #endregion

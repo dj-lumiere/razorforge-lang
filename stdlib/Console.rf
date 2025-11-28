@@ -1,14 +1,165 @@
-﻿global record Console{
+# Console I/O - Generic show/alert functions
+# According to Console-IO.md:
+# - show() / show_line() for stdout
+# - alert() / alert_line() for stderr
+
+# ============================================================================
+# External C Runtime Functions
+# ============================================================================
+
+# Core text output functions (these are the only C functions we need)
+# Uses Text<letter8> (8-bit UTF-8 text) for C interop
+external("C") routine rf_console_print_text8(value: Text<letter8>)
+external("C") routine rf_console_print_line_text8(value: Text<letter8>)
+external("C") routine rf_console_print_line_empty()
+
+external("C") routine rf_console_alert_text8(value: Text<letter8>)
+external("C") routine rf_console_alert_line_text8(value: Text<letter8>)
+external("C") routine rf_console_alert_line_empty()
+
+# Utility operations
+external("C") routine rf_console_flush()
+external("C") routine rf_console_clear()
+
+# ============================================================================
+# Generic show() - Standard Output (stdout)
+# ============================================================================
+
+# Generic show for any type that has a to_text() method
+# Converts to Text<letter8> (UTF-8) for efficient C interop
+routine Console.show<T>(value: T) {
+    let text_value: Text<letter32> = value.to_text()
+    let text8_value: Text<letter8> = text_value.to_8bit()
+    danger! {
+        rf_console_print_text8(text8_value)
+    }
 }
 
-public common letter8 Console.input_letter8()
-public common Text8 Console.input_letter8s(letter_count: sysuint)
-public common Text8 Console.input_word()
-public common Text8 Console.input_line()
-public common Text8 Console.input_all()
-public common sysuint Console.display()
-public common sysuint Console.display_line()
-public common sysuint Console.force_display()
-public common sysuint Console.force_display_line()
-public common sysuint Console.alert()
-public common sysuint Console.alert_line()
+# ============================================================================
+# Generic show_line() - Standard Output with newline
+# ============================================================================
+
+# Generic show_line for any type that has a to_text() method
+routine Console.show_line<T>(value: T) {
+    let text_value: Text<letter32> = value.to_text()
+    let text8_value: Text<letter8> = text_value.to_8bit()
+    danger! {
+        rf_console_print_line_text8(text8_value)
+    }
+}
+
+# Empty line version
+routine Console.show_line() {
+    danger! {
+        rf_console_print_line_empty()
+    }
+}
+
+# ============================================================================
+# Generic alert() - Standard Error (stderr)
+# ============================================================================
+
+# Generic alert for any type that has a to_text() method
+routine Console.alert<T>(value: T) {
+    let text_value: Text<letter32> = value.to_text()
+    let text8_value: Text<letter8> = text_value.to_8bit()
+    danger! {
+        rf_console_alert_text8(text8_value)
+    }
+}
+
+# ============================================================================
+# Generic alert_line() - Standard Error with newline
+# ============================================================================
+
+# Generic alert_line for any type that has a to_text() method
+routine Console.alert_line<T>(value: T) {
+    let text_value: Text<letter32> = value.to_text()
+    let text8_value: Text<letter8> = text_value.to_8bit()
+    danger! {
+        rf_console_alert_line_text8(text8_value)
+    }
+}
+
+# Empty line version
+routine Console.alert_line() {
+    danger! {
+        rf_console_alert_line_empty()
+    }
+}
+
+# ============================================================================
+# Input Functions
+# ============================================================================
+
+# External C runtime input functions
+external("C") routine rf_console_input_letters(count: sysuint) -> Text<letter8>
+external("C") routine rf_console_input_word() -> Text<letter8>
+external("C") routine rf_console_input_line() -> Text<letter8>
+external("C") routine rf_console_input_words() -> List<Text<letter8>>
+external("C") routine rf_console_input_lines() -> List<Text<letter8>>
+external("C") routine rf_console_input_all() -> Text<letter8>
+
+# Read exactly n letters from input
+routine Console.input_letters(count: sysuint) -> Text<letter8> {
+    danger! {
+        let text8 = rf_console_input_letters(count)
+        return text8.to_text()
+    }
+}
+
+# Read text until whitespace (single word)
+routine Console.input_word() -> Text<letter8> {
+    danger! {
+        let text8 = rf_console_input_word()
+        return text8.to_text()
+    }
+}
+
+# Read text until newline (single line)
+routine Console.input_line() -> Text<letter8> {
+    danger! {
+        let text8 = rf_console_input_line()
+        return text8.to_text()
+    }
+}
+
+# Read all words separated by whitespace
+routine Console.input_words() -> List<Text<letter8>> {
+    danger! {
+        let words8 = rf_console_input_words()
+        return words8.select(w => w.to_text()).to_list()
+    }
+}
+
+# Read all lines separated by newline
+routine Console.input_lines() -> List<Text<letter8>> {
+    danger! {
+        let lines8 = rf_console_input_lines()
+        return lines8.select(l => l.to_text()).to_list()
+    }
+}
+
+# Read all text until EOF
+routine Console.input_all() -> Text<letter8> {
+    danger! {
+        let text8 = rf_console_input_all()
+        return text8.to_text()
+    }
+}
+
+# ============================================================================
+# Utility Functions
+# ============================================================================
+
+routine Console.flush() {
+    danger! {
+        rf_console_flush()
+    }
+}
+
+routine Console.clear() {
+    danger! {
+        rf_console_clear()
+    }
+}

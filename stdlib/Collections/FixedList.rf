@@ -1,0 +1,5 @@
+resident FixedList<T, N> {
+    private data_start: Snatched<T> # This is Snatched<T> because it should be
+    private len: u64                # Current number of elements
+}
+

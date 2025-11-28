@@ -1,5 +1,5 @@
 # RazorForge f64 (double precision floating point) native type implementation
-# Maps directly to LLVM double type and IEEE 754 double precision format
+# Maps directly to LLVM double type using compiler intrinsics
 
 # Core f64 type definition - maps to LLVM double
 record f64 {
@@ -7,324 +7,311 @@ record f64 {
 }
 
 # IEEE 754 double precision constants
-preset F64_EPSILON: f64 = 2.220446049250313e-16
-preset F64_MIN: f64 = 2.2250738585072014e-308
-preset F64_MAX: f64 = 1.7976931348623157e+308
-preset F64_MIN_POSITIVE: f64 = 2.2250738585072014e-308
-preset F64_INFINITY: f64 = 1.0 / 0.0
-preset F64_NEG_INFINITY: f64 = -1.0 / 0.0
-preset F64_NAN: f64 = 0.0 / 0.0
+preset F64_EPSILON: f64 = 2.220446049250313e-16_f64
+preset F64_MIN: f64 = 2.2250738585072014e-308_f64
+preset F64_MAX: f64 = 1.7976931348623157e+308_f64
+preset F64_ZERO: f64 = 0.0_f64
+preset F64_ONE: f64 = 1.0_f64
+preset F64_NAN: f64 = 0.0_f64 / 0.0_f64  # TODO: Proper NaN constant
+preset F64_INFINITY: f64 = 1.0_f64 / 0.0_f64  # TODO: Proper infinity constant
 
-# Mathematical constants
-preset F64_PI: f64 = 3.141592653589793
-preset F64_E: f64 = 2.718281828459045
-preset F64_SQRT_2: f64 = 1.4142135623730951
-preset F64_LN_2: f64 = 0.6931471805599453
-preset F64_LN_10: f64 = 2.302585092994046
+# ============================================================================
+# Arithmetic Operations
+# ============================================================================
 
-# Basic arithmetic operations (LLVM floating point intrinsics)
-
-# Addition - maps to LLVM fadd
-routine f64.add(me: f64, other: f64) -> f64 {
-    return llvm_intrinsic("fadd", me, other)
-}
-
-# Subtraction - maps to LLVM fsub
-routine f64.sub(me: f64, other: f64) -> f64 {
-    return llvm_intrinsic("fsub", me, other)
-}
-
-# Multiplication - maps to LLVM fmul
-routine f64.mul(me: f64, other: f64) -> f64 {
-    return llvm_intrinsic("fmul", me, other)
-}
-
-# Division - maps to LLVM fdiv
-routine f64.div(me: f64, other: f64) -> f64 {
-    return llvm_intrinsic("fdiv", me, other)
-}
-
-# Remainder - maps to LLVM frem
-routine f64.rem(me: f64, other: f64) -> f64 {
-    return llvm_intrinsic("frem", me, other)
-}
-
-# Comparison operations (LLVM fcmp)
-routine f64.eq(me: f64, other: f64) -> bool {
-    return llvm_intrinsic("fcmp oeq", me, other)  # Ordered equal
-}
-
-routine f64.ne(me: f64, other: f64) -> bool {
-    return llvm_intrinsic("fcmp one", me, other)  # Ordered not equal
-}
-
-routine f64.lt(me: f64, other: f64) -> bool {
-    return llvm_intrinsic("fcmp olt", me, other)  # Ordered less than
-}
-
-routine f64.le(me: f64, other: f64) -> bool {
-    return llvm_intrinsic("fcmp ole", me, other)  # Ordered less equal
-}
-
-routine f64.gt(me: f64, other: f64) -> bool {
-    return llvm_intrinsic("fcmp ogt", me, other)  # Ordered greater than
-}
-
-routine f64.ge(me: f64, other: f64) -> bool {
-    return llvm_intrinsic("fcmp oge", me, other)  # Ordered greater equal
-}
-
-# NaN-aware comparisons
-routine f64.is_nan(me: f64) -> bool {
-    return llvm_intrinsic("fcmp uno", me, me)   # Unordered (NaN check)
-}
-
-routine f64.is_finite(me: f64) -> bool {
-    not me.is_nan() and not me.is_infinite()
-}
-
-routine f64.is_infinite(me: f64) -> bool {
-    me == F64_INFINITY or me == F64_NEG_INFINITY
-}
-
-# Mathematical functions using LLVM intrinsics
-routine f64.abs(me: f64) -> f64 {
-    return llvm_intrinsic("llvm.fabs.f64", me)
-}
-
-routine f64.sqrt(me: f64) -> f64 {
-    return llvm_intrinsic("llvm.sqrt.f64", me)
-}
-
-routine f64.sin(me: f64) -> f64 {
-    return llvm_intrinsic("llvm.sin.f64", me)
-}
-
-routine f64.cos(me: f64) -> f64 {
-    return llvm_intrinsic("llvm.cos.f64", me)
-}
-
-routine f64.tan(me: f64) -> f64 {
-    return me.sin() / me.cos()
-}
-
-routine f64.pow(me: f64, exponent: f64) -> f64 {
-    return llvm_intrinsic("llvm.pow.f64", me, exponent)
-}
-
-routine f64.exp(me: f64) -> f64 {
-    return llvm_intrinsic("llvm.exp.f64", me)
-}
-
-routine f64.exp2(me: f64) -> f64 {
-    return llvm_intrinsic("llvm.exp2.f64", me)
-}
-
-routine f64.ln(me: f64) -> f64 {
-    return llvm_intrinsic("llvm.log.f64", me)
-}
-
-routine f64.log2(me: f64) -> f64 {
-    return llvm_intrinsic("llvm.log2.f64", me)
-}
-
-routine f64.log10(me: f64) -> f64 {
-    return llvm_intrinsic("llvm.log10.f64", me)
-}
-
-# Rounding and truncation
-routine f64.floor(me: f64) -> f64 {
-    return llvm_intrinsic("llvm.floor.f64", me)
-}
-
-routine f64.ceil(me: f64) -> f64 {
-    return llvm_intrinsic("llvm.ceil.f64", me)
-}
-
-routine f64.round(me: f64) -> f64 {
-    return llvm_intrinsic("llvm.round.f64", me)
-}
-
-routine f64.trunc(me: f64) -> f64 {
-    return llvm_intrinsic("llvm.trunc.f64", me)
-}
-
-# Min/Max with proper NaN handling
-routine f64.min(me: f64, other: f64) -> f64 {
-    return llvm_intrinsic("llvm.minnum.f64", me, other)
-}
-
-routine f64.max(me: f64, other: f64) -> f64 {
-    return llvm_intrinsic("llvm.maxnum.f64", me, other)
-}
-
-# Fused multiply-add for better precision
-routine f64.fma(me: f64, mul: f64, add: f64) -> f64 {
-    return llvm_intrinsic("llvm.fma.f64", me, mul, add)
-}
-
-# IEEE 754 bit manipulation
-routine f64.as_bits(me: f64) -> s64 {
-    return llvm_intrinsic("bitcast", me)  # Reinterpret as s64
-}
-
-routine f64(from_bits: BitArray<64>) -> f64 {
-    return llvm_intrinsic("bitcast", from_bits)  # Reinterpret BitArray<64> as f64
-}
-
-# Extract IEEE 754 components
-routine f64.extract_sign(me: f64) -> bool {
-    let bits = me.as_bits()
-    return (bits >> 63) != 0
-}
-
-routine f64.extract_exponent(me: f64) -> s64 {
-    let bits = me.as_bits()
-    return (bits >> 52) & 0x7FF
-}
-
-routine f64.extract_mantissa(me: f64) -> s64 {
-    let bits = me.as_bits()
-    return bits & 0x000FFFFFFFFFFFFF
-}
-
-# Type conversions (using constructor syntax)
-routine s64(from_f64: f64) -> s64 {
-    return llvm_intrinsic("fptosi", from_f64)   # Float to signed int
-}
-
-routine u64(from_f64: f64) -> u64 {
-    return llvm_intrinsic("fptoui", from_f64)   # Float to unsigned int
-}
-
-routine f32(from_f64: f64) -> f32 {
-    return llvm_intrinsic("fptrunc", from_f64)  # Truncate to single precision
-}
-
-routine bool(from_f64: f64) -> bool {
-    return from_f64 != 0.0
-}
-
-# Memory operations (use in danger blocks)
-routine f64.load_from_memory(ptr: Snatched<f64>) -> f64 {
+routine f64.__add__(other: f64) -> f64 {
     danger! {
-        return llvm_intrinsic("load", ptr)
+        return @intrinsic.add.wrapping<double>(me, other)
     }
 }
 
-routine f64.store_to_memory(me: f64, ptr: Snatched<f64>) {
+routine f64.__sub__(other: f64) -> f64 {
     danger! {
-        return llvm_intrinsic("store", me, ptr)
+        return @intrinsic.sub.wrapping<double>(me, other)
     }
 }
 
-# Parsing and formatting using constructor syntax
-routine f64(from_text: Text) -> f64 {
-    # Parse Text to f64 using LLVM constant folding when possible
-    return 0.0  # Placeholder
-}
-
-routine Text(from_f64: f64, precision: s64) -> Text {
-    # Convert f64 to Text representation with specified precision
-    return ""  # Placeholder
-}
-
-# SIMD operations for vectorized f64 processing
-routine f64_vec_add(a: slice<f64>, b: slice<f64>) -> slice<f64> {
-    let result = new_slice<f64>(a.length())
-
-    # This loop will be auto-vectorized by LLVM using SSE2/AVX
-    for i in 0..a.length() {
-        result[i] = a[i] + b[i]
+routine f64.__mul__(other: f64) -> f64 {
+    danger! {
+        return @intrinsic.mul.wrapping<double>(me, other)
     }
-
-    return result
 }
 
-routine f64_vec_dot_product(a: slice<f64>, b: slice<f64>) -> f64 {
-    let sum: f64 = 0.0
-    let length = min(a.length(), b.length())
-
-    # LLVM will vectorize this with horizontal add reductions
-    for i in 0..length {
-        sum += a[i] * b[i]
+routine f64.__div__(other: f64) -> f64 {
+    danger! {
+        return @intrinsic.div.wrapping<double>(me, other)
     }
-
-    return sum
 }
 
-# High-performance mathematical operations
-routine fast_inverse_sqrt(value: f64) -> f64 {
-    # Fast inverse square root using bit manipulation
-    let bits = value.as_bits()
-    let magic: s64 = 0x5FE6EC85E7DE30DA  # Magic constant for f64
-    let guess = f64.from_bits(magic - (bits >> 1))
-
-    # Newton-Raphson refinement
-    let half_value = value * 0.5
-    return guess * (1.5 - half_value * guess * guess)
+routine f64.__rem__(other: f64) -> f64 {
+    danger! {
+        return @intrinsic.rem.wrapping<double>(me, other)
+    }
 }
 
+routine f64.__neg__() -> f64 {
+    danger! {
+        return @intrinsic.sub.wrapping<double>(0.0_f64, me)
+    }
+}
+
+# ============================================================================
+# Comparison Operations (ordered - false if NaN)
+# ============================================================================
+
+routine f64.__eq__(other: f64) -> bool {
+    danger! {
+        return @intrinsic.fcmp.oeq<double>(me, other)
+    }
+}
+
+routine f64.__ne__(other: f64) -> bool {
+    danger! {
+        return @intrinsic.fcmp.one<double>(me, other)
+    }
+}
+
+routine f64.__lt__(other: f64) -> bool {
+    danger! {
+        return @intrinsic.fcmp.olt<double>(me, other)
+    }
+}
+
+routine f64.__le__(other: f64) -> bool {
+    danger! {
+        return @intrinsic.fcmp.ole<double>(me, other)
+    }
+}
+
+routine f64.__gt__(other: f64) -> bool {
+    danger! {
+        return @intrinsic.fcmp.ogt<double>(me, other)
+    }
+}
+
+routine f64.__ge__(other: f64) -> bool {
+    danger! {
+        return @intrinsic.fcmp.oge<double>(me, other)
+    }
+}
+
+# ============================================================================
+# Math Operations using intrinsics
+# ============================================================================
+
+routine f64.sqrt() -> f64 {
+    danger! {
+        return @intrinsic.sqrt<double>(me)
+    }
+}
+
+routine f64.abs() -> f64 {
+    danger! {
+        return @intrinsic.fabs<double>(me)
+    }
+}
+
+routine f64.floor() -> f64 {
+    danger! {
+        return @intrinsic.floor<double>(me)
+    }
+}
+
+routine f64.ceil() -> f64 {
+    danger! {
+        return @intrinsic.ceil<double>(me)
+    }
+}
+
+routine f64.round() -> f64 {
+    danger! {
+        return @intrinsic.round<double>(me)
+    }
+}
+
+routine f64.trunc() -> f64 {
+    danger! {
+        return @intrinsic.trunc_float<double>(me)
+    }
+}
+
+# Trigonometric functions
+routine f64.sin() -> f64 {
+    danger! {
+        return @intrinsic.sin<double>(me)
+    }
+}
+
+routine f64.cos() -> f64 {
+    danger! {
+        return @intrinsic.cos<double>(me)
+    }
+}
+
+# Exponential and logarithmic
+routine f64.exp() -> f64 {
+    danger! {
+        return @intrinsic.exp<double>(me)
+    }
+}
+
+routine f64.log() -> f64 {
+    danger! {
+        return @intrinsic.log<double>(me)
+    }
+}
+
+routine f64.log10() -> f64 {
+    danger! {
+        return @intrinsic.log10<double>(me)
+    }
+}
+
+routine f64.pow(exp: f64) -> f64 {
+    danger! {
+        return @intrinsic.pow<double>(me, exp)
+    }
+}
+
+routine f64.copysign(sign: f64) -> f64 {
+    danger! {
+        return @intrinsic.copysign<double>(me, sign)
+    }
+}
+
+# ============================================================================
+# Utility Methods
+# ============================================================================
+
+routine f64.min(other: f64) -> f64 {
+    return if me <= other then me else other
+}
+
+routine f64.max(other: f64) -> f64 {
+    return if me >= other then me else other
+}
+
+routine f64.clamp(min_val: f64, max_val: f64) -> f64 {
+    return me.min(max_val).max(min_val)
+}
+
+routine f64.is_positive() -> bool {
+    return me > 0.0_f64
+}
+
+routine f64.is_negative() -> bool {
+    return me < 0.0_f64
+}
+
+routine f64.is_zero() -> bool {
+    return me == 0.0_f64
+}
+
+# TODO: Implement NaN/Infinity checks when we have proper constants
+routine f64.is_finite() -> bool {
+    # Placeholder - needs proper implementation
+    return true
+}
+
+routine f64.signum() -> f64 {
+    when {
+        me > 0.0_f64 => 1.0_f64,
+        me < 0.0_f64 => -1.0_f64,
+        _ => 0.0_f64
+    }
+}
+
+# ============================================================================
+# Type Conversions
+# ============================================================================
+
+routine f64.to_s64() -> s64 {
+    danger! {
+        return @intrinsic.fptosi<double, i64>(me)
+    }
+}
+
+routine f64.to_u64() -> u64 {
+    danger! {
+        return @intrinsic.fptoui<double, i64>(me)
+    }
+}
+
+routine f64.to_s32() -> s32 {
+    danger! {
+        return @intrinsic.fptosi<double, i32>(me)
+    }
+}
+
+routine f64.to_u32() -> u32 {
+    danger! {
+        return @intrinsic.fptoui<double, i32>(me)
+    }
+}
+
+routine f64.to_f32() -> f32 {
+    danger! {
+        return @intrinsic.fptrunc<double, float>(me)
+    }
+}
+
+# Reinterpret bits as u64 (type punning)
+routine f64.to_bits() -> u64 {
+    danger! {
+        return @intrinsic.bitcast<double, i64>(me)
+    }
+}
+
+# Create f64 from u64 bits (type punning)
+routine f64.from_bits(bits: u64) -> f64 {
+    danger! {
+        return @intrinsic.bitcast<i64, double>(bits)
+    }
+}
+
+# ============================================================================
+# String Conversion (placeholder)
+# ============================================================================
+
+routine f64.to_text() -> Text {
+    danger! {
+        return @format_f64(me)
+    }
+}
+
+# Parsing constructors using compiler intrinsics
+
+# Fallible constructor - crashes on invalid input
+routine f64!(from_text: Text) -> f64 {
+    danger! {
+        return @parse_f64(from_text)
+    }
+}
+
+# Safe constructor - returns Maybe<f64>
+routine f64?(from_text: Text) -> Maybe<f64> {
+    danger! {
+        return @try_parse_f64(from_text)
+    }
+}
+
+# ============================================================================
+# Examples
+# ============================================================================
+
+# Distance between two points
+routine distance_2d(x1: f64, y1: f64, x2: f64, y2: f64) -> f64 {
+    let dx = x2 - x1
+    let dy = y2 - y1
+    return (dx * dx + dy * dy).sqrt()
+}
+
+# Pythagorean theorem
+routine hypot(a: f64, b: f64) -> f64 {
+    return (a * a + b * b).sqrt()
+}
+
+# Linear interpolation
 routine lerp(a: f64, b: f64, t: f64) -> f64 {
-    # Linear interpolation with fused multiply-add
-    return a.fma(1.0 - t, b * t)
+    return a + (b - a) * t
 }
-
-# Numerical computation helpers
-routine approx_equal(a: f64, b: f64, epsilon: f64) -> bool {
-    return (a - b).abs() <= epsilon
-}
-
-routine next_power_of_two(value: f64) -> f64 {
-    when value {
-        <= 1.0 => 1.0,
-        _ => return 2.0.pow(value.ln() / F64_LN_2).ceil()
-    }
-}
-
-/*
-LLVM IR Generation Examples:
-
-RazorForge Code:
-    let a: f64 = 3.14159;
-    let b: f64 = 2.71828;
-    let result: f64 = a * b + 1.0;
-
-Generated LLVM IR:
-    %a = alloca double
-    %b = alloca double
-    %result = alloca double
-    store double 3.14159, double* %a
-    store double 2.71828, double* %b
-    %1 = load double, double* %a
-    %2 = load double, double* %b
-    %3 = fmul double %1, %2
-    %4 = fadd double %3, 1.0
-    store double %4, double* %result
-
-Optimized LLVM IR (with fused multiply-add):
-    %result = alloca double
-    %1 = call double @llvm.fma.f64(double 3.14159, double 2.71828, double 1.0)
-    store double %1, double* %result
-
-LLVM Intrinsics Used:
-- Arithmetic: fadd, fsub, fmul, fdiv, frem
-- Comparison: fcmp (oeq, one, olt, ole, ogt, oge, uno)
-- Math: fabs, sqrt, sin, cos, pow, exp, log, etc.
-- Rounding: floor, ceil, round, trunc
-- Memory: load, store, alloca
-- Conversion: fptosi, fptoui, fptrunc, fpext, bitcast
-- SIMD: vector operations for packed doubles
-
-IEEE 754 Double Precision Format:
-- Sign bit: 1 bit (bit 63)
-- Exponent: 11 bits (bits 62-52, biased by 1023)
-- Mantissa: 52 bits (bits 51-0, with implicit leading 1)
-- Total: 64 bits
-
-Target Architecture Mapping:
-- x86_64: Uses SSE2 XMM registers, AVX YMM/ZMM for SIMD
-- ARM64: Uses NEON FPU registers, SVE for SIMD
-- RISC-V: Uses F/D extension registers
-- WebAssembly: Native f64 type with IEEE 754 compliance
-*/

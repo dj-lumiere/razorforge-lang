@@ -440,20 +440,40 @@ public enum MemoryOperation
     Recover,
 
     /// <summary>
-    /// reveal!() - Access snatched object (danger! only).
-    /// Allows access to Snatched objects within danger! blocks.
-    /// Does not change ownership, just provides access.
-    /// Use case: Reading/using forcibly snatched objects safely.
+    /// try_seize() - Attempt to acquire exclusive lock (returns Maybe&lt;Seized&lt;T&gt;&gt;).
+    /// Non-blocking fallible lock acquisition for Shared&lt;T, Policy&gt;.
+    /// Returns None on ANY failure (timeout, poison, etc.).
+    /// Must be used immediately in 'when' expression - token cannot be stored.
+    /// Use case: Timeout-based lock acquisition without panic on failure.
     /// </summary>
-    Reveal,
+    TrySeize,
 
     /// <summary>
-    /// own!() - Convert snatched to owned (danger! only).
-    /// Converts Snatched wrapper back to clean Owned wrapper.
-    /// Cleans up unsafe provenance and restores normal ownership.
-    /// Use case: Legitimizing forcibly snatched objects after danger! block.
+    /// check_seize() - Attempt to acquire exclusive lock (returns Result&lt;Seized&lt;T&gt;, LockError&gt;).
+    /// Non-blocking fallible lock acquisition with error discrimination.
+    /// Returns specific error type (Timeout, Poisoned, etc.).
+    /// Must be used immediately in 'when' expression - token cannot be stored.
+    /// Use case: When you need to distinguish between different failure modes.
     /// </summary>
-    Own
+    CheckSeize,
+
+    /// <summary>
+    /// try_observe() - Attempt to acquire read lock (returns Maybe&lt;Observed&lt;T&gt;&gt;).
+    /// Non-blocking fallible lock acquisition for Shared&lt;T, MultiReadLock&gt;.
+    /// Returns None on ANY failure (timeout, poison, etc.).
+    /// Must be used immediately in 'when' expression - token cannot be stored.
+    /// Use case: Timeout-based read lock acquisition without panic.
+    /// </summary>
+    TryObserve,
+
+    /// <summary>
+    /// check_observe() - Attempt to acquire read lock (returns Result&lt;Observed&lt;T&gt;, LockError&gt;).
+    /// Non-blocking fallible lock acquisition with error discrimination.
+    /// Returns specific error type (Timeout, Poisoned, etc.).
+    /// Must be used immediately in 'when' expression - token cannot be stored.
+    /// Use case: When you need to distinguish between different read lock failure modes.
+    /// </summary>
+    CheckObserve
 }
 
 /// <summary>

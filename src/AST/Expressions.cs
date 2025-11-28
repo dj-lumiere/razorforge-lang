@@ -182,6 +182,34 @@ public record CallExpression(
 }
 
 /// <summary>
+/// Named argument expression used in function calls.
+/// Allows specifying argument name explicitly: func(name: value)
+/// </summary>
+/// <param name="Name">The parameter name</param>
+/// <param name="Value">The argument value expression</param>
+/// <param name="Location">Source location information</param>
+/// <remarks>
+/// Named arguments support:
+/// <list type="bullet">
+/// <item>Explicit parameter binding: Error(message: "failed", code: 500)</item>
+/// <item>Out-of-order arguments: Point(y: 10, x: 5)</item>
+/// <item>Clarity for boolean/numeric arguments: set_visible(visible: true)</item>
+/// <item>Optional parameter selection: connect(host: "localhost", port: 8080)</item>
+/// </list>
+/// </remarks>
+public record NamedArgumentExpression(
+    string Name,
+    Expression Value,
+    SourceLocation Location) : Expression(Location: Location)
+{
+    /// <summary>Accepts a visitor for AST traversal and transformation</summary>
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitNamedArgumentExpression(node: this);
+    }
+}
+
+/// <summary>
 /// Expression that accesses a member (field, property, or method) of an object.
 /// Represents the dot notation for accessing object members.
 /// </summary>
@@ -661,6 +689,37 @@ public record MemoryOperationExpression(
     public override T Accept<T>(IAstVisitor<T> visitor)
     {
         return visitor.VisitMemoryOperationExpression(node: this);
+    }
+}
+
+/// <summary>
+/// Expression for compiler intrinsic function calls.
+/// Intrinsics map directly to low-level operations and are only available in danger! blocks.
+/// </summary>
+/// <param name="IntrinsicName">Name of the intrinsic operation (e.g., "load", "add.wrapping", "icmp.slt")</param>
+/// <param name="TypeArguments">Type parameters for the intrinsic (e.g., &lt;T&gt; or &lt;T, U&gt;)</param>
+/// <param name="Arguments">Arguments passed to the intrinsic</param>
+/// <param name="Location">Source location information</param>
+/// <remarks>
+/// Examples:
+/// <list type="bullet">
+/// <item>@intrinsic.load&lt;s32&gt;(addr) - Load s32 from memory address</item>
+/// <item>@intrinsic.add.wrapping&lt;i32&gt;(a, b) - Wrapping addition</item>
+/// <item>@intrinsic.icmp.slt&lt;i64&gt;(x, y) - Signed less than comparison</item>
+/// <item>@intrinsic.bitcast&lt;f32, u32&gt;(value) - Type punning (reinterpret bits)</item>
+/// </list>
+/// All intrinsics must be called within danger! blocks and are validated at compile time.
+/// </remarks>
+public record IntrinsicCallExpression(
+    string IntrinsicName,
+    List<string> TypeArguments,
+    List<Expression> Arguments,
+    SourceLocation Location) : Expression(Location: Location)
+{
+    /// <summary>Accepts a visitor for AST traversal and transformation</summary>
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitIntrinsicCallExpression(node: this);
     }
 }
 

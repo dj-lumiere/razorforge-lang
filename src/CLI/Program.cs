@@ -4,6 +4,7 @@ using Compilers.Shared.Analysis;
 using Compilers.Shared.CodeGen;
 using Compilers.RazorForge.Parser;
 using Compilers.Suflae.Parser;
+using Compilers.Shared.AST;
 
 namespace Compilers;
 
@@ -11,15 +12,70 @@ internal class Program
 {
     public static void Main(string[] args)
     {
-        if (args.Length != 1)
+        if (args.Length == 0)
         {
-            Console.WriteLine(value: "Usage: RazorForge <source-file>");
-            Console.WriteLine(
-                value: "  <source-file>: .rf file for RazorForge or .sf file for Suflae");
+            PrintUsage();
             return;
         }
 
-        string sourceFile = args[0];
+        string command = args[0].ToLowerInvariant();
+
+        // Check if first arg is a command or a file
+        bool isCommand = command == "compile" || command == "run" || command == "compileandrun" || command == "lsp";
+
+        if (!isCommand)
+        {
+            // Old behavior: just a file path, compile it
+            CompileFile(args[0], executeAfter: false, Array.Empty<string>());
+        }
+        else if (command == "lsp")
+        {
+            Console.WriteLine("Language Server not yet implemented.");
+            Console.WriteLine("This would start the RazorForge Language Server Protocol implementation.");
+        }
+        else
+        {
+            // New behavior: command + file
+            if (args.Length < 2)
+            {
+                PrintUsage();
+                return;
+            }
+
+            string sourceFile = args[1];
+            string[] programArgs = args.Length > 2 ? args[2..] : Array.Empty<string>();
+
+            switch (command)
+            {
+                case "compile":
+                    CompileFile(sourceFile, executeAfter: false, programArgs);
+                    break;
+                case "run":
+                case "compileandrun":
+                    CompileFile(sourceFile, executeAfter: true, programArgs);
+                    break;
+                default:
+                    PrintUsage();
+                    break;
+            }
+        }
+    }
+
+    private static void PrintUsage()
+    {
+        Console.WriteLine("Usage:");
+        Console.WriteLine("  RazorForge <source-file>                          - Compile file (legacy)");
+        Console.WriteLine("  RazorForge compile <source-file>                  - Compile file");
+        Console.WriteLine("  RazorForge run <source-file> [args...]            - Compile and run file with optional arguments");
+        Console.WriteLine("  RazorForge compileandrun <source-file> [args...]  - Compile and run file with optional arguments");
+        Console.WriteLine("  RazorForge lsp                                    - Start language server");
+        Console.WriteLine();
+        Console.WriteLine("  <source-file>: .rf file for RazorForge or .sf file for Suflae");
+        Console.WriteLine("  [args...]:     Optional arguments to pass to the compiled program");
+    }
+
+    private static void CompileFile(string sourceFile, bool executeAfter, string[] programArgs)
+    {
         if (!File.Exists(path: sourceFile))
         {
             Console.WriteLine(value: $"Error: File '{sourceFile}' not found.");
@@ -43,19 +99,29 @@ internal class Program
             Console.WriteLine(value: "=== TOKENIZATION ===");
             List<Token> tokens = Tokenizer.Tokenize(source: code, language: language);
             Console.WriteLine(value: $"Generated {tokens.Count} tokens");
+            // DEBUG: Print tokens
+            if (sourceFile.Contains("test_tokens"))
+            {
+                Console.WriteLine("=== TOKENS ===");
+                foreach (var tok in tokens)
+                {
+                    Console.WriteLine($"  {tok.Line}:{tok.Column} {tok.Type} '{tok.Text}'");
+                }
+                Console.WriteLine("=== END TOKENS ===");
+            }
 
             // Parse the code
             Console.WriteLine(value: "=== PARSING ===");
             BaseParser parser = language == Language.Suflae
-                ? (BaseParser)new SuflaeParser(tokens: tokens)
-                : new RazorForgeParser(tokens: tokens);
+                ? (BaseParser)new SuflaeParser(tokens: tokens, fileName: sourceFile)
+                : new RazorForgeParser(tokens: tokens, fileName: sourceFile);
             Shared.AST.Program ast = parser.Parse();
             Console.WriteLine(
                 value: $"Successfully parsed! AST contains {ast.Declarations.Count} declarations");
 
             // Semantic analysis
             Console.WriteLine(value: "=== SEMANTIC ANALYSIS ===");
-            var analyzer = new SemanticAnalyzer(language: language, mode: mode);
+            var analyzer = new SemanticAnalyzer(language: language, mode: mode, fileName: sourceFile);
             List<SemanticError> semanticErrors = analyzer.Analyze(program: ast);
 
             if (semanticErrors.Count > 0)
@@ -63,7 +129,10 @@ internal class Program
                 Console.WriteLine(value: $"Found {semanticErrors.Count} semantic errors:");
                 foreach (SemanticError error in semanticErrors.Take(count: 10))
                 {
-                    Console.WriteLine(value: $"  - {error.Message} at line {error.Location.Line}");
+                    string location = error.FileName != null
+                        ? $"[{error.FileName}:{error.Location.Line}:{error.Location.Column}]"
+                        : $"[{error.Location.Line}:{error.Location.Column}]";
+                    Console.WriteLine(value: $"Semantic error{location}: {error.Message}");
                 }
 
                 if (semanticErrors.Count > 10)
@@ -72,10 +141,42 @@ internal class Program
                 }
 
                 Console.WriteLine();
+
+                // Don't continue if there are semantic errors
+                if (!executeAfter)
+                {
+                    return;
+                }
             }
             else
             {
                 Console.WriteLine(value: "No semantic errors found!");
+            }
+
+            // Generate function variants (try_, check_, find_)
+            Console.WriteLine(value: "=== FUNCTION VARIANT GENERATION ===");
+            var variantGenerator = new FunctionVariantGenerator();
+            variantGenerator.GenerateVariants(program: ast);
+
+            if (variantGenerator.GeneratedVariants.Count > 0)
+            {
+                Console.WriteLine(
+                    value: $"Generated {variantGenerator.GeneratedVariants.Count} function variants:");
+                foreach (FunctionDeclaration variant in variantGenerator.GeneratedVariants)
+                {
+                    Console.WriteLine(value: $"  - {variant.Name}()");
+                }
+
+                // Add generated variants to the AST
+                var updatedDeclarations = new List<IAstNode>(ast.Declarations);
+                updatedDeclarations.AddRange(variantGenerator.GeneratedVariants.Cast<IAstNode>());
+                ast = new Compilers.Shared.AST.Program(
+                    Declarations: updatedDeclarations,
+                    Location: ast.Location);
+            }
+            else
+            {
+                Console.WriteLine(value: "No function variants generated (no fail/absent detected)");
             }
 
             // Code generation
@@ -101,6 +202,16 @@ internal class Program
             if (executablePath != null)
             {
                 Console.WriteLine(value: $"Executable generated: {executablePath}");
+
+                // If run command, execute the generated executable
+                if (executeAfter)
+                {
+                    Console.WriteLine();
+                    Console.WriteLine(value: "=== RUNNING PROGRAM ===");
+                    Console.WriteLine();
+
+                    RunExecutable(executablePath, programArgs);
+                }
             }
             else
             {
@@ -108,6 +219,12 @@ internal class Program
                     value: "Note: LLVM tools not available. Skipping executable generation.");
                 Console.WriteLine(
                     value: "To generate executables, install LLVM and ensure 'clang' is in PATH.");
+
+                if (executeAfter)
+                {
+                    Console.WriteLine();
+                    Console.WriteLine(value: "Cannot run program without executable.");
+                }
             }
 
             Console.WriteLine();
@@ -130,10 +247,16 @@ internal class Program
             string executablePath = Path.ChangeExtension(path: llvmFile, extension: ".exe");
 
             // Use clang to compile LLVM IR to executable
+            // On Windows, we need to link with legacy_stdio_definitions for printf/scanf
+            // On Unix-like systems, libc is linked automatically
+            string linkerFlags = OperatingSystem.IsWindows()
+                ? "-Wno-override-module -llegacy_stdio_definitions"
+                : "-Wno-override-module";
+
             var clangProcess = new System.Diagnostics.ProcessStartInfo
             {
                 FileName = "clang",
-                Arguments = $"\"{llvmFile}\" -o \"{executablePath}\"",
+                Arguments = $"\"{llvmFile}\" -o \"{executablePath}\" {linkerFlags}",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -167,6 +290,39 @@ internal class Program
         {
             Console.WriteLine(value: $"Error during executable generation: {ex.Message}");
             return null;
+        }
+    }
+
+    private static void RunExecutable(string executablePath, string[] programArgs)
+    {
+        try
+        {
+            var runProcess = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = executablePath,
+                Arguments = string.Join(" ", programArgs.Select(arg => $"\"{arg}\"")),
+                UseShellExecute = false,
+                RedirectStandardOutput = false,  // Let output go directly to console
+                RedirectStandardError = false,
+                RedirectStandardInput = false,
+                CreateNoWindow = false
+            };
+
+            using var process = System.Diagnostics.Process.Start(startInfo: runProcess);
+            if (process == null)
+            {
+                Console.WriteLine("Failed to start executable.");
+                return;
+            }
+
+            process.WaitForExit();
+
+            Console.WriteLine();
+            Console.WriteLine($"Program exited with code: {process.ExitCode}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(value: $"Error running executable: {ex.Message}");
         }
     }
 }

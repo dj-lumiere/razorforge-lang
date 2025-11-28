@@ -13,7 +13,7 @@ routine control_flow_demo() {
     }
 
     # Conditional expression (similar to ternary)
-    let sign = if value >= 0 then "positive" else -> "negative"
+    let sign = if value >= 0 then "positive" else "negative"
 
     # While loop
     var i: u32 = 0
@@ -50,10 +50,14 @@ routine color_match(color: Color) -> Text {
     }
 }
 
-# Record with chimera
+# Record
 record Point {
     x: f64
     y: f64
+}
+
+routine distance(x: Point, y: Point) {
+    return (x.x - y.x) ** 2.0 + (x.y - y.y) ** 2.0
 }
 
 variant Shape {
@@ -67,8 +71,11 @@ routine calculate_area(shape: Shape) -> f64 {
         Shape.Circle(_, radius) => 3.14159 * radius * radius,
         Shape.Rectangle(_, width, height) => width * height,
         Shape.Triangle(a, b, c) => {
-            # Heron's formula implementation would go here
-            0.0
+            let side_a = distance(a, b)
+            let side_b = distance(b, c)
+            let side_c = distance(c, a)
+            let s = (side_a + side_b + side_c) / 2.0
+            return (s * (s - side_a) * (s - side_b) * (s - side_c)) ** 0.5
         }
     }
 }

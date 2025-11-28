@@ -12,10 +12,12 @@ public class SuflaeParser : BaseParser
 {
     private readonly Stack<int> _indentationStack = new();
     private int _currentIndentationLevel = 0;
+    private readonly string? _fileName;
 
-    public SuflaeParser(List<Token> tokens) : base(tokens: tokens)
+    public SuflaeParser(List<Token> tokens, string? fileName = null) : base(tokens: tokens)
     {
         _indentationStack.Push(item: 0); // Base indentation level
+        _fileName = fileName;
     }
 
     public override Compilers.Shared.AST.Program Parse()
@@ -47,7 +49,11 @@ public class SuflaeParser : BaseParser
             }
             catch (ParseException ex)
             {
-                Console.Error.WriteLine(value: $"Parse error: {ex.Message}");
+                Token errorToken = Position < Tokens.Count ? Tokens[Position] : Tokens[^1];
+                string location = _fileName != null
+                    ? $"[{_fileName}:{errorToken.Line}:{errorToken.Column}]"
+                    : $"[{errorToken.Line}:{errorToken.Column}]";
+                Console.Error.WriteLine(value: $"Parse error{location}: {ex.Message}");
                 Synchronize();
             }
         }
@@ -205,6 +211,16 @@ public class SuflaeParser : BaseParser
             return ParseReturnStatement();
         }
 
+        if (Match(type: TokenType.Fail))
+        {
+            return ParseFailStatement();
+        }
+
+        if (Match(type: TokenType.Absent))
+        {
+            return ParseAbsentStatement();
+        }
+
         if (Match(type: TokenType.Break))
         {
             return ParseBreakStatement();
@@ -291,6 +307,12 @@ public class SuflaeParser : BaseParser
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
 
         string name = ConsumeIdentifier(errorMessage: "Expected routine name");
+
+        // Support ! suffix for failable functions
+        if (Match(type: TokenType.Bang))
+        {
+            name = name + "!";
+        }
 
         // Parameters
         Consume(type: TokenType.LeftParen, errorMessage: "Expected '(' after routine name");
@@ -967,7 +989,7 @@ public class SuflaeParser : BaseParser
         Expression expr = ParsePrimary();
         if (expr is LiteralExpression literal)
         {
-            return new LiteralPattern(Value: literal.Value, Location: location);
+            return new LiteralPattern(Value: literal.Value, LiteralType: literal.LiteralType, Location: location);
         }
 
         throw new ParseException(message: $"Expected pattern, got {CurrentToken.Type}");
@@ -986,6 +1008,28 @@ public class SuflaeParser : BaseParser
         ConsumeStatementTerminator();
 
         return new ReturnStatement(Value: value, Location: location);
+    }
+
+    private Statement ParseFailStatement()
+    {
+        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
+
+        // fail requires an error expression (Crashable type)
+        Expression error = ParseExpression();
+
+        ConsumeStatementTerminator();
+
+        return new FailStatement(Error: error, Location: location);
+    }
+
+    private Statement ParseAbsentStatement()
+    {
+        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
+
+        // absent takes no arguments
+        ConsumeStatementTerminator();
+
+        return new AbsentStatement(Location: location);
     }
 
     private Statement ParseBreakStatement()
@@ -1474,7 +1518,8 @@ public class SuflaeParser : BaseParser
                                      .Replace(oldValue: "u32", newValue: "")
                                      .Replace(oldValue: "u64", newValue: "")
                                      .Replace(oldValue: "u128", newValue: "")
-                                     .Replace(oldValue: "sysuint", newValue: "");
+                                     .Replace(oldValue: "sysuint", newValue: "")
+                                     .Replace(oldValue: "_", newValue: ""); // Remove underscores
             if (long.TryParse(s: cleanValue, result: out long intVal))
             {
                 return new LiteralExpression(Value: intVal, LiteralType: token.Type,
@@ -1497,7 +1542,8 @@ public class SuflaeParser : BaseParser
                                      .Replace(oldValue: "f128", newValue: "")
                                      .Replace(oldValue: "d32", newValue: "")
                                      .Replace(oldValue: "d64", newValue: "")
-                                     .Replace(oldValue: "d128", newValue: "");
+                                     .Replace(oldValue: "d128", newValue: "")
+                                     .Replace(oldValue: "_", newValue: ""); // Remove underscores
             if (double.TryParse(s: cleanValue, result: out double floatVal))
             {
                 return new LiteralExpression(Value: floatVal, LiteralType: token.Type,

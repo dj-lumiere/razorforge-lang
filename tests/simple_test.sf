@@ -1,2 +1,2 @@
 routine main():
-    display("Hello, Suflae!")
+    show("Hello, Suflae!")

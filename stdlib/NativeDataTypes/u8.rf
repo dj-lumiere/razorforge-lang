@@ -161,10 +161,20 @@ routine bool(from_u8: u8) -> bool {
     return from_u8 != 0
 }
 
-# Parsing and formatting using constructor syntax
-routine u8(from_text: Text) -> u8 {
-    # Parse Text to u8 using LLVM constant folding when possible
-    return 0  # Placeholder
+# Parsing constructors using compiler intrinsics
+
+# Fallible constructor - crashes on invalid input
+routine u8!(from_text: Text) -> u8 {
+    danger! {
+        return @parse_u8(from_text)
+    }
+}
+
+# Safe constructor - returns Maybe<u8>
+routine u8?(from_text: Text) -> Maybe<u8> {
+    danger! {
+        return @try_parse_u8(from_text)
+    }
 }
 
 routine Text(from_u8: u8) -> Text {

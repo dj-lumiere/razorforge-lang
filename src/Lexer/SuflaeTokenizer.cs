@@ -30,9 +30,6 @@ public class SuflaeTokenizer : BaseTokenizer
         [key: "record"] = TokenType.Record,
         [key: "choice"] = TokenType.Choice,
         [key: "requires"] = TokenType.Requires,
-        [key: "chimera"] = TokenType.Chimera,
-        [key: "variant"] = TokenType.Variant,
-        [key: "mutant"] = TokenType.Mutant,
         [key: "protocol"] = TokenType.Protocol,
         [key: "let"] = TokenType.Let,
         [key: "var"] = TokenType.Var,
@@ -54,6 +51,8 @@ public class SuflaeTokenizer : BaseTokenizer
         [key: "break"] = TokenType.Break,
         [key: "continue"] = TokenType.Continue,
         [key: "return"] = TokenType.Return,
+        [key: "fail"] = TokenType.Fail,
+        [key: "absent"] = TokenType.Absent,
         [key: "for"] = TokenType.For,
         [key: "loop"] = TokenType.Loop,
         [key: "while"] = TokenType.While,
@@ -66,8 +65,6 @@ public class SuflaeTokenizer : BaseTokenizer
         [key: "using"] = TokenType.Using,
         [key: "as"] = TokenType.As,
         [key: "pass"] = TokenType.Pass,
-        [key: "danger"] = TokenType.Danger,
-        [key: "mayhem"] = TokenType.Mayhem,
         [key: "with"] = TokenType.With,
         [key: "where"] = TokenType.Where,
         [key: "isnot"] = TokenType.IsNot,
@@ -85,8 +82,7 @@ public class SuflaeTokenizer : BaseTokenizer
         [key: "none"] = TokenType.None,
         [key: "generate"] = TokenType.Generate,
         [key: "suspended"] = TokenType.Suspended,
-        [key: "waitfor"] = TokenType.Waitfor,
-        [key: "usurping"] = TokenType.Usurping
+        [key: "waitfor"] = TokenType.Waitfor
     };
 
     #endregion
@@ -101,6 +97,10 @@ public class SuflaeTokenizer : BaseTokenizer
     {
     }
 
+    /// <summary>
+    /// Indicates whether the source code is in script mode, determined by the absence of definitions.
+    /// In script mode, no explicit definitions (such as functions or classes) are present in the code.
+    /// </summary>
     public bool IsScriptMode => !_hasDefinitions;
 
     /// <summary>
@@ -553,6 +553,11 @@ public class SuflaeTokenizer : BaseTokenizer
 
     #region Overridden Base Methods
 
+    /// <summary>
+    /// Scans and identifies an identifier token from the source code.
+    /// Updates the internal state when specific definition keywords are encountered
+    /// to track whether the tokenizer is operating in script mode or not.
+    /// </summary>
     protected override void ScanIdentifier()
     {
         _hasTokenOnLine = true;

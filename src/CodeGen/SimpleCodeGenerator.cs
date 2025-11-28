@@ -38,6 +38,15 @@ public class SimpleCodeGenerator : IAstVisitor<string>
     /// <summary>Current indentation level for pretty-printing</summary>
     private int _indentLevel;
 
+    /// <summary>Generic function templates for monomorphization</summary>
+    private readonly Dictionary<string, FunctionDeclaration> _genericFunctionTemplates = new();
+
+    /// <summary>Tracks instantiated generic functions to avoid duplicates</summary>
+    private readonly HashSet<string> _instantiatedGenerics = new();
+
+    /// <summary>Current type substitutions for generic function body generation</summary>
+    private Dictionary<string, string>? _currentTypeSubstitutions;
+
     /// <summary>
     /// Initializes a new simple code generator for the specified language and mode.
     /// </summary>
@@ -95,6 +104,11 @@ public class SimpleCodeGenerator : IAstVisitor<string>
         _indentLevel--;
     }
 
+    private string GetIndent()
+    {
+        return new string(' ', _indentLevel * 2);
+    }
+
     // AST Visitor Implementation
 
     public string VisitProgram(AST.Program node)
@@ -132,27 +146,107 @@ public class SimpleCodeGenerator : IAstVisitor<string>
 
     public string VisitFunctionDeclaration(FunctionDeclaration node)
     {
+        // Check if this is a generic function (has type parameters)
+        if (node.GenericParameters != null && node.GenericParameters.Count > 0)
+        {
+            // Store the template for later instantiation - don't generate code yet
+            _genericFunctionTemplates[node.Name] = node;
+            string genericParams = string.Join(", ", node.GenericParameters);
+            WriteLine(text: $"; Generic function template: {node.Name}<{genericParams}>");
+            WriteLine();
+            return "";
+        }
+
+        // Non-generic function - generate code normally
+        return GenerateFunctionCode(node, typeSubstitutions: null);
+    }
+
+    /// <summary>
+    /// Generates code for a function, optionally applying type substitutions for generic instantiation.
+    /// </summary>
+    private string GenerateFunctionCode(FunctionDeclaration node,
+        Dictionary<string, string>? typeSubstitutions,
+        string? mangledName = null)
+    {
         string visStr = node.Visibility != VisibilityModifier.Private
             ? $"{node.Visibility.ToString().ToLower()} "
             : "";
         string paramStr = string.Join(separator: ", ",
-            values: node.Parameters.Select(selector: p => $"{p.Name}: {p.Type?.Name ?? "auto"}"));
-        string returnStr = node.ReturnType?.Name ?? "void";
+            values: node.Parameters.Select(selector: p =>
+            {
+                string typeName = p.Type?.Name ?? "auto";
+                // Apply type substitution if available
+                if (typeSubstitutions != null && typeSubstitutions.TryGetValue(typeName, out string? concrete))
+                {
+                    typeName = concrete;
+                }
+                return $"{p.Name}: {typeName}";
+            }));
 
-        WriteLine(text: $"{visStr}routine {node.Name}({paramStr}) -> {returnStr}");
+        string returnStr = node.ReturnType?.Name ?? "void";
+        // Apply type substitution to return type
+        if (typeSubstitutions != null && typeSubstitutions.TryGetValue(returnStr, out string? concreteReturn))
+        {
+            returnStr = concreteReturn;
+        }
+
+        string funcName = mangledName ?? node.Name;
+        WriteLine(text: $"{visStr}routine {funcName}({paramStr}) -> {returnStr}");
         WriteLine(text: "{");
         Indent();
+
+        // Store type substitutions for use in body generation
+        _currentTypeSubstitutions = typeSubstitutions;
 
         if (node.Body != null)
         {
             node.Body.Accept(visitor: this);
         }
 
+        // Clear type substitutions
+        _currentTypeSubstitutions = null;
+
         Dedent();
         WriteLine(text: "}");
         WriteLine();
 
         return "";
+    }
+
+    /// <summary>
+    /// Instantiates a generic function with concrete type arguments.
+    /// </summary>
+    public string InstantiateGenericFunction(string functionName, List<string> typeArguments)
+    {
+        // Check if we have the template
+        if (!_genericFunctionTemplates.TryGetValue(functionName, out FunctionDeclaration? template))
+        {
+            return functionName;
+        }
+
+        // Create mangled name
+        string mangledName = $"{functionName}_{string.Join("_", typeArguments)}";
+
+        // Check if already instantiated
+        if (_instantiatedGenerics.Contains(mangledName))
+        {
+            return mangledName;
+        }
+
+        // Mark as instantiated
+        _instantiatedGenerics.Add(mangledName);
+
+        // Create type substitution map
+        var substitutions = new Dictionary<string, string>();
+        for (int i = 0; i < Math.Min(template.GenericParameters!.Count, typeArguments.Count); i++)
+        {
+            substitutions[template.GenericParameters[i]] = typeArguments[i];
+        }
+
+        // Generate the instantiated function code
+        GenerateFunctionCode(template, substitutions, mangledName);
+
+        return mangledName;
     }
 
     public string VisitClassDeclaration(ClassDeclaration node)
@@ -380,6 +474,19 @@ public class SimpleCodeGenerator : IAstVisitor<string>
         return "";
     }
 
+    public string VisitFailStatement(FailStatement node)
+    {
+        string error = node.Error.Accept(visitor: this);
+        WriteLine(text: $"fail {error}");
+        return "";
+    }
+
+    public string VisitAbsentStatement(AbsentStatement node)
+    {
+        WriteLine(text: "absent");
+        return "";
+    }
+
     // Expressions
 
     public string VisitLiteralExpression(LiteralExpression node)
@@ -574,15 +681,38 @@ public class SimpleCodeGenerator : IAstVisitor<string>
 
     public string VisitGenericMethodCallExpression(GenericMethodCallExpression node)
     {
+        // Check if this is a user-defined generic function that needs instantiation
+        if (node.Object is IdentifierExpression funcIdentifier)
+        {
+            string baseFunctionName = funcIdentifier.Name;
+
+            // Check if we have a template for this function
+            if (_genericFunctionTemplates.ContainsKey(baseFunctionName))
+            {
+                // Get the concrete type arguments
+                var typeArgList = node.TypeArguments.Select(t => t.Name).ToList();
+
+                // Instantiate the generic function (generates code if not already done)
+                string mangledName = InstantiateGenericFunction(baseFunctionName, typeArgList);
+
+                // Generate call to the instantiated function
+                string args = string.Join(separator: ", ",
+                    values: node.Arguments.Select(selector: a => a.Accept(visitor: this)));
+
+                return $"{mangledName}({args})";
+            }
+        }
+
+        // Default: output as generic method call syntax
         string obj = node.Object.Accept(visitor: this);
         string typeArgs = string.Join(separator: ", ",
             values: node.TypeArguments.Select(selector: t => t.Accept(visitor: this)));
-        string args = string.Join(separator: ", ",
+        string defaultArgs = string.Join(separator: ", ",
             values: node.Arguments.Select(selector: a => a.Accept(visitor: this)));
         string bang = node.IsMemoryOperation
             ? "!"
             : "";
-        return $"{obj}.{node.MethodName}<{typeArgs}>{bang}({args})";
+        return $"{obj}.{node.MethodName}<{typeArgs}>{bang}({defaultArgs})";
     }
 
     public string VisitGenericMemberExpression(GenericMemberExpression node)
@@ -599,6 +729,16 @@ public class SimpleCodeGenerator : IAstVisitor<string>
         string args = string.Join(separator: ", ",
             values: node.Arguments.Select(selector: a => a.Accept(visitor: this)));
         return $"{obj}.{node.OperationName}!({args})";
+    }
+
+    public string VisitIntrinsicCallExpression(IntrinsicCallExpression node)
+    {
+        string typeArgs = node.TypeArguments.Count > 0
+            ? $"<{string.Join(", ", node.TypeArguments)}>"
+            : "";
+        string args = string.Join(separator: ", ",
+            values: node.Arguments.Select(selector: a => a.Accept(visitor: this)));
+        return $"@intrinsic.{node.IntrinsicName}{typeArgs}({args})";
     }
 
     public string VisitDangerStatement(DangerStatement node)
@@ -654,31 +794,118 @@ public class SimpleCodeGenerator : IAstVisitor<string>
         return "";
     }
 
+    /// <summary>
+    /// Generates C code for a viewing statement (scoped read-only access).
+    /// For single-threaded code, this creates a const pointer alias.
+    /// </summary>
     public string VisitViewingStatement(ViewingStatement node)
     {
-        // TODO: Implement viewing statement code generation
-        throw new NotImplementedException(
-            message: "viewing statement not yet implemented in simple code generator");
+        _output.AppendLine($"{GetIndent()}/* viewing {node.Source} as {node.Handle} */");
+        _output.AppendLine($"{GetIndent()}{{");
+        _indentLevel++;
+
+        // Generate source expression
+        string sourceExpr = node.Source.Accept(visitor: this);
+
+        // Create const pointer alias for read-only access
+        _output.AppendLine($"{GetIndent()}const void* {node.Handle} = &({sourceExpr});");
+
+        // Generate body
+        node.Body.Accept(visitor: this);
+
+        _indentLevel--;
+        _output.AppendLine($"{GetIndent()}}} /* end viewing {node.Handle} */");
+
+        return "";
     }
 
+    /// <summary>
+    /// Generates C code for a hijacking statement (scoped exclusive access).
+    /// For single-threaded code, this creates a mutable pointer alias.
+    /// </summary>
     public string VisitHijackingStatement(HijackingStatement node)
     {
-        // TODO: Implement hijacking statement code generation
-        throw new NotImplementedException(
-            message: "hijacking statement not yet implemented in simple code generator");
+        _output.AppendLine($"{GetIndent()}/* hijacking {node.Source} as {node.Handle} */");
+        _output.AppendLine($"{GetIndent()}{{");
+        _indentLevel++;
+
+        // Generate source expression
+        string sourceExpr = node.Source.Accept(visitor: this);
+
+        // Create mutable pointer for exclusive access
+        _output.AppendLine($"{GetIndent()}void* {node.Handle} = &({sourceExpr});");
+
+        // Generate body
+        node.Body.Accept(visitor: this);
+
+        _indentLevel--;
+        _output.AppendLine($"{GetIndent()}}} /* end hijacking {node.Handle} */");
+
+        return "";
     }
 
+    /// <summary>
+    /// Generates C code for an observing statement (thread-safe read access).
+    /// Acquires a read lock on the shared object.
+    /// </summary>
     public string VisitObservingStatement(ObservingStatement node)
     {
-        // TODO: Implement observing statement code generation
-        throw new NotImplementedException(
-            message: "observing statement not yet implemented in simple code generator");
+        _output.AppendLine($"{GetIndent()}/* observing {node.Source} as {node.Handle} */");
+        _output.AppendLine($"{GetIndent()}{{");
+        _indentLevel++;
+
+        // Generate source expression
+        string sourceExpr = node.Source.Accept(visitor: this);
+
+        // Acquire read lock and get inner pointer
+        _output.AppendLine($"{GetIndent()}void* {node.Handle} = razorforge_rwlock_read_lock({sourceExpr});");
+
+        // Generate body
+        node.Body.Accept(visitor: this);
+
+        // Release read lock
+        _output.AppendLine($"{GetIndent()}razorforge_rwlock_read_unlock({sourceExpr});");
+
+        _indentLevel--;
+        _output.AppendLine($"{GetIndent()}}} /* end observing {node.Handle} */");
+
+        return "";
     }
 
+    /// <summary>
+    /// Generates C code for a seizing statement (thread-safe exclusive access).
+    /// Acquires an exclusive lock on the shared object.
+    /// </summary>
     public string VisitSeizingStatement(SeizingStatement node)
     {
-        // TODO: Implement seizing statement code generation
-        throw new NotImplementedException(
-            message: "seizing statement not yet implemented in simple code generator");
+        _output.AppendLine($"{GetIndent()}/* seizing {node.Source} as {node.Handle} */");
+        _output.AppendLine($"{GetIndent()}{{");
+        _indentLevel++;
+
+        // Generate source expression
+        string sourceExpr = node.Source.Accept(visitor: this);
+
+        // Acquire exclusive lock and get inner pointer
+        _output.AppendLine($"{GetIndent()}void* {node.Handle} = razorforge_mutex_lock({sourceExpr});");
+
+        // Generate body
+        node.Body.Accept(visitor: this);
+
+        // Release exclusive lock
+        _output.AppendLine($"{GetIndent()}razorforge_mutex_unlock({sourceExpr});");
+
+        _indentLevel--;
+        _output.AppendLine($"{GetIndent()}}} /* end seizing {node.Handle} */");
+
+        return "";
+    }
+
+    /// <summary>
+    /// Generates code for a named argument expression (name: value).
+    /// </summary>
+    public string VisitNamedArgumentExpression(NamedArgumentExpression node)
+    {
+        string value = node.Value.Accept(visitor: this);
+        return $"{node.Name}: {value}";
     }
 }

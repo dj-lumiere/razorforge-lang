@@ -305,10 +305,12 @@ public class MemoryAnalyzer
                 policy: policy ?? LockingPolicy.Mutex),
             MemoryOperation.Track => HandleTrack(obj: obj, location: location, policy: policy),
             MemoryOperation.Snatch => HandleSnatch(obj: obj, location: location),
-            MemoryOperation.Release => HandleRelease(obj: obj, location: location),
             MemoryOperation.Recover => HandleRecover(obj: obj, location: location),
-            MemoryOperation.Reveal => HandleReveal(obj: obj, location: location),
-            MemoryOperation.Own => HandleOwn(obj: obj, location: location),
+            // Fallible lock operations handled via seizing/observing statements
+            MemoryOperation.TrySeize or MemoryOperation.CheckSeize => throw new NotImplementedException(
+                "try_seize/check_seize should be handled via seizing statement syntax"),
+            MemoryOperation.TryObserve or MemoryOperation.CheckObserve => throw new NotImplementedException(
+                "try_observe/check_observe should be handled via observing statement syntax"),
             _ => throw new ArgumentException(message: $"Unknown memory operation: {operation}")
         };
     }
@@ -812,14 +814,11 @@ public class MemoryAnalyzer
                 errors: errors),
             MemoryOperation.Snatch => ValidateSnatch(obj: memoryObject, location: location,
                 errors: errors),
-            MemoryOperation.Release => ValidateRelease(obj: memoryObject, location: location,
-                errors: errors),
             MemoryOperation.Recover => ValidateRecover(obj: memoryObject, location: location,
                 errors: errors),
-            MemoryOperation.Reveal => ValidateReveal(obj: memoryObject, location: location,
-                errors: errors),
-            MemoryOperation.Own => ValidateOwn(obj: memoryObject, location: location,
-                errors: errors),
+            // Fallible lock operations handled via seizing/observing statements
+            MemoryOperation.TrySeize or MemoryOperation.CheckSeize or MemoryOperation.TryObserve
+                or MemoryOperation.CheckObserve => WrapperType.Owned, // Placeholder - shouldn't reach here
             _ => WrapperType.Owned
         };
 

@@ -1,4 +1,163 @@
-entity Text {
-    private letters: List<letter>
+# RazorForge Text<T> - Generic immutable text type
+# Entity type with heap allocation
+# T can be letter (32-bit), letter8 (8-bit), or letter16 (16-bit)
+# Immutable - use TextBuffer<T> for mutable text
+
+import Collections/List
+
+entity Text<T> {
+    private letters: List<T>  # Dynamic array of letters
 }
 
+# Constructors
+
+routine Text<T>() -> Text<T> {
+    # Create empty text
+    return Text<T> {
+        letters: List<T>()
+    }
+}
+
+routine Text<T>(from_list: List<T>) -> Text<T> {
+    # Create text from list of letters
+    return Text<T> {
+        letters: from_list
+    }
+}
+
+routine Text<T>(from_letter: T) -> Text<T> {
+    # Create text from single letter
+    let list = List<T>()
+    list.push(from_letter)
+    return Text<T> {
+        letters: list
+    }
+}
+
+# Core operations
+
+routine Text<T>.length(me: Text<T>) -> u64 {
+    # Get length in characters (letters/codepoints)
+    return me.letters.len()
+}
+
+routine Text<T>.is_empty(me: Text<T>) -> bool {
+    return me.letters.is_empty()
+}
+
+routine Text<T>.get(me: Text<T>, index: u64) -> T {
+    # Get letter at index - O(1)
+    # Text is immutable so this is read-only
+    return me.letters.get(index)
+}
+
+# String operations (all create new Text - immutable!)
+
+routine Text<T>.concat(me: Text<T>, other: Text<T>) -> Text<T> {
+    # Concatenate two texts - creates NEW text
+    let result = List<T>()
+
+    # Copy first text
+    var i: u64 = 0u64
+    loop {
+        if i >= me.length() {
+            break
+        }
+        result.push(me.get(i))
+        i = i + 1u64
+    }
+
+    # Copy second text
+    i = 0u64
+    loop {
+        if i >= other.length() {
+            break
+        }
+        result.push(other.get(i))
+        i = i + 1u64
+    }
+
+    return Text<T>(from_list: result)
+}
+
+routine Text<T>.slice(me: Text<T>, start: u64, end: u64) -> Text<T> {
+    # Get substring [start, end) - creates NEW text
+    if start >= end or end > me.length() {
+        crash("Invalid slice range")
+    }
+
+    let result = List<T>()
+    var i = start
+    loop {
+        if i >= end {
+            break
+        }
+        result.push(me.get(i))
+        i = i + 1u64
+    }
+
+    return Text<T>(from_list: result)
+}
+
+routine Text<T>.eq(me: Text<T>, other: Text<T>) -> bool {
+    # Compare texts for equality
+    if me.length() != other.length() {
+        return false
+    }
+
+    var i: u64 = 0u64
+    loop {
+        if i >= me.length() {
+            break
+        }
+
+        if me.get(i) != other.get(i) {
+            return false
+        }
+
+        i = i + 1u64
+    }
+
+    return true
+}
+
+# Conversion
+
+routine Text<T>.to_buffer(me: Text<T>) -> TextBuffer<T> {
+    # Convert immutable Text to mutable TextBuffer
+    let buffer = TextBuffer<T>()
+
+    var i: u64 = 0u64
+    loop {
+        if i >= me.length() {
+            break
+        }
+        buffer.append(me.get(i))
+        i = i + 1u64
+    }
+
+    return buffer
+}
+
+# Iteration support
+
+routine Text<T>.iter(me: Text<T>) -> TextIterator<T> {
+    return TextIterator<T> {
+        text: me,
+        index: 0u64
+    }
+}
+
+record TextIterator<T> {
+    text: Text<T>
+    index: u64
+}
+
+routine TextIterator<T>.next(me: TextIterator<T>) -> T? {
+    if me.index >= me.text.length() {
+        return none
+    }
+    let value = me.text.get(me.index)
+    me.index = me.index + 1u64
+    return some(value)
+}

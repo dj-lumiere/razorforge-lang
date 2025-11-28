@@ -91,6 +91,11 @@ public enum TokenType
     /// <summary>16-bit raw formatted text literal with explicit prefix (t16rf"dir: {path}\file")</summary>
     Text16RawFormattedText,
 
+    BytesLiteral,
+    BytesRawLiteral,
+    BytesFormatted,
+    BytesRawFormatted,
+
     #endregion
 
     #region Typed Numeric Literals
@@ -370,6 +375,12 @@ public enum TokenType
     /// <summary>Return statement keyword</summary>
     Return,
 
+    /// <summary>Fail statement keyword - crashes with error (RazorForge only)</summary>
+    Fail,
+
+    /// <summary>Absent statement keyword - indicates value not found (triggers Lookup generation)</summary>
+    Absent,
+
     #endregion
 
     #region Keywords - Module System
@@ -603,7 +614,7 @@ public enum TokenType
     /// <summary>Bitwise NOT operator (~)</summary>
     Tilde,
 
-    /// <summary>Left bit shift operator (<<)</summary>
+    /// <summary>Left bit shift operator (&lt;&lt;)</summary>
     LeftShift,
 
     /// <summary>Right bit shift operator (>>)</summary>
@@ -624,6 +635,9 @@ public enum TokenType
 
     /// <summary>Attribute or annotation operator (@)</summary>
     At,
+
+    /// <summary>Intrinsic function call (@intrinsic)</summary>
+    Intrinsic,
 
     /// <summary>Comment or preprocessing operator (#)</summary>
     Hash,

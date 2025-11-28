@@ -19,6 +19,11 @@ public class RazorForgeCompilerService : IRazorForgeCompilerService
     private readonly ILogger<RazorForgeCompilerService> _logger;
     private readonly SemanticAnalyzer _semanticAnalyzer;
 
+    /// <summary>
+    /// Provides services for compiling and analyzing RazorForge code, to support
+    /// Language Server functionalities such as code analysis, auto-completion,
+    /// hover information, and symbol retrieval.
+    /// </summary>
     public RazorForgeCompilerService(ILogger<RazorForgeCompilerService> logger,
         SemanticAnalyzer semanticAnalyzer)
     {
@@ -399,11 +404,11 @@ public class RazorForgeCompilerService : IRazorForgeCompilerService
             },
             new()
             {
-                Label = "addr_of",
+                Label = "address_of",
                 Detail = "function",
                 Documentation = "Get address of variable (danger zone)",
                 Kind = CompletionKind.Function,
-                InsertText = "addr_of!($1)",
+                InsertText = "address_of!($1)",
                 IsSnippet = true
             },
             new()

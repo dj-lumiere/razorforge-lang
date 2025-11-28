@@ -1,19 +1,24 @@
-record Error {
-    public message: Text
+record Error follows Crashable {
+    public message: Text<letter32>
     public code: s32?
 
-    routine from_text(message: Text) -> Error {
-        return Error { message: message, code: none }
+    public routine __create__(message: Text<letter32>, code: s32?) {
+        me.message = message
+        me.code = code
     }
 
-    routine from_code(message: Text, code: s32) -> Error {
-        return Error { message: message, code: Some(code) }
+    routine from_text(message: Text<letter32>) -> Error {
+        return Error(message: message, code: none)
     }
 
-    routine to_text(self) -> Text {
-        when self.code {
-            Some(c) => f"Error {c}: {self.message}",
-            None => self.message
+    routine from_code(message: Text<letter32>, code: s32) -> Error {
+        return Error(message: message, code: code)
+    }
+
+    routine to_text(me) -> Text<letter32> {
+        when me.code {
+            is None => me.message
+            else c => f"Error {c}: {me.message}"
         }
     }
 }

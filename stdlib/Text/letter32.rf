@@ -1,0 +1,183 @@
+# RazorForge letter32 (32-bit Unicode character) implementation
+# Full Unicode support for text processing
+
+record letter32 {
+    private value: u32
+}
+
+# Unicode constants
+preset LETTER_NULL: letter32 = letter32(codepoint: 0x0000)
+preset LETTER_MAX_UNICODE: letter32 = letter32(codepoint: 0x10FFFF)
+preset LETTER_REPLACEMENT_CHAR: letter32 = letter32(codepoint: 0xFFFD)
+
+# ASCII common characters
+preset LETTER_SPACE: letter32 = letter32(codepoint: 0x20)
+preset LETTER_NEWLINE: letter32 = letter32(codepoint: 0x0A)
+preset LETTER_TAB: letter32 = letter32(codepoint: 0x09)
+
+# Core character properties
+routine letter32.codepoint(me: letter32) -> u32 {
+    return me.value
+}
+
+routine letter32(codepoint: u32) -> letter32 {
+    return letter32 { value: codepoint }
+}
+
+routine letter32.is_valid_unicode(me: letter32) -> bool {
+    let cp = me.codepoint()
+    return cp <= 0x10FFFF and not (0xD800 <= cp <= 0xDFFF)
+}
+
+routine letter32.is_ascii(me: letter32) -> bool {
+    return me.codepoint() <= 127
+}
+
+# Character classification
+routine letter32.is_alphabetic(me: letter32) -> bool {
+    let cp = me.codepoint()
+    return (0x41 <= cp <= 0x5A) or    # A-Z
+           (0x61 <= cp <= 0x7A) or    # a-z
+           (0xC0 <= cp <= 0xFF)       # Extended Latin (simplified)
+}
+
+routine letter32.is_numeric(me: letter32) -> bool {
+    let cp = me.codepoint()
+    return 0x30 <= cp <= 0x39  # 0-9
+}
+
+routine letter32.is_alphanumeric(me: letter32) -> bool {
+    return me.is_alphabetic() or me.is_numeric()
+}
+
+routine letter32.is_uppercase(me: letter32) -> bool {
+    let cp = me.codepoint()
+    return 0x41 <= cp <= 0x5A  # A-Z (ASCII only, simplified)
+}
+
+routine letter32.is_lowercase(me: letter32) -> bool {
+    let cp = me.codepoint()
+    return 0x61 <= cp <= 0x7A  # a-z (ASCII only, simplified)
+}
+
+routine letter32.is_whitespace(me: letter32) -> bool {
+    let cp = me.codepoint()
+    return cp == 0x20 or    # Space
+           cp == 0x09 or    # Tab
+           cp == 0x0A or    # Line feed
+           cp == 0x0D or    # Carriage return
+           cp == 0x0C       # Form feed
+}
+
+routine letter32.is_control(me: letter32) -> bool {
+    let cp = me.codepoint()
+    return (cp <= 0x1F) or cp == 0x7F
+}
+
+# Case conversions (ASCII only, simplified)
+routine letter32.to_uppercase(me: letter32) -> letter32 {
+    when (me.is_lowercase()) {
+        true => return letter32(codepoint: me.codepoint() - 32),
+        false => return me
+    }
+}
+
+routine letter32.to_lowercase(me: letter32) -> letter32 {
+    when (me.is_uppercase()) {
+        true => return letter32(codepoint: me.codepoint() + 32),
+        false => return me
+    }
+}
+
+# Comparison operations
+routine letter32.eq(me: letter32, other: letter32) -> bool {
+    return me.codepoint() == other.codepoint()
+}
+
+routine letter32.ne(me: letter32, other: letter32) -> bool {
+    return me.codepoint() != other.codepoint()
+}
+
+routine letter32.lt(me: letter32, other: letter32) -> bool {
+    return me.codepoint() < other.codepoint()
+}
+
+routine letter32.le(me: letter32, other: letter32) -> bool {
+    return me.codepoint() <= other.codepoint()
+}
+
+routine letter32.gt(me: letter32, other: letter32) -> bool {
+    return me.codepoint() > other.codepoint()
+}
+
+routine letter32.ge(me: letter32, other: letter32) -> bool {
+    return me.codepoint() >= other.codepoint()
+}
+
+# Type conversions
+routine letter16(from_letter: letter32) -> letter16 {
+    # Truncate to 16-bit (may lose information for high Unicode points)
+    return letter16(codepoint: from_letter.codepoint() as u16)
+}
+
+routine letter8(from_letter: letter32) -> letter8 {
+    # Truncate to 8-bit (ASCII only)
+    return letter8(codepoint: from_letter.codepoint() as u8)
+}
+
+routine u32(from_letter: letter32) -> u32 {
+    return from_letter.codepoint()
+}
+
+routine s32(from_letter: letter32) -> s32 {
+    return from_letter.codepoint() as s32
+}
+
+# Text conversion
+routine Text(from_letter: letter32) -> Text {
+    # Convert single character to Text
+    # Implementation would encode the Unicode code point to UTF-8
+    return ""  # Placeholder - would encode to UTF-8
+}
+
+routine letter32(from_text: Text) -> letter32 {
+    # Extract first character from Text
+    # Implementation would decode UTF-8 to Unicode code point
+    return LETTER_NULL  # Placeholder - would decode from UTF-8
+}
+
+# UTF-16 encoding helpers
+routine letter32.needs_surrogate_pair(me: letter32) -> bool {
+    return me.codepoint() > 0xFFFF
+}
+
+routine letter32.to_surrogate_pair(me: letter32) -> (letter16, letter16) {
+    when (me.needs_surrogate_pair()) {
+        true => {
+            let cp = me.codepoint() - 0x10000
+            let high = letter16(codepoint: ((cp >> 10) + 0xD800) as u16)
+            let low = letter16(codepoint: ((cp & 0x3FF) + 0xDC00) as u16)
+            return (high, low)
+        },
+        false => {
+            let char16 = letter16(from_letter: me)
+            return (char16, letter16(codepoint: 0))
+        }
+    }
+}
+
+# Utility routines
+routine letter32.is_digit(me: letter32) -> bool {
+    return me.is_numeric()
+}
+
+routine letter32.is_letter(me: letter32) -> bool {
+    return me.is_alphabetic()
+}
+
+routine letter32.digit_value(me: letter32) -> s32 {
+    when (me.is_numeric()) {
+        true => return (me.codepoint() - 0x30) as s32,
+        false => return -1
+    }
+}

@@ -7,9 +7,84 @@
   ],
   "patterns": [
     {
+      "comment": "Record type declaration",
+      "match": "\\b(record)\\s+([A-Z][a-zA-Z0-9_]*)(<[^>]+>)?",
+      "captures": {
+        "1": {
+          "name": "storage.type.record.razorforge"
+        },
+        "2": {
+          "name": "entity.name.type.record.razorforge"
+        },
+        "3": {
+          "name": "meta.generic.razorforge"
+        }
+      }
+    },
+    {
+      "comment": "Entity type declaration",
+      "match": "\\b(entity)\\s+([A-Z][a-zA-Z0-9_]*)(<[^>]+>)?",
+      "captures": {
+        "1": {
+          "name": "storage.type.entity.razorforge"
+        },
+        "2": {
+          "name": "entity.name.type.entity.razorforge"
+        },
+        "3": {
+          "name": "meta.generic.razorforge"
+        }
+      }
+    },
+    {
+      "comment": "Resident type declaration",
+      "match": "\\b(resident)\\s+([A-Z][a-zA-Z0-9_]*)(<[^>]+>)?",
+      "captures": {
+        "1": {
+          "name": "storage.type.resident.razorforge"
+        },
+        "2": {
+          "name": "entity.name.type.resident.razorforge"
+        },
+        "3": {
+          "name": "meta.generic.razorforge"
+        }
+      }
+    },
+    {
+      "comment": "Variant type declaration",
+      "match": "\\b(variant)\\s+([A-Z][a-zA-Z0-9_]*)(<[^>]+>)?",
+      "captures": {
+        "1": {
+          "name": "storage.type.variant.razorforge"
+        },
+        "2": {
+          "name": "entity.name.type.variant.razorforge"
+        },
+        "3": {
+          "name": "meta.generic.razorforge"
+        }
+      }
+    },
+    {
+      "comment": "Choice type declaration",
+      "match": "\\b(choice)\\s+([A-Z][a-zA-Z0-9_]*)(<[^>]+>)?",
+      "captures": {
+        "1": {
+          "name": "storage.type.choice.razorforge"
+        },
+        "2": {
+          "name": "entity.name.type.choice.razorforge"
+        },
+        "3": {
+          "name": "meta.generic.razorforge"
+        }
+      }
+    },
+    {
       "comment": "Keywords",
       "name": "keyword.control.razorforge",
-      "match": "\\b(routine|record|entity|let|var|const|preeval|return|if|else|for|in|to|loop|break|continue|import|public|private|protected|danger|with|and|or|not|as|redefine|crash|external|me|auto|using)\\b"
+      "match": "\\b(routine|let|var|const|preeval|return|if|else|for|in|to|loop|break|continue|import|public|private|protected|danger|with|and|or|not|as|redefine|crash|external|me|auto|using|when|preset)\\b"
     },
     {
       "comment": "Memory operations",
@@ -24,7 +99,7 @@
     {
       "comment": "Danger zone operations",
       "name": "keyword.operator.danger.razorforge",
-      "match": "\\b(read_as|write_as|volatile_read|volatile_write|obtain_as|reveal_as|addr_of|invalidate|read|write|heap_alloc|heap_free|stack_alloc|memory_copy|memory_fill|memory_zero|sizeof)\\b(!)?",
+      "match": "\\b(read_as|write_as|volatile_read|volatile_write|obtain_as|reveal_as|address_of|invalidate|read|write|heap_alloc|heap_free|stack_alloc|memory_copy|memory_fill|memory_zero|sizeof)\\b(!)?",
       "captures": {
         "2": {
           "name": "keyword.operator.bang.razorforge"
@@ -32,9 +107,14 @@
       }
     },
     {
-      "comment": "Types",
-      "name": "storage.type.razorforge",
-      "match": "\\b(s8|s16|s32|s64|s128|u8|u16|u32|u64|u128|f16|f32|f64|f128|d32|d64|d128|bool|sysuint|syssint|letter|text|DynamicSlice|TemporarySlice|cptr)\\b"
+      "comment": "Built-in primitive types",
+      "name": "storage.type.primitive.razorforge",
+      "match": "\\b(s8|s16|s32|s64|s128|u8|u16|u32|u64|u128|f16|f32|f64|f128|d32|d64|d128|bool|Bool|sysuint|syssint|letter|cptr)\\b"
+    },
+    {
+      "comment": "User-defined types (PascalCase)",
+      "name": "entity.name.type.user.razorforge",
+      "match": "\\b[A-Z][a-zA-Z0-9_]*\\b"
     },
     {
       "comment": "Function calls with !",

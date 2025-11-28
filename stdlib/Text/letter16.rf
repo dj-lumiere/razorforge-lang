@@ -52,15 +52,15 @@ routine letter16.is_low_surrogate(me: letter16) -> bool {
     return cp >= 0xDC00 and cp <= 0xDFFF
 }
 
-routine letter16.combine_surrogates(high: letter16, low: letter16) -> letter {
+routine letter16.combine_surrogates(high: letter16, low: letter16) -> letter32 {
     when (high.is_high_surrogate() and low.is_low_surrogate()) {
         true => {
             let high_bits = (high.codepoint() - 0xD800) as u32
             let low_bits = (low.codepoint() - 0xDC00) as u32
             let combined = ((high_bits << 10) | low_bits) + 0x10000
-            return letter(codepoint: combined)
+            return letter32(codepoint: combined)
         },
-        false => return letter(codepoint: 0xFFFD)  # Replacement character
+        false => return letter32(codepoint: 0xFFFD)  # Replacement character
     }
 }
 
@@ -153,9 +153,9 @@ routine letter16.ge(me: letter16, other: letter16) -> bool {
 }
 
 # Type conversions
-routine letter(from_letter16: letter16) -> letter {
-    # Extend to full Unicode letter
-    return letter(codepoint: from_letter16.codepoint() as u32)
+routine letter32(from_letter16: letter16) -> letter32 {
+    # Extend to full Unicode letter32
+    return letter32(codepoint: from_letter16.codepoint() as u32)
 }
 
 routine letter8(from_letter16: letter16) -> letter8 {

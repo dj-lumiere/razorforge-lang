@@ -1,3 +1,5 @@
+using Compilers.Shared.Lexer;
+
 namespace Compilers.Shared.AST;
 
 #region Base Statement Types
@@ -125,6 +127,65 @@ public record ReturnStatement(Expression? Value, SourceLocation Location)
     /// Compatibility property for tests that expect ReturnStatement.Expression
     /// </summary>
     public Expression? Expression => Value;
+}
+
+/// <summary>
+/// Statement that fails the current function with an error, returning it via Result<T>.
+/// Used in RazorForge and Suflae for recoverable errors that should be handled by the caller.
+/// </summary>
+/// <param name="Error">Expression that evaluates to a Crashable error type</param>
+/// <param name="Location">Source location information</param>
+/// <remarks>
+/// The fail statement is used for expected failures that should be handled:
+/// <code>
+/// routine divide!(a: s32, b: s32) -> s32 {
+///     if b == 0 {
+///         fail DivisionError(message: "Division by zero")
+///     }
+///     return a / b
+/// }
+/// </code>
+/// Compiler generates safe variants: try_divide() -> s32?, check_divide() -> Result<s32>
+/// </remarks>
+public record FailStatement(Expression Error, SourceLocation Location)
+    : Statement(Location: Location)
+{
+    /// <summary>Accepts a visitor for AST traversal and transformation</summary>
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitFailStatement(node: this);
+    }
+}
+
+/// <summary>
+/// Statement indicating that a value is not found/absent, triggering Lookup<T> generation.
+/// Used when a search operation finds no matching value (distinct from an error condition).
+/// </summary>
+/// <param name="Location">Source location information</param>
+/// <remarks>
+/// The absent statement is used to indicate "not found" in search/lookup operations:
+/// <code>
+/// routine get_user!(id: u64) -> User {
+///     unless database.connected() {
+///         fail DatabaseError(message: "Not connected")
+///     }
+///     unless database.has(id) {
+///         absent  // Value not found
+///     }
+///     return database.get(id)
+/// }
+/// </code>
+/// Compiler generates: try_get_user() -> User?, find_get_user() -> Lookup<User>
+/// Pattern matching: is Crashable e / is None / else user
+/// </remarks>
+public record AbsentStatement(SourceLocation Location)
+    : Statement(Location: Location)
+{
+    /// <summary>Accepts a visitor for AST traversal and transformation</summary>
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitAbsentStatement(node: this);
+    }
 }
 
 #endregion
@@ -360,11 +421,12 @@ public abstract record Pattern(SourceLocation Location);
 /// Used for precise value comparison in pattern matching constructs.
 /// </summary>
 /// <param name="Value">The exact value to match against (42, "hello", true, etc.)</param>
+/// <param name="LiteralType">Token type for typed literal suffixes (e.g., S32Literal for 1_s32)</param>
 /// <param name="Location">Source location information</param>
 /// <remarks>
 /// Examples: when x { 42 => ..., "hello" => ..., true => ... }
 /// </remarks>
-public record LiteralPattern(object Value, SourceLocation Location) : Pattern(Location: Location);
+public record LiteralPattern(object Value, TokenType LiteralType, SourceLocation Location) : Pattern(Location: Location);
 
 /// <summary>
 /// Pattern that binds a matched value to a variable name for use in the action.
@@ -408,6 +470,15 @@ public record TypePattern(TypeExpression Type, string? VariableName, SourceLocat
 /// </list>
 /// </remarks>
 public record WildcardPattern(SourceLocation Location) : Pattern(Location: Location);
+
+/// <summary>
+/// Expression pattern for when statements with guard conditions.
+/// Used in standalone when blocks: when { x > 10 => ..., _ => ... }
+/// </summary>
+/// <param name="Expression">The boolean expression that acts as a guard condition</param>
+/// <param name="Location">Source location information</param>
+public record ExpressionPattern(Expression Expression, SourceLocation Location)
+    : Pattern(Location: Location);
 
 #endregion
 

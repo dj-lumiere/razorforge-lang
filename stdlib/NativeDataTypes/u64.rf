@@ -1,232 +1,417 @@
 # RazorForge u64 (unsigned 64-bit integer) native type implementation
-# Maps directly to LLVM i64 type for unsigned operations
+# Maps directly to LLVM i64 type using compiler intrinsics
 
 # Core u64 type definition - maps to LLVM i64
 record u64 {
     public value: LlvmNativeI64
 }
 
-# Constants for u64 limits (LLVM constant values)
+# Constants for u64 limits
 preset U64_MIN: u64 = 0_u64
-preset U64_MAX: u64 = 18446744073709551615_u64
+preset U64_MAX: u64 = 18_446_744_073_709_551_615_u64
 preset U64_ZERO: u64 = 0_u64
 preset U64_ONE: u64 = 1_u64
 
-# Basic arithmetic operations (LLVM intrinsics: add, sub, mul, udiv, urem)
+# ============================================================================
+# Arithmetic Operations
+# ============================================================================
 
-# Addition with overflow checking
-routine u64.add(me: u64, other: u64) -> u64 {
-    return llvm_intrinsic("llvm.uadd.with.overflow.i64", me, other)
-}
-
-# Subtraction with overflow checking
-routine u64.sub(me: u64, other: u64) -> u64 {
-    return llvm_intrinsic("llvm.usub.with.overflow.i64", me, other)
-}
-
-# Multiplication with overflow checking
-routine u64.mul(me: u64, other: u64) -> u64 {
-    return llvm_intrinsic("llvm.umul.with.overflow.i64", me, other)
-}
-
-# Division (unsigned) - maps to LLVM udiv
-routine u64.floordiv(me: u64, other: u64) -> u64 {
-    when (other) {
-        0 => throw panic("Division by zero"),
-        _ => return llvm_intrinsic("udiv", me, other)
+# Addition (wrapping by default)
+routine u64.__add__(other: u64) -> u64 {
+    danger! {
+        return @intrinsic.add.wrapping<i64>(me, other)
     }
 }
 
-# Remainder (unsigned) - maps to LLVM urem
-routine u64.rem(me: u64, other: u64) -> u64 {
-    when (other) {
-        0 => throw panic("Division by zero"),
-        _ => return llvm_intrinsic("urem", me, other)
+# Subtraction (wrapping by default)
+routine u64.__sub__(other: u64) -> u64 {
+    danger! {
+        return @intrinsic.sub.wrapping<i64>(me, other)
     }
 }
 
-# Bitwise operations (direct LLVM mapping)
-routine u64.and(me: u64, other: u64) -> u64 {
-    return llvm_intrinsic("and", me, other)
+# Multiplication (wrapping by default)
+routine u64.__mul__(other: u64) -> u64 {
+    danger! {
+        return @intrinsic.mul.wrapping<i64>(me, other)
+    }
 }
 
-routine u64.or(me: u64, other: u64) -> u64 {
-    return llvm_intrinsic("or", me, other)
+# Division (unsigned)
+routine u64.__div__(other: u64) -> u64 {
+    danger! {
+        return @intrinsic.div.wrapping<i64>(me, other)
+    }
 }
 
-routine u64.xor(me: u64, other: u64) -> u64 {
-    return llvm_intrinsic("xor", me, other)
+# Remainder (unsigned)
+routine u64.__rem__(other: u64) -> u64 {
+    danger! {
+        return @intrinsic.rem.wrapping<i64>(me, other)
+    }
 }
 
-routine u64.not(me: u64) -> u64 {
-    return llvm_intrinsic("xor", me, 18446744073709551615)
-}
+# ============================================================================
+# Checked Arithmetic (returns Result with overflow detection)
+# ============================================================================
 
-# Bit shifting operations
-routine u64.shl(me: u64, bits: u64) -> u64 {
-    return llvm_intrinsic("shl", me, bits)
-}
-
-routine u64.shr(me: u64, bits: u64) -> u64 {
-    return llvm_intrinsic("lshr", me, bits)  # Logical right shift for unsigned
-}
-
-# Comparison operations (LLVM icmp)
-routine u64.eq(me: u64, other: u64) -> bool {
-    return llvm_intrinsic("icmp eq", me, other)
-}
-
-routine u64.ne(me: u64, other: u64) -> bool {
-    return llvm_intrinsic("icmp ne", me, other)
-}
-
-routine u64.lt(me: u64, other: u64) -> bool {
-    return llvm_intrinsic("icmp ult", me, other)  # Unsigned less than
-}
-
-routine u64.le(me: u64, other: u64) -> bool {
-    return llvm_intrinsic("icmp ule", me, other)  # Unsigned less equal
-}
-
-routine u64.gt(me: u64, other: u64) -> bool {
-    return llvm_intrinsic("icmp ugt", me, other)  # Unsigned greater than
-}
-
-routine u64.ge(me: u64, other: u64) -> bool {
-    return llvm_intrinsic("icmp uge", me, other)  # Unsigned greater equal
-}
-
-# Math operations
-routine u64.min(me: u64, other: u64) -> u64 {
-    return if me <= other then me else other
-}
-
-routine u64.max(me: u64, other: u64) -> u64 {
-    return if me >= other then me else other
-}
-
-# Bit manipulation utilities
-routine u64.count_leading_zeros(me: u64) -> u64 {
-    return llvm_intrinsic("llvm.ctlz.i64", me, false)
-}
-
-routine u64.count_trailing_zeros(me: u64) -> u64 {
-    return llvm_intrinsic("llvm.cttz.i64", me, false)
-}
-
-routine u64.count_ones(me: u64) -> u64 {
-    return llvm_intrinsic("llvm.ctpop.i64", me)
-}
-
-# Byte swapping for endianness conversion
-routine u64.byte_swap(me: u64) -> u64 {
-    return llvm_intrinsic("llvm.bswap.i64", me)
-}
-
-# Type conversions to other native types (using constructor syntax)
-routine u8(from_u64: u64) -> u8 {
-    return llvm_intrinsic("trunc", from_u64)      # Truncate to 8-bit
-}
-
-routine u16(from_u64: u64) -> u16 {
-    return llvm_intrinsic("trunc", from_u64)      # Truncate to 16-bit
-}
-
-routine u32(from_u64: u64) -> u32 {
-    return llvm_intrinsic("trunc", from_u64)      # Truncate to 32-bit
-}
-
-routine s8(from_u64: u64) -> s8 {
-    return llvm_intrinsic("trunc", from_u64)      # Truncate to signed 8-bit
-}
-
-routine s16(from_u64: u64) -> s16 {
-    return llvm_intrinsic("trunc", from_u64)      # Truncate to signed 16-bit
-}
-
-routine s32(from_u64: u64) -> s32 {
-    return llvm_intrinsic("trunc", from_u64)      # Truncate to signed 32-bit
-}
-
-routine s64(from_u64: u64) -> s64 {
-    return llvm_intrinsic("bitcast", from_u64)    # Direct bit reinterpretation
-}
-
-routine u128(from_u64: u64) -> u128 {
-    return llvm_intrinsic("zext", from_u64)       # Zero-extend to 128-bit
-}
-
-routine s128(from_u64: u64) -> s128 {
-    return llvm_intrinsic("zext", from_u64)       # Zero-extend to signed 128-bit
-}
-
-routine f32(from_u64: u64) -> f32 {
-    return llvm_intrinsic("uitofp", from_u64)     # Unsigned int to float
-}
-
-routine f64(from_u64: u64) -> f64 {
-    return llvm_intrinsic("uitofp", from_u64)     # Unsigned int to double
-}
-
-routine f128(from_u64: u64) -> f128 {
-    return llvm_intrinsic("uitofp", from_u64)     # Unsigned int to quad
-}
-
-routine bool(from_u64: u64) -> bool {
-    return from_u64 != 0
-}
-
-# Parsing and formatting using constructor syntax
-routine u64(from_text: Text) -> u64 {
-    # Parse Text to u64 using LLVM constant folding when possible
-    return 0  # Placeholder
-}
-
-routine Text(from_u64: u64) -> Text {
-    # Convert u64 to Text representation
-    return ""  # Placeholder
-}
-
-# Utility functions for bit operations
-routine u64.is_power_of_two(me: u64) -> bool {
-    return me != 0 and (me & (me - 1)) == 0
-}
-
-routine u64.next_power_of_two(me: u64) -> u64 {
-    when (me) {
-        0 => return 1,
-        1 => return 1,
-        _ => {
-            var power: u64 = 1
-            while power < me {
-                power = power << 1
-            }
-            return power
+# Checked addition
+routine u64.checked_add(other: u64) -> Result<u64, OverflowError> {
+    danger! {
+        let (result, overflow) = @intrinsic.add.overflow<i64>(me, other)
+        return if overflow {
+            Err(OverflowError())
+        } else {
+            Ok(result)
         }
     }
 }
 
-# Saturating arithmetic (clamps to min/max instead of wrapping)
-routine u64.saturating_add(me: u64, other: u64) -> u64 {
-    let result = me + other
-    return if result < me then U64_MAX else result  # Overflow check
+# Checked subtraction
+routine u64.checked_sub(other: u64) -> Result<u64, OverflowError> {
+    danger! {
+        let (result, overflow) = @intrinsic.sub.overflow<i64>(me, other)
+        return if overflow {
+            Err(OverflowError())
+        } else {
+            Ok(result)
+        }
+    }
 }
 
-routine u64.saturating_sub(me: u64, other: u64) -> u64 {
-    return if me >= other then me - other else U64_ZERO
+# Checked multiplication
+routine u64.checked_mul(other: u64) -> Result<u64, OverflowError> {
+    danger! {
+        let (result, overflow) = @intrinsic.mul.overflow<i64>(me, other)
+        return if overflow {
+            Err(OverflowError())
+        } else {
+            Ok(result)
+        }
+    }
 }
 
-routine u64.saturating_mul(me: u64, other: u64) -> u64 {
-    let result = me * other
-    return if other != 0 and result / other != me then U64_MAX else result
+# ============================================================================
+# Saturating Arithmetic (clamps at min/max instead of wrapping)
+# ============================================================================
+
+routine u64.saturating_add(other: u64) -> u64 {
+    danger! {
+        return @intrinsic.add.saturating<i64>(me, other)
+    }
 }
 
-/*
-LLVM IR Mapping:
-- RazorForge u64 -> LLVM i64 -> C uint64_t
-- Range: 0 to 18446744073709551615
-- Unsigned operations use ult, uge, udiv, urem, lshr
-- Common for large counters, memory addresses, and file sizes
-- Zero-extension used for conversions to larger types
-- Byte swapping available for endianness conversion
-*/
+routine u64.saturating_sub(other: u64) -> u64 {
+    danger! {
+        return @intrinsic.sub.saturating<i64>(me, other)
+    }
+}
+
+# ============================================================================
+# Bitwise Operations
+# ============================================================================
+
+routine u64.__and__(other: u64) -> u64 {
+    danger! {
+        return @intrinsic.and<i64>(me, other)
+    }
+}
+
+routine u64.__or__(other: u64) -> u64 {
+    danger! {
+        return @intrinsic.or<i64>(me, other)
+    }
+}
+
+routine u64.__xor__(other: u64) -> u64 {
+    danger! {
+        return @intrinsic.xor<i64>(me, other)
+    }
+}
+
+routine u64.__not__() -> u64 {
+    danger! {
+        return @intrinsic.not<i64>(me)
+    }
+}
+
+# Left shift
+routine u64.__shl__(bits: u32) -> u64 {
+    danger! {
+        return @intrinsic.shl<i64>(me, bits)
+    }
+}
+
+# Logical right shift (zero-fill)
+routine u64.__shr__(bits: u32) -> u64 {
+    danger! {
+        return @intrinsic.lshr<i64>(me, bits)
+    }
+}
+
+# ============================================================================
+# Comparison Operations (unsigned)
+# ============================================================================
+
+routine u64.__eq__(other: u64) -> bool {
+    danger! {
+        return @intrinsic.icmp.eq<i64>(me, other)
+    }
+}
+
+routine u64.__ne__(other: u64) -> bool {
+    danger! {
+        return @intrinsic.icmp.ne<i64>(me, other)
+    }
+}
+
+routine u64.__lt__(other: u64) -> bool {
+    danger! {
+        return @intrinsic.icmp.ult<i64>(me, other)
+    }
+}
+
+routine u64.__le__(other: u64) -> bool {
+    danger! {
+        return @intrinsic.icmp.ule<i64>(me, other)
+    }
+}
+
+routine u64.__gt__(other: u64) -> bool {
+    danger! {
+        return @intrinsic.icmp.ugt<i64>(me, other)
+    }
+}
+
+routine u64.__ge__(other: u64) -> bool {
+    danger! {
+        return @intrinsic.icmp.uge<i64>(me, other)
+    }
+}
+
+# ============================================================================
+# Math Operations
+# ============================================================================
+
+routine u64.min(other: u64) -> u64 {
+    return if me <= other then me else other
+}
+
+routine u64.max(other: u64) -> u64 {
+    return if me >= other then me else other
+}
+
+routine u64.clamp(min_val: u64, max_val: u64) -> u64 {
+    return me.min(max_val).max(min_val)
+}
+
+# ============================================================================
+# Bit Manipulation
+# ============================================================================
+
+routine u64.count_ones() -> u64 {
+    danger! {
+        return @intrinsic.ctpop<i64>(me)
+    }
+}
+
+routine u64.count_zeros() -> u64 {
+    return 64_u64 - me.count_ones()
+}
+
+routine u64.leading_zeros() -> u64 {
+    danger! {
+        return @intrinsic.ctlz<i64>(me)
+    }
+}
+
+routine u64.trailing_zeros() -> u64 {
+    danger! {
+        return @intrinsic.cttz<i64>(me)
+    }
+}
+
+routine u64.leading_ones() -> u64 {
+    return me.__not__().leading_zeros()
+}
+
+routine u64.trailing_ones() -> u64 {
+    return me.__not__().trailing_zeros()
+}
+
+routine u64.reverse_bits() -> u64 {
+    danger! {
+        return @intrinsic.bitreverse<i64>(me)
+    }
+}
+
+routine u64.swap_bytes() -> u64 {
+    danger! {
+        return @intrinsic.bswap<i64>(me)
+    }
+}
+
+# ============================================================================
+# Type Conversions
+# ============================================================================
+
+# Convert to signed (reinterpret bits)
+routine u64.to_s64() -> s64 {
+    danger! {
+        return @intrinsic.bitcast<i64, i64>(me)
+    }
+}
+
+# Convert to smaller unsigned integers (truncate)
+routine u64.to_u32() -> u32 {
+    danger! {
+        return @intrinsic.trunc<i64, i32>(me)
+    }
+}
+
+routine u64.to_u16() -> u16 {
+    danger! {
+        return @intrinsic.trunc<i64, i16>(me)
+    }
+}
+
+routine u64.to_u8() -> u8 {
+    danger! {
+        return @intrinsic.trunc<i64, i8>(me)
+    }
+}
+
+# Convert to float
+routine u64.to_f64() -> f64 {
+    danger! {
+        return @intrinsic.uitofp<i64, double>(me)
+    }
+}
+
+routine u64.to_f32() -> f32 {
+    danger! {
+        return @intrinsic.uitofp<i64, float>(me)
+    }
+}
+
+# Convert to boolean
+routine u64.to_bool() -> bool {
+    danger! {
+        return @intrinsic.icmp.ne<i64>(me, 0_u64)
+    }
+}
+
+# ============================================================================
+# Utility Methods
+# ============================================================================
+
+routine u64.is_zero() -> bool {
+    return me == 0_u64
+}
+
+routine u64.is_even() -> bool {
+    danger! {
+        let result = @intrinsic.and<i64>(me, 1_u64)
+        return @intrinsic.icmp.eq<i64>(result, 0_u64)
+    }
+}
+
+routine u64.is_odd() -> bool {
+    return not me.is_even()
+}
+
+# Power of 2 check (very common for unsigned)
+routine u64.is_power_of_two() -> bool {
+    danger! {
+        let is_nonzero = @intrinsic.icmp.ne<i64>(me, 0_u64)
+        let minus_one = @intrinsic.sub.wrapping<i64>(me, 1_u64)
+        let anded = @intrinsic.and<i64>(me, minus_one)
+        let is_zero = @intrinsic.icmp.eq<i64>(anded, 0_u64)
+        return is_nonzero and is_zero
+    }
+}
+
+# Next power of 2 (round up)
+routine u64.next_power_of_two() -> u64 {
+    when {
+        me == 0_u64 => 1_u64,
+        me.is_power_of_two() => me,
+        _ => {
+            danger! {
+                var n = me
+                n = @intrinsic.sub.wrapping<i64>(n, 1_u64)
+                n = @intrinsic.or<i64>(n, @intrinsic.lshr<i64>(n, 1_u32))
+                n = @intrinsic.or<i64>(n, @intrinsic.lshr<i64>(n, 2_u32))
+                n = @intrinsic.or<i64>(n, @intrinsic.lshr<i64>(n, 4_u32))
+                n = @intrinsic.or<i64>(n, @intrinsic.lshr<i64>(n, 8_u32))
+                n = @intrinsic.or<i64>(n, @intrinsic.lshr<i64>(n, 16_u32))
+                n = @intrinsic.or<i64>(n, @intrinsic.lshr<i64>(n, 32_u32))
+                return @intrinsic.add.wrapping<i64>(n, 1_u64)
+            }
+        }
+    }
+}
+
+# Rotate left
+routine u64.rotate_left(bits: u32) -> u64 {
+    danger! {
+        let left = @intrinsic.shl<i64>(me, bits)
+        let right = @intrinsic.lshr<i64>(me, 64_u32 - bits)
+        return @intrinsic.or<i64>(left, right)
+    }
+}
+
+# Rotate right
+routine u64.rotate_right(bits: u32) -> u64 {
+    danger! {
+        let right = @intrinsic.lshr<i64>(me, bits)
+        let left = @intrinsic.shl<i64>(me, 64_u32 - bits)
+        return @intrinsic.or<i64>(right, left)
+    }
+}
+
+# ============================================================================
+# String Conversion (placeholder - needs proper implementation)
+# ============================================================================
+
+routine u64.to_text() -> Text {
+    danger! {
+        return @format_u64(me)
+    }
+}
+
+# Parsing constructors using compiler intrinsics
+
+# Fallible constructor - crashes on invalid input
+routine u64!(from_text: Text) -> u64 {
+    danger! {
+        return @parse_u64(from_text)
+    }
+}
+
+# Safe constructor - returns Maybe<u64>
+routine u64?(from_text: Text) -> Maybe<u64> {
+    danger! {
+        return @try_parse_u64(from_text)
+    }
+}
+
+# ============================================================================
+# Example: Fast modular exponentiation
+# ============================================================================
+
+routine modpow_u64(base: u64, exp: u64, modulus: u64) -> u64 {
+    var result: u64 = 1_u64
+    var b = base % modulus
+    var e = exp
+
+    while e > 0_u64 {
+        if e.is_odd() {
+            result = (result * b) % modulus
+        }
+        b = (b * b) % modulus
+        e = e >> 1_u32
+    }
+
+    return result
+}

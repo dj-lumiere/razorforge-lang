@@ -27,9 +27,10 @@ routine main() -> s32 {
     let cache = Cache(data: Dict(), hits: 0)
 
     # Pattern matching for control flow
-    when cache.hits > 0 {
+    when cache.view().hits > 0 {
         is true => show("Cache active"),
         else => {
+            # Scoped access for multiple operations
             hijacking cache as h {
                 h.data.insert(1, "value")
                 h.hits += 1
@@ -40,10 +41,8 @@ routine main() -> s32 {
     # Reference counting when needed
     let shared = cache.retain()  # Explicit Retained<T>
 
-    # Scoped read access
-    viewing shared as v {
-        show(f"Hits: {v.hits}")
-    }
+    # Inline access for single operations
+    show(f"Hits: {shared.view().hits}")
 
     return 0
 }
@@ -158,7 +157,8 @@ routine main():
 
 ### RazorForge
 
-- **Theatrical Memory Model**: `hijacking`, `share`, `retain` - make memory operations visible
+- **Theatrical Memory Model**: Inline tokens (`.view()`, `.hijack()`) + scoped blocks (`viewing`, `hijacking`) + explicit ownership (`.consume()`)
+- **No Lifetime Annotations**: Inline-only tokens + scoped blocks - safety without complexity
 - **Zero-Cost Abstractions**: Pay only for what you use
 - **Danger Blocks**: Opt-in unsafe operations for zero-overhead code
 - **Resident Types**: Fixed-size reference types for embedded systems
@@ -223,13 +223,15 @@ routine main():
 
 ### RazorForge: Theatrical Memory Management
 
-RazorForge makes memory operations **visible and elegant** through scoped access patterns:
+RazorForge makes memory operations **visible and explicit** through inline tokens and scoped blocks:
 
 ```razorforge
 ### High-performance connection pool with reference counting
 ###
 ### Demonstrates:
-### - viewing/hijacking for scoped access
+### - Inline tokens (.view()/.hijack()) for single operations
+### - Scoped blocks (hijacking/viewing) for multiple operations
+### - .consume() for explicit ownership transfer
 ### - Retained<T> for reference-counted ownership
 ### - Tracked<Retained<T>> for weak references (break cycles)
 ### - Pattern matching with when
@@ -240,16 +242,17 @@ entity ConnectionPool {
 }
 
 routine acquire_connection(pool: Retained<ConnectionPool>) -> Connection? {
+    # Scoped access for multiple operations
     hijacking pool as p {
         # Check capacity with pattern matching
         when p.active_count < p.max_connections {
             is true => {
-                let conn = Connection.new()
-                p.connections.push(conn)
+                let conn = Connection()
+                p.connections.push(conn.consume())  # Explicit ownership transfer
                 p.active_count += 1
                 return conn
             },
-            else => return none  # Pool exhausted
+            else => return None  # Pool exhausted
         }
     }
 }
@@ -259,9 +262,8 @@ routine monitor_pool(weak: Tracked<Retained<ConnectionPool>>) {
     when weak.try_recover() {
         is None => show("Pool was deallocated"),
         else strong => {
-            viewing strong as v {
-                show("Pool stats: {v.active_count}/{v.max_connections}")
-            }
+            # Inline access for single read
+            show("Pool stats: {strong.view().active_count}/{strong.view().max_connections}")
         }
     }
 }
@@ -345,7 +347,7 @@ For clean thread communication, **transfer ownership** via channels:
 ### Demonstrates:
 ### - Channel<T> for ownership transfer
 ### - No shared state - just message passing
-record Task {
+entity Task {
     id: s32
     data: Text<letter>
 }
@@ -372,7 +374,7 @@ routine main() -> s32 {
     # Send tasks (ownership transferred to channel)
     for i in 0 to 100 {
         let task = Task(id: i, data: "payload")
-        tx.send(task)  # task becomes deadref - moved to channel
+        tx.send(task.consume())  # Explicit: task becomes deadref
     }
 
     return 0

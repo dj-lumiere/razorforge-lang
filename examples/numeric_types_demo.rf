@@ -13,7 +13,7 @@ routine calculate_fibonacci(n: s64) -> s64 {
 # Floating point operations with f64 (maps to LLVM double)
 routine calculate_compound_interest(principal: f64, rate: f64, time: s64) -> f64 {
     let years: f64 = f64(from_s64: time)
-    return principal * ((1.0 + rate) ^ years)
+    return principal * ((1.0 + rate) ** years)
 }
 
 # Mixed integer and floating point arithmetic
@@ -26,7 +26,7 @@ routine compute_average(values: slice<s64>) -> f64 {
     }
 
     # Convert s64 to f64 for division
-    return f64(from_s64: sum) / f64(from_s64: count)
+    return f64(sum) / f64(count)
 }
 
 # Bitwise operations on s64 (direct LLVM mapping)
@@ -81,11 +81,13 @@ routine distance_squared(p1: Point3D, p2: Point3D) -> f64 {
 }
 
 # Unsafe pointer operations for low-level LLVM integration
-routine unsafe_memory_copy(src: sysuint, dest: sysuint, count: s64) {
+routine unsafe_memory_copy(src: Snatched<f64>, dest: Snatched<f64>, count: s64) {
     danger {
         # Direct memory manipulation - compiles to LLVM memcpy intrinsic
-        for i in 0..count {
-            write_as<f64>!(dest + i * 8, read_as<f64>!(src + i * 8))
+        for i in (0 to count - 1) {
+            let next_src = Snatched<f64>(src.address + i * sizeof<f64>())
+            let next_dst = Snatched<f64>(dest.address + i * sizeof<f64>())
+            next_dst.write_as<f64>!(next_src.value)
         }
     }
 }
