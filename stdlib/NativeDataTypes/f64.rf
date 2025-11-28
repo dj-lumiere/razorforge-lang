@@ -279,19 +279,11 @@ routine f64.to_text() -> Text {
     }
 }
 
-# Parsing constructors using compiler intrinsics
-
-# Fallible constructor - crashes on invalid input
-routine f64!(from_text: Text) -> f64 {
+# Failable constructor from Text - called as f64!(text)
+# Compiler automatically generates try_f64.__create__(text) -> Maybe<f64>
+routine f64.__create__!(from_text: Text<Letterlikes>) -> f64 {
     danger! {
         return @parse_f64(from_text)
-    }
-}
-
-# Safe constructor - returns Maybe<f64>
-routine f64?(from_text: Text) -> Maybe<f64> {
-    danger! {
-        return @try_parse_f64(from_text)
     }
 }
 

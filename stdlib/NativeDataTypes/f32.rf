@@ -1,5 +1,5 @@
 # RazorForge f32 (single precision floating point) native type implementation
-# Maps directly to LLVM float type and IEEE 754 binary32 format
+# Maps directly to LLVM float type using compiler intrinsics
 
 # Core f32 type definition - maps to LLVM float
 record f32 {
@@ -7,382 +7,288 @@ record f32 {
 }
 
 # IEEE 754 single precision constants
-preset F32_EPSILON: f32 = 1.1920929e-7
-preset F32_MIN: f32 = -3.4028235e+38
-preset F32_MAX: f32 = 3.4028235e+38
-preset F32_MIN_POSITIVE: f32 = 1.1754944e-38
-preset F32_INFINITY: f32 = 1.0 / 0.0
-preset F32_NEG_INFINITY: f32 = -1.0 / 0.0
-preset F32_NAN: f32 = 0.0 / 0.0
+preset F32_EPSILON: f32 = 1.1920929e-7_f32
+preset F32_MIN: f32 = -3.4028235e+38_f32
+preset F32_MAX: f32 = 3.4028235e+38_f32
+preset F32_MIN_POSITIVE: f32 = 1.1754944e-38_f32
+preset F32_ZERO: f32 = 0.0_f32
+preset F32_ONE: f32 = 1.0_f32
 
 # Mathematical constants
-preset F32_PI: f32 = 3.1415927
-preset F32_E: f32 = 2.7182817
-preset F32_SQRT_2: f32 = 1.4142135
-preset F32_LN_2: f32 = 0.6931472
-preset F32_LN_10: f32 = 2.3025851
+preset F32_PI: f32 = 3.1415927_f32
+preset F32_E: f32 = 2.7182817_f32
+preset F32_SQRT_2: f32 = 1.4142135_f32
+preset F32_LN_2: f32 = 0.6931472_f32
+preset F32_LN_10: f32 = 2.3025851_f32
 
-# Basic arithmetic operations (LLVM floating point intrinsics)
-
-# Addition - maps to LLVM fadd
-routine f32.add(my: f32, other: f32) -> f32 {
-    return llvm_intrinsic("fadd", my, other)
-}
-
-# Subtraction - maps to LLVM fsub
-routine f32.sub(my: f32, other: f32) -> f32 {
-    return llvm_intrinsic("fsub", my, other)
-}
-
-# Multiplication - maps to LLVM fmul
-routine f32.mul(my: f32, other: f32) -> f32 {
-    return llvm_intrinsic("fmul", my, other)
-}
-
-# Division - maps to LLVM fdiv
-routine f32.div(my: f32, other: f32) -> f32 {
-    return llvm_intrinsic("fdiv", my, other)
-}
-
-# Remainder - maps to LLVM frem
-routine f32.rem(my: f32, other: f32) -> f32 {
-    return llvm_intrinsic("frem", my, other)
-}
-
-# Comparison operations (LLVM fcmp)
-routine f32.eq(my: f32, other: f32) -> bool {
-    return llvm_intrinsic("fcmp oeq", my, other)  # Ordered equal
-}
-
-routine f32.ne(my: f32, other: f32) -> bool {
-    return llvm_intrinsic("fcmp one", my, other)  # Ordered not equal
-}
-
-routine f32.lt(my: f32, other: f32) -> bool {
-    return llvm_intrinsic("fcmp olt", my, other)  # Ordered less than
-}
-
-routine f32.le(my: f32, other: f32) -> bool {
-    return llvm_intrinsic("fcmp ole", my, other)  # Ordered less equal
-}
-
-routine f32.gt(my: f32, other: f32) -> bool {
-    return llvm_intrinsic("fcmp ogt", my, other)  # Ordered greater than
-}
-
-routine f32.ge(my: f32, other: f32) -> bool {
-    return llvm_intrinsic("fcmp oge", my, other)  # Ordered greater equal
-}
-
-# NaN-aware comparisons
-routine f32.is_nan(my: f32) -> bool {
-    return llvm_intrinsic("fcmp uno", my, my)   # Unordered (NaN check)
-}
-
-routine f32.is_finite(my: f32) -> bool {
-    not my.is_nan() and not my.is_infinite()
-}
-
-routine f32.is_infinite(my: f32) -> bool {
-    my == F32_INFINITY or my == F32_NEG_INFINITY
-}
-
-# Mathematical functions using LLVM intrinsics
-routine f32.abs(my: f32) -> f32 {
-    return llvm_intrinsic("llvm.fabs.f32", my)
-}
-
-routine f32.sqrt(my: f32) -> f32 {
-    return llvm_intrinsic("llvm.sqrt.f32", my)
-}
-
-routine f32.sin(my: f32) -> f32 {
-    return llvm_intrinsic("llvm.sin.f32", my)
-}
-
-routine f32.cos(my: f32) -> f32 {
-    return llvm_intrinsic("llvm.cos.f32", my)
-}
-
-routine f32.tan(my: f32) -> f32 {
-    my.sin() / my.cos()
-}
-
-routine f32.pow(my: f32, exponent: f32) -> f32 {
-    return llvm_intrinsic("llvm.pow.f32", my, exponent)
-}
-
-routine f32.exp(my: f32) -> f32 {
-    return llvm_intrinsic("llvm.exp.f32", my)
-}
-
-routine f32.exp2(my: f32) -> f32 {
-    return llvm_intrinsic("llvm.exp2.f32", my)
-}
-
-routine f32.ln(my: f32) -> f32 {
-    return llvm_intrinsic("llvm.log.f32", my)
-}
-
-routine f32.log2(my: f32) -> f32 {
-    return llvm_intrinsic("llvm.log2.f32", my)
-}
-
-routine f32.log10(my: f32) -> f32 {
-    return llvm_intrinsic("llvm.log10.f32", my)
-}
-
-# Rounding and truncation
-routine f32.floor(my: f32) -> f32 {
-    return llvm_intrinsic("llvm.floor.f32", my)
-}
-
-routine f32.ceil(my: f32) -> f32 {
-    return llvm_intrinsic("llvm.ceil.f32", my)
-}
-
-routine f32.round(my: f32) -> f32 {
-    return llvm_intrinsic("llvm.round.f32", my)
-}
-
-routine f32.trunc(my: f32) -> f32 {
-    return llvm_intrinsic("llvm.trunc.f32", my)
-}
-
-# Min/Max with proper NaN handling
-routine f32.min(my: f32, other: f32) -> f32 {
-    return llvm_intrinsic("llvm.minnum.f32", my, other)
-}
-
-routine f32.max(my: f32, other: f32) -> f32 {
-    return llvm_intrinsic("llvm.maxnum.f32", my, other)
-}
-
-# Fused multiply-add for better precision
-routine f32.fma(my: f32, mul: f32, add: f32) -> f32 {
-    return llvm_intrinsic("llvm.fma.f32", my, mul, add)
-}
-
-# IEEE 754 bit manipulation
-routine f32.as_bits(my: f32) -> s32 {
-    return llvm_intrinsic("bitcast", my)  # Reinterpret as s32
-}
-
-routine f32(from_bits: BitArray<32>) -> f32 {
-    return llvm_intrinsic("bitcast", from_bits)  # Reinterpret BitArray<32> as f32
-}
-
-# Extract IEEE 754 components (binary32: 1 sign + 8 exponent + 23 mantissa)
-routine f32.extract_sign(my: f32) -> bool {
-    let bits = my.as_bits()
-    return (bits >> 31) != 0
-}
-
-routine f32.extract_exponent(my: f32) -> s32 {
-    let bits = my.as_bits()
-    return (bits >> 23) & 0xFF  # 8 bits
-}
-
-routine f32.extract_mantissa(my: f32) -> s32 {
-    let bits = my.as_bits()
-    return bits & 0x7FFFFF  # 23 bits
-}
-
-# Type conversions (using constructor syntax)
-routine s8(from_f32: f32) -> s8 {
-    return llvm_intrinsic("fptosi", from_f32)   # Float to signed int
-}
-
-routine u8(from_f32: f32) -> u8 {
-    return llvm_intrinsic("fptoui", from_f32)   # Float to unsigned int
-}
-
-routine s16(from_f32: f32) -> s16 {
-    return llvm_intrinsic("fptosi", from_f32)   # Float to signed int
-}
-
-routine u16(from_f32: f32) -> u16 {
-    return llvm_intrinsic("fptoui", from_f32)   # Float to unsigned int
-}
-
-routine s32(from_f32: f32) -> s32 {
-    return llvm_intrinsic("fptosi", from_f32)   # Float to signed int
-}
-
-routine u32(from_f32: f32) -> u32 {
-    return llvm_intrinsic("fptoui", from_f32)   # Float to unsigned int
-}
-
-routine s64(from_f32: f32) -> s64 {
-    return llvm_intrinsic("fptosi", from_f32)   # Float to signed int
-}
-
-routine u64(from_f32: f32) -> u64 {
-    return llvm_intrinsic("fptoui", from_f32)   # Float to unsigned int
-}
-
-routine f16(from_f32: f32) -> f16 {
-    return llvm_intrinsic("fptrunc", from_f32)  # Truncate to half precision
-}
-
-routine f64(from_f32: f32) -> f64 {
-    return llvm_intrinsic("fpext", from_f32)    # Extend to double precision
-}
-
-routine f128(from_f32: f32) -> f128 {
-    return llvm_intrinsic("fpext", from_f32)    # Extend to quad precision
-}
-
-routine bool(from_f32: f32) -> bool {
-    return from_f32 != 0.0
-}
-
-# Conversion from other types to f32
-routine f32(from_s8: s8) -> f32 {
-    return llvm_intrinsic("sitofp", from_s8)   # Signed int to float
-}
-
-routine f32(from_u8: u8) -> f32 {
-    return llvm_intrinsic("uitofp", from_u8)   # Unsigned int to float
-}
-
-routine f32(from_s16: s16) -> f32 {
-    return llvm_intrinsic("sitofp", from_s16)   # Signed int to float
-}
-
-routine f32(from_u16: u16) -> f32 {
-    return llvm_intrinsic("uitofp", from_u16)   # Unsigned int to float
-}
-
-routine f32(from_s32: s32) -> f32 {
-    return llvm_intrinsic("sitofp", from_s32)   # Signed int to float
-}
-
-routine f32(from_u32: u32) -> f32 {
-    return llvm_intrinsic("uitofp", from_u32)   # Unsigned int to float
-}
-
-routine f32(from_s64: s64) -> f32 {
-    return llvm_intrinsic("sitofp", from_s64)   # Signed int to float
-}
-
-routine f32(from_u64: u64) -> f32 {
-    return llvm_intrinsic("uitofp", from_u64)   # Unsigned int to float
-}
-
-routine f32(from_f16: f16) -> f32 {
-    return llvm_intrinsic("fpext", from_f16)    # Extend from half precision
-}
-
-routine f32(from_f64: f64) -> f32 {
-    return llvm_intrinsic("fptrunc", from_f64)  # Truncate from double precision
-}
-
-routine f32(from_f128: f128) -> f32 {
-    return llvm_intrinsic("fptrunc", from_f128) # Truncate from quad precision
-}
-
-# Parsing constructors using compiler intrinsics
-
-# Fallible constructor - crashes on invalid input
-routine f32!(from_text: Text) -> f32 {
+# Failable constructor from Text - called as f32!(text)
+# Compiler automatically generates try_f32.__create__(text) -> Maybe<f32>
+routine f32.__create__!(from_text: Text<Letterlikes>) -> f32 {
     danger! {
         return @parse_f32(from_text)
     }
 }
 
-# Safe constructor - returns Maybe<f32>
-routine f32?(from_text: Text) -> Maybe<f32> {
+# ============================================================================
+# Arithmetic Operations (IEEE 754 semantics)
+# ============================================================================
+
+routine f32.__add__(other: f32) -> f32 {
     danger! {
-        return @try_parse_f32(from_text)
+        return @intrinsic.add.wrapping<float>(me, other)
     }
 }
 
-routine Text(from_f32: f32, precision: s32) -> Text {
-    # Convert f32 to Text representation with specified precision
-    return ""  # Placeholder
-}
-
-# High-performance mathematical operations
-routine fast_inverse_sqrt(value: f32) -> f32 {
-    # Fast inverse square root using bit manipulation (Quake III algorithm)
-    let bits = value.as_bits()
-    let magic: s32 = 0x5F3759DF  # Magic constant for f32
-    let guess = f32.from_bits(magic - (bits >> 1))
-
-    # Newton-Raphson refinement
-    let half_value = value * 0.5
-    return guess * (1.5 - half_value * guess * guess)
-}
-
-routine lerp(a: f32, b: f32, t: f32) -> f32 {
-    # Linear interpolation with fused multiply-add
-    return a.fma(1.0 - t, b * t)
-}
-
-# Numerical computation helpers
-routine approx_equal(a: f32, b: f32, epsilon: f32) -> bool {
-    return (a - b).abs() <= epsilon
-}
-
-routine next_power_of_two(value: f32) -> f32 {
-    when value {
-        <= 1.0 => return 1.0,
-        _ => return 2.0.pow(value.ln() / F32_LN_2).ceil()
+routine f32.__sub__(other: f32) -> f32 {
+    danger! {
+        return @intrinsic.sub.wrapping<float>(me, other)
     }
 }
 
-# SIMD operations for vectorized f32 processing
-routine f32_vec_add(a: slice<f32>, b: slice<f32>) -> slice<f32> {
-    let result = new_slice<f32>(a.length())
-
-    # This loop will be auto-vectorized by LLVM using SSE/AVX
-    for i in 0..a.length() {
-        result[i] = a[i] + b[i]
+routine f32.__mul__(other: f32) -> f32 {
+    danger! {
+        return @intrinsic.mul.wrapping<float>(me, other)
     }
-
-    return result
 }
 
-routine f32_vec_dot_product(a: slice<f32>, b: slice<f32>) -> f32 {
-    let sum: f32 = 0.0
-    let length = min(a.length(), b.length())
-
-    # LLVM will vectorize this with horizontal add reductions
-    for i in 0..length {
-        sum += a[i] * b[i]
+routine f32.__div__(other: f32) -> f32 {
+    danger! {
+        return @intrinsic.div.wrapping<float>(me, other)
     }
-
-    return sum
 }
 
-/*
-IEEE 754 Single Precision Format (binary32):
-- Sign bit: 1 bit (bit 31)
-- Exponent: 8 bits (bits 30-23, biased by 127)
-- Mantissa: 23 bits (bits 22-0, with implicit leading 1)
-- Total: 32 bits
+routine f32.__rem__(other: f32) -> f32 {
+    danger! {
+        return @intrinsic.rem.wrapping<float>(me, other)
+    }
+}
 
-Value ranges:
-- Normal numbers: �?.175494351�?0^(-38) to �?.402823466�?0^38
-- Subnormal numbers: �?.401298464�?0^(-45) to �?.175494211�?0^(-38)
+routine f32.__neg__() -> f32 {
+    danger! {
+        return @intrinsic.sub.wrapping<float>(0.0_f32, me)
+    }
+}
 
-Special values:
-- Zero: exponent = 0, mantissa = 0
-- Infinity: exponent = 255 (all 1s), mantissa = 0
-- NaN: exponent = 255 (all 1s), mantissa ` 0
+# ============================================================================
+# Comparison Operations (ordered - false if NaN)
+# ============================================================================
 
-Target Architecture Support:
-- x86_64: Native support with SSE registers (XMM0-XMM15)
-- ARM64: Native support with NEON FPU
-- RISC-V: Native support with F extension
-- WebAssembly: Native f32 type with IEEE 754 compliance
+routine f32.__eq__(other: f32) -> bool {
+    danger! {
+        return @intrinsic.fcmp.oeq<float>(me, other)
+    }
+}
 
-LLVM Intrinsics Used:
-- Arithmetic: fadd, fsub, fmul, fdiv, frem
-- Comparison: fcmp (oeq, one, olt, ole, ogt, oge, uno)
-- Math: fabs, sqrt, sin, cos, pow, exp, log, etc.
-- Rounding: floor, ceil, round, trunc
-- Conversion: fptosi, fptoui, fptrunc, fpext, bitcast
-- SIMD: vector operations for packed floats (4 floats in 128-bit, 8 in 256-bit)
-*/
+routine f32.__ne__(other: f32) -> bool {
+    danger! {
+        return @intrinsic.fcmp.one<float>(me, other)
+    }
+}
+
+routine f32.__lt__(other: f32) -> bool {
+    danger! {
+        return @intrinsic.fcmp.olt<float>(me, other)
+    }
+}
+
+routine f32.__le__(other: f32) -> bool {
+    danger! {
+        return @intrinsic.fcmp.ole<float>(me, other)
+    }
+}
+
+routine f32.__gt__(other: f32) -> bool {
+    danger! {
+        return @intrinsic.fcmp.ogt<float>(me, other)
+    }
+}
+
+routine f32.__ge__(other: f32) -> bool {
+    danger! {
+        return @intrinsic.fcmp.oge<float>(me, other)
+    }
+}
+
+# ============================================================================
+# Math Operations using intrinsics
+# ============================================================================
+
+routine f32.sqrt() -> f32 {
+    danger! {
+        return @intrinsic.sqrt<float>(me)
+    }
+}
+
+routine f32.abs() -> f32 {
+    danger! {
+        return @intrinsic.fabs<float>(me)
+    }
+}
+
+routine f32.floor() -> f32 {
+    danger! {
+        return @intrinsic.floor<float>(me)
+    }
+}
+
+routine f32.ceil() -> f32 {
+    danger! {
+        return @intrinsic.ceil<float>(me)
+    }
+}
+
+routine f32.round() -> f32 {
+    danger! {
+        return @intrinsic.round<float>(me)
+    }
+}
+
+routine f32.trunc() -> f32 {
+    danger! {
+        return @intrinsic.trunc_float<float>(me)
+    }
+}
+
+# Trigonometric functions
+routine f32.sin() -> f32 {
+    danger! {
+        return @intrinsic.sin<float>(me)
+    }
+}
+
+routine f32.cos() -> f32 {
+    danger! {
+        return @intrinsic.cos<float>(me)
+    }
+}
+
+# Exponential and logarithmic
+routine f32.exp() -> f32 {
+    danger! {
+        return @intrinsic.exp<float>(me)
+    }
+}
+
+routine f32.log() -> f32 {
+    danger! {
+        return @intrinsic.log<float>(me)
+    }
+}
+
+routine f32.log10() -> f32 {
+    danger! {
+        return @intrinsic.log10<float>(me)
+    }
+}
+
+routine f32.pow(exp: f32) -> f32 {
+    danger! {
+        return @intrinsic.pow<float>(me, exp)
+    }
+}
+
+routine f32.copysign(sign: f32) -> f32 {
+    danger! {
+        return @intrinsic.copysign<float>(me, sign)
+    }
+}
+
+# ============================================================================
+# Utility Methods
+# ============================================================================
+
+routine f32.min(other: f32) -> f32 {
+    return if me <= other then me else other
+}
+
+routine f32.max(other: f32) -> f32 {
+    return if me >= other then me else other
+}
+
+routine f32.clamp(min_val: f32, max_val: f32) -> f32 {
+    return me.min(max_val).max(min_val)
+}
+
+routine f32.is_positive() -> bool {
+    return me > 0.0_f32
+}
+
+routine f32.is_negative() -> bool {
+    return me < 0.0_f32
+}
+
+routine f32.is_zero() -> bool {
+    return me == 0.0_f32
+}
+
+routine f32.signum() -> f32 {
+    when {
+        me > 0.0_f32 => 1.0_f32,
+        me < 0.0_f32 => -1.0_f32,
+        _ => 0.0_f32
+    }
+}
+
+# ============================================================================
+# Type Conversions
+# ============================================================================
+
+routine f32.to_s32() -> s32 {
+    danger! {
+        return @intrinsic.fptosi<float, i32>(me)
+    }
+}
+
+routine f32.to_u32() -> u32 {
+    danger! {
+        return @intrinsic.fptoui<float, i32>(me)
+    }
+}
+
+routine f32.to_s64() -> s64 {
+    danger! {
+        return @intrinsic.fptosi<float, i64>(me)
+    }
+}
+
+routine f32.to_u64() -> u64 {
+    danger! {
+        return @intrinsic.fptoui<float, i64>(me)
+    }
+}
+
+routine f32.to_f16() -> f16 {
+    danger! {
+        return @intrinsic.fptrunc<float, half>(me)
+    }
+}
+
+routine f32.to_f64() -> f64 {
+    danger! {
+        return @intrinsic.fpext<float, double>(me)
+    }
+}
+
+# Reinterpret bits as u32 (type punning)
+routine f32.to_bits() -> u32 {
+    danger! {
+        return @intrinsic.bitcast<float, i32>(me)
+    }
+}
+
+# Create f32 from u32 bits (type punning)
+routine f32.from_bits(bits: u32) -> f32 {
+    danger! {
+        return @intrinsic.bitcast<i32, float>(bits)
+    }
+}
+
+# ============================================================================
+# String Conversion
+# ============================================================================
+
+routine f32.to_text() -> Text {
+    danger! {
+        return @format_f32(me)
+    }
+}

@@ -81,10 +81,10 @@ routine List<T>.pop!(me: List<T>) -> T {
 
 routine List<T>.get!(me: List<T>, index: u64) -> T {
     # Get element at index - O(1)
-    # Uses fail with IndexOutOfBoundsError for invalid index
+    # Uses throw with IndexOutOfBoundsError for invalid index
     # Compiler generates: try_get() -> T?, check_get() -> Result<T>
     if index >= me.count {
-        fail IndexOutOfBoundsError(index: index, count: me.count)
+        throw IndexOutOfBoundsError(index: index, count: me.count)
     }
     let byte_offset = index * sizeof<T>()
     return me.data.read<T>(byte_offset)
@@ -92,10 +92,10 @@ routine List<T>.get!(me: List<T>, index: u64) -> T {
 
 routine List<T>.set!(me: List<T>, index: u64, value: T) {
     # Set element at index - O(1)
-    # Uses fail with IndexOutOfBoundsError for invalid index
+    # Uses throw with IndexOutOfBoundsError for invalid index
     # Compiler generates: try_set() -> None?, check_set() -> Result<None>
     if index >= me.count {
-        fail IndexOutOfBoundsError(index: index, count: me.count)
+        throw IndexOutOfBoundsError(index: index, count: me.count)
     }
     let byte_offset = index * sizeof<T>()
     me.data.write<T>(byte_offset, value)

@@ -23,7 +23,7 @@
     ║  • Tracks source locations for errors                            ║
     ║  • Handles >> in nested generics (split to > >)       ✅         ║
     ║  • Failable function marker: ! suffix                 ✅         ║
-    ║  • Error handling keywords: fail, absent              ✅         ║
+    ║  • Error handling keywords: throw, absent             ✅         ║
     ║                                                                  ║
     ║  Input:  "entity List<T> { ... }"                               ║
     ║  Output: [Entity, Identifier("List"), Less, Identifier("T"), ...]║
@@ -42,7 +42,7 @@
     ║  • Parses nested generics: List<Text<letter8>>        ✅         ║
     ║  • Parses arrow lambdas: x => expr, (a,b) => expr     ✅         ║
     ║  • Parses failable functions: routine name!()         ✅         ║
-    ║  • Parses fail/absent statements                      ✅         ║
+    ║  • Parses throw/absent statements                     ✅         ║
     ║                                                                  ║
     ║  Key Methods:                                                    ║
     ║    - ParseDeclaration()              (declarations)              ║
@@ -82,12 +82,12 @@
     ║      PHASE 3.5: FUNCTION VARIANT GENERATION                      ║
     ║      src/Analysis/FunctionVariantGenerator.cs                    ║
     ╠══════════════════════════════════════════════════════════════════╣
-    ║  • Analyzes failable (!) functions for fail/absent usage  ✅     ║
+    ║  • Analyzes failable (!) functions for throw/absent usage ✅     ║
     ║  • Generates safe wrapper variants automatically          ✅     ║
     ║                                                                  ║
     ║  Generation Rules:                                               ║
     ║    ┌────────┬──────────┬────────────────────────────────┐        ║
-    ║    │ fail   │ absent   │ Generated Variants             │        ║
+    ║    │ throw  │ absent   │ Generated Variants             │        ║
     ║    ├────────┼──────────┼────────────────────────────────┤        ║
     ║    │ no     │ no       │ Compile Error                  │        ║
     ║    │ no     │ yes      │ try_ only (Maybe<T>)           │        ║
@@ -317,7 +317,7 @@ Solution: ConsumeGreaterForGeneric()
 Source Code:
     routine divide!(a: s32, b: s32) -> s32 {
         if b == 0 {
-            fail DivisionError(message: "Division by zero")
+            throw DivisionError(message: "Division by zero")
         }
         return a / b
     }
@@ -334,7 +334,7 @@ Step 1: PARSING ✅
 │  2. Read identifier "divide"                                   │
 │  3. See '!' token → Mark as failable function                  │
 │  4. Parse parameters and return type                           │
-│  5. Parse body with fail/absent statements                     │
+│  5. Parse body with throw/absent statements                    │
 │                                                                │
 │  Creates:                                                      │
 │    FunctionDeclaration(                                        │
@@ -342,7 +342,7 @@ Step 1: PARSING ✅
 │      IsFailable: true,  ✅                                      │
 │      Parameters: [(a, s32), (b, s32)],                         │
 │      ReturnType: s32,                                          │
-│      Body: { ... fail ... }                                    │
+│      Body: { ... throw ... }                                   │
 │    )                                                           │
 └────────────────────────────────────────────────────────────────┘
                           │
@@ -353,21 +353,21 @@ Step 2: VARIANT GENERATION ✅
 │ FunctionVariantGenerator.Generate()                            │
 ├────────────────────────────────────────────────────────────────┤
 │                                                                │
-│  1. Analyze function body for fail/absent usage                │
-│     - hasFail = true (found "fail DivisionError(...)")         │
+│  1. Analyze function body for throw/absent usage               │
+│     - hasThrow = true (found "throw DivisionError(...)")       │
 │     - hasAbsent = false (no "absent" statements)               │
 │                                                                │
 │  2. Apply generation rules:                                    │
-│     fail=yes, absent=no → generate try_, check_                │
+│     throw=yes, absent=no → generate try_, check_               │
 │                                                                │
 │  3. Generate variants:                                         │
 │                                                                │
 │     routine try_divide(a: s32, b: s32) -> Maybe<s32> {         │
-│         // Wraps original, catches fail, returns None          │
+│         // Wraps original, catches throw, returns None         │
 │     }                                                          │
 │                                                                │
 │     routine check_divide(a: s32, b: s32) -> Result<s32> {      │
-│         // Wraps original, catches fail, returns Error         │
+│         // Wraps original, catches throw, returns Error        │
 │     }                                                          │
 │                                                                │
 └────────────────────────────────────────────────────────────────┘
@@ -570,7 +570,7 @@ Program.cs
    │                                         │
    ├──> FunctionVariantGenerator ────────> AST with generated variants
    │       │                                 │
-   │       ├─> Analyzes fail/absent usage ✅ │
+   │       ├─> Analyzes throw/absent usage✅ │
    │       ├─> Generates try_* variants   ✅ │
    │       ├─> Generates check_* variants ✅ │
    │       └─> Generates find_* variants  ✅ │
@@ -654,9 +654,9 @@ FAILABLE FUNCTIONS & ERROR HANDLING:
 │ Feature                        │ Status   │ Notes                     │
 ├────────────────────────────────┼──────────┼───────────────────────────┤
 │ Parse routine name!()          │ ✅ DONE  │ Failable function syntax  │
-│ Parse fail statement           │ ✅ DONE  │ fail ErrorType(...)       │
+│ Parse throw statement          │ ✅ DONE  │ throw ErrorType(...)      │
 │ Parse absent statement         │ ✅ DONE  │ absent (not found)        │
-│ Detect fail/absent usage       │ ✅ DONE  │ FunctionVariantGenerator  │
+│ Detect throw/absent usage      │ ✅ DONE  │ FunctionVariantGenerator  │
 │ Generate try_* variants        │ ✅ DONE  │ Returns Maybe<T>          │
 │ Generate check_* variants      │ ✅ DONE  │ Returns Result<T>         │
 │ Generate find_* variants       │ ✅ DONE  │ Returns Lookup<T>         │

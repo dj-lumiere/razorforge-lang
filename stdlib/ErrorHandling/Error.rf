@@ -1,5 +1,5 @@
 record Error follows Crashable {
-    public message: Text<letter32>
+    public message: ValueText<letter32, 256>
     public code: s32?
 
     public routine __create__(message: Text<letter32>, code: s32?) {

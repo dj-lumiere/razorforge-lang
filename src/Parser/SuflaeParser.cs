@@ -211,7 +211,7 @@ public class SuflaeParser : BaseParser
             return ParseReturnStatement();
         }
 
-        if (Match(type: TokenType.Fail))
+        if (Match(type: TokenType.Throw))
         {
             return ParseFailStatement();
         }
@@ -1019,7 +1019,7 @@ public class SuflaeParser : BaseParser
 
         ConsumeStatementTerminator();
 
-        return new FailStatement(Error: error, Location: location);
+        return new ThrowStatement(Error: error, Location: location);
     }
 
     private Statement ParseAbsentStatement()

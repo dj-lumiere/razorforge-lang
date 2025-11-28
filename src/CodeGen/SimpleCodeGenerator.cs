@@ -474,10 +474,10 @@ public class SimpleCodeGenerator : IAstVisitor<string>
         return "";
     }
 
-    public string VisitFailStatement(FailStatement node)
+    public string VisitThrowStatement(ThrowStatement node)
     {
         string error = node.Error.Accept(visitor: this);
-        WriteLine(text: $"fail {error}");
+        WriteLine(text: $"throw {error}");
         return "";
     }
 

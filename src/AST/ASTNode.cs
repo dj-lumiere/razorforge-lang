@@ -226,10 +226,10 @@ public interface IAstVisitor<T>
     /// <returns>Result of visiting the return statement</returns>
     T VisitReturnStatement(ReturnStatement node);
 
-    /// <summary>Visits a fail statement node (error return via Result<T>)</summary>
-    /// <param name="node">The fail statement to visit</param>
-    /// <returns>Result of visiting the fail statement</returns>
-    T VisitFailStatement(FailStatement node);
+    /// <summary>Visits a throw statement node (error return via Result<T>)</summary>
+    /// <param name="node">The throw statement to visit</param>
+    /// <returns>Result of visiting the throw statement</returns>
+    T VisitThrowStatement(ThrowStatement node);
 
     /// <summary>Visits an absent statement node (value not found, triggers Lookup<T>)</summary>
     /// <param name="node">The absent statement to visit</param>

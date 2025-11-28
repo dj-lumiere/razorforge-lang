@@ -390,19 +390,66 @@ routine s64.to_text() -> Text {
     }
 }
 
-# Parsing constructors using compiler intrinsics
+# ============================================================================
+# Checked Constructors (crash on overflow)
+# ============================================================================
 
-# Fallible constructor - crashes on invalid input
-routine s64!(from_text: Text) -> s64 {
+# Failable constructor from Text - called as s64!(text)
+# Compiler automatically generates try_s64.__create__(text) -> Maybe<s64>
+routine s64.__create__!(from_text: Text<Letterlikes>) -> s64 {
     danger! {
         return @parse_s64(from_text)
     }
 }
 
-# Safe constructor - returns Maybe<s64>
-routine s64?(from_text: Text) -> Maybe<s64> {
+# From s128 - crashes if value out of s64 range
+routine s64.__create__!(from: s128) -> s64 {
+    if not (S64_MIN <= from <= S64_MAX) {
+        throw IntegerOverflowError(f"Cannot convert {from} to s64: value out of range [{S64_MIN}, {S64_MAX}]")
+    }
     danger! {
-        return @try_parse_s64(from_text)
+        return @intrinsic.trunc<i128, i64>(from)
+    }
+}
+
+# From u8 - always fits, no check needed
+routine s64.__create__!(from: u8) -> s64 {
+    danger! {
+        return @intrinsic.zext<i8, i64>(from)
+    }
+}
+
+# From u16 - always fits, no check needed
+routine s64.__create__!(from: u16) -> s64 {
+    danger! {
+        return @intrinsic.zext<i16, i64>(from)
+    }
+}
+
+# From u32 - always fits, no check needed
+routine s64.__create__!(from: u32) -> s64 {
+    danger! {
+        return @intrinsic.zext<i32, i64>(from)
+    }
+}
+
+# From u64 - crashes if value > S64_MAX (bit 63 set)
+routine s64.__create__!(from: u64) -> s64 {
+    if from > 9223372036854775807_u64 {
+        throw IntegerOverflowError(f"Cannot convert {from} to s64: value out of range [{S64_MIN}, {S64_MAX}]")
+    }
+    danger! {
+        return @intrinsic.bitcast<i64, i64>(from)
+    }
+}
+
+# From u128 - crashes if value > S64_MAX
+routine s64.__create__!(from: u128) -> s64 {
+    if from > 9223372036854775807_u128 {
+        throw IntegerOverflowError(f"Cannot convert {from} to s64: value out of range [{S64_MIN}, {S64_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<i128, i64>(from)
     }
 }
 

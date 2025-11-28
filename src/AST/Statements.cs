@@ -136,24 +136,24 @@ public record ReturnStatement(Expression? Value, SourceLocation Location)
 /// <param name="Error">Expression that evaluates to a Crashable error type</param>
 /// <param name="Location">Source location information</param>
 /// <remarks>
-/// The fail statement is used for expected failures that should be handled:
+/// The throw statement is used for expected throwures that should be handled:
 /// <code>
 /// routine divide!(a: s32, b: s32) -> s32 {
 ///     if b == 0 {
-///         fail DivisionError(message: "Division by zero")
+///         throw DivisionError(message: "Division by zero")
 ///     }
 ///     return a / b
 /// }
 /// </code>
 /// Compiler generates safe variants: try_divide() -> s32?, check_divide() -> Result<s32>
 /// </remarks>
-public record FailStatement(Expression Error, SourceLocation Location)
+public record ThrowStatement(Expression Error, SourceLocation Location)
     : Statement(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
     public override T Accept<T>(IAstVisitor<T> visitor)
     {
-        return visitor.VisitFailStatement(node: this);
+        return visitor.VisitThrowStatement(node: this);
     }
 }
 
@@ -167,7 +167,7 @@ public record FailStatement(Expression Error, SourceLocation Location)
 /// <code>
 /// routine get_user!(id: u64) -> User {
 ///     unless database.connected() {
-///         fail DatabaseError(message: "Not connected")
+///         throw DatabaseError(message: "Not connected")
 ///     }
 ///     unless database.has(id) {
 ///         absent  // Value not found

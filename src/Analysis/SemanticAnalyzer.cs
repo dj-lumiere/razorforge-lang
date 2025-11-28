@@ -1046,11 +1046,11 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     }
 
     /// <summary>
-    /// Visits a fail statement that returns an error via Result.
+    /// Visits a throw statement that returns an error via Result.
     /// </summary>
-    /// <param name="node">Fail statement node</param>
+    /// <param name="node">Throw statement node</param>
     /// <returns>Null</returns>
-    public object? VisitFailStatement(FailStatement node)
+    public object? VisitThrowStatement(ThrowStatement node)
     {
         // Visit the error expression
         node.Error.Accept(visitor: this);
@@ -2246,7 +2246,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// <param name="operationName">Name of memory operation (e.g., "share")</param>
     /// <param name="arguments">Method arguments (usually empty for memory ops)</param>
     /// <param name="location">Source location for error reporting</param>
-    /// <returns>Wrapper type info for the result, or null if operation failed</returns>
+    /// <returns>Wrapper type info for the result, or None if operation failed</returns>
     private TypeInfo? HandleMemoryOperationCall(MemberExpression memberExpr, string operationName,
         List<Expression> arguments, SourceLocation location)
     {

@@ -140,22 +140,62 @@ routine uaddr.is_power_of_two() -> bool {
 
 # ============================================================================
 # Type Conversions (constructor syntax)
+# uaddr is a "black hole" type - accepts liberal casts from any unsigned integer
 # ============================================================================
 
+# From uaddr to other types
 routine saddr(from: uaddr) -> saddr {
     danger! {
-        return @intrinsic.bitcast<iptr>(from)
+        return @intrinsic.bitcast<uptr, iptr>(from)
     }
 }
 
 routine u64(from: uaddr) -> u64 {
     danger! {
-        return @intrinsic.zext<i64>(from)
+        return @intrinsic.zext<uptr, i64>(from)
     }
 }
 
 routine bool(from: uaddr) -> bool {
     return from != 0
+}
+
+# Liberal casts INTO uaddr from any unsigned integer
+routine uaddr(from: u8) -> uaddr {
+    danger! {
+        return @intrinsic.zext<i8, uptr>(from)
+    }
+}
+
+routine uaddr(from: u16) -> uaddr {
+    danger! {
+        return @intrinsic.zext<i16, uptr>(from)
+    }
+}
+
+routine uaddr(from: u32) -> uaddr {
+    danger! {
+        return @intrinsic.zext<i32, uptr>(from)
+    }
+}
+
+routine uaddr(from: u64) -> uaddr {
+    danger! {
+        return @intrinsic.trunc<i64, uptr>(from)  # May truncate on 32-bit
+    }
+}
+
+routine uaddr(from: u128) -> uaddr {
+    danger! {
+        return @intrinsic.trunc<i128, uptr>(from)
+    }
+}
+
+# From signed - reinterpret bits
+routine uaddr(from: saddr) -> uaddr {
+    danger! {
+        return @intrinsic.bitcast<iptr, uptr>(from)
+    }
 }
 
 # ============================================================================

@@ -235,25 +235,25 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     /// LLVM function names can contain alphanumeric characters, underscores, dots, and dollar signs.
     /// Special characters like '!' are replaced with descriptive suffixes.
     /// Examples:
-    /// - divide! -> divide_failable
+    /// - divide! -> divide_throwable
     /// - Console.print -> Console.print (dots are allowed)
     /// </remarks>
     private string SanitizeFunctionName(string name)
     {
-        // Replace ! with _failable suffix to indicate error-handling functions
+        // Replace ! with _throwable suffix to indicate error-handling functions
         if (name.EndsWith('!'))
         {
             string baseName = name[..^1];
 
             // Check if this is a type constructor call (e.g., s32!, u64!, Text!)
-            // Type constructors map to typename.__create__! -> typename___create___failable
+            // Type constructors map to typename.__create__! -> typename___create___throwable
             if (IsTypeName(baseName))
             {
-                return baseName + "___create___failable";
+                return baseName + "___create___throwable";
             }
 
-            // Regular failable function (e.g., divide! -> divide_failable)
-            return baseName + "_failable";
+            // Regular throwable function (e.g., divide! -> divide_throwable)
+            return baseName + "_throwable";
         }
 
         // Replace ? with _try suffix for safe/maybe-returning functions
@@ -278,7 +278,7 @@ public class LLVMCodeGenerator : IAstVisitor<string>
 
     /// <summary>
     /// Checks if a name represents a built-in or known type name.
-    /// Used to distinguish type constructor calls from regular failable functions.
+    /// Used to distinguish type constructor calls from regular throwable functions.
     /// </summary>
     private bool IsTypeName(string name)
     {
@@ -419,10 +419,10 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             "u128" => "i128",
 
             // System-dependent integers (pointer-sized, architecture-dependent)
-            "saddr" => _targetPlatform
-               .GetPointerSizedIntType(), // intptr_t - varies by architecture
-            "uaddr" => _targetPlatform
-               .GetPointerSizedIntType(), // uintptr_t - varies by architecture
+            "saddr" or "iptr" => _targetPlatform
+               .GetPointerSizedIntType(), // signed pointer-sized - varies by architecture
+            "uaddr" or "uptr" => _targetPlatform
+               .GetPointerSizedIntType(), // unsigned pointer-sized - varies by architecture
 
             // IEEE 754 floating point types
             "f16" => "half", // 16-bit half precision
@@ -2606,9 +2606,9 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         return "";
     }
 
-    public string VisitFailStatement(FailStatement node)
+    public string VisitThrowStatement(ThrowStatement node)
     {
-        // For now, fail statements will be handled similarly to return statements
+        // For now, throw statements will be handled similarly to return statements
         // In the future, this should construct a Result<T> with an error variant
         // and return it from the function
         _hasReturn = true;
@@ -2619,7 +2619,7 @@ public class LLVMCodeGenerator : IAstVisitor<string>
 
         // For now, return a sentinel value compatible with the function's return type
         // TODO: Wrap this in a Result<T> error variant when Result types are implemented
-        _output.AppendLine($"  ; fail {error} - returning error sentinel");
+        _output.AppendLine($"  ; throw {error} - returning error sentinel");
 
         // Return appropriate sentinel value based on current function return type
         if (_currentFunctionReturnType == "void")
@@ -3002,9 +3002,14 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         {
             return EmitMemoryIntrinsic(node, resultTemp);
         }
+        // Arithmetic operations - both with suffixes (add.wrapping) and bare (add, sdiv, neg)
         else if (intrinsicName.StartsWith("add.") || intrinsicName.StartsWith("sub.") ||
                  intrinsicName.StartsWith("mul.") || intrinsicName.StartsWith("div.") ||
-                 intrinsicName.StartsWith("rem."))
+                 intrinsicName.StartsWith("rem.") ||
+                 intrinsicName == "add" || intrinsicName == "sub" || intrinsicName == "mul" ||
+                 intrinsicName == "sdiv" || intrinsicName == "udiv" ||
+                 intrinsicName == "srem" || intrinsicName == "urem" ||
+                 intrinsicName == "neg")
         {
             return EmitArithmeticIntrinsic(node, resultTemp);
         }
@@ -3147,8 +3152,8 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             "u32" => "i32",
             "u64" => "i64",
             "u128" => "i128",
-            "uaddr" or "saddr" => _targetPlatform
-               .GetPointerSizedIntType(), // Architecture-dependent
+            "uaddr" or "saddr" or "iptr" or "uptr" => _targetPlatform
+               .GetPointerSizedIntType(), // Architecture-dependent pointer-sized integers
             "f16" => "half",
             "f32" => "float",
             "f64" => "double",
@@ -3574,7 +3579,7 @@ public class LLVMCodeGenerator : IAstVisitor<string>
                 {
                     string msgValue = arguments[0].Accept(visitor: this);
                     // Just pass through the message pointer as the error value
-                    // The fail statement will handle it appropriately
+                    // The throw statement will handle it appropriately
                     _tempTypes[resultTemp] = new TypeInfo("i8*", false, false, "Error");
                     _output.AppendLine($"  {resultTemp} = bitcast i8* {msgValue} to i8*"); // identity cast
                     return resultTemp;
@@ -3592,34 +3597,34 @@ public class LLVMCodeGenerator : IAstVisitor<string>
 
     /// <summary>
     /// Checks if a sanitized function name is a type constructor call.
-    /// Matches patterns: TypeName___create___failable (from TypeName!) or try_TypeName___create__ (from TypeName?)
+    /// Matches patterns: TypeName___create___throwable (from TypeName!) or try_TypeName___create__ (from TypeName?)
     /// </summary>
     private bool IsTypeConstructorCall(string sanitizedName)
     {
-        return sanitizedName.EndsWith("___create___failable") ||
+        return sanitizedName.EndsWith("___create___throwable") ||
                (sanitizedName.StartsWith("try_") && sanitizedName.EndsWith("___create__"));
     }
 
     /// <summary>
-    /// Handles type constructor calls like s32___create___failable (from s32!) or try_s32___create__ (from s32?).
+    /// Handles type constructor calls like s32___create___throwable (from s32!) or try_s32___create__ (from s32?).
     /// Uses C runtime functions like strtol for parsing.
     /// </summary>
     private string HandleTypeConstructorCall(string functionName, List<Expression> arguments, string resultTemp)
     {
         // Extract the base type from the function name
-        // Patterns: s32___create___failable (from s32!) or try_s32___create__ (from s32?)
+        // Patterns: s32___create___throwable (from s32!) or try_s32___create__ (from s32?)
         string baseType;
-        bool isFailable;
+        bool isThrowable;
 
-        if (functionName.EndsWith("___create___failable"))
+        if (functionName.EndsWith("___create___throwable"))
         {
-            baseType = functionName[..^"___create___failable".Length];
-            isFailable = true;
+            baseType = functionName[..^"___create___throwable".Length];
+            isThrowable = true;
         }
         else if (functionName.StartsWith("try_") && functionName.EndsWith("___create__"))
         {
             baseType = functionName["try_".Length..^"___create__".Length];
-            isFailable = false;
+            isThrowable = false;
         }
         else
         {
@@ -4111,15 +4116,122 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         string intrinsicName = node.IntrinsicName;
         string llvmType = node.TypeArguments.Count > 0 ? MapRazorForgeTypeToLLVM(razorForgeType: node.TypeArguments[0]) : "i32";
 
+        // Determine if type is unsigned or signed
+        bool isUnsigned = node.TypeArguments.Count > 0 && node.TypeArguments[0].StartsWith("u");
+        bool isFloat = llvmType.Contains("float") || llvmType.Contains("double") || llvmType.Contains("half") || llvmType.Contains("fp128");
+
+        // Handle unary neg operation
+        if (intrinsicName == "neg")
+        {
+            string valueTemp = node.Arguments[0].Accept(this);
+            if (isFloat)
+            {
+                _output.AppendLine($"  {resultTemp} = fneg {llvmType} {valueTemp}");
+            }
+            else
+            {
+                _output.AppendLine($"  {resultTemp} = sub {llvmType} 0, {valueTemp}");
+            }
+            _tempTypes[resultTemp] = new TypeInfo(LLVMType: llvmType, IsUnsigned: isUnsigned,
+                IsFloatingPoint: isFloat, RazorForgeType: node.TypeArguments[0]);
+            return resultTemp;
+        }
+
+        // Binary operations need two arguments
         string leftTemp = node.Arguments[0].Accept(this);
         string rightTemp = node.Arguments[1].Accept(this);
 
-        // Determine if type is unsigned or signed
-        bool isUnsigned = node.TypeArguments[0].StartsWith("u");
-        bool isFloat = llvmType.Contains("float") || llvmType.Contains("double") || llvmType.Contains("half");
-
-        // Wrapping arithmetic (no overflow checks)
-        if (intrinsicName == "add.wrapping")
+        // Basic arithmetic (trapping on overflow for integers, IEEE for floats)
+        // For integers, we use overflow intrinsics and trap if overflow occurs
+        if (intrinsicName == "add")
+        {
+            if (isFloat)
+            {
+                _output.AppendLine($"  {resultTemp} = fadd {llvmType} {leftTemp}, {rightTemp}");
+            }
+            else
+            {
+                // Use overflow intrinsic and trap on overflow
+                string llvmFunc = isUnsigned ? $"@llvm.uadd.with.overflow.{llvmType}" : $"@llvm.sadd.with.overflow.{llvmType}";
+                string structTemp = GetNextTemp();
+                _output.AppendLine($"  {structTemp} = call {{ {llvmType}, i1 }} {llvmFunc}({llvmType} {leftTemp}, {llvmType} {rightTemp})");
+                _output.AppendLine($"  {resultTemp} = extractvalue {{ {llvmType}, i1 }} {structTemp}, 0");
+                string overflowFlag = GetNextTemp();
+                _output.AppendLine($"  {overflowFlag} = extractvalue {{ {llvmType}, i1 }} {structTemp}, 1");
+                // Trap on overflow
+                string trapLabel = $"trap.add.{_tempCounter}";
+                string contLabel = $"cont.add.{_tempCounter}";
+                _output.AppendLine($"  br i1 {overflowFlag}, label %{trapLabel}, label %{contLabel}");
+                _output.AppendLine($"{trapLabel}:");
+                _output.AppendLine($"  call void @llvm.trap()");
+                _output.AppendLine($"  unreachable");
+                _output.AppendLine($"{contLabel}:");
+            }
+        }
+        else if (intrinsicName == "sub")
+        {
+            if (isFloat)
+            {
+                _output.AppendLine($"  {resultTemp} = fsub {llvmType} {leftTemp}, {rightTemp}");
+            }
+            else
+            {
+                string llvmFunc = isUnsigned ? $"@llvm.usub.with.overflow.{llvmType}" : $"@llvm.ssub.with.overflow.{llvmType}";
+                string structTemp = GetNextTemp();
+                _output.AppendLine($"  {structTemp} = call {{ {llvmType}, i1 }} {llvmFunc}({llvmType} {leftTemp}, {llvmType} {rightTemp})");
+                _output.AppendLine($"  {resultTemp} = extractvalue {{ {llvmType}, i1 }} {structTemp}, 0");
+                string overflowFlag = GetNextTemp();
+                _output.AppendLine($"  {overflowFlag} = extractvalue {{ {llvmType}, i1 }} {structTemp}, 1");
+                string trapLabel = $"trap.sub.{_tempCounter}";
+                string contLabel = $"cont.sub.{_tempCounter}";
+                _output.AppendLine($"  br i1 {overflowFlag}, label %{trapLabel}, label %{contLabel}");
+                _output.AppendLine($"{trapLabel}:");
+                _output.AppendLine($"  call void @llvm.trap()");
+                _output.AppendLine($"  unreachable");
+                _output.AppendLine($"{contLabel}:");
+            }
+        }
+        else if (intrinsicName == "mul")
+        {
+            if (isFloat)
+            {
+                _output.AppendLine($"  {resultTemp} = fmul {llvmType} {leftTemp}, {rightTemp}");
+            }
+            else
+            {
+                string llvmFunc = isUnsigned ? $"@llvm.umul.with.overflow.{llvmType}" : $"@llvm.smul.with.overflow.{llvmType}";
+                string structTemp = GetNextTemp();
+                _output.AppendLine($"  {structTemp} = call {{ {llvmType}, i1 }} {llvmFunc}({llvmType} {leftTemp}, {llvmType} {rightTemp})");
+                _output.AppendLine($"  {resultTemp} = extractvalue {{ {llvmType}, i1 }} {structTemp}, 0");
+                string overflowFlag = GetNextTemp();
+                _output.AppendLine($"  {overflowFlag} = extractvalue {{ {llvmType}, i1 }} {structTemp}, 1");
+                string trapLabel = $"trap.mul.{_tempCounter}";
+                string contLabel = $"cont.mul.{_tempCounter}";
+                _output.AppendLine($"  br i1 {overflowFlag}, label %{trapLabel}, label %{contLabel}");
+                _output.AppendLine($"{trapLabel}:");
+                _output.AppendLine($"  call void @llvm.trap()");
+                _output.AppendLine($"  unreachable");
+                _output.AppendLine($"{contLabel}:");
+            }
+        }
+        else if (intrinsicName == "sdiv")
+        {
+            _output.AppendLine($"  {resultTemp} = sdiv {llvmType} {leftTemp}, {rightTemp}");
+        }
+        else if (intrinsicName == "udiv")
+        {
+            _output.AppendLine($"  {resultTemp} = udiv {llvmType} {leftTemp}, {rightTemp}");
+        }
+        else if (intrinsicName == "srem")
+        {
+            _output.AppendLine($"  {resultTemp} = srem {llvmType} {leftTemp}, {rightTemp}");
+        }
+        else if (intrinsicName == "urem")
+        {
+            _output.AppendLine($"  {resultTemp} = urem {llvmType} {leftTemp}, {rightTemp}");
+        }
+        // Wrapping arithmetic (no overflow checks - uses LLVM's default wrapping behavior)
+        else if (intrinsicName == "add.wrapping")
         {
             _output.AppendLine($"  {resultTemp} = {(isFloat ? "fadd" : "add")} {llvmType} {leftTemp}, {rightTemp}");
         }
@@ -4170,6 +4282,16 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         {
             string llvmFunc = isUnsigned ? $"@llvm.usub.sat.{llvmType}" : $"@llvm.ssub.sat.{llvmType}";
             _output.AppendLine($"  {resultTemp} = call {llvmType} {llvmFunc}({llvmType} {leftTemp}, {llvmType} {rightTemp})");
+        }
+        else if (intrinsicName == "mul.saturating")
+        {
+            // LLVM doesn't have direct saturating multiply, so we use overflow detection
+            // For now, use a placeholder that traps on overflow (TODO: implement proper saturation)
+            string llvmFunc = isUnsigned ? $"@llvm.umul.with.overflow.{llvmType}" : $"@llvm.smul.with.overflow.{llvmType}";
+            string structTemp = GetNextTemp();
+            _output.AppendLine($"  {structTemp} = call {{ {llvmType}, i1 }} {llvmFunc}({llvmType} {leftTemp}, {llvmType} {rightTemp})");
+            _output.AppendLine($"  {resultTemp} = extractvalue {{ {llvmType}, i1 }} {structTemp}, 0");
+            // TODO: Check overflow flag and saturate to MAX/MIN
         }
         else
         {

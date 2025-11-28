@@ -6,11 +6,85 @@ record s32 {
     public value: LlvmNativeI32
 }
 
+# Constants for s32 limits
+preset S32_MIN: s32 = -2147483648_s32
+preset S32_MAX: s32 = 2147483647_s32
+preset S32_ZERO: s32 = 0_s32
+preset S32_ONE: s32 = 1_s32
+
+# ============================================================================
+# Checked Constructors (crash on overflow)
+# ============================================================================
+
 # Failable constructor from Text - called as s32!(text)
 # Compiler automatically generates try_s32.__create__(text) -> Maybe<s32>
 routine s32.__create__!(from_text: Text<Letterlikes>) -> s32 {
     danger! {
         return @parse_s32(from_text)
+    }
+}
+
+# From s64 - crashes if value out of s32 range
+routine s32.__create__!(from: s64) -> s32 {
+    if not (S32_MIN <= from <= S32_MAX) {
+        throw IntegerOverflowError(f"Cannot convert {from} to s32: value out of range [{S32_MIN}, {S32_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<i64, i32>(from)
+    }
+}
+
+# From s128 - crashes if value out of s32 range
+routine s32.__create__!(from: s128) -> s32 {
+    if not (S32_MIN <= from <= S32_MAX) {
+        throw IntegerOverflowError(f"Cannot convert {from} to s32: value out of range [{S32_MIN}, {S32_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<i128, i32>(from)
+    }
+}
+
+# From u8 - always fits, no check needed
+routine s32.__create__!(from: u8) -> s32 {
+    danger! {
+        return @intrinsic.zext<i8, i32>(from)
+    }
+}
+
+# From u16 - always fits, no check needed
+routine s32.__create__!(from: u16) -> s32 {
+    danger! {
+        return @intrinsic.zext<i16, i32>(from)
+    }
+}
+
+# From u32 - crashes if value > S32_MAX (bit 31 set)
+routine s32.__create__!(from: u32) -> s32 {
+    if from > 2147483647_u32 {
+        throw IntegerOverflowError(f"Cannot convert {from} to s32: value out of range [{S32_MIN}, {S32_MAX}]")
+    }
+    danger! {
+        return @intrinsic.bitcast<i32, i32>(from)
+    }
+}
+
+# From u64 - crashes if value > S32_MAX
+routine s32.__create__!(from: u64) -> s32 {
+    if from > 2147483647_u64 {
+        throw IntegerOverflowError(f"Cannot convert {from} to s32: value out of range [{S32_MIN}, {S32_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<i64, i32>(from)
+    }
+}
+
+# From u128 - crashes if value > S32_MAX
+routine s32.__create__!(from: u128) -> s32 {
+    if from > 2147483647_u128 {
+        throw IntegerOverflowError(f"Cannot convert {from} to s32: value out of range [{S32_MIN}, {S32_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<i128, i32>(from)
     }
 }
 

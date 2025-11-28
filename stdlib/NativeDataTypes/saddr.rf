@@ -145,22 +145,62 @@ routine saddr.max(other: saddr) -> saddr {
 
 # ============================================================================
 # Type Conversions (constructor syntax)
+# saddr is a "black hole" type - accepts liberal casts from any signed integer
 # ============================================================================
 
+# From saddr to other types
 routine uaddr(from: saddr) -> uaddr {
     danger! {
-        return @intrinsic.bitcast<uptr>(from)
+        return @intrinsic.bitcast<iptr, uptr>(from)
     }
 }
 
 routine s64(from: saddr) -> s64 {
     danger! {
-        return @intrinsic.sext<i64>(from)
+        return @intrinsic.sext<iptr, i64>(from)
     }
 }
 
 routine bool(from: saddr) -> bool {
     return from != 0
+}
+
+# Liberal casts INTO saddr from any signed integer
+routine saddr(from: s8) -> saddr {
+    danger! {
+        return @intrinsic.sext<i8, iptr>(from)
+    }
+}
+
+routine saddr(from: s16) -> saddr {
+    danger! {
+        return @intrinsic.sext<i16, iptr>(from)
+    }
+}
+
+routine saddr(from: s32) -> saddr {
+    danger! {
+        return @intrinsic.sext<i32, iptr>(from)
+    }
+}
+
+routine saddr(from: s64) -> saddr {
+    danger! {
+        return @intrinsic.trunc<i64, iptr>(from)  # May truncate on 32-bit
+    }
+}
+
+routine saddr(from: s128) -> saddr {
+    danger! {
+        return @intrinsic.trunc<i128, iptr>(from)
+    }
+}
+
+# From unsigned - reinterpret bits
+routine saddr(from: uaddr) -> saddr {
+    danger! {
+        return @intrinsic.bitcast<uptr, iptr>(from)
+    }
 }
 
 # ============================================================================

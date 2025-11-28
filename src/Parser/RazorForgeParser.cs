@@ -210,9 +210,9 @@ public class RazorForgeParser : BaseParser
             return ParseContinueStatement();
         }
 
-        if (Match(type: TokenType.Fail))
+        if (Match(type: TokenType.Throw))
         {
-            return ParseFailStatement();
+            return ParseThrowStatement();
         }
 
         if (Match(type: TokenType.Absent))
@@ -1094,12 +1094,12 @@ public class RazorForgeParser : BaseParser
         return new ContinueStatement(Location: location);
     }
 
-    private FailStatement ParseFailStatement()
+    private ThrowStatement ParseThrowStatement()
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
         Expression error = ParseExpression();
         ConsumeStatementTerminator();
-        return new FailStatement(Error: error, Location: location);
+        return new ThrowStatement(Error: error, Location: location);
     }
 
     private AbsentStatement ParseAbsentStatement()
@@ -1553,7 +1553,7 @@ public class RazorForgeParser : BaseParser
                         Location: expr.Location);
                 }
             }
-            // Failable function call: identifier!(args) with named arguments
+            // Throwable function call: identifier!(args) with named arguments
             else if (Check(type: TokenType.Bang) && PeekToken(offset: 1).Type == TokenType.LeftParen)
             {
                 Advance(); // consume '!'

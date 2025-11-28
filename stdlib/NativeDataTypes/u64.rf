@@ -13,97 +13,177 @@ preset U64_ZERO: u64 = 0_u64
 preset U64_ONE: u64 = 1_u64
 
 # ============================================================================
-# Arithmetic Operations
+# Checked Constructors (crash on overflow)
 # ============================================================================
 
-# Addition (wrapping by default)
+# Failable constructor from Text - called as u64!(text)
+# Compiler automatically generates try_u64.__create__(text) -> Maybe<u64>
+routine u64.__create__!(from_text: Text<Letterlikes>) -> u64 {
+    danger! {
+        return @parse_u64(from_text)
+    }
+}
+
+# From s8 - crashes if value is negative
+routine u64.__create__!(from: s8) -> u64 {
+    if from < 0_s8 {
+        throw IntegerOverflowError(f"Cannot convert {from} to u64: value out of range [{U64_MIN}, {U64_MAX}]")
+    }
+    danger! {
+        return @intrinsic.sext<i8, i64>(from)
+    }
+}
+
+# From s16 - crashes if value is negative
+routine u64.__create__!(from: s16) -> u64 {
+    if from < 0_s16 {
+        throw IntegerOverflowError(f"Cannot convert {from} to u64: value out of range [{U64_MIN}, {U64_MAX}]")
+    }
+    danger! {
+        return @intrinsic.sext<i16, i64>(from)
+    }
+}
+
+# From s32 - crashes if value is negative
+routine u64.__create__!(from: s32) -> u64 {
+    if from < 0_s32 {
+        throw IntegerOverflowError(f"Cannot convert {from} to u64: value out of range [{U64_MIN}, {U64_MAX}]")
+    }
+    danger! {
+        return @intrinsic.sext<i32, i64>(from)
+    }
+}
+
+# From s64 - crashes if value is negative
+routine u64.__create__!(from: s64) -> u64 {
+    if from < 0_s64 {
+        throw IntegerOverflowError(f"Cannot convert {from} to u64: value out of range [{U64_MIN}, {U64_MAX}]")
+    }
+    danger! {
+        return @intrinsic.bitcast<i64, i64>(from)
+    }
+}
+
+# From s128 - crashes if value out of u64 range
+routine u64.__create__!(from: s128) -> u64 {
+    if not (0_s128 <= from <= 18446744073709551615_s128) {
+        throw IntegerOverflowError(f"Cannot convert {from} to u64: value out of range [{U64_MIN}, {U64_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<i128, i64>(from)
+    }
+}
+
+# From u128 - crashes if value > U64_MAX
+routine u64.__create__!(from: u128) -> u64 {
+    if from > 18446744073709551615_u128 {
+        throw IntegerOverflowError(f"Cannot convert {from} to u64: value out of range [{U64_MIN}, {U64_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<i128, i64>(from)
+    }
+}
+
+# ============================================================================
+# Arithmetic Operations (trapping on overflow by default)
+# ============================================================================
+
 routine u64.__add__(other: u64) -> u64 {
+    danger! {
+        return @intrinsic.add<i64>(me, other)
+    }
+}
+
+routine u64.__sub__(other: u64) -> u64 {
+    danger! {
+        return @intrinsic.sub<i64>(me, other)
+    }
+}
+
+routine u64.__mul__(other: u64) -> u64 {
+    danger! {
+        return @intrinsic.mul<i64>(me, other)
+    }
+}
+
+routine u64.__floordiv__(other: u64) -> u64 {
+    danger! {
+        return @intrinsic.udiv<i64>(me, other)
+    }
+}
+
+routine u64.__mod__(other: u64) -> u64 {
+    danger! {
+        return @intrinsic.urem<i64>(me, other)
+    }
+}
+
+# ============================================================================
+# Wrapping Arithmetic (+%, -%, *%)
+# ============================================================================
+
+routine u64.__add_wrap__(other: u64) -> u64 {
     danger! {
         return @intrinsic.add.wrapping<i64>(me, other)
     }
 }
 
-# Subtraction (wrapping by default)
-routine u64.__sub__(other: u64) -> u64 {
+routine u64.__sub_wrap__(other: u64) -> u64 {
     danger! {
         return @intrinsic.sub.wrapping<i64>(me, other)
     }
 }
 
-# Multiplication (wrapping by default)
-routine u64.__mul__(other: u64) -> u64 {
+routine u64.__mul_wrap__(other: u64) -> u64 {
     danger! {
         return @intrinsic.mul.wrapping<i64>(me, other)
     }
 }
 
-# Division (unsigned)
-routine u64.__div__(other: u64) -> u64 {
-    danger! {
-        return @intrinsic.div.wrapping<i64>(me, other)
-    }
-}
-
-# Remainder (unsigned)
-routine u64.__rem__(other: u64) -> u64 {
-    danger! {
-        return @intrinsic.rem.wrapping<i64>(me, other)
-    }
-}
-
 # ============================================================================
-# Checked Arithmetic (returns Result with overflow detection)
+# Saturating Arithmetic (+^, -^, *^)
 # ============================================================================
 
-# Checked addition
-routine u64.checked_add(other: u64) -> Result<u64, OverflowError> {
-    danger! {
-        let (result, overflow) = @intrinsic.add.overflow<i64>(me, other)
-        return if overflow {
-            Err(OverflowError())
-        } else {
-            Ok(result)
-        }
-    }
-}
-
-# Checked subtraction
-routine u64.checked_sub(other: u64) -> Result<u64, OverflowError> {
-    danger! {
-        let (result, overflow) = @intrinsic.sub.overflow<i64>(me, other)
-        return if overflow {
-            Err(OverflowError())
-        } else {
-            Ok(result)
-        }
-    }
-}
-
-# Checked multiplication
-routine u64.checked_mul(other: u64) -> Result<u64, OverflowError> {
-    danger! {
-        let (result, overflow) = @intrinsic.mul.overflow<i64>(me, other)
-        return if overflow {
-            Err(OverflowError())
-        } else {
-            Ok(result)
-        }
-    }
-}
-
-# ============================================================================
-# Saturating Arithmetic (clamps at min/max instead of wrapping)
-# ============================================================================
-
-routine u64.saturating_add(other: u64) -> u64 {
+routine u64.__add_sat__(other: u64) -> u64 {
     danger! {
         return @intrinsic.add.saturating<i64>(me, other)
     }
 }
 
-routine u64.saturating_sub(other: u64) -> u64 {
+routine u64.__sub_sat__(other: u64) -> u64 {
     danger! {
         return @intrinsic.sub.saturating<i64>(me, other)
+    }
+}
+
+routine u64.__mul_sat__(other: u64) -> u64 {
+    danger! {
+        return @intrinsic.mul.saturating<i64>(me, other)
+    }
+}
+
+# ============================================================================
+# Checked Arithmetic (+?, -?, *?) - returns Maybe<T>
+# ============================================================================
+
+routine u64.__add_checked__(other: u64) -> Maybe<u64> {
+    danger! {
+        let (result, overflow) = @intrinsic.add.overflow<i64>(me, other)
+        return if overflow { None } else { result }
+    }
+}
+
+routine u64.__sub_checked__(other: u64) -> Maybe<u64> {
+    danger! {
+        let (result, overflow) = @intrinsic.sub.overflow<i64>(me, other)
+        return if overflow { None } else { result }
+    }
+}
+
+routine u64.__mul_checked__(other: u64) -> Maybe<u64> {
+    danger! {
+        let (result, overflow) = @intrinsic.mul.overflow<i64>(me, other)
+        return if overflow { None } else { result }
     }
 }
 
@@ -135,14 +215,12 @@ routine u64.__not__() -> u64 {
     }
 }
 
-# Left shift
 routine u64.__shl__(bits: u32) -> u64 {
     danger! {
         return @intrinsic.shl<i64>(me, bits)
     }
 }
 
-# Logical right shift (zero-fill)
 routine u64.__shr__(bits: u32) -> u64 {
     danger! {
         return @intrinsic.lshr<i64>(me, bits)
@@ -150,7 +228,7 @@ routine u64.__shr__(bits: u32) -> u64 {
 }
 
 # ============================================================================
-# Comparison Operations (unsigned)
+# Comparison Operations
 # ============================================================================
 
 routine u64.__eq__(other: u64) -> bool {
@@ -251,53 +329,82 @@ routine u64.swap_bytes() -> u64 {
     }
 }
 
+routine u64.is_power_of_two() -> bool {
+    return me != 0_u64 and (me & (me - 1_u64)) == 0_u64
+}
+
+# Rotate left
+routine u64.rotate_left(bits: u32) -> u64 {
+    danger! {
+        let left = @intrinsic.shl<i64>(me, bits)
+        let right = @intrinsic.lshr<i64>(me, 64_u32 - bits)
+        return @intrinsic.or<i64>(left, right)
+    }
+}
+
+# Rotate right
+routine u64.rotate_right(bits: u32) -> u64 {
+    danger! {
+        let right = @intrinsic.lshr<i64>(me, bits)
+        let left = @intrinsic.shl<i64>(me, 64_u32 - bits)
+        return @intrinsic.or<i64>(right, left)
+    }
+}
+
 # ============================================================================
-# Type Conversions
+# Type Conversions (constructor syntax)
 # ============================================================================
 
-# Convert to signed (reinterpret bits)
-routine u64.to_s64() -> s64 {
+# Bitcast to signed
+routine s64(from: u64) -> s64 {
     danger! {
-        return @intrinsic.bitcast<i64, i64>(me)
+        return @intrinsic.bitcast<i64, i64>(from)
     }
 }
 
-# Convert to smaller unsigned integers (truncate)
-routine u64.to_u32() -> u32 {
+# Zero-extend to larger types
+routine u128(from: u64) -> u128 {
     danger! {
-        return @intrinsic.trunc<i64, i32>(me)
+        return @intrinsic.zext<i64, i128>(from)
     }
 }
 
-routine u64.to_u16() -> u16 {
+# Truncate to smaller types
+routine u32(from: u64) -> u32 {
     danger! {
-        return @intrinsic.trunc<i64, i16>(me)
+        return @intrinsic.trunc<i64, i32>(from)
     }
 }
 
-routine u64.to_u8() -> u8 {
+routine u16(from: u64) -> u16 {
     danger! {
-        return @intrinsic.trunc<i64, i8>(me)
+        return @intrinsic.trunc<i64, i16>(from)
     }
 }
 
-# Convert to float
-routine u64.to_f64() -> f64 {
+routine u8(from: u64) -> u8 {
     danger! {
-        return @intrinsic.uitofp<i64, double>(me)
+        return @intrinsic.trunc<i64, i8>(from)
     }
 }
 
-routine u64.to_f32() -> f32 {
+# Convert to floating point
+routine f32(from: u64) -> f32 {
     danger! {
-        return @intrinsic.uitofp<i64, float>(me)
+        return @intrinsic.uitofp<i64, float>(from)
+    }
+}
+
+routine f64(from: u64) -> f64 {
+    danger! {
+        return @intrinsic.uitofp<i64, double>(from)
     }
 }
 
 # Convert to boolean
-routine u64.to_bool() -> bool {
+routine bool(from: u64) -> bool {
     danger! {
-        return @intrinsic.icmp.ne<i64>(me, 0_u64)
+        return @intrinsic.icmp.ne<i64>(from, 0_u64)
     }
 }
 
@@ -320,98 +427,12 @@ routine u64.is_odd() -> bool {
     return not me.is_even()
 }
 
-# Power of 2 check (very common for unsigned)
-routine u64.is_power_of_two() -> bool {
-    danger! {
-        let is_nonzero = @intrinsic.icmp.ne<i64>(me, 0_u64)
-        let minus_one = @intrinsic.sub.wrapping<i64>(me, 1_u64)
-        let anded = @intrinsic.and<i64>(me, minus_one)
-        let is_zero = @intrinsic.icmp.eq<i64>(anded, 0_u64)
-        return is_nonzero and is_zero
-    }
-}
-
-# Next power of 2 (round up)
-routine u64.next_power_of_two() -> u64 {
-    when {
-        me == 0_u64 => 1_u64,
-        me.is_power_of_two() => me,
-        _ => {
-            danger! {
-                var n = me
-                n = @intrinsic.sub.wrapping<i64>(n, 1_u64)
-                n = @intrinsic.or<i64>(n, @intrinsic.lshr<i64>(n, 1_u32))
-                n = @intrinsic.or<i64>(n, @intrinsic.lshr<i64>(n, 2_u32))
-                n = @intrinsic.or<i64>(n, @intrinsic.lshr<i64>(n, 4_u32))
-                n = @intrinsic.or<i64>(n, @intrinsic.lshr<i64>(n, 8_u32))
-                n = @intrinsic.or<i64>(n, @intrinsic.lshr<i64>(n, 16_u32))
-                n = @intrinsic.or<i64>(n, @intrinsic.lshr<i64>(n, 32_u32))
-                return @intrinsic.add.wrapping<i64>(n, 1_u64)
-            }
-        }
-    }
-}
-
-# Rotate left
-routine u64.rotate_left(bits: u32) -> u64 {
-    danger! {
-        let left = @intrinsic.shl<i64>(me, bits)
-        let right = @intrinsic.lshr<i64>(me, 64_u32 - bits)
-        return @intrinsic.or<i64>(left, right)
-    }
-}
-
-# Rotate right
-routine u64.rotate_right(bits: u32) -> u64 {
-    danger! {
-        let right = @intrinsic.lshr<i64>(me, bits)
-        let left = @intrinsic.shl<i64>(me, 64_u32 - bits)
-        return @intrinsic.or<i64>(right, left)
-    }
-}
-
 # ============================================================================
-# String Conversion (placeholder - needs proper implementation)
+# String Conversion
 # ============================================================================
 
 routine u64.to_text() -> Text {
     danger! {
         return @format_u64(me)
     }
-}
-
-# Parsing constructors using compiler intrinsics
-
-# Fallible constructor - crashes on invalid input
-routine u64!(from_text: Text) -> u64 {
-    danger! {
-        return @parse_u64(from_text)
-    }
-}
-
-# Safe constructor - returns Maybe<u64>
-routine u64?(from_text: Text) -> Maybe<u64> {
-    danger! {
-        return @try_parse_u64(from_text)
-    }
-}
-
-# ============================================================================
-# Example: Fast modular exponentiation
-# ============================================================================
-
-routine modpow_u64(base: u64, exp: u64, modulus: u64) -> u64 {
-    var result: u64 = 1_u64
-    var b = base % modulus
-    var e = exp
-
-    while e > 0_u64 {
-        if e.is_odd() {
-            result = (result * b) % modulus
-        }
-        b = (b * b) % modulus
-        e = e >> 1_u32
-    }
-
-    return result
 }

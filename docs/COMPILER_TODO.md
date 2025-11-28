@@ -22,7 +22,7 @@ This document tracks compiler features needed for full RazorForge standard libra
 - Console I/O (`show`, `ask`) via C runtime (printf, scanf, strtol, strtod)
 - Target platform detection (Windows/Linux/macOS)
 - Function variant generation (`try_`, `check_`, `find_` from `!` functions)
-- Failable function support (`!` suffix with `fail` and `absent` keywords)
+- Failable function support (`!` suffix with `throw` and `absent` keywords)
 
 ### ⏳ Partially Implemented
 - Generic types (functions work, entities/records need work)
@@ -213,18 +213,18 @@ let list = List<s32>()     # Infer type from constructor
 Compiler generates safe variants from `!` (failable) functions:
 
 ```razorforge
-# User writes ! function with fail/absent keywords
+# User writes ! function with throw/absent keywords
 routine divide!(a: s32, b: s32) -> s32 {
     if b == 0 {
-        fail DivisionError(message: "Division by zero")
+        throw DivisionError(message: "Division by zero")
     }
     return a / b
 }
 ```
 
-**Generation rules based on `fail` and `absent` usage:**
+**Generation rules based on `throw` and `absent` usage:**
 
-| `fail` | `absent` | Generated Variants |
+| `throw` | `absent` | Generated Variants |
 |--------|----------|-------------------|
 | no     | no       | Compile Error     |
 | no     | yes      | `try_` only       |

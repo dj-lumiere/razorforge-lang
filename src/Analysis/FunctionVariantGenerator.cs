@@ -3,23 +3,23 @@ using Compilers.Shared.AST;
 namespace Compilers.Shared.Analysis;
 
 /// <summary>
-/// Generates safe function variants (try_, check_, find_) based on fail/absent usage.
+/// Generates safe function variants (try_, check_, find_) based on throw/absent usage.
 ///
 /// Generation rules:
-/// - No fail, no absent → Compile Error (! functions must have fail or absent)
-/// - No fail, has absent → generates try_ only
-/// - Has fail, no absent → generates try_, check_
-/// - Has fail, has absent → generates try_, find_
+/// - No throw, no absent → Compile Error (! functions must have throw or absent)
+/// - No throw, has absent → generates try_ only
+/// - Has throw, no absent → generates try_, check_
+/// - Has throw, has absent → generates try_, find_
 ///
 /// Variant behaviors:
 /// - try_foo() → wraps crashes in Maybe&lt;T&gt; (None on crash or absent)
-/// - check_foo() → wraps fail in Result&lt;T&gt; (Error variant on fail)
-/// - find_foo() → wraps fail/absent in Lookup&lt;T&gt; (Error/Absent/Value variants)
+/// - check_foo() → wraps throw in Result&lt;T&gt; (Error variant on throw)
+/// - find_foo() → wraps throw/absent in Lookup&lt;T&gt; (Error/Absent/Value variants)
 /// </summary>
 public class FunctionVariantGenerator : IAstVisitor<object?>
 {
     private readonly List<FunctionDeclaration> _generatedVariants = new();
-    private bool _hasFail;
+    private bool _hasThrow;
     private bool _hasAbsent;
 
     /// <summary>
@@ -53,8 +53,8 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
             return null;
         }
 
-        // Analyze the function body to detect fail/absent usage
-        _hasFail = false;
+        // Analyze the function body to detect throw/absent usage
+        _hasThrow = false;
         _hasAbsent = false;
 
         if (node.Body != null)
@@ -64,41 +64,41 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
 
         // Generate variants based on what was found
         // Rules:
-        // - no fail, no absent → CE (should be caught by semantic analyzer)
-        // - no fail, has absent → try_ only
-        // - has fail, no absent → try_, check_
-        // - has fail, has absent → try_, find_
+        // - no throw, no absent → CE (should be caught by semantic analyzer)
+        // - no throw, has absent → try_ only
+        // - has throw, no absent → try_, check_
+        // - has throw, has absent → try_, find_
 
-        if (_hasFail && _hasAbsent)
+        if (_hasThrow && _hasAbsent)
         {
-            // Has both fail and absent → generate try_ and find_
+            // Has both throw and absent → generate try_ and find_
             _generatedVariants.Add(GenerateTryVariant(node));
             _generatedVariants.Add(GenerateFindVariant(node));
         }
-        else if (_hasFail)
+        else if (_hasThrow)
         {
-            // Has fail but no absent → generate try_ and check_
+            // Has throw but no absent → generate try_ and check_
             _generatedVariants.Add(GenerateTryVariant(node));
             _generatedVariants.Add(GenerateCheckVariant(node));
         }
         else if (_hasAbsent)
         {
-            // Has absent but no fail → generate try_ only
+            // Has absent but no throw → generate try_ only
             _generatedVariants.Add(GenerateTryVariant(node));
         }
-        // else: no fail, no absent → compile error (handled by semantic analyzer)
+        // else: no throw, no absent → compile error (handled by semantic analyzer)
 
         return null;
     }
 
     /// <summary>
-    /// Analyzes a function body to detect fail and absent statements.
+    /// Analyzes a function body to detect throw and absent statements.
     /// </summary>
     private void AnalyzeFunctionBody(Statement statement)
     {
-        if (statement is FailStatement)
+        if (statement is ThrowStatement)
         {
-            _hasFail = true;
+            _hasThrow = true;
         }
         else if (statement is AbsentStatement)
         {
@@ -138,12 +138,12 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
 
     /// <summary>
     /// Generates the try_ variant that wraps crashes in Maybe&lt;T&gt;.
-    /// fail Error => return None
+    /// throw Error => return None
     /// return value => return Some(value)
     /// </summary>
     private FunctionDeclaration GenerateTryVariant(FunctionDeclaration original)
     {
-        // Strip the ! suffix from the original name since try_ variants are not failable
+        // Strip the ! suffix from the original name since try_ variants are not throwable
         string baseName = original.Name.TrimEnd('!');
         string newName = $"try_{baseName}";
 
@@ -156,7 +156,7 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
             : null;
 
         // Transform the original body:
-        // - fail Error => return None
+        // - throw Error => return None
         // - return value => return Some(value)
         Statement? transformedBody = original.Body != null
             ? TransformBodyForTryVariant(original.Body, original.Location)
@@ -174,7 +174,7 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
 
     /// <summary>
     /// Transforms a function body for try_ variant:
-    /// - fail Error => return None (compiler handles Maybe type)
+    /// - throw Error => return None (compiler handles Maybe type)
     /// - absent => return None (compiler handles Maybe type)
     /// - return value => return value (compiler handles implicit Some)
     /// </summary>
@@ -182,8 +182,8 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
     {
         return statement switch
         {
-            // fail Error => return None
-            FailStatement => new ReturnStatement(
+            // throw Error => return None
+            ThrowStatement => new ReturnStatement(
                 Value: new IdentifierExpression(Name: "None", Location: location),
                 Location: location),
 
@@ -235,13 +235,13 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
     }
 
     /// <summary>
-    /// Generates the check_ variant that wraps fail in Result&lt;T&gt;.
-    /// fail Error => return error (compiler handles Result type)
+    /// Generates the check_ variant that wraps throw in Result&lt;T&gt;.
+    /// throw Error => return error (compiler handles Result type)
     /// return value => return value (compiler handles implicit Ok)
     /// </summary>
     private FunctionDeclaration GenerateCheckVariant(FunctionDeclaration original)
     {
-        // Strip the ! suffix from the original name since check_ variants are not failable
+        // Strip the ! suffix from the original name since check_ variants are not throwable
         string baseName = original.Name.TrimEnd('!');
         string newName = $"check_{baseName}";
 
@@ -254,7 +254,7 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
             : null;
 
         // Transform the original body:
-        // - fail Error => return error
+        // - throw Error => return error
         // - return value => return value
         Statement? transformedBody = original.Body != null
             ? TransformBodyForCheckVariant(original.Body, original.Location)
@@ -272,16 +272,16 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
 
     /// <summary>
     /// Transforms a function body for check_ variant:
-    /// - fail Error => return error (compiler handles Result type)
+    /// - throw Error => return error (compiler handles Result type)
     /// - return value => return value (compiler handles implicit Ok)
     /// </summary>
     private Statement TransformBodyForCheckVariant(Statement statement, SourceLocation location)
     {
         return statement switch
         {
-            // fail Error => return error (direct return of Error value)
-            FailStatement failStmt => new ReturnStatement(
-                Value: failStmt.Error,
+            // throw Error => return error (direct return of Error value)
+            ThrowStatement throwStmt => new ReturnStatement(
+                Value: throwStmt.Error,
                 Location: location),
 
             // return value stays the same - compiler handles implicit Ok wrapping
@@ -327,14 +327,14 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
     }
 
     /// <summary>
-    /// Generates the find_ variant that wraps fail/absent in Lookup&lt;T&gt;.
-    /// fail Error => return error (compiler handles Lookup type)
+    /// Generates the find_ variant that wraps throw/absent in Lookup&lt;T&gt;.
+    /// throw Error => return error (compiler handles Lookup type)
     /// absent => return None
     /// return value => return value (compiler handles implicit Value)
     /// </summary>
     private FunctionDeclaration GenerateFindVariant(FunctionDeclaration original)
     {
-        // Strip the ! suffix from the original name since find_ variants are not failable
+        // Strip the ! suffix from the original name since find_ variants are not throwable
         string baseName = original.Name.TrimEnd('!');
         string newName = $"find_{baseName}";
 
@@ -347,7 +347,7 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
             : null;
 
         // Transform the original body:
-        // - fail Error => return error
+        // - throw Error => return error
         // - absent => return None
         // - return value => return value
         Statement? transformedBody = original.Body != null
@@ -366,7 +366,7 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
 
     /// <summary>
     /// Transforms a function body for find_ variant:
-    /// - fail Error => return error (compiler handles Lookup type)
+    /// - throw Error => return error (compiler handles Lookup type)
     /// - absent => return None
     /// - return value => return value (compiler handles implicit Value)
     /// </summary>
@@ -374,9 +374,9 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
     {
         return statement switch
         {
-            // fail Error => return error (direct return of Error value)
-            FailStatement failStmt => new ReturnStatement(
-                Value: failStmt.Error,
+            // throw Error => return error (direct return of Error value)
+            ThrowStatement throwStmt => new ReturnStatement(
+                Value: throwStmt.Error,
                 Location: location),
 
             // absent => return None
@@ -450,7 +450,7 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
     public object? VisitBlockStatement(BlockStatement node) => null;
     public object? VisitBreakStatement(BreakStatement node) => null;
     public object? VisitContinueStatement(ContinueStatement node) => null;
-    public object? VisitFailStatement(FailStatement node) => null;
+    public object? VisitThrowStatement(ThrowStatement node) => null;
     public object? VisitAbsentStatement(AbsentStatement node) => null;
     public object? VisitLiteralExpression(LiteralExpression node) => null;
     public object? VisitIdentifierExpression(IdentifierExpression node) => null;

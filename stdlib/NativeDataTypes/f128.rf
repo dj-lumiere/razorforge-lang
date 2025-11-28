@@ -1,5 +1,5 @@
 # RazorForge f128 (quadruple precision floating point) native type implementation
-# Maps directly to LLVM fp128 type and IEEE 754 binary128 format
+# Maps directly to LLVM fp128 type using compiler intrinsics
 
 # Core f128 type definition - maps to LLVM fp128
 record f128 {
@@ -7,437 +7,288 @@ record f128 {
 }
 
 # IEEE 754 quadruple precision constants
-preset F128_EPSILON: f128 = 1.925929944387235853055977942584927319e-34
-preset F128_MIN: f128 = -1.189731495357231765085759326628007016e+4932
-preset F128_MAX: f128 = 1.189731495357231765085759326628007016e+4932
-preset F128_MIN_POSITIVE: f128 = 3.362103143112093506262677817321752602e-4932
-preset F128_INFINITY: f128 = 1.0 / 0.0
-preset F128_NEG_INFINITY: f128 = -1.0 / 0.0
-preset F128_NAN: f128 = 0.0 / 0.0
+preset F128_EPSILON: f128 = 1.925929944387235853055977942584927319e-34_f128
+preset F128_MIN: f128 = -1.189731495357231765085759326628007016e+4932_f128
+preset F128_MAX: f128 = 1.189731495357231765085759326628007016e+4932_f128
+preset F128_MIN_POSITIVE: f128 = 3.362103143112093506262677817321752602e-4932_f128
+preset F128_ZERO: f128 = 0.0_f128
+preset F128_ONE: f128 = 1.0_f128
 
 # Mathematical constants with quadruple precision
-preset F128_PI: f128 = 3.141592653589793238462643383279502884
-preset F128_E: f128 = 2.718281828459045235360287471352662498
-preset F128_SQRT_2: f128 = 1.414213562373095048801688724209698079
-preset F128_LN_2: f128 = 0.693147180559945309417232121458176568
-preset F128_LN_10: f128 = 2.302585092994045684017991454684364208
-
-# Basic arithmetic operations (LLVM floating point intrinsics)
-
-# Addition - maps to LLVM fadd
-routine f128.add(my: f128, other: f128) -> f128 {
-    return llvm_intrinsic("fadd", my, other)
-}
-
-# Subtraction - maps to LLVM fsub
-routine f128.sub(my: f128, other: f128) -> f128 {
-    return llvm_intrinsic("fsub", my, other)
-}
-
-# Multiplication - maps to LLVM fmul
-routine f128.mul(my: f128, other: f128) -> f128 {
-    return llvm_intrinsic("fmul", my, other)
-}
-
-# Division - maps to LLVM fdiv
-routine f128.div(my: f128, other: f128) -> f128 {
-    return llvm_intrinsic("fdiv", my, other)
-}
-
-# Remainder - maps to LLVM frem
-routine f128.rem(my: f128, other: f128) -> f128 {
-    return llvm_intrinsic("frem", my, other)
-}
-
-# Comparison operations (LLVM fcmp)
-routine f128.eq(my: f128, other: f128) -> bool {
-    return llvm_intrinsic("fcmp oeq", my, other)  # Ordered equal
-}
-
-routine f128.ne(my: f128, other: f128) -> bool {
-    return llvm_intrinsic("fcmp one", my, other)  # Ordered not equal
-}
-
-routine f128.lt(my: f128, other: f128) -> bool {
-    return llvm_intrinsic("fcmp olt", my, other)  # Ordered less than
-}
-
-routine f128.le(my: f128, other: f128) -> bool {
-    return llvm_intrinsic("fcmp ole", my, other)  # Ordered less equal
-}
-
-routine f128.gt(my: f128, other: f128) -> bool {
-    return llvm_intrinsic("fcmp ogt", my, other)  # Ordered greater than
-}
-
-routine f128.ge(my: f128, other: f128) -> bool {
-    return llvm_intrinsic("fcmp oge", my, other)  # Ordered greater equal
-}
-
-# NaN-aware comparisons
-routine f128.is_nan(my: f128) -> bool {
-    return llvm_intrinsic("fcmp uno", my, my)   # Unordered (NaN check)
-}
-
-routine f128.is_finite(my: f128) -> bool {
-    return not my.is_nan() and not my.is_infinite()
-}
-
-routine f128.is_infinite(my: f128) -> bool {
-    return my == F128_INFINITY or my == F128_NEG_INFINITY
-}
-
-# Mathematical functions using LLVM intrinsics
-routine f128.abs(my: f128) -> f128 {
-    return llvm_intrinsic("llvm.fabs.f128", my)
-}
-
-routine f128.sqrt(my: f128) -> f128 {
-    return llvm_intrinsic("llvm.sqrt.f128", my)
-}
-
-routine f128.sin(my: f128) -> f128 {
-    # Note: LLVM may not have native f128 sin, use library calls
-    # For now, demote to f64, compute, and promote back
-    let demoted = f64(my)
-    return f128(demoted.sin())
-}
-
-routine f128.cos(my: f128) -> f128 {
-    # Note: LLVM may not have native f128 cos, use library calls
-    # For now, demote to f64, compute, and promote back
-    let demoted = f64(my)
-    return f128(demoted.cos())
-}
-
-routine f128.tan(my: f128) -> f128 {
-    return my.sin() / my.cos()
-}
-
-routine f128.pow(my: f128, exponent: f128) -> f128 {
-    # Note: LLVM may not have native f128 pow, use library calls
-    # For now, demote to f64, compute, and promote back
-    let demoted_base = f64(my)
-    let demoted_exp = f64(exponent)
-    return f128(demoted_base.pow(demoted_exp))
-}
-
-routine f128.exp(my: f128) -> f128 {
-    # Note: LLVM may not have native f128 exp, use library calls
-    # For now, demote to f64, compute, and promote back
-    let demoted = f64(my)
-    return f128(demoted.exp())
-}
-
-routine f128.exp2(my: f128) -> f128 {
-    # Note: LLVM may not have native f128 exp2, use library calls
-    # For now, demote to f64, compute, and promote back
-    let demoted = f64(my)
-    return f128(demoted.exp2())
-}
-
-routine f128.ln(my: f128) -> f128 {
-    # Note: LLVM may not have native f128 log, use library calls
-    # For now, demote to f64, compute, and promote back
-    let demoted = f64(my)
-    return f128(demoted.ln())
-}
-
-routine f128.log2(my: f128) -> f128 {
-    # Note: LLVM may not have native f128 log2, use library calls
-    # For now, demote to f64, compute, and promote back
-    let demoted = f64(my)
-    return f128(demoted.log2())
-}
-
-routine f128.log10(my: f128) -> f128 {
-    # Note: LLVM may not have native f128 log10, use library calls
-    # For now, demote to f64, compute, and promote back
-    let demoted = f64(my)
-    return f128(demoted.log10())
-}
-
-# Rounding and truncation
-routine f128.floor(my: f128) -> f128 {
-    return llvm_intrinsic("llvm.floor.f128", my)
-}
-
-routine f128.ceil(my: f128) -> f128 {
-    return llvm_intrinsic("llvm.ceil.f128", my)
-}
-
-routine f128.round(my: f128) -> f128 {
-    return llvm_intrinsic("llvm.round.f128", my)
-}
-
-routine f128.trunc(my: f128) -> f128 {
-    return llvm_intrinsic("llvm.trunc.f128", my)
-}
-
-# Min/Max with proper NaN handling
-routine f128.min(my: f128, other: f128) -> f128 {
-    return llvm_intrinsic("llvm.minnum.f128", my, other)
-}
-
-routine f128.max(my: f128, other: f128) -> f128 {
-    return llvm_intrinsic("llvm.maxnum.f128", my, other)
-}
-
-# Fused multiply-add for better precision
-routine f128.fma(my: f128, mul: f128, add: f128) -> f128 {
-    return llvm_intrinsic("llvm.fma.f128", my, mul, add)
-}
-
-# IEEE 754 bit manipulation
-routine f128.as_bits(my: f128) -> s128 {
-    return llvm_intrinsic("bitcast", my)  # Reinterpret as s128
-}
-
-routine f128(from_bits: BitArray<128>) -> f128 {
-    return llvm_intrinsic("bitcast", from_bits)  # Reinterpret BitArray<128> as f128
-}
-
-# Extract IEEE 754 components (binary128: 1 sign + 15 exponent + 112 mantissa)
-routine f128.extract_sign(my: f128) -> bool {
-    let bits = my.as_bits()
-    return (bits >> 127) != 0
-}
-
-routine f128.extract_exponent(my: f128) -> s128 {
-    let bits = my.as_bits()
-    return (bits >> 112) & 0x7FFF  # 15 bits
-}
-
-routine f128.extract_mantissa(my: f128) -> s128 {
-    let bits = my.as_bits()
-    return bits & 0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFF  # 112 bits
-}
-
-# Type conversions (using constructor syntax)
-routine s8(from_f128: f128) -> s8 {
-    return llvm_intrinsic("fptosi", from_f128)   # Float to signed int
-}
-
-routine u8(from_f128: f128) -> u8 {
-    return llvm_intrinsic("fptoui", from_f128)   # Float to unsigned int
-}
-
-routine s16(from_f128: f128) -> s16 {
-    return llvm_intrinsic("fptosi", from_f128)   # Float to signed int
-}
-
-routine u16(from_f128: f128) -> u16 {
-    return llvm_intrinsic("fptoui", from_f128)   # Float to unsigned int
-}
-
-routine s32(from_f128: f128) -> s32 {
-    return llvm_intrinsic("fptosi", from_f128)   # Float to signed int
-}
-
-routine u32(from_f128: f128) -> u32 {
-    return llvm_intrinsic("fptoui", from_f128)   # Float to unsigned int
-}
-
-routine s64(from_f128: f128) -> s64 {
-    return llvm_intrinsic("fptosi", from_f128)   # Float to signed int
-}
-
-routine u64(from_f128: f128) -> u64 {
-    return llvm_intrinsic("fptoui", from_f128)   # Float to unsigned int
-}
-
-routine s128(from_f128: f128) -> s128 {
-    return llvm_intrinsic("fptosi", from_f128)   # Float to signed int
-}
-
-routine u128(from_f128: f128) -> u128 {
-    return llvm_intrinsic("fptoui", from_f128)   # Float to unsigned int
-}
-
-routine f16(from_f128: f128) -> f16 {
-    return llvm_intrinsic("fptrunc", from_f128)  # Truncate to half precision
-}
-
-routine f32(from_f128: f128) -> f32 {
-    return llvm_intrinsic("fptrunc", from_f128)  # Truncate to single precision
-}
-
-routine f64(from_f128: f128) -> f64 {
-    return llvm_intrinsic("fptrunc", from_f128)  # Truncate to double precision
-}
-
-routine bool(from_f128: f128) -> bool {
-    return from_f128 != 0.0
-}
-
-# Conversion from other types to f128
-routine f128(from_s8: s8) -> f128 {
-    return llvm_intrinsic("sitofp", from_s8)   # Signed int to float
-}
-
-routine f128(from_u8: u8) -> f128 {
-    return llvm_intrinsic("uitofp", from_u8)   # Unsigned int to float
-}
-
-routine f128(from_s16: s16) -> f128 {
-    return llvm_intrinsic("sitofp", from_s16)   # Signed int to float
-}
-
-routine f128(from_u16: u16) -> f128 {
-    return llvm_intrinsic("uitofp", from_u16)   # Unsigned int to float
-}
-
-routine f128(from_s32: s32) -> f128 {
-    return llvm_intrinsic("sitofp", from_s32)   # Signed int to float
-}
-
-routine f128(from_u32: u32) -> f128 {
-    return llvm_intrinsic("uitofp", from_u32)   # Unsigned int to float
-}
-
-routine f128(from_s64: s64) -> f128 {
-    return llvm_intrinsic("sitofp", from_s64)   # Signed int to float
-}
-
-routine f128(from_u64: u64) -> f128 {
-    return llvm_intrinsic("uitofp", from_u64)   # Unsigned int to float
-}
-
-routine f128(from_s128: s128) -> f128 {
-    return llvm_intrinsic("sitofp", from_s128)   # Signed int to float
-}
-
-routine f128(from_u128: u128) -> f128 {
-    return llvm_intrinsic("uitofp", from_u128)   # Unsigned int to float
-}
-
-routine f128(from_f16: f16) -> f128 {
-    return llvm_intrinsic("fpext", from_f16)    # Extend from half precision
-}
-
-routine f128(from_f32: f32) -> f128 {
-    return llvm_intrinsic("fpext", from_f32)    # Extend from single precision
-}
-
-routine f128(from_f64: f64) -> f128 {
-    return llvm_intrinsic("fpext", from_f64)    # Extend from double precision
-}
-
-# Parsing constructors using compiler intrinsics
-
-# Fallible constructor - crashes on invalid input
-routine f128!(from_text: Text) -> f128 {
+preset F128_PI: f128 = 3.141592653589793238462643383279502884_f128
+preset F128_E: f128 = 2.718281828459045235360287471352662498_f128
+preset F128_SQRT_2: f128 = 1.414213562373095048801688724209698079_f128
+preset F128_LN_2: f128 = 0.693147180559945309417232121458176568_f128
+preset F128_LN_10: f128 = 2.302585092994045684017991454684364208_f128
+
+# Failable constructor from Text - called as f128!(text)
+# Compiler automatically generates try_f128.__create__(text) -> Maybe<f128>
+routine f128.__create__!(from_text: Text<Letterlikes>) -> f128 {
     danger! {
         return @parse_f128(from_text)
     }
 }
 
-# Safe constructor - returns Maybe<f128>
-routine f128?(from_text: Text) -> Maybe<f128> {
+# ============================================================================
+# Arithmetic Operations (IEEE 754 semantics)
+# ============================================================================
+
+routine f128.__add__(other: f128) -> f128 {
     danger! {
-        return @try_parse_f128(from_text)
+        return @intrinsic.add.wrapping<fp128>(me, other)
     }
 }
 
-routine Text(from_f128: f128, precision: s32) -> Text {
-    # Convert f128 to Text representation with specified precision
-    return ""  # Placeholder
-}
-
-# High-performance mathematical operations
-routine lerp(a: f128, b: f128, t: f128) -> f128 {
-    # Linear interpolation with fused multiply-add
-    return a.fma(1.0 - t, b * t)
-}
-
-# Numerical computation helpers
-routine approx_equal(a: f128, b: f128, epsilon: f128) -> bool {
-    return (a - b).abs() <= epsilon
-}
-
-routine next_power_of_two(value: f128) -> f128 {
-    return when value {
-        <= 1.0 => 1.0,
-        _ => 2.0.pow(value.ln() / F128_LN_2).ceil()
+routine f128.__sub__(other: f128) -> f128 {
+    danger! {
+        return @intrinsic.sub.wrapping<fp128>(me, other)
     }
 }
 
-# High-precision scientific computing functions
-routine f128.hypot(my: f128, other: f128) -> f128 {
-    # Compute sqrt(my^2 + other^2) avoiding overflow/underflow
-    let abs_a = my.abs()
-    let abs_b = other.abs()
-
-    return when {
-        abs_a == 0.0 => abs_b,
-        abs_b == 0.0 => abs_a,
-        abs_a > abs_b => {
-            let ratio = abs_b / abs_a
-            abs_a * (1.0 + ratio * ratio).sqrt()
-        },
-        _ => {
-            let ratio = abs_a / abs_b
-            abs_b * (1.0 + ratio * ratio).sqrt()
-        }
+routine f128.__mul__(other: f128) -> f128 {
+    danger! {
+        return @intrinsic.mul.wrapping<fp128>(me, other)
     }
 }
 
-routine f128.atan2(y: f128, x: f128) -> f128 {
-    # Compute atan(y/x) with proper quadrant handling
-    # This is a simplified implementation; full version would handle all edge cases
-    return when {
-        x > 0.0 => (y / x).atan(),
-        y >= 0.0 and x < 0.0 => (y / x).atan() + F128_PI,
-        y < 0.0 and x < 0.0 => (y / x).atan() - F128_PI,
-        y > 0.0 and x == 0.0 => F128_PI / 2.0,
-        y < 0.0 and x == 0.0 => -F128_PI / 2.0,
-        _ => 0.0  # y == 0.0 and x == 0.0 (undefined)
+routine f128.__div__(other: f128) -> f128 {
+    danger! {
+        return @intrinsic.div.wrapping<fp128>(me, other)
     }
 }
 
-routine f128.gamma(my: f128) -> f128 {
-    # Placeholder for gamma function - would use Stirling's approximation
-    # or series expansion for high precision
-    return 1.0  # Placeholder
+routine f128.__rem__(other: f128) -> f128 {
+    danger! {
+        return @intrinsic.rem.wrapping<fp128>(me, other)
+    }
 }
 
-routine f128.lgamma(my: f128) -> f128 {
-    # Placeholder for log gamma function
-    return 0.0  # Placeholder
+routine f128.__neg__() -> f128 {
+    danger! {
+        return @intrinsic.sub.wrapping<fp128>(0.0_f128, me)
+    }
 }
 
-/*
-IEEE 754 Quadruple Precision Format (binary128):
-- Sign bit: 1 bit (bit 127)
-- Exponent: 15 bits (bits 126-112, biased by 16383)
-- Mantissa: 112 bits (bits 111-0, with implicit leading 1)
-- Total: 128 bits
+# ============================================================================
+# Comparison Operations (ordered - false if NaN)
+# ============================================================================
 
-Value ranges:
-- Normal numbers: �?.36�?0^(-4932) to �?.19�?0^4932
-- Subnormal numbers: �?.48�?0^(-4966) to �?.36�?0^(-4932)
-- Decimal precision: ~34 significant decimal digits
+routine f128.__eq__(other: f128) -> bool {
+    danger! {
+        return @intrinsic.fcmp.oeq<fp128>(me, other)
+    }
+}
 
-Special values:
-- Zero: exponent = 0, mantissa = 0
-- Infinity: exponent = 32767 (all 1s), mantissa = 0
-- NaN: exponent = 32767 (all 1s), mantissa ` 0
+routine f128.__ne__(other: f128) -> bool {
+    danger! {
+        return @intrinsic.fcmp.one<fp128>(me, other)
+    }
+}
 
-Target Architecture Support:
-- x86_64: Software implementation via libquadmath or MPFR
-- ARM64: Software implementation, some hardware support in newer chips
-- POWER: Native hardware support in POWER9 and later
-- SPARC: Native hardware support in some processors
-- Software libraries: GNU libquadmath, Intel Decimal Floating-Point Math Library
+routine f128.__lt__(other: f128) -> bool {
+    danger! {
+        return @intrinsic.fcmp.olt<fp128>(me, other)
+    }
+}
 
-LLVM Intrinsics Used:
-- Arithmetic: fadd, fsub, fmul, fdiv, frem (native fp128 support)
-- Comparison: fcmp (oeq, one, olt, ole, ogt, oge, uno)
-- Math: fabs, sqrt (limited native support, often software implementations)
-- Rounding: floor, ceil, round, trunc
-- Conversion: fptosi, fptoui, fptrunc, fpext, bitcast
-- Memory: load, store (as 128-bit values)
+routine f128.__le__(other: f128) -> bool {
+    danger! {
+        return @intrinsic.fcmp.ole<fp128>(me, other)
+    }
+}
 
-Note: Many mathematical functions may require software implementations
-or library calls due to limited hardware support for f128 operations.
-*/
+routine f128.__gt__(other: f128) -> bool {
+    danger! {
+        return @intrinsic.fcmp.ogt<fp128>(me, other)
+    }
+}
+
+routine f128.__ge__(other: f128) -> bool {
+    danger! {
+        return @intrinsic.fcmp.oge<fp128>(me, other)
+    }
+}
+
+# ============================================================================
+# Math Operations using intrinsics
+# ============================================================================
+
+routine f128.sqrt() -> f128 {
+    danger! {
+        return @intrinsic.sqrt<fp128>(me)
+    }
+}
+
+routine f128.abs() -> f128 {
+    danger! {
+        return @intrinsic.fabs<fp128>(me)
+    }
+}
+
+routine f128.floor() -> f128 {
+    danger! {
+        return @intrinsic.floor<fp128>(me)
+    }
+}
+
+routine f128.ceil() -> f128 {
+    danger! {
+        return @intrinsic.ceil<fp128>(me)
+    }
+}
+
+routine f128.round() -> f128 {
+    danger! {
+        return @intrinsic.round<fp128>(me)
+    }
+}
+
+routine f128.trunc() -> f128 {
+    danger! {
+        return @intrinsic.trunc_float<fp128>(me)
+    }
+}
+
+# Trigonometric functions
+routine f128.sin() -> f128 {
+    danger! {
+        return @intrinsic.sin<fp128>(me)
+    }
+}
+
+routine f128.cos() -> f128 {
+    danger! {
+        return @intrinsic.cos<fp128>(me)
+    }
+}
+
+# Exponential and logarithmic
+routine f128.exp() -> f128 {
+    danger! {
+        return @intrinsic.exp<fp128>(me)
+    }
+}
+
+routine f128.log() -> f128 {
+    danger! {
+        return @intrinsic.log<fp128>(me)
+    }
+}
+
+routine f128.log10() -> f128 {
+    danger! {
+        return @intrinsic.log10<fp128>(me)
+    }
+}
+
+routine f128.pow(exp: f128) -> f128 {
+    danger! {
+        return @intrinsic.pow<fp128>(me, exp)
+    }
+}
+
+routine f128.copysign(sign: f128) -> f128 {
+    danger! {
+        return @intrinsic.copysign<fp128>(me, sign)
+    }
+}
+
+# ============================================================================
+# Utility Methods
+# ============================================================================
+
+routine f128.min(other: f128) -> f128 {
+    return if me <= other then me else other
+}
+
+routine f128.max(other: f128) -> f128 {
+    return if me >= other then me else other
+}
+
+routine f128.clamp(min_val: f128, max_val: f128) -> f128 {
+    return me.min(max_val).max(min_val)
+}
+
+routine f128.is_positive() -> bool {
+    return me > 0.0_f128
+}
+
+routine f128.is_negative() -> bool {
+    return me < 0.0_f128
+}
+
+routine f128.is_zero() -> bool {
+    return me == 0.0_f128
+}
+
+routine f128.signum() -> f128 {
+    when {
+        me > 0.0_f128 => 1.0_f128,
+        me < 0.0_f128 => -1.0_f128,
+        _ => 0.0_f128
+    }
+}
+
+# ============================================================================
+# Type Conversions
+# ============================================================================
+
+routine f128.to_s64() -> s64 {
+    danger! {
+        return @intrinsic.fptosi<fp128, i64>(me)
+    }
+}
+
+routine f128.to_u64() -> u64 {
+    danger! {
+        return @intrinsic.fptoui<fp128, i64>(me)
+    }
+}
+
+routine f128.to_s128() -> s128 {
+    danger! {
+        return @intrinsic.fptosi<fp128, i128>(me)
+    }
+}
+
+routine f128.to_u128() -> u128 {
+    danger! {
+        return @intrinsic.fptoui<fp128, i128>(me)
+    }
+}
+
+routine f128.to_f32() -> f32 {
+    danger! {
+        return @intrinsic.fptrunc<fp128, float>(me)
+    }
+}
+
+routine f128.to_f64() -> f64 {
+    danger! {
+        return @intrinsic.fptrunc<fp128, double>(me)
+    }
+}
+
+# Reinterpret bits as u128 (type punning)
+routine f128.to_bits() -> u128 {
+    danger! {
+        return @intrinsic.bitcast<fp128, i128>(me)
+    }
+}
+
+# Create f128 from u128 bits (type punning)
+routine f128.from_bits(bits: u128) -> f128 {
+    danger! {
+        return @intrinsic.bitcast<i128, fp128>(bits)
+    }
+}
+
+# ============================================================================
+# String Conversion
+# ============================================================================
+
+routine f128.to_text() -> Text {
+    danger! {
+        return @format_f128(me)
+    }
+}

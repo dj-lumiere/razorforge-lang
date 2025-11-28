@@ -51,7 +51,7 @@ public class SuflaeTokenizer : BaseTokenizer
         [key: "break"] = TokenType.Break,
         [key: "continue"] = TokenType.Continue,
         [key: "return"] = TokenType.Return,
-        [key: "fail"] = TokenType.Fail,
+        [key: "throw"] = TokenType.Throw,
         [key: "absent"] = TokenType.Absent,
         [key: "for"] = TokenType.For,
         [key: "loop"] = TokenType.Loop,

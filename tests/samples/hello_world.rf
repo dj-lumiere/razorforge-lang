@@ -99,14 +99,14 @@ chimera Result<T> {
 
     public func unwrap() -> T {
         when me {
-            is Error _ => crash!(f"Unwrap failed: {error}")
+            is Crashable _ => throw TypeMismatchError()
             _ => _,
         }
     }
 
     public func is_success() -> bool {
         when me {
-            is Error _ => false
+            is Crashable _ => false
             _ => true,
         }
     }

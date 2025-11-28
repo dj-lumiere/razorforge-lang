@@ -1,242 +1,440 @@
 # RazorForge u16 (unsigned 16-bit integer) native type implementation
-# Maps directly to LLVM i16 type for unsigned operations
+# Maps directly to LLVM i16 type using compiler intrinsics
 
 # Core u16 type definition - maps to LLVM i16
 record u16 {
     public value: LlvmNativeI16
 }
 
-# Constants for u16 limits (LLVM constant values)
+# Constants for u16 limits
 preset U16_MIN: u16 = 0_u16
 preset U16_MAX: u16 = 65535_u16
 preset U16_ZERO: u16 = 0_u16
 preset U16_ONE: u16 = 1_u16
 
-# Basic arithmetic operations (LLVM intrinsics: add, sub, mul, udiv, urem)
+# ============================================================================
+# Checked Constructors (crash on overflow)
+# ============================================================================
 
-# Addition with overflow checking
-routine u16.add(me: u16, other: u16) -> u16 {
-    return llvm_intrinsic("llvm.uadd.with.overflow.i16", me, other)
-}
-
-# Subtraction with overflow checking
-routine u16.sub(me: u16, other: u16) -> u16 {
-    return llvm_intrinsic("llvm.usub.with.overflow.i16", me, other)
-}
-
-# Multiplication with overflow checking
-routine u16.mul(me: u16, other: u16) -> u16 {
-    return llvm_intrinsic("llvm.umul.with.overflow.i16", me, other)
-}
-
-# Division (unsigned) - maps to LLVM udiv
-routine u16.floordiv(me: u16, other: u16) -> u16 {
-    when (other) {
-        0 => throw panic("Division by zero"),
-        _ => return llvm_intrinsic("udiv", me, other)
-    }
-}
-
-# Remainder (unsigned) - maps to LLVM urem
-routine u16.rem(me: u16, other: u16) -> u16 {
-    when (other) {
-        0 => throw panic("Division by zero"),
-        _ => return llvm_intrinsic("urem", me, other)
-    }
-}
-
-# Bitwise operations (direct LLVM mapping)
-routine u16.and(me: u16, other: u16) -> u16 {
-    return llvm_intrinsic("and", me, other)
-}
-
-routine u16.or(me: u16, other: u16) -> u16 {
-    return llvm_intrinsic("or", me, other)
-}
-
-routine u16.xor(me: u16, other: u16) -> u16 {
-    return llvm_intrinsic("xor", me, other)
-}
-
-routine u16.not(me: u16) -> u16 {
-    return llvm_intrinsic("xor", me, 65535)
-}
-
-# Bit shifting operations
-routine u16.shl(me: u16, bits: u16) -> u16 {
-    return llvm_intrinsic("shl", me, bits)
-}
-
-routine u16.shr(me: u16, bits: u16) -> u16 {
-    return llvm_intrinsic("lshr", me, bits)  # Logical right shift for unsigned
-}
-
-# Comparison operations (LLVM icmp)
-routine u16.eq(me: u16, other: u16) -> bool {
-    return llvm_intrinsic("icmp eq", me, other)
-}
-
-routine u16.ne(me: u16, other: u16) -> bool {
-    return llvm_intrinsic("icmp ne", me, other)
-}
-
-routine u16.lt(me: u16, other: u16) -> bool {
-    return llvm_intrinsic("icmp ult", me, other)  # Unsigned less than
-}
-
-routine u16.le(me: u16, other: u16) -> bool {
-    return llvm_intrinsic("icmp ule", me, other)  # Unsigned less equal
-}
-
-routine u16.gt(me: u16, other: u16) -> bool {
-    return llvm_intrinsic("icmp ugt", me, other)  # Unsigned greater than
-}
-
-routine u16.ge(me: u16, other: u16) -> bool {
-    return llvm_intrinsic("icmp uge", me, other)  # Unsigned greater equal
-}
-
-# Math operations
-routine u16.min(me: u16, other: u16) -> u16 {
-    return if me <= other then me else other
-}
-
-routine u16.max(me: u16, other: u16) -> u16 {
-    return if me >= other then me else other
-}
-
-# Bit manipulation utilities
-routine u16.count_leading_zeros(me: u16) -> u16 {
-    return llvm_intrinsic("llvm.ctlz.i16", me, false)
-}
-
-routine u16.count_trailing_zeros(me: u16) -> u16 {
-    return llvm_intrinsic("llvm.cttz.i16", me, false)
-}
-
-routine u16.count_ones(me: u16) -> u16 {
-    return llvm_intrinsic("llvm.ctpop.i16", me)
-}
-
-# Byte swapping for endianness conversion
-routine u16.byte_swap(me: u16) -> u16 {
-    return llvm_intrinsic("llvm.bswap.i16", me)
-}
-
-# Type conversions to other native types (using constructor syntax)
-routine u8(from_u16: u16) -> u8 {
-    return llvm_intrinsic("trunc", from_u16)      # Truncate to 8-bit
-}
-
-routine s8(from_u16: u16) -> s8 {
-    return llvm_intrinsic("trunc", from_u16)      # Truncate to signed 8-bit
-}
-
-routine s16(from_u16: u16) -> s16 {
-    return llvm_intrinsic("bitcast", from_u16)    # Direct bit reinterpretation
-}
-
-routine u32(from_u16: u16) -> u32 {
-    return llvm_intrinsic("zext", from_u16)       # Zero-extend to 32-bit
-}
-
-routine u64(from_u16: u16) -> u64 {
-    return llvm_intrinsic("zext", from_u16)       # Zero-extend to 64-bit
-}
-
-routine u128(from_u16: u16) -> u128 {
-    return llvm_intrinsic("zext", from_u16)       # Zero-extend to 128-bit
-}
-
-routine s32(from_u16: u16) -> s32 {
-    return llvm_intrinsic("zext", from_u16)       # Zero-extend to signed 32-bit
-}
-
-routine s64(from_u16: u16) -> s64 {
-    return llvm_intrinsic("zext", from_u16)       # Zero-extend to signed 64-bit
-}
-
-routine s128(from_u16: u16) -> s128 {
-    return llvm_intrinsic("zext", from_u16)       # Zero-extend to signed 128-bit
-}
-
-routine f32(from_u16: u16) -> f32 {
-    return llvm_intrinsic("uitofp", from_u16)     # Unsigned int to float
-}
-
-routine f64(from_u16: u16) -> f64 {
-    return llvm_intrinsic("uitofp", from_u16)     # Unsigned int to double
-}
-
-routine f128(from_u16: u16) -> f128 {
-    return llvm_intrinsic("uitofp", from_u16)     # Unsigned int to quad
-}
-
-routine bool(from_u16: u16) -> bool {
-    return from_u16 != 0
-}
-
-# Parsing constructors using compiler intrinsics
-
-# Fallible constructor - crashes on invalid input
-routine u16!(from_text: Text) -> u16 {
+# Failable constructor from Text - called as u16!(text)
+# Compiler automatically generates try_u16.__create__(text) -> Maybe<u16>
+routine u16.__create__!(from_text: Text<Letterlikes>) -> u16 {
     danger! {
         return @parse_u16(from_text)
     }
 }
 
-# Safe constructor - returns Maybe<u16>
-routine u16?(from_text: Text) -> Maybe<u16> {
+# From s8 - crashes if value is negative
+routine u16.__create__!(from: s8) -> u16 {
+    if from < 0_s8 {
+        throw IntegerOverflowError(f"Cannot convert {from} to u16: value out of range [{U16_MIN}, {U16_MAX}]")
+    }
     danger! {
-        return @try_parse_u16(from_text)
+        return @intrinsic.sext<i8, i16>(from)
     }
 }
 
-routine Text(from_u16: u16) -> Text {
-    # Convert u16 to Text representation
-    return ""  # Placeholder
-}
-
-# Utility functions for bit operations
-routine u16.is_power_of_two(me: u16) -> bool {
-    return me != 0 and (me & (me - 1)) == 0
-}
-
-routine u16.next_power_of_two(me: u16) -> u16 {
-    when (me) {
-        0 => return 1,
-        1 => return 1,
-        _ => {
-            var power: u16 = 1
-            while power < me {
-                power = power << 1
-            }
-            return power
-        }
+# From s16 - crashes if value is negative
+routine u16.__create__!(from: s16) -> u16 {
+    if from < 0_s16 {
+        throw IntegerOverflowError(f"Cannot convert {from} to u16: value out of range [{U16_MIN}, {U16_MAX}]")
+    }
+    danger! {
+        return @intrinsic.bitcast<i16, i16>(from)
     }
 }
 
-# Saturating arithmetic (clamps to min/max instead of wrapping)
-routine u16.saturating_add(me: u16, other: u16) -> u16 {
-    let result = me + other
-    return if result < me then U16_MAX else result  # Overflow check
+# From s32 - crashes if value out of u16 range
+routine u16.__create__!(from: s32) -> u16 {
+    if not (0_s32 <= from <= 65535_s32) {
+        throw IntegerOverflowError(f"Cannot convert {from} to u16: value out of range [{U16_MIN}, {U16_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<i32, i16>(from)
+    }
 }
 
-routine u16.saturating_sub(me: u16, other: u16) -> u16 {
-    return if me >= other then me - other else U16_ZERO
+# From s64 - crashes if value out of u16 range
+routine u16.__create__!(from: s64) -> u16 {
+    if not (0_s64 <= from <= 65535_s64) {
+        throw IntegerOverflowError(f"Cannot convert {from} to u16: value out of range [{U16_MIN}, {U16_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<i64, i16>(from)
+    }
 }
 
-routine u16.saturating_mul(me: u16, other: u16) -> u16 {
-    let result = me * other
-    return if other != 0 and result / other != me then U16_MAX else result
+# From s128 - crashes if value out of u16 range
+routine u16.__create__!(from: s128) -> u16 {
+    if not (0_s128 <= from <= 65535_s128) {
+        throw IntegerOverflowError(f"Cannot convert {from} to u16: value out of range [{U16_MIN}, {U16_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<i128, i16>(from)
+    }
 }
 
-/*
-LLVM IR Mapping:
-- RazorForge u16 -> LLVM i16 -> C uint16_t
-- Range: 0 to 65535
-- Unsigned operations use ult, uge, udiv, urem, lshr
-- Efficient for small counts, pixel components, and network protocols
-- Zero-extension used for conversions to larger types
-- Byte swapping available for endianness conversion
-*/
+# From u32 - crashes if value > U16_MAX
+routine u16.__create__!(from: u32) -> u16 {
+    if from > 65535_u32 {
+        throw IntegerOverflowError(f"Cannot convert {from} to u16: value out of range [{U16_MIN}, {U16_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<i32, i16>(from)
+    }
+}
+
+# From u64 - crashes if value > U16_MAX
+routine u16.__create__!(from: u64) -> u16 {
+    if from > 65535_u64 {
+        throw IntegerOverflowError(f"Cannot convert {from} to u16: value out of range [{U16_MIN}, {U16_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<i64, i16>(from)
+    }
+}
+
+# From u128 - crashes if value > U16_MAX
+routine u16.__create__!(from: u128) -> u16 {
+    if from > 65535_u128 {
+        throw IntegerOverflowError(f"Cannot convert {from} to u16: value out of range [{U16_MIN}, {U16_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<i128, i16>(from)
+    }
+}
+
+# ============================================================================
+# Arithmetic Operations (trapping on overflow by default)
+# ============================================================================
+
+routine u16.__add__(other: u16) -> u16 {
+    danger! {
+        return @intrinsic.add<i16>(me, other)
+    }
+}
+
+routine u16.__sub__(other: u16) -> u16 {
+    danger! {
+        return @intrinsic.sub<i16>(me, other)
+    }
+}
+
+routine u16.__mul__(other: u16) -> u16 {
+    danger! {
+        return @intrinsic.mul<i16>(me, other)
+    }
+}
+
+routine u16.__floordiv__(other: u16) -> u16 {
+    danger! {
+        return @intrinsic.udiv<i16>(me, other)
+    }
+}
+
+routine u16.__mod__(other: u16) -> u16 {
+    danger! {
+        return @intrinsic.urem<i16>(me, other)
+    }
+}
+
+# ============================================================================
+# Wrapping Arithmetic (+%, -%, *%)
+# ============================================================================
+
+routine u16.__add_wrap__(other: u16) -> u16 {
+    danger! {
+        return @intrinsic.add.wrapping<i16>(me, other)
+    }
+}
+
+routine u16.__sub_wrap__(other: u16) -> u16 {
+    danger! {
+        return @intrinsic.sub.wrapping<i16>(me, other)
+    }
+}
+
+routine u16.__mul_wrap__(other: u16) -> u16 {
+    danger! {
+        return @intrinsic.mul.wrapping<i16>(me, other)
+    }
+}
+
+# ============================================================================
+# Saturating Arithmetic (+^, -^, *^)
+# ============================================================================
+
+routine u16.__add_sat__(other: u16) -> u16 {
+    danger! {
+        return @intrinsic.add.saturating<i16>(me, other)
+    }
+}
+
+routine u16.__sub_sat__(other: u16) -> u16 {
+    danger! {
+        return @intrinsic.sub.saturating<i16>(me, other)
+    }
+}
+
+routine u16.__mul_sat__(other: u16) -> u16 {
+    danger! {
+        return @intrinsic.mul.saturating<i16>(me, other)
+    }
+}
+
+# ============================================================================
+# Checked Arithmetic (+?, -?, *?) - returns Maybe<T>
+# ============================================================================
+
+routine u16.__add_checked__(other: u16) -> Maybe<u16> {
+    danger! {
+        let (result, overflow) = @intrinsic.add.overflow<i16>(me, other)
+        return if overflow { None } else { result }
+    }
+}
+
+routine u16.__sub_checked__(other: u16) -> Maybe<u16> {
+    danger! {
+        let (result, overflow) = @intrinsic.sub.overflow<i16>(me, other)
+        return if overflow { None } else { result }
+    }
+}
+
+routine u16.__mul_checked__(other: u16) -> Maybe<u16> {
+    danger! {
+        let (result, overflow) = @intrinsic.mul.overflow<i16>(me, other)
+        return if overflow { None } else { result }
+    }
+}
+
+# ============================================================================
+# Bitwise Operations
+# ============================================================================
+
+routine u16.__and__(other: u16) -> u16 {
+    danger! {
+        return @intrinsic.and<i16>(me, other)
+    }
+}
+
+routine u16.__or__(other: u16) -> u16 {
+    danger! {
+        return @intrinsic.or<i16>(me, other)
+    }
+}
+
+routine u16.__xor__(other: u16) -> u16 {
+    danger! {
+        return @intrinsic.xor<i16>(me, other)
+    }
+}
+
+routine u16.__not__() -> u16 {
+    danger! {
+        return @intrinsic.not<i16>(me)
+    }
+}
+
+routine u16.__shl__(bits: u32) -> u16 {
+    danger! {
+        return @intrinsic.shl<i16>(me, bits)
+    }
+}
+
+routine u16.__shr__(bits: u32) -> u16 {
+    danger! {
+        return @intrinsic.lshr<i16>(me, bits)
+    }
+}
+
+# ============================================================================
+# Comparison Operations
+# ============================================================================
+
+routine u16.__eq__(other: u16) -> bool {
+    danger! {
+        return @intrinsic.icmp.eq<i16>(me, other)
+    }
+}
+
+routine u16.__ne__(other: u16) -> bool {
+    danger! {
+        return @intrinsic.icmp.ne<i16>(me, other)
+    }
+}
+
+routine u16.__lt__(other: u16) -> bool {
+    danger! {
+        return @intrinsic.icmp.ult<i16>(me, other)
+    }
+}
+
+routine u16.__le__(other: u16) -> bool {
+    danger! {
+        return @intrinsic.icmp.ule<i16>(me, other)
+    }
+}
+
+routine u16.__gt__(other: u16) -> bool {
+    danger! {
+        return @intrinsic.icmp.ugt<i16>(me, other)
+    }
+}
+
+routine u16.__ge__(other: u16) -> bool {
+    danger! {
+        return @intrinsic.icmp.uge<i16>(me, other)
+    }
+}
+
+# ============================================================================
+# Math Operations
+# ============================================================================
+
+routine u16.min(other: u16) -> u16 {
+    return if me <= other then me else other
+}
+
+routine u16.max(other: u16) -> u16 {
+    return if me >= other then me else other
+}
+
+routine u16.clamp(min_val: u16, max_val: u16) -> u16 {
+    return me.min(max_val).max(min_val)
+}
+
+# ============================================================================
+# Bit Manipulation
+# ============================================================================
+
+routine u16.count_ones() -> u16 {
+    danger! {
+        return @intrinsic.ctpop<i16>(me)
+    }
+}
+
+routine u16.count_zeros() -> u16 {
+    return 16_u16 - me.count_ones()
+}
+
+routine u16.leading_zeros() -> u16 {
+    danger! {
+        return @intrinsic.ctlz<i16>(me)
+    }
+}
+
+routine u16.trailing_zeros() -> u16 {
+    danger! {
+        return @intrinsic.cttz<i16>(me)
+    }
+}
+
+routine u16.leading_ones() -> u16 {
+    return me.__not__().leading_zeros()
+}
+
+routine u16.trailing_ones() -> u16 {
+    return me.__not__().trailing_zeros()
+}
+
+routine u16.reverse_bits() -> u16 {
+    danger! {
+        return @intrinsic.bitreverse<i16>(me)
+    }
+}
+
+routine u16.swap_bytes() -> u16 {
+    danger! {
+        return @intrinsic.bswap<i16>(me)
+    }
+}
+
+routine u16.is_power_of_two() -> bool {
+    return me != 0_u16 and (me & (me - 1_u16)) == 0_u16
+}
+
+# ============================================================================
+# Type Conversions (constructor syntax)
+# ============================================================================
+
+# Bitcast to signed
+routine s16(from: u16) -> s16 {
+    danger! {
+        return @intrinsic.bitcast<i16, i16>(from)
+    }
+}
+
+# Zero-extend to larger types
+routine u32(from: u16) -> u32 {
+    danger! {
+        return @intrinsic.zext<i16, i32>(from)
+    }
+}
+
+routine u64(from: u16) -> u64 {
+    danger! {
+        return @intrinsic.zext<i16, i64>(from)
+    }
+}
+
+routine u128(from: u16) -> u128 {
+    danger! {
+        return @intrinsic.zext<i16, i128>(from)
+    }
+}
+
+# Truncate to smaller types
+routine u8(from: u16) -> u8 {
+    danger! {
+        return @intrinsic.trunc<i16, i8>(from)
+    }
+}
+
+# Convert to floating point
+routine f32(from: u16) -> f32 {
+    danger! {
+        return @intrinsic.uitofp<i16, float>(from)
+    }
+}
+
+routine f64(from: u16) -> f64 {
+    danger! {
+        return @intrinsic.uitofp<i16, double>(from)
+    }
+}
+
+# Convert to boolean
+routine bool(from: u16) -> bool {
+    danger! {
+        return @intrinsic.icmp.ne<i16>(from, 0_u16)
+    }
+}
+
+# ============================================================================
+# Utility Methods
+# ============================================================================
+
+routine u16.is_zero() -> bool {
+    return me == 0_u16
+}
+
+routine u16.is_even() -> bool {
+    danger! {
+        let result = @intrinsic.and<i16>(me, 1_u16)
+        return @intrinsic.icmp.eq<i16>(result, 0_u16)
+    }
+}
+
+routine u16.is_odd() -> bool {
+    return not me.is_even()
+}
+
+# ============================================================================
+# String Conversion
+# ============================================================================
+
+routine u16.to_text() -> Text {
+    danger! {
+        return @format_u16(me)
+    }
+}

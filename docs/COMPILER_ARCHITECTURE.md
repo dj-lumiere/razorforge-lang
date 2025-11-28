@@ -103,7 +103,7 @@ List<Token> tokens = Tokenizer.Tokenize(sourceCode, language);
 ```
 
 **Supported Features:**
-- Keywords: `entity`, `record`, `routine`, `import`, `fail`, `absent`, etc.
+- Keywords: `entity`, `record`, `routine`, `import`, `throw`, `absent`, etc.
 - Operators: `+`, `-`, `*`, `/`, `//`, `<`, `>`, etc.
 - Literals: numbers, strings, characters
 - Duration literals: `5w`, `3d`, `2h`, `30m`, `45s`, `100ms`, `500us`, `1000ns`
@@ -111,7 +111,7 @@ List<Token> tokens = Tokenizer.Tokenize(sourceCode, language);
 - Generic brackets: `<`, `>` (for `List<T>`)
 - Path separator: `/` (for `import a/b/c`)
 - Failable function marker: `!` suffix (for `routine name!()`)
-- Error handling: `fail`, `absent` keywords
+- Error handling: `throw`, `absent` keywords
 
 ---
 
@@ -303,14 +303,14 @@ GenericConstraint(
 **How It Works:**
 
 When the compiler encounters a failable function (marked with `!`), it analyzes the function body for:
-- `fail` statements - indicates the function can crash with an error
+- `throw` statements - indicates the function can crash with an error
 - `absent` statements - indicates the function can return "not found"
 
 Based on these, it generates safe variants:
 
-| `fail` | `absent` | Generated Variants |
-|--------|----------|-------------------|
-| no     | no       | Compile Error (must use fail or absent) |
+| `throw` | `absent` | Generated Variants |
+|---------|----------|-------------------|
+| no      | no       | Compile Error (must use throw or absent) |
 | no     | yes      | `try_` only (returns `Maybe<T>`) |
 | yes    | no       | `try_`, `check_` (returns `Maybe<T>`, `Result<T>`) |
 | yes    | yes      | `try_`, `find_` (returns `Maybe<T>`, `Lookup<T>`) |
@@ -320,7 +320,7 @@ Based on these, it generates safe variants:
 # User writes:
 routine divide!(a: s32, b: s32) -> s32 {
     if b == 0 {
-        fail DivisionError(message: "Division by zero")
+        throw DivisionError(message: "Division by zero")
     }
     return a / b
 }

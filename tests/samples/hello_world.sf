@@ -58,12 +58,12 @@ chimera Result<T>:
 
     public routine unwrap() -> T:
         when me:
-            is Error error: crash(f"Unwrap failed: {error}")
-            _: return _
+            is Crashable error: throw TypeMismatchError(f"Unwrap failed: {error}")
+            else _: return _
 
     public routine is_success() -> Bool:
         when me:
-            is Error _: return false
+            is Crashable _: return false
             _: return true
 
 chimera Maybe<T>:
@@ -108,9 +108,6 @@ routine main():
     var color = Color.Red
     show_line(f"Color: {color.to_hex()}")
 
-    # Variant usage
-    var success: Result<Integer> = 42
-    var failure: Result<Integer> = Error("Something went wrong")
 
     when success:
         is Error error: show_line(f"Error: {error}")

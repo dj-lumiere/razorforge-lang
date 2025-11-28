@@ -176,7 +176,7 @@ internal class Program
             }
             else
             {
-                Console.WriteLine(value: "No function variants generated (no fail/absent detected)");
+                Console.WriteLine(value: "No function variants generated (no throw/absent detected)");
             }
 
             // Code generation

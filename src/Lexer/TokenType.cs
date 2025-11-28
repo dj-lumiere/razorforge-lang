@@ -375,8 +375,8 @@ public enum TokenType
     /// <summary>Return statement keyword</summary>
     Return,
 
-    /// <summary>Fail statement keyword - crashes with error (RazorForge only)</summary>
-    Fail,
+    /// <summary>Throw statement keyword - crashes with error (RazorForge only)</summary>
+    Throw,
 
     /// <summary>Absent statement keyword - indicates value not found (triggers Lookup generation)</summary>
     Absent,

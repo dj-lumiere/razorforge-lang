@@ -1,5 +1,5 @@
 # RazorForge f16 (half precision floating point) native type implementation
-# Maps directly to LLVM half type and IEEE 754 binary16 format
+# Maps directly to LLVM half type using compiler intrinsics
 
 # Core f16 type definition - maps to LLVM half
 record f16 {
@@ -7,332 +7,248 @@ record f16 {
 }
 
 # IEEE 754 half precision constants
-preset F16_EPSILON: f16 = 9.765625e-4
-preset F16_MIN: f16 = -65504.0
-preset F16_MAX: f16 = 65504.0
-preset F16_MIN_POSITIVE: f16 = 6.103515625e-5
-preset F16_INFINITY: f16 = 1.0 / 0.0
-preset F16_NEG_INFINITY: f16 = -1.0 / 0.0
-preset F16_NAN: f16 = 0.0 / 0.0
+preset F16_EPSILON: f16 = 9.765625e-4_f16
+preset F16_MIN: f16 = -65504.0_f16
+preset F16_MAX: f16 = 65504.0_f16
+preset F16_MIN_POSITIVE: f16 = 6.103515625e-5_f16
+preset F16_ZERO: f16 = 0.0_f16
+preset F16_ONE: f16 = 1.0_f16
 
 # Mathematical constants
-preset F16_PI: f16 = 3.140625
-preset F16_E: f16 = 2.71875
-preset F16_SQRT_2: f16 = 1.414063
-preset F16_LN_2: f16 = 0.693359
-preset F16_LN_10: f16 = 2.302734
+preset F16_PI: f16 = 3.140625_f16
+preset F16_E: f16 = 2.71875_f16
+preset F16_SQRT_2: f16 = 1.414063_f16
 
-# Basic arithmetic operations (LLVM floating point intrinsics)
-
-# Addition - maps to LLVM fadd
-routine f16.add(my: f16, other: f16) -> f16 {
-    return llvm_intrinsic("fadd", my, other)
-}
-
-# Subtraction - maps to LLVM fsub
-routine f16.sub(my: f16, other: f16) -> f16 {
-    return llvm_intrinsic("fsub", my, other)
-}
-
-# Multiplication - maps to LLVM fmul
-routine f16.mul(my: f16, other: f16) -> f16 {
-    return llvm_intrinsic("fmul", my, other)
-}
-
-# Division - maps to LLVM fdiv
-routine f16.div(my: f16, other: f16) -> f16 {
-    return llvm_intrinsic("fdiv", my, other)
-}
-
-# Remainder - maps to LLVM frem
-routine f16.rem(my: f16, other: f16) -> f16 {
-    return llvm_intrinsic("frem", my, other)
-}
-
-# Comparison operations (LLVM fcmp)
-routine f16.eq(my: f16, other: f16) -> bool {
-    return llvm_intrinsic("fcmp oeq", my, other)  # Ordered equal
-}
-
-routine f16.ne(my: f16, other: f16) -> bool {
-    return llvm_intrinsic("fcmp one", my, other)  # Ordered not equal
-}
-
-routine f16.lt(my: f16, other: f16) -> bool {
-    return llvm_intrinsic("fcmp olt", my, other)  # Ordered less than
-}
-
-routine f16.le(my: f16, other: f16) -> bool {
-    return llvm_intrinsic("fcmp ole", my, other)  # Ordered less equal
-}
-
-routine f16.gt(my: f16, other: f16) -> bool {
-    return llvm_intrinsic("fcmp ogt", my, other)  # Ordered greater than
-}
-
-routine f16.ge(my: f16, other: f16) -> bool {
-    return llvm_intrinsic("fcmp oge", my, other)  # Ordered greater equal
-}
-
-# NaN-aware comparisons
-routine f16.is_nan(my: f16) -> bool {
-    return llvm_intrinsic("fcmp uno", my, my)   # Unordered (NaN check)
-}
-
-routine f16.is_finite(my: f16) -> bool {
-    not my.is_nan() and not my.is_infinite()
-}
-
-routine f16.is_infinite(my: f16) -> bool {
-    my == F16_INFINITY or my == F16_NEG_INFINITY
-}
-
-# Mathematical functions using LLVM intrinsics
-routine f16.abs(my: f16) -> f16 {
-    return llvm_intrinsic("llvm.fabs.f16", my)
-}
-
-routine f16.sqrt(my: f16) -> f16 {
-    return llvm_intrinsic("llvm.sqrt.f16", my)
-}
-
-routine f16.sin(my: f16) -> f16 {
-    # Note: LLVM may not have native f16 sin, promote to f32
-    let promoted = f32(my)
-    return f16(promoted.sin())
-}
-
-routine f16.cos(my: f16) -> f16 {
-    # Note: LLVM may not have native f16 cos, promote to f32
-    let promoted = f32(my)
-    return f16(promoted.cos())
-}
-
-routine f16.tan(my: f16) -> f16 {
-    return my.sin() / my.cos()
-}
-
-routine f16.pow(my: f16, exponent: f16) -> f16 {
-    # Note: LLVM may not have native f16 pow, promote to f32
-    let promoted_base = f32(my)
-    let promoted_exp = f32(exponent)
-    return f16(promoted_base.pow(promoted_exp))
-}
-
-routine f16.exp(my: f16) -> f16 {
-    # Note: LLVM may not have native f16 exp, promote to f32
-    let promoted = f32(my)
-    return f16(promoted.exp())
-}
-
-routine f16.exp2(my: f16) -> f16 {
-    # Note: LLVM may not have native f16 exp2, promote to f32
-    let promoted = f32(my)
-    return f16(promoted.exp2())
-}
-
-routine f16.ln(my: f16) -> f16 {
-    # Note: LLVM may not have native f16 log, promote to f32
-    let promoted = f32(my)
-    return f16(promoted.ln())
-}
-
-routine f16.log2(my: f16) -> f16 {
-    # Note: LLVM may not have native f16 log2, promote to f32
-    let promoted = f32(my)
-    return f16(promoted.log2())
-}
-
-routine f16.log10(my: f16) -> f16 {
-    # Note: LLVM may not have native f16 log10, promote to f32
-    let promoted = f32(my)
-    return f16(promoted.log10())
-}
-
-# Rounding and truncation
-routine f16.floor(my: f16) -> f16 {
-    return llvm_intrinsic("llvm.floor.f16", my)
-}
-
-routine f16.ceil(my: f16) -> f16 {
-    return llvm_intrinsic("llvm.ceil.f16", my)
-}
-
-routine f16.round(my: f16) -> f16 {
-    return llvm_intrinsic("llvm.round.f16", my)
-}
-
-routine f16.trunc(my: f16) -> f16 {
-    return llvm_intrinsic("llvm.trunc.f16", my)
-}
-
-# Min/Max with proper NaN handling
-routine f16.min(my: f16, other: f16) -> f16 {
-    return llvm_intrinsic("llvm.minnum.f16", my, other)
-}
-
-routine f16.max(my: f16, other: f16) -> f16 {
-    return llvm_intrinsic("llvm.maxnum.f16", my, other)
-}
-
-# Fused multiply-add for better precision
-routine f16.fma(my: f16, mul: f16, add: f16) -> f16 {
-    return llvm_intrinsic("llvm.fma.f16", my, mul, add)
-}
-
-# IEEE 754 bit manipulation
-routine f16.as_bits(my: f16) -> s16 {
-    return llvm_intrinsic("bitcast", my)  # Reinterpret as s16
-}
-
-routine f16(from_bits: BitArray<16>) -> f16 {
-    return llvm_intrinsic("bitcast", from_bits)  # Reinterpret BitArray<16> as f16
-}
-
-# Extract IEEE 754 components (binary16: 1 sign + 5 exponent + 10 mantissa)
-routine f16.extract_sign(my: f16) -> bool {
-    let bits = my.as_bits()
-    return (bits >> 15) != 0
-}
-
-routine f16.extract_exponent(my: f16) -> s16 {
-    let bits = my.as_bits()
-    return (bits >> 10) & 0x1F  # 5 bits
-}
-
-routine f16.extract_mantissa(my: f16) -> s16 {
-    let bits = my.as_bits()
-    return bits & 0x3FF  # 10 bits
-}
-
-# Type conversions (using constructor syntax)
-routine s16(from_f16: f16) -> s16 {
-    return llvm_intrinsic("fptosi", from_f16)   # Float to signed int
-}
-
-routine u16(from_f16: f16) -> u16 {
-    return llvm_intrinsic("fptoui", from_f16)   # Float to unsigned int
-}
-
-routine s32(from_f16: f16) -> s32 {
-    return llvm_intrinsic("fptosi", from_f16)   # Float to signed int
-}
-
-routine u32(from_f16: f16) -> u32 {
-    return llvm_intrinsic("fptoui", from_f16)   # Float to unsigned int
-}
-
-routine s64(from_f16: f16) -> s64 {
-    return llvm_intrinsic("fptosi", from_f16)   # Float to signed int
-}
-
-routine u64(from_f16: f16) -> u64 {
-    return llvm_intrinsic("fptoui", from_f16)   # Float to unsigned int
-}
-
-routine f32(from_f16: f16) -> f32 {
-    return llvm_intrinsic("fpext", from_f16)    # Extend to single precision
-}
-
-routine f64(from_f16: f16) -> f64 {
-    return llvm_intrinsic("fpext", from_f16)    # Extend to double precision
-}
-
-routine f128(from_f16: f16) -> f128 {
-    return llvm_intrinsic("fpext", from_f16)    # Extend to quad precision
-}
-
-routine bool(from_f16: f16) -> bool {
-    from_f16 != 0.0
-}
-
-# Conversion from other types to f16
-routine f16(from_s16: s16) -> f16 {
-    return llvm_intrinsic("sitofp", from_s16)   # Signed int to float
-}
-
-routine f16(from_u16: u16) -> f16 {
-    return llvm_intrinsic("uitofp", from_u16)   # Unsigned int to float
-}
-
-routine f16(from_s32: s32) -> f16 {
-    return llvm_intrinsic("sitofp", from_s32)   # Signed int to float
-}
-
-routine f16(from_u32: u32) -> f16 {
-    return llvm_intrinsic("uitofp", from_u32)   # Unsigned int to float
-}
-
-routine f16(from_s64: s64) -> f16 {
-    return llvm_intrinsic("sitofp", from_s64)   # Signed int to float
-}
-
-routine f16(from_u64: u64) -> f16 {
-    return llvm_intrinsic("uitofp", from_u64)   # Unsigned int to float
-}
-
-routine f16(from_f32: f32) -> f16 {
-    return llvm_intrinsic("fptrunc", from_f32)  # Truncate from single precision
-}
-
-routine f16(from_f64: f64) -> f16 {
-    return llvm_intrinsic("fptrunc", from_f64)  # Truncate from double precision
-}
-
-routine f16(from_f128: f128) -> f16 {
-    return llvm_intrinsic("fptrunc", from_f128) # Truncate from quad precision
-}
-
-# Parsing constructors using compiler intrinsics
-
-# Fallible constructor - crashes on invalid input
-routine f16!(from_text: Text) -> f16 {
+# Failable constructor from Text - called as f16!(text)
+# Compiler automatically generates try_f16.__create__(text) -> Maybe<f16>
+routine f16.__create__!(from_text: Text<Letterlikes>) -> f16 {
     danger! {
         return @parse_f16(from_text)
     }
 }
 
-# Safe constructor - returns Maybe<f16>
-routine f16?(from_text: Text) -> Maybe<f16> {
+# ============================================================================
+# Arithmetic Operations (IEEE 754 semantics)
+# ============================================================================
+
+routine f16.__add__(other: f16) -> f16 {
     danger! {
-        return @try_parse_f16(from_text)
+        return @intrinsic.add.wrapping<half>(me, other)
     }
 }
 
-routine Text(from_f16: f16, precision: s32) -> Text {
-    # Convert f16 to Text representation with specified precision
-    ""  # Placeholder
+routine f16.__sub__(other: f16) -> f16 {
+    danger! {
+        return @intrinsic.sub.wrapping<half>(me, other)
+    }
 }
 
-# High-performance mathematical operations
-routine lerp(a: f16, b: f16, t: f16) -> f16 {
-    # Linear interpolation with fused multiply-add
-    a.fma(1.0 - t, b * t)
+routine f16.__mul__(other: f16) -> f16 {
+    danger! {
+        return @intrinsic.mul.wrapping<half>(me, other)
+    }
 }
 
-# Numerical computation helpers
-routine approx_equal(a: f16, b: f16, epsilon: f16) -> bool {
-    (a - b).abs() <= epsilon
+routine f16.__div__(other: f16) -> f16 {
+    danger! {
+        return @intrinsic.div.wrapping<half>(me, other)
+    }
 }
 
-/*
-IEEE 754 Half Precision Format (binary16):
-- Sign bit: 1 bit (bit 15)
-- Exponent: 5 bits (bits 14-10, biased by 15)
-- Mantissa: 10 bits (bits 9-0, with implicit leading 1)
-- Total: 16 bits
+routine f16.__rem__(other: f16) -> f16 {
+    danger! {
+        return @intrinsic.rem.wrapping<half>(me, other)
+    }
+}
 
-Value ranges:
-- Normal numbers: �?.0 �?2^(-14) to �?2-2^(-10)) �?2^15 H �?.1�?0^(-5) to �?5504
-- Subnormal numbers: �?^(-24) to �?1-2^(-10)) �?2^(-14) H �?.96�?0^(-8) to �?.09�?0^(-5)
+routine f16.__neg__() -> f16 {
+    danger! {
+        return @intrinsic.sub.wrapping<half>(0.0_f16, me)
+    }
+}
 
-Special values:
-- Zero: exponent = 0, mantissa = 0
-- Infinity: exponent = 31 (all 1s), mantissa = 0
-- NaN: exponent = 31 (all 1s), mantissa ` 0
+# ============================================================================
+# Comparison Operations (ordered - false if NaN)
+# ============================================================================
 
-Target Architecture Support:
-- x86_64: Requires F16C extension for native support, otherwise promotes to f32
-- ARM64: Native f16 support with ARMv8.2-A FP16 extension
-- GPU architectures: Common in modern GPUs for ML workloads
-*/
+routine f16.__eq__(other: f16) -> bool {
+    danger! {
+        return @intrinsic.fcmp.oeq<half>(me, other)
+    }
+}
+
+routine f16.__ne__(other: f16) -> bool {
+    danger! {
+        return @intrinsic.fcmp.one<half>(me, other)
+    }
+}
+
+routine f16.__lt__(other: f16) -> bool {
+    danger! {
+        return @intrinsic.fcmp.olt<half>(me, other)
+    }
+}
+
+routine f16.__le__(other: f16) -> bool {
+    danger! {
+        return @intrinsic.fcmp.ole<half>(me, other)
+    }
+}
+
+routine f16.__gt__(other: f16) -> bool {
+    danger! {
+        return @intrinsic.fcmp.ogt<half>(me, other)
+    }
+}
+
+routine f16.__ge__(other: f16) -> bool {
+    danger! {
+        return @intrinsic.fcmp.oge<half>(me, other)
+    }
+}
+
+# ============================================================================
+# Math Operations using intrinsics
+# ============================================================================
+
+routine f16.sqrt() -> f16 {
+    danger! {
+        return @intrinsic.sqrt<half>(me)
+    }
+}
+
+routine f16.abs() -> f16 {
+    danger! {
+        return @intrinsic.fabs<half>(me)
+    }
+}
+
+routine f16.floor() -> f16 {
+    danger! {
+        return @intrinsic.floor<half>(me)
+    }
+}
+
+routine f16.ceil() -> f16 {
+    danger! {
+        return @intrinsic.ceil<half>(me)
+    }
+}
+
+routine f16.round() -> f16 {
+    danger! {
+        return @intrinsic.round<half>(me)
+    }
+}
+
+routine f16.trunc() -> f16 {
+    danger! {
+        return @intrinsic.trunc_float<half>(me)
+    }
+}
+
+routine f16.copysign(sign: f16) -> f16 {
+    danger! {
+        return @intrinsic.copysign<half>(me, sign)
+    }
+}
+
+# ============================================================================
+# Utility Methods
+# ============================================================================
+
+routine f16.min(other: f16) -> f16 {
+    return if me <= other then me else other
+}
+
+routine f16.max(other: f16) -> f16 {
+    return if me >= other then me else other
+}
+
+routine f16.clamp(min_val: f16, max_val: f16) -> f16 {
+    return me.min(max_val).max(min_val)
+}
+
+routine f16.is_positive() -> bool {
+    return me > 0.0_f16
+}
+
+routine f16.is_negative() -> bool {
+    return me < 0.0_f16
+}
+
+routine f16.is_zero() -> bool {
+    return me == 0.0_f16
+}
+
+routine f16.signum() -> f16 {
+    when {
+        me > 0.0_f16 => 1.0_f16,
+        me < 0.0_f16 => -1.0_f16,
+        _ => 0.0_f16
+    }
+}
+
+# ============================================================================
+# Type Conversions
+# ============================================================================
+
+routine f16.to_s16() -> s16 {
+    danger! {
+        return @intrinsic.fptosi<half, i16>(me)
+    }
+}
+
+routine f16.to_u16() -> u16 {
+    danger! {
+        return @intrinsic.fptoui<half, i16>(me)
+    }
+}
+
+routine f16.to_s32() -> s32 {
+    danger! {
+        return @intrinsic.fptosi<half, i32>(me)
+    }
+}
+
+routine f16.to_u32() -> u32 {
+    danger! {
+        return @intrinsic.fptoui<half, i32>(me)
+    }
+}
+
+routine f16.to_f32() -> f32 {
+    danger! {
+        return @intrinsic.fpext<half, float>(me)
+    }
+}
+
+routine f16.to_f64() -> f64 {
+    danger! {
+        return @intrinsic.fpext<half, double>(me)
+    }
+}
+
+# Reinterpret bits as u16 (type punning)
+routine f16.to_bits() -> u16 {
+    danger! {
+        return @intrinsic.bitcast<half, i16>(me)
+    }
+}
+
+# Create f16 from u16 bits (type punning)
+routine f16.from_bits(bits: u16) -> f16 {
+    danger! {
+        return @intrinsic.bitcast<i16, half>(bits)
+    }
+}
+
+# ============================================================================
+# String Conversion
+# ============================================================================
+
+routine f16.to_text() -> Text {
+    danger! {
+        return @format_f16(me)
+    }
+}
