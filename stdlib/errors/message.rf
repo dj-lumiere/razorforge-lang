@@ -1,0 +1,12 @@
+namespace standard/errors
+
+# MessageHandle - Handle to an error message string
+#
+# Contains a raw pointer (uaddr) to the message string.
+# The pointer typically points to:
+# - Compile-time constant strings for built-in errors
+# - User-provided message strings
+
+record MessageHandle {
+    ptr: uaddr
+}
