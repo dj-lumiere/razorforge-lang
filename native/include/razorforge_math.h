@@ -30,11 +30,10 @@ uint64_t d64_from_string(const char* str);
 char* d64_to_string(uint64_t val);
 
 // d128 operations (using struct for 128-bit values)
-using d128_t = struct
-{
+typedef struct d128_t {
     uint64_t low;
     uint64_t high;
-};
+} d128_t;
 
 d128_t d128_add(d128_t a, d128_t b);
 d128_t d128_sub(d128_t a, d128_t b);
@@ -44,73 +43,277 @@ int32_t d128_cmp(d128_t a, d128_t b);
 d128_t d128_from_string(const char* str);
 char* d128_to_string(d128_t val);
 
-// libbf - Arbitrary precision arithmetic
-using bf_context_t = struct bf_context_s;
-using bf_number_t = struct bf_number_s;
+// ============================================================================
+// LibTomMath - Arbitrary precision integer arithmetic
+// https://github.com/libtom/libtommath (Public Domain)
+// ============================================================================
 
-// Context management
-void bf_context_init(bf_context_t* ctx, void* realloc_func, void* free_func);
-void bf_context_end(bf_context_t* ctx);
+// Forward declaration for LibTomMath's mp_int type
+// When using LibTomMath, include <tommath.h> directly
+typedef struct mp_int_t {
+    int used, alloc, sign;
+    void* dp;  // mp_digit array
+} rf_bigint;
 
-// Number management
-void bf_init(bf_context_t* ctx, bf_number_t* r);
-void bf_delete(bf_number_t* r);
+// RazorForge wrappers for LibTomMath operations
+// Lifecycle management
+rf_bigint* rf_bigint_new(void);
+void rf_bigint_clear(rf_bigint* a);
+int rf_bigint_copy(rf_bigint* dest, rf_bigint* src);
+int rf_bigint_init(rf_bigint* a);
 
-// Memory allocation helpers
-bf_number_t* bf_alloc_number(void);
-void bf_free_number(bf_number_t* num);
+// Initialization from primitives
+int rf_bigint_set_i64(rf_bigint* a, int64_t val);
+int rf_bigint_set_u64(rf_bigint* a, uint64_t val);
+int rf_bigint_set_str(rf_bigint* a, const char* str, int radix);
 
-// Basic operations
-int32_t bf_set_si(bf_number_t* r, int64_t a);
-int32_t bf_set_ui(bf_number_t* r, uint64_t a);
-int32_t bf_add(bf_number_t* r, bf_number_t* a, bf_number_t* b, uint64_t prec, uint32_t flags);
-int32_t bf_sub(bf_number_t* r, bf_number_t* a, bf_number_t* b, uint64_t prec, uint32_t flags);
-int32_t bf_mul(bf_number_t* r, bf_number_t* a, bf_number_t* b, uint64_t prec, uint32_t flags);
-int32_t bf_div(bf_number_t* r, bf_number_t* a, bf_number_t* b, uint64_t prec, uint32_t flags);
-int32_t bf_cmp(bf_number_t* a, bf_number_t* b);
-char* bf_ftoa(size_t* plen, bf_number_t* a, int32_t radix, uint64_t prec, uint32_t flags);
-
-// mafm - Multiple precision arithmetic for decimals
-using mafm_context_t = struct mafm_context_s;
-using mafm_number_t = struct mafm_number_s;
-
-// Context management
-void mafm_context_init(mafm_context_t* ctx, int32_t precision);
-void mafm_context_free(mafm_context_t* ctx);
-
-// Number management
-void mafm_init(mafm_number_t* num);
-void mafm_clear(mafm_number_t* num);
-
-// Memory allocation helpers
-mafm_number_t* mafm_alloc_number(void);
-void mafm_free_number(mafm_number_t* num);
-mafm_context_t* mafm_alloc_context(void);
-void mafm_free_context(mafm_context_t* ctx);
-
-// String operations
-int32_t mafm_set_str(mafm_number_t* num, const char* str, int32_t radix);
-char* mafm_get_str(mafm_number_t* num, int32_t radix);
+// Conversion to primitives
+int64_t rf_bigint_get_i64(rf_bigint* a);
+uint64_t rf_bigint_get_u64(rf_bigint* a);
+char* rf_bigint_get_str(rf_bigint* a, int radix);
 
 // Arithmetic operations
-int32_t mafm_add(mafm_number_t* result, mafm_number_t* a, mafm_number_t* b, mafm_context_t* ctx);
-int32_t mafm_sub(mafm_number_t* result, mafm_number_t* a, mafm_number_t* b, mafm_context_t* ctx);
-int32_t mafm_mul(mafm_number_t* result, mafm_number_t* a, mafm_number_t* b, mafm_context_t* ctx);
-int32_t mafm_div(mafm_number_t* result, mafm_number_t* a, mafm_number_t* b, mafm_context_t* ctx);
-int32_t mafm_cmp(mafm_number_t* a, mafm_number_t* b);
+int rf_bigint_add(rf_bigint* result, rf_bigint* a, rf_bigint* b);
+int rf_bigint_sub(rf_bigint* result, rf_bigint* a, rf_bigint* b);
+int rf_bigint_mul(rf_bigint* result, rf_bigint* a, rf_bigint* b);
+int rf_bigint_div(rf_bigint* quotient, rf_bigint* remainder, rf_bigint* a, rf_bigint* b);
+int rf_bigint_mod(rf_bigint* result, rf_bigint* a, rf_bigint* b);
+int rf_bigint_neg(rf_bigint* result, rf_bigint* a);
+int rf_bigint_abs(rf_bigint* result, rf_bigint* a);
 
-// Conversion operations
-int32_t mafm_set_si(mafm_number_t* num, int64_t val);
-int32_t mafm_set_d(mafm_number_t* num, double val);
-int64_t mafm_get_si(mafm_number_t* num);
-double mafm_get_d(mafm_number_t* num);
+// Comparison
+int rf_bigint_cmp(rf_bigint* a, rf_bigint* b);  // -1, 0, 1
+int rf_bigint_cmp_i64(rf_bigint* a, int64_t b);
+int rf_bigint_is_zero(rf_bigint* a);
+int rf_bigint_is_neg(rf_bigint* a);
 
-// Rounding modes
-#define MAFM_RNDN 0  // Round to nearest, ties to even
-#define MAFM_RNDZ 1  // Round toward zero
-#define MAFM_RNDU 2  // Round toward +infinity
-#define MAFM_RNDD 3  // Round toward -infinity
-#define MAFM_RNDA 4  // Round away from zero
+// Bitwise operations
+int rf_bigint_and(rf_bigint* result, rf_bigint* a, rf_bigint* b);
+int rf_bigint_or(rf_bigint* result, rf_bigint* a, rf_bigint* b);
+int rf_bigint_xor(rf_bigint* result, rf_bigint* a, rf_bigint* b);
+int rf_bigint_shl(rf_bigint* result, rf_bigint* a, int bits);
+int rf_bigint_shr(rf_bigint* result, rf_bigint* a, int bits);
+
+// Advanced operations
+int rf_bigint_pow(rf_bigint* result, rf_bigint* base, uint32_t exp);
+int rf_bigint_sqrt(rf_bigint* result, rf_bigint* a);
+int rf_bigint_gcd(rf_bigint* result, rf_bigint* a, rf_bigint* b);
+int rf_bigint_lcm(rf_bigint* result, rf_bigint* a, rf_bigint* b);
+
+// ============================================================================
+// MAPM - Mike's Arbitrary Precision Math Library
+// https://github.com/LuaDist/mapm (Freeware)
+// ============================================================================
+
+// Forward declaration for MAPM's M_APM type
+// When using MAPM, include <m_apm.h> directly
+typedef void* rf_bigdecimal;  // Opaque pointer to M_APM
+
+// Lifecycle management
+rf_bigdecimal rf_bigdec_new(void);
+void rf_bigdec_free(rf_bigdecimal a);
+rf_bigdecimal rf_bigdec_copy(rf_bigdecimal a);
+
+// Initialization
+void rf_bigdec_set_i64(rf_bigdecimal a, int64_t val);
+void rf_bigdec_set_f64(rf_bigdecimal a, double val);
+void rf_bigdec_set_str(rf_bigdecimal a, const char* str);
+
+// Conversion
+int64_t rf_bigdec_get_i64(rf_bigdecimal a);
+double rf_bigdec_get_f64(rf_bigdecimal a);
+char* rf_bigdec_get_str(rf_bigdecimal a, int decimal_places);
+
+// Arithmetic operations (with precision parameter)
+void rf_bigdec_add(rf_bigdecimal result, rf_bigdecimal a, rf_bigdecimal b);
+void rf_bigdec_sub(rf_bigdecimal result, rf_bigdecimal a, rf_bigdecimal b);
+void rf_bigdec_mul(rf_bigdecimal result, rf_bigdecimal a, rf_bigdecimal b);
+void rf_bigdec_div(rf_bigdecimal result, int precision, rf_bigdecimal a, rf_bigdecimal b);
+void rf_bigdec_neg(rf_bigdecimal result, rf_bigdecimal a);
+void rf_bigdec_abs(rf_bigdecimal result, rf_bigdecimal a);
+
+// Comparison
+int rf_bigdec_cmp(rf_bigdecimal a, rf_bigdecimal b);  // -1, 0, 1
+int rf_bigdec_is_zero(rf_bigdecimal a);
+int rf_bigdec_is_neg(rf_bigdecimal a);
+
+// Math functions (with precision parameter)
+void rf_bigdec_sqrt(rf_bigdecimal result, int precision, rf_bigdecimal a);
+void rf_bigdec_pow(rf_bigdecimal result, int precision, rf_bigdecimal base, rf_bigdecimal exp);
+void rf_bigdec_exp(rf_bigdecimal result, int precision, rf_bigdecimal a);
+void rf_bigdec_log(rf_bigdecimal result, int precision, rf_bigdecimal a);
+void rf_bigdec_log10(rf_bigdecimal result, int precision, rf_bigdecimal a);
+
+// Trigonometric functions (with precision parameter)
+void rf_bigdec_sin(rf_bigdecimal result, int precision, rf_bigdecimal a);
+void rf_bigdec_cos(rf_bigdecimal result, int precision, rf_bigdecimal a);
+void rf_bigdec_tan(rf_bigdecimal result, int precision, rf_bigdecimal a);
+void rf_bigdec_asin(rf_bigdecimal result, int precision, rf_bigdecimal a);
+void rf_bigdec_acos(rf_bigdecimal result, int precision, rf_bigdecimal a);
+void rf_bigdec_atan(rf_bigdecimal result, int precision, rf_bigdecimal a);
+void rf_bigdec_sinh(rf_bigdecimal result, int precision, rf_bigdecimal a);
+void rf_bigdec_cosh(rf_bigdecimal result, int precision, rf_bigdecimal a);
+void rf_bigdec_tanh(rf_bigdecimal result, int precision, rf_bigdecimal a);
+
+// Rounding
+void rf_bigdec_ceil(rf_bigdecimal result, rf_bigdecimal a);
+void rf_bigdec_floor(rf_bigdecimal result, rf_bigdecimal a);
+void rf_bigdec_round(rf_bigdecimal result, int decimal_places, rf_bigdecimal a);
+void rf_bigdec_trunc(rf_bigdecimal result, int decimal_places, rf_bigdecimal a);
+
+// Constants
+void rf_bigdec_pi(rf_bigdecimal result, int precision);
+void rf_bigdec_e(rf_bigdecimal result, int precision);
+
+// ============================================================================
+// cmath-compliant math functions for binary floating point types
+// ============================================================================
+
+// f32 (float) math functions
+float rf_f32_sin(float x);
+float rf_f32_cos(float x);
+float rf_f32_tan(float x);
+float rf_f32_asin(float x);
+float rf_f32_acos(float x);
+float rf_f32_atan(float x);
+float rf_f32_atan2(float y, float x);
+float rf_f32_sinh(float x);
+float rf_f32_cosh(float x);
+float rf_f32_tanh(float x);
+float rf_f32_asinh(float x);
+float rf_f32_acosh(float x);
+float rf_f32_atanh(float x);
+float rf_f32_exp(float x);
+float rf_f32_exp2(float x);
+float rf_f32_expm1(float x);
+float rf_f32_log(float x);
+float rf_f32_log2(float x);
+float rf_f32_log10(float x);
+float rf_f32_log1p(float x);
+float rf_f32_pow(float base, float exp);
+float rf_f32_sqrt(float x);
+float rf_f32_cbrt(float x);
+float rf_f32_hypot(float x, float y);
+float rf_f32_ceil(float x);
+float rf_f32_floor(float x);
+float rf_f32_trunc(float x);
+float rf_f32_round(float x);
+float rf_f32_fabs(float x);
+float rf_f32_fmod(float x, float y);
+float rf_f32_remainder(float x, float y);
+float rf_f32_fma(float x, float y, float z);
+float rf_f32_fmin(float x, float y);
+float rf_f32_fmax(float x, float y);
+float rf_f32_copysign(float x, float y);
+int32_t rf_f32_isnan(float x);
+int32_t rf_f32_isinf(float x);
+int32_t rf_f32_isfinite(float x);
+int32_t rf_f32_isnormal(float x);
+int32_t rf_f32_signbit(float x);
+
+// f64 (double) math functions
+double rf_f64_sin(double x);
+double rf_f64_cos(double x);
+double rf_f64_tan(double x);
+double rf_f64_asin(double x);
+double rf_f64_acos(double x);
+double rf_f64_atan(double x);
+double rf_f64_atan2(double y, double x);
+double rf_f64_sinh(double x);
+double rf_f64_cosh(double x);
+double rf_f64_tanh(double x);
+double rf_f64_asinh(double x);
+double rf_f64_acosh(double x);
+double rf_f64_atanh(double x);
+double rf_f64_exp(double x);
+double rf_f64_exp2(double x);
+double rf_f64_expm1(double x);
+double rf_f64_log(double x);
+double rf_f64_log2(double x);
+double rf_f64_log10(double x);
+double rf_f64_log1p(double x);
+double rf_f64_pow(double base, double exp);
+double rf_f64_sqrt(double x);
+double rf_f64_cbrt(double x);
+double rf_f64_hypot(double x, double y);
+double rf_f64_ceil(double x);
+double rf_f64_floor(double x);
+double rf_f64_trunc(double x);
+double rf_f64_round(double x);
+double rf_f64_fabs(double x);
+double rf_f64_fmod(double x, double y);
+double rf_f64_remainder(double x, double y);
+double rf_f64_fma(double x, double y, double z);
+double rf_f64_fmin(double x, double y);
+double rf_f64_fmax(double x, double y);
+double rf_f64_copysign(double x, double y);
+int32_t rf_f64_isnan(double x);
+int32_t rf_f64_isinf(double x);
+int32_t rf_f64_isfinite(double x);
+int32_t rf_f64_isnormal(double x);
+int32_t rf_f64_signbit(double x);
+
+// ============================================================================
+// Type conversions between f and d types
+// ============================================================================
+
+// f32 conversions
+uint32_t rf_f32_to_d32(float x);
+uint64_t rf_f32_to_d64(float x);
+d128_t rf_f32_to_d128(float x);
+double rf_f32_to_f64(float x);
+
+// f64 conversions
+uint32_t rf_f64_to_d32(double x);
+uint64_t rf_f64_to_d64(double x);
+d128_t rf_f64_to_d128(double x);
+float rf_f64_to_f32(double x);
+
+// d32 conversions
+float rf_d32_to_f32(uint32_t x);
+double rf_d32_to_f64(uint32_t x);
+uint64_t rf_d32_to_d64(uint32_t x);
+d128_t rf_d32_to_d128(uint32_t x);
+
+// d64 conversions
+float rf_d64_to_f32(uint64_t x);
+double rf_d64_to_f64(uint64_t x);
+uint32_t rf_d64_to_d32(uint64_t x);
+d128_t rf_d64_to_d128(uint64_t x);
+
+// d128 conversions
+float rf_d128_to_f32(d128_t x);
+double rf_d128_to_f64(d128_t x);
+uint32_t rf_d128_to_d32(d128_t x);
+uint64_t rf_d128_to_d64(d128_t x);
+
+// ============================================================================
+// Decimal math functions (libdfp-based)
+// ============================================================================
+
+// d32 math functions
+uint32_t rf_d32_sqrt(uint32_t x);
+uint32_t rf_d32_abs(uint32_t x);
+uint32_t rf_d32_ceil(uint32_t x);
+uint32_t rf_d32_floor(uint32_t x);
+uint32_t rf_d32_round(uint32_t x);
+uint32_t rf_d32_trunc(uint32_t x);
+
+// d64 math functions
+uint64_t rf_d64_sqrt(uint64_t x);
+uint64_t rf_d64_abs(uint64_t x);
+uint64_t rf_d64_ceil(uint64_t x);
+uint64_t rf_d64_floor(uint64_t x);
+uint64_t rf_d64_round(uint64_t x);
+uint64_t rf_d64_trunc(uint64_t x);
+
+// d128 math functions
+d128_t rf_d128_sqrt(d128_t x);
+d128_t rf_d128_abs(d128_t x);
+d128_t rf_d128_ceil(d128_t x);
+d128_t rf_d128_floor(d128_t x);
+d128_t rf_d128_round(d128_t x);
+d128_t rf_d128_trunc(d128_t x);
 
 #ifdef __cplusplus
 }
