@@ -102,9 +102,10 @@ void __rf_stack_push(rf_u32 file_id, rf_u32 routine_id, rf_u32 type_id, rf_u32 l
 {
     if (rf_runtime_stack_depth >= RF_RUNTIME_STACK_MAX)
     {
-        // Stack overflow - print error and abort
-        fprintf(stderr, "RazorForge Runtime Error: Stack overflow (depth > %d)\n", RF_RUNTIME_STACK_MAX);
-        abort();
+        // Stack overflow - print error and exit
+        fprintf(stderr, "\nRazorForge Runtime Error: Stack overflow (depth > %d)\n", RF_RUNTIME_STACK_MAX);
+        fflush(stderr);
+        exit(1);
     }
 
     rf_StackFrame* frame = &rf_runtime_stack[rf_runtime_stack_depth];
@@ -259,7 +260,8 @@ void __rf_throw(const char* error_type, const char* message)
     fprintf(stderr, "\n%s: %s\n", error_type ? error_type : "Error", message ? message : "");
     __rf_print_current_stack();
     fprintf(stderr, "\n");
-    abort();
+    fflush(stderr);
+    exit(1);
 }
 
 // Throw AbsentValueError
@@ -271,23 +273,35 @@ void __rf_throw_absent(void)
 // Throw DivisionByZeroError
 void __rf_throw_division_by_zero(void)
 {
-    __rf_throw("DivisionByZeroError", "Division by zero");
+    __rf_throw("DivisionByZeroError", "You tried to divide by zero, which is not allowed.");
 }
 
 // Throw IndexOutOfBoundsError
-void __rf_throw_index_out_of_bounds(rf_u32 index, rf_u32 length)
+void __rf_throw_index_out_of_bounds(rf_u32 index, rf_u32 count)
 {
     char buffer[128];
-    snprintf(buffer, sizeof(buffer), "Index %u out of bounds for length %u", index, length);
+    snprintf(buffer, sizeof(buffer), "Index %u is out of bounds for collection with %u elements", index, count);
     __rf_throw("IndexOutOfBoundsError", buffer);
 }
 
-// Throw IntegerOverflowError
-void __rf_throw_integer_overflow(const char* operation)
+// Throw IntegerOverflowError with custom message
+void __rf_throw_integer_overflow(const char* message)
+{
+    __rf_throw("IntegerOverflowError", message ? message : "An integer overflow occurred during arithmetic operation.");
+}
+
+// Throw EmptyCollectionError with operation name
+void __rf_throw_empty_collection(const char* operation)
 {
     char buffer[128];
-    snprintf(buffer, sizeof(buffer), "Integer overflow in %s", operation ? operation : "arithmetic operation");
-    __rf_throw("IntegerOverflowError", buffer);
+    snprintf(buffer, sizeof(buffer), "Cannot %s on empty collection", operation ? operation : "perform operation");
+    __rf_throw("EmptyCollectionError", buffer);
+}
+
+// Throw ElementNotFoundError
+void __rf_throw_element_not_found(void)
+{
+    __rf_throw("ElementNotFoundError", "No matching element found");
 }
 
 // ============================================================================
