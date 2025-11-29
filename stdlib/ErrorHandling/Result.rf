@@ -1,2 +1,4 @@
 ﻿record Result<T> {
-    bool is_valid
+    private is_valid: bool
+    private handle: DataHandle
+}

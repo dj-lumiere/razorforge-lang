@@ -1,0 +1,10 @@
+choice DataState {
+    VALID,
+    ABSENT,
+    ERROR
+}
+
+record Lookup<T> {
+    private state: DataState
+    private handle: DataHandle
+}
