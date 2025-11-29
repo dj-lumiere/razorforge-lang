@@ -2,9 +2,7 @@
 # Used when converting between integer types and the value doesn't fit
 
 record IntegerOverflowError follows Crashable {
-    public message: ValueText<letter32, 256>
-
-    routine crash_message(me) -> Text<letter32> {
-        return me.message
+    routine crash_message(me, message: Text<letter32>) -> Text<letter32> {
+        return message
     }
 }
