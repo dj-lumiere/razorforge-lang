@@ -88,31 +88,39 @@ routine u64.__create__!(from: u128) -> u64 {
 # Arithmetic Operations (trapping on overflow by default)
 # ============================================================================
 
-routine u64.__add__(other: u64) -> u64 {
+@crash_only
+routine u64.__add__!(other: u64) -> u64 {
     danger! {
         return @intrinsic.add<i64>(me, other)
     }
 }
 
-routine u64.__sub__(other: u64) -> u64 {
+@crash_only
+routine u64.__sub__!(other: u64) -> u64 {
     danger! {
         return @intrinsic.sub<i64>(me, other)
     }
 }
 
-routine u64.__mul__(other: u64) -> u64 {
+@crash_only
+routine u64.__mul__!(other: u64) -> u64 {
     danger! {
         return @intrinsic.mul<i64>(me, other)
     }
 }
 
-routine u64.__floordiv__(other: u64) -> u64 {
+@crash_only
+routine u64.__floordiv__!(other: u64) -> u64 {
     danger! {
         return @intrinsic.udiv<i64>(me, other)
     }
 }
 
-routine u64.__mod__(other: u64) -> u64 {
+@crash_only
+routine u64.__mod__!(other: u64) -> u64 {
+    if other == 0 {
+        throw DivisionByZeroError()
+    }
     danger! {
         return @intrinsic.urem<i64>(me, other)
     }
@@ -188,6 +196,101 @@ routine u64.__mul_checked__(other: u64) -> Maybe<u64> {
 }
 
 # ============================================================================
+# Power Operations (**)
+# ============================================================================
+
+# Power operator (**) - can overflow
+@crash_only
+routine u64.__pow__!(exp: u64) -> u64 {
+    danger! {
+        var result: u64 = 1
+        var base: u64 = me
+        var e: u32 = exp
+        if me == 0 and exp == 0 {
+            throw IndeterminateResultError()
+        }
+        while e > 0 {
+            if (e & 1) == 1 {
+                result = @intrinsic.mul<i64>(result, base)
+            }
+            base = @intrinsic.mul<i64>(base, base)
+            e = e >> 1
+        }
+        return result
+    }
+}
+
+# Wrapping power (**%)
+@crash_only
+routine u64.__pow_wrap__!(exp: u64) -> u64 {
+    danger! {
+        var result: u64 = 1
+        var base: u64 = me
+        var e: u32 = exp
+        if me == 0 and exp == 0 {
+            throw IndeterminateResultError()
+        }
+        while e > 0 {
+            if (e & 1) == 1 {
+                result = @intrinsic.mul.wrapping<i64>(result, base)
+            }
+            base = @intrinsic.mul.wrapping<i64>(base, base)
+            e = e >> 1
+        }
+        return result
+    }
+}
+
+# Saturating power (**^)
+@crash_only
+routine u64.__pow_sat__!(exp: u64) -> u64 {
+    danger! {
+        var result: u64 = 1
+        var base: u64 = me
+        var e: u32 = exp
+        if me == 0 and exp == 0 {
+            throw IndeterminateResultError()
+        }
+        while e > 0 {
+            if (e & 1) == 1 {
+                result = @intrinsic.mul.saturating<i64>(result, base)
+            }
+            base = @intrinsic.mul.saturating<i64>(base, base)
+            e = e >> 1
+        }
+        return result
+    }
+}
+
+# Checked power (**?) - returns Maybe<u64>
+routine u64.__pow_checked__(exp: u64) -> Maybe<u64> {
+    danger! {
+        var result: u64 = 1
+        var base: u64 = me
+        var e: u32 = exp
+        if me == 0 {
+            return None
+        }
+        while e > 0 {
+            if (e & 1) == 1 {
+                let (new_result, overflow) = @intrinsic.mul.overflow<i64>(result, base)
+                if overflow {
+                    return None
+                }
+                result = new_result
+            }
+            let (new_base, overflow) = @intrinsic.mul.overflow<i64>(base, base)
+            if overflow and e > 1 {
+                return None
+            }
+            base = new_base
+            e = e >> 1
+        }
+        return result
+    }
+}
+
+# ============================================================================
 # Bitwise Operations
 # ============================================================================
 
@@ -215,13 +318,50 @@ routine u64.__not__() -> u64 {
     }
 }
 
-routine u64.__shl__(bits: u32) -> u64 {
+# ============================================================================
+# Shift Operations (<<, <<?>, >>, <<<, >>>)
+# For unsigned types, arithmetic and logical shifts behave identically
+# ============================================================================
+
+# Arithmetic left shift (<<) - sign preserving (for unsigned, same as logical)
+routine u64.__ashl__(bits: u32) -> u64 {
     danger! {
         return @intrinsic.shl<i64>(me, bits)
     }
 }
 
-routine u64.__shr__(bits: u32) -> u64 {
+# Checked arithmetic left shift (<<?) - returns Maybe<u64>
+routine u64.__ashl_checked__(bits: u32) -> Maybe<u64> {
+    danger! {
+        if bits >= 64 {
+            return None
+        }
+        let result = @intrinsic.shl<i64>(me, bits)
+        # Check if we can recover the original value
+        let recovered = @intrinsic.lshr<i64>(result, bits)
+        if recovered != me {
+            return None
+        }
+        return result
+    }
+}
+
+# Arithmetic right shift (>>) - for unsigned, same as logical
+routine u64.__ashr__(bits: u32) -> u64 {
+    danger! {
+        return @intrinsic.lshr<i64>(me, bits)
+    }
+}
+
+# Logical left shift (<<<) - same as <<
+routine u64.__lshl__(bits: u32) -> u64 {
+    danger! {
+        return @intrinsic.shl<i64>(me, bits)
+    }
+}
+
+# Logical right shift (>>>) - fills with zeros
+routine u64.__lshr__(bits: u32) -> u64 {
     danger! {
         return @intrinsic.lshr<i64>(me, bits)
     }

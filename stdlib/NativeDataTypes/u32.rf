@@ -98,31 +98,39 @@ routine u32.__create__!(from: u128) -> u32 {
 # Arithmetic Operations (trapping on overflow by default)
 # ============================================================================
 
-routine u32.__add__(other: u32) -> u32 {
+@crash_only
+routine u32.__add__!(other: u32) -> u32 {
     danger! {
         return @intrinsic.add<i32>(me, other)
     }
 }
 
-routine u32.__sub__(other: u32) -> u32 {
+@crash_only
+routine u32.__sub__!(other: u32) -> u32 {
     danger! {
         return @intrinsic.sub<i32>(me, other)
     }
 }
 
-routine u32.__mul__(other: u32) -> u32 {
+@crash_only
+routine u32.__mul__!(other: u32) -> u32 {
     danger! {
         return @intrinsic.mul<i32>(me, other)
     }
 }
 
-routine u32.__floordiv__(other: u32) -> u32 {
+@crash_only
+routine u32.__floordiv__!(other: u32) -> u32 {
+    if other == 0 {
+        throw DivisionByZeroError()
+    }
     danger! {
         return @intrinsic.udiv<i32>(me, other)
     }
 }
 
-routine u32.__mod__(other: u32) -> u32 {
+@crash_only
+routine u32.__mod__!(other: u32) -> u32 {
     danger! {
         return @intrinsic.urem<i32>(me, other)
     }
@@ -198,6 +206,101 @@ routine u32.__mul_checked__(other: u32) -> Maybe<u32> {
 }
 
 # ============================================================================
+# Power Operations (**)
+# ============================================================================
+
+# Power operator (**) - can overflow
+@crash_only
+routine u32.__pow__!(exp: u32) -> u32 {
+    danger! {
+        var result: u32 = 1
+        var base: u32 = me
+        var e: u32 = exp
+        if me == 0 and exp == 0 {
+            throw IndeterminateResultError()
+        }
+        while e > 0 {
+            if (e & 1) == 1 {
+                result = @intrinsic.mul<i32>(result, base)
+            }
+            base = @intrinsic.mul<i32>(base, base)
+            e = e >> 1
+        }
+        return result
+    }
+}
+
+# Wrapping power (**%)
+@crash_only
+routine u32.__pow_wrap__!(exp: u32) -> u32 {
+    danger! {
+        var result: u32 = 1
+        var base: u32 = me
+        var e: u32 = exp
+        if me == 0 and exp == 0 {
+            throw IndeterminateResultError()
+        }
+        while e > 0 {
+            if (e & 1) == 1 {
+                result = @intrinsic.mul.wrapping<i32>(result, base)
+            }
+            base = @intrinsic.mul.wrapping<i32>(base, base)
+            e = e >> 1
+        }
+        return result
+    }
+}
+
+# Saturating power (**^)
+@crash_only
+routine u32.__pow_sat__!(exp: u32) -> u32 {
+    danger! {
+        var result: u32 = 1
+        var base: u32 = me
+        var e: u32 = exp
+        if me == 0 and exp == 0 {
+            throw IndeterminateResultError()
+        }
+        while e > 0 {
+            if (e & 1) == 1 {
+                result = @intrinsic.mul.saturating<i32>(result, base)
+            }
+            base = @intrinsic.mul.saturating<i32>(base, base)
+            e = e >> 1
+        }
+        return result
+    }
+}
+
+# Checked power (**?) - returns Maybe<u32>
+routine u32.__pow_checked__(exp: u32) -> Maybe<u32> {
+    danger! {
+        var result: u32 = 1
+        var base: u32 = me
+        var e: u32 = exp
+        if me == 0 {
+            return None
+        }
+        while e > 0 {
+            if (e & 1) == 1 {
+                let (new_result, overflow) = @intrinsic.mul.overflow<i32>(result, base)
+                if overflow {
+                    return None
+                }
+                result = new_result
+            }
+            let (new_base, overflow) = @intrinsic.mul.overflow<i32>(base, base)
+            if overflow and e > 1 {
+                return None
+            }
+            base = new_base
+            e = e >> 1
+        }
+        return result
+    }
+}
+
+# ============================================================================
 # Bitwise Operations
 # ============================================================================
 
@@ -225,13 +328,50 @@ routine u32.__not__() -> u32 {
     }
 }
 
-routine u32.__shl__(bits: u32) -> u32 {
+# ============================================================================
+# Shift Operations (<<, <<?>, >>, <<<, >>>)
+# For unsigned types, arithmetic and logical shifts behave identically
+# ============================================================================
+
+# Arithmetic left shift (<<) - sign preserving (for unsigned, same as logical)
+routine u32.__ashl__(bits: u32) -> u32 {
     danger! {
         return @intrinsic.shl<i32>(me, bits)
     }
 }
 
-routine u32.__shr__(bits: u32) -> u32 {
+# Checked arithmetic left shift (<<?) - returns Maybe<u32>
+routine u32.__ashl_checked__(bits: u32) -> Maybe<u32> {
+    danger! {
+        if bits >= 32 {
+            return None
+        }
+        let result = @intrinsic.shl<i32>(me, bits)
+        # Check if we can recover the original value
+        let recovered = @intrinsic.lshr<i32>(result, bits)
+        if recovered != me {
+            return None
+        }
+        return result
+    }
+}
+
+# Arithmetic right shift (>>) - for unsigned, same as logical
+routine u32.__ashr__(bits: u32) -> u32 {
+    danger! {
+        return @intrinsic.lshr<i32>(me, bits)
+    }
+}
+
+# Logical left shift (<<<) - same as <<
+routine u32.__lshl__(bits: u32) -> u32 {
+    danger! {
+        return @intrinsic.shl<i32>(me, bits)
+    }
+}
+
+# Logical right shift (>>>) - fills with zeros
+routine u32.__lshr__(bits: u32) -> u32 {
     danger! {
         return @intrinsic.lshr<i32>(me, bits)
     }

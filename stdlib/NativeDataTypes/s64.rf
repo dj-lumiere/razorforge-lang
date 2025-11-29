@@ -16,43 +16,52 @@ preset S64_ONE: s64 = 1_s64
 # Arithmetic Operations
 # ============================================================================
 
-# Addition (wrapping by default)
-routine s64.__add__(other: s64) -> s64 {
+# Addition
+@crash_only
+routine s64.__add__!(other: s64) -> s64 {
     danger! {
-        return @intrinsic.add.wrapping<i64>(me, other)
+        return @intrinsic.add<i64>(me, other)
     }
 }
 
-# Subtraction (wrapping by default)
-routine s64.__sub__(other: s64) -> s64 {
+# Subtraction
+@crash_only
+routine s64.__sub__!(other: s64) -> s64 {
     danger! {
-        return @intrinsic.sub.wrapping<i64>(me, other)
+        return @intrinsic.sub<i64>(me, other)
     }
 }
 
-# Multiplication (wrapping by default)
-routine s64.__mul__(other: s64) -> s64 {
+# Multiplication
+@crash_only
+routine s64.__mul__!(other: s64) -> s64 {
     danger! {
         return @intrinsic.mul.wrapping<i64>(me, other)
     }
 }
 
-# Division (signed)
-routine s64.__div__(other: s64) -> s64 {
+# Division
+@crash_only
+routine s64.__floordiv__!(other: s64) -> s64 {
+    if other == 0 {
+        throw DivisionByZeroError()
+    }
     danger! {
         return @intrinsic.div.wrapping<i64>(me, other)
     }
 }
 
-# Remainder (signed)
-routine s64.__rem__(other: s64) -> s64 {
+# Remainder
+@crash_only
+routine s64.__rem__!(other: s64) -> s64 {
     danger! {
         return @intrinsic.rem.wrapping<i64>(me, other)
     }
 }
 
 # Negation
-routine s64.__neg__() -> s64 {
+@crash_only
+routine s64.__neg__!() -> s64 {
     danger! {
         return @intrinsic.sub.wrapping<i64>(0_s64, me)
     }
@@ -128,6 +137,111 @@ routine s64.__mul_checked__(other: s64) -> Maybe<s64> {
 }
 
 # ============================================================================
+# Power Operations (**)
+# ============================================================================
+
+# Power operator (**) - can overflow
+@crash_only
+routine s64.__pow__!(exp: s64) -> s64 {
+    danger! {
+        var result: s64 = 1
+        var base: s64 = me
+        var e: u32 = exp
+        if me == 0 and exp == 0 {
+            throw IndeterminateResultError()
+        }
+        if exp < 0 {
+            return NegativeExponentError(exp)
+        }
+        while e > 0 {
+            if (e & 1) == 1 {
+                result = @intrinsic.mul<i64>(result, base)
+            }
+            base = @intrinsic.mul<i64>(base, base)
+            e = e >> 1
+        }
+        return result
+    }
+}
+
+# Wrapping power (**%)
+routine s64.__pow_wrap__!(exp: s64) -> s64 {
+    danger! {
+        var result: s64 = 1
+        var base: s64 = me
+        var e: u32 = exp
+        if me == 0 and exp == 0 {
+            throw IndeterminateResultError()
+        }
+        if exp < 0 {
+            return NegativeExponentError(exp)
+        }
+        while e > 0 {
+            if (e & 1) == 1 {
+                result = @intrinsic.mul.wrapping<i64>(result, base)
+            }
+            base = @intrinsic.mul.wrapping<i64>(base, base)
+            e = e >> 1
+        }
+        return result
+    }
+}
+
+# Saturating power (**^)
+routine s64.__pow_sat__!(exp: s64) -> s64 {
+    danger! {
+        var result: s64 = 1
+        var base: s64 = me
+        var e: u32 = exp
+        if me == 0 and exp == 0 {
+            throw IndeterminateResultError()
+        }
+        if exp < 0 {
+            return NegativeExponentError(exp)
+        }
+        while e > 0 {
+            if (e & 1) == 1 {
+                result = @intrinsic.mul.saturating<i64>(result, base)
+            }
+            base = @intrinsic.mul.saturating<i64>(base, base)
+            e = e >> 1
+        }
+        return result
+    }
+}
+
+# Checked power (**?) - returns Maybe<s64>
+routine s64.__pow_checked__(exp: s64) -> Maybe<s64> {
+    danger! {
+        var result: s64 = 1
+        var base: s64 = me
+        var e: u32 = exp
+        if exp < 0 {
+            return None
+        }
+        if me == 0 {
+            return None
+        }
+        while e > 0 {
+            if (e & 1) == 1 {
+                let (new_result, overflow) = @intrinsic.mul.overflow<i64>(result, base)
+                if overflow {
+                    return None
+                }
+                result = new_result
+            }
+            let (new_base, overflow) = @intrinsic.mul.overflow<i64>(base, base)
+            if overflow and e > 1 {
+                return None
+            }
+            base = new_base
+            e = e >> 1
+        }
+        return result
+    }
+}
+
+# ============================================================================
 # Bitwise Operations
 # ============================================================================
 
@@ -155,17 +269,51 @@ routine s64.__not__() -> s64 {
     }
 }
 
-# Left shift
-routine s64.__shl__(bits: u32) -> s64 {
+# ============================================================================
+# Shift Operations (<<, <<?>, >>, <<<, >>>)
+# ============================================================================
+
+# Arithmetic left shift (<<) - sign preserving
+routine s64.__ashl__(bits: u32) -> s64 {
     danger! {
         return @intrinsic.shl<i64>(me, bits)
     }
 }
 
-# Arithmetic right shift (sign-extending)
-routine s64.__shr__(bits: u32) -> s64 {
+# Checked arithmetic left shift (<<?) - returns Maybe<s64>
+routine s64.__ashl_checked__(bits: u32) -> Maybe<s64> {
+    danger! {
+        if bits >= 64 {
+            return None
+        }
+        let result = @intrinsic.shl<i64>(me, bits)
+        # Check if we can recover the original value
+        let recovered = @intrinsic.ashr<i64>(result, bits)
+        if recovered != me {
+            return None
+        }
+        return result
+    }
+}
+
+# Arithmetic right shift (>>) - preserves sign, always safe
+routine s64.__ashr__(bits: u32) -> s64 {
     danger! {
         return @intrinsic.ashr<i64>(me, bits)
+    }
+}
+
+# Logical left shift (<<<) - same as << but explicit
+routine s64.__lshl__(bits: u32) -> s64 {
+    danger! {
+        return @intrinsic.shl<i64>(me, bits)
+    }
+}
+
+# Logical right shift (>>>) - fills with zeros, ignores sign
+routine s64.__lshr__(bits: u32) -> s64 {
+    danger! {
+        return @intrinsic.lshr<i64>(me, bits)
     }
 }
 

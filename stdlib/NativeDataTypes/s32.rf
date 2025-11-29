@@ -92,37 +92,46 @@ routine s32.__create__!(from: u128) -> s32 {
 # Arithmetic Operations
 # ============================================================================
 
-routine s32.__add__(other: s32) -> s32 {
+@crash_only
+routine s32.__add__!(other: s32) -> s32 {
     danger! {
         return @intrinsic.add<i32>(me, other)
     }
 }
 
-routine s32.__sub__(other: s32) -> s32 {
+@crash_only
+routine s32.__sub__!(other: s32) -> s32 {
     danger! {
         return @intrinsic.sub<i32>(me, other)
     }
 }
 
-routine s32.__mul__(other: s32) -> s32 {
+@crash_only
+routine s32.__mul__!(other: s32) -> s32 {
     danger! {
         return @intrinsic.mul<i32>(me, other)
     }
 }
 
-routine s32.__floordiv__(other: s32) -> s32 {
+@crash_only
+routine s32.__floordiv__!(other: s32) -> s32 {
+    if other == 0 {
+        throw DivisionByZeroError()
+    }
     danger! {
         return @intrinsic.sdiv<i32>(me, other)
     }
 }
 
-routine s32.__mod__(other: s32) -> s32 {
+@crash_only
+routine s32.__mod__!(other: s32) -> s32 {
     danger! {
         return @intrinsic.srem<i32>(me, other)
     }
 }
 
-routine s32.__neg__() -> s32 {
+@crash_only
+routine s32.__neg__!() -> s32 {
     danger! {
         return @intrinsic.neg<i32>(me)
     }
@@ -198,6 +207,111 @@ routine s32.__mul_checked__(other: s32) -> Maybe<s32> {
 }
 
 # ============================================================================
+# Power Operations (**)
+# ============================================================================
+
+# Power operator (**) - can overflow
+@crash_only
+routine s32.__pow__!(exp: s32) -> s32 {
+    danger! {
+        var result: s32 = 1
+        var base: s32 = me
+        var e: u32 = exp
+        if me == 0 and exp == 0 {
+            throw IndeterminateResultError()
+        }
+        if exp < 0 {
+            return NegativeExponentError(exp)
+        }
+        while e > 0 {
+            if (e & 1) == 1 {
+                result = @intrinsic.mul<i32>(result, base)
+            }
+            base = @intrinsic.mul<i32>(base, base)
+            e = e >> 1
+        }
+        return result
+    }
+}
+
+# Wrapping power (**%)
+routine s32.__pow_wrap__!(exp: s32) -> s32 {
+    danger! {
+        var result: s32 = 1
+        var base: s32 = me
+        var e: u32 = exp
+        if me == 0 and exp == 0 {
+            throw IndeterminateResultError()
+        }
+        if exp < 0 {
+            return NegativeExponentError(exp)
+        }
+        while e > 0 {
+            if (e & 1) == 1 {
+                result = @intrinsic.mul.wrapping<i32>(result, base)
+            }
+            base = @intrinsic.mul.wrapping<i32>(base, base)
+            e = e >> 1
+        }
+        return result
+    }
+}
+
+# Saturating power (**^)
+routine s32.__pow_sat__!(exp: s32) -> s32 {
+    danger! {
+        var result: s32 = 1
+        var base: s32 = me
+        var e: u32 = exp
+        if me == 0 and exp == 0 {
+            throw IndeterminateResultError()
+        }
+        if exp < 0 {
+            return NegativeExponentError(exp)
+        }
+        while e > 0 {
+            if (e & 1) == 1 {
+                result = @intrinsic.mul.saturating<i32>(result, base)
+            }
+            base = @intrinsic.mul.saturating<i32>(base, base)
+            e = e >> 1
+        }
+        return result
+    }
+}
+
+# Checked power (**?) - returns Maybe<s32>
+routine s32.__pow_checked__(exp: s32) -> Maybe<s32> {
+    danger! {
+        var result: s32 = 1
+        var base: s32 = me
+        var e: u32 = exp
+        if exp < 0 {
+            return None
+        }
+        if me == 0 {
+            return None
+        }
+        while e > 0 {
+            if (e & 1) == 1 {
+                let (new_result, overflow) = @intrinsic.mul.overflow<i32>(result, base)
+                if overflow {
+                    return None
+                }
+                result = new_result
+            }
+            let (new_base, overflow) = @intrinsic.mul.overflow<i32>(base, base)
+            if overflow and e > 1 {
+                return None
+            }
+            base = new_base
+            e = e >> 1
+        }
+        return result
+    }
+}
+
+# ============================================================================
 # Bitwise Operations
 # ============================================================================
 
@@ -225,15 +339,51 @@ routine s32.__not__() -> s32 {
     }
 }
 
-routine s32.__shl__(bits: u32) -> s32 {
+# ============================================================================
+# Shift Operations (<<, <<?>, >>, <<<, >>>)
+# ============================================================================
+
+# Arithmetic left shift (<<) - sign preserving
+routine s32.__ashl__(bits: u32) -> s32 {
     danger! {
         return @intrinsic.shl<i32>(me, bits)
     }
 }
 
-routine s32.__shr__(bits: u32) -> s32 {
+# Checked arithmetic left shift (<<?) - returns Maybe<s32>
+routine s32.__ashl_checked__(bits: u32) -> Maybe<s32> {
+    danger! {
+        if bits >= 32 {
+            return None
+        }
+        let result = @intrinsic.shl<i32>(me, bits)
+        # Check if we can recover the original value
+        let recovered = @intrinsic.ashr<i32>(result, bits)
+        if recovered != me {
+            return None
+        }
+        return result
+    }
+}
+
+# Arithmetic right shift (>>) - preserves sign, always safe
+routine s32.__ashr__(bits: u32) -> s32 {
     danger! {
         return @intrinsic.ashr<i32>(me, bits)
+    }
+}
+
+# Logical left shift (<<<) - same as << but explicit
+routine s32.__lshl__(bits: u32) -> s32 {
+    danger! {
+        return @intrinsic.shl<i32>(me, bits)
+    }
+}
+
+# Logical right shift (>>>) - fills with zeros, ignores sign
+routine s32.__lshr__(bits: u32) -> s32 {
+    danger! {
+        return @intrinsic.lshr<i32>(me, bits)
     }
 }
 

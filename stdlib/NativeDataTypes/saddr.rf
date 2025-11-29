@@ -1,5 +1,9 @@
 # RazorForge saddr (system-sized signed integer) native type implementation
 # Maps to LLVM pointer-sized integer - s32 on 32-bit, s64 on 64-bit platforms
+#
+# SAFETY: saddr does NOT support base arithmetic operators (+, -, *, //, %, **, <<)
+# to prevent silent overflow bugs in pointer/offset calculations.
+# You must use explicit wrapping (+%, -%, etc.) or checked (+?, -?, etc.) variants.
 
 # Core saddr type definition - maps to LLVM iptr/isize
 record saddr {
@@ -7,48 +11,134 @@ record saddr {
 }
 
 # ============================================================================
-# Arithmetic Operations (system types use wrapping by default)
+# Wrapping Arithmetic Operations (+%, -%, *%, //%, %%, **%)
+# These explicitly wrap on overflow - use when wrapping is intentional
 # ============================================================================
 
-# Default operators use wrapping arithmetic for system types
-routine saddr.__add__(other: saddr) -> saddr {
+routine saddr.__add_wrap__(other: saddr) -> saddr {
     danger! {
         return @intrinsic.add.wrapping<iptr>(me, other)
     }
 }
 
-routine saddr.__sub__(other: saddr) -> saddr {
+routine saddr.__sub_wrap__(other: saddr) -> saddr {
     danger! {
         return @intrinsic.sub.wrapping<iptr>(me, other)
     }
 }
 
-routine saddr.__mul__(other: saddr) -> saddr {
+routine saddr.__mul_wrap__(other: saddr) -> saddr {
     danger! {
         return @intrinsic.mul.wrapping<iptr>(me, other)
     }
 }
 
-routine saddr.__floordiv__(other: saddr) -> saddr {
+routine saddr.__floordiv_wrap__(other: saddr) -> saddr {
     danger! {
         return @intrinsic.sdiv<iptr>(me, other)
     }
 }
 
-routine saddr.__mod__(other: saddr) -> saddr {
+routine saddr.__mod_wrap__(other: saddr) -> saddr {
     danger! {
         return @intrinsic.srem<iptr>(me, other)
     }
 }
 
-routine saddr.__neg__() -> saddr {
+# ============================================================================
+# Checked Arithmetic Operations (+?, -?, *?, //?, %?, **?, <<?)
+# These return Maybe<saddr> - None on overflow
+# ============================================================================
+
+routine saddr.__add_checked__(other: saddr) -> Maybe<saddr> {
     danger! {
-        return @intrinsic.neg<iptr>(me)
+        let (result, overflow) = @intrinsic.add.overflow<iptr>(me, other)
+        return if overflow then None else result
+    }
+}
+
+routine saddr.__sub_checked__(other: saddr) -> Maybe<saddr> {
+    danger! {
+        let (result, overflow) = @intrinsic.sub.overflow<iptr>(me, other)
+        return if overflow then None else result
+    }
+}
+
+routine saddr.__mul_checked__(other: saddr) -> Maybe<saddr> {
+    danger! {
+        let (result, overflow) = @intrinsic.mul.overflow<iptr>(me, other)
+        return if overflow then None else result
+    }
+}
+
+routine saddr.__floordiv_checked__(other: saddr) -> Maybe<saddr> {
+    # Division can overflow for MIN_VALUE / -1, and divide by zero
+    if other == 0 {
+        return None
+    }
+    danger! {
+        let min_val = @intrinsic.min_value<iptr>()
+        if me == min_val and other == -1 {
+            return None  # Would overflow
+        }
+        return @intrinsic.sdiv<iptr>(me, other)
+    }
+}
+
+routine saddr.__mod_checked__(other: saddr) -> Maybe<saddr> {
+    if other == 0 {
+        return None
+    }
+    danger! {
+        return @intrinsic.srem<iptr>(me, other)
+    }
+}
+
+routine saddr.__ashl_checked__(bits: u32) -> Maybe<saddr> {
+    danger! {
+        # Check if shift would overflow
+        let bit_width = @intrinsic.bitwidth<iptr>()
+        if bits >= bit_width {
+            return None
+        }
+        let result = @intrinsic.shl<iptr>(me, bits)
+        # Check if we can recover the original value by shifting back
+        let recovered = @intrinsic.ashr<iptr>(result, bits)
+        if recovered != me {
+            return None
+        }
+        return result
     }
 }
 
 # ============================================================================
-# Bitwise Operations
+# Shift Operations (>>, <<<, >>>)
+# saddr does NOT have << (sign-preserving left shift) - use <<? or <<< instead
+# ============================================================================
+
+routine saddr.__ashr__(bits: u32) -> saddr {
+    danger! {
+        # Arithmetic right shift - preserves sign
+        return @intrinsic.ashr<iptr>(me, bits)
+    }
+}
+
+routine saddr.__lshl__(bits: u32) -> saddr {
+    danger! {
+        return @intrinsic.shl<iptr>(me, bits)
+    }
+}
+
+routine saddr.__lshr__(bits: u32) -> saddr {
+    danger! {
+        # Logical right shift - fills with zeros
+        return @intrinsic.lshr<iptr>(me, bits)
+    }
+}
+
+# ============================================================================
+# Bitwise Operations (&, |, ^, ~)
+# These cannot overflow
 # ============================================================================
 
 routine saddr.__and__(other: saddr) -> saddr {
@@ -75,33 +165,20 @@ routine saddr.__not__() -> saddr {
     }
 }
 
-routine saddr.__shl__(bits: u32) -> saddr {
-    danger! {
-        return @intrinsic.shl<iptr>(me, bits)
-    }
-}
+# ============================================================================
+# Unary Operations
+# ============================================================================
 
-routine saddr.__shr__(bits: u32) -> saddr {
+routine saddr.__neg__() -> saddr {
     danger! {
-        return @intrinsic.ashr<iptr>(me, bits)
+        # Note: negation can overflow for MIN_VALUE, but we allow it (wraps)
+        return @intrinsic.neg<iptr>(me)
     }
 }
 
 # ============================================================================
-# Comparison Operations
+# Comparison Operations (non-overloadable, but provided for completeness)
 # ============================================================================
-
-routine saddr.__eq__(other: saddr) -> bool {
-    danger! {
-        return @intrinsic.icmp.eq<iptr>(me, other)
-    }
-}
-
-routine saddr.__ne__(other: saddr) -> bool {
-    danger! {
-        return @intrinsic.icmp.ne<iptr>(me, other)
-    }
-}
 
 routine saddr.__lt__(other: saddr) -> bool {
     danger! {
@@ -128,11 +205,11 @@ routine saddr.__ge__(other: saddr) -> bool {
 }
 
 # ============================================================================
-# Math Operations
+# Utility Methods
 # ============================================================================
 
 routine saddr.abs() -> saddr {
-    return if me >= 0 then me else -me
+    return if me >= 0 then me else (0 -% me)
 }
 
 routine saddr.min(other: saddr) -> saddr {
@@ -216,14 +293,14 @@ routine saddr.to_text() -> Text {
 # Parsing constructors using compiler intrinsics
 
 # Fallible constructor - crashes on invalid input
-routine saddr!(from_text: Text) -> saddr {
+routine saddr.__create__!(from_text: Text) -> saddr {
     danger! {
         return @parse_saddr(from_text)
     }
 }
 
 # Safe constructor - returns Maybe<saddr>
-routine saddr?(from_text: Text) -> Maybe<saddr> {
+routine saddr.__create__?(from_text: Text) -> Maybe<saddr> {
     danger! {
         return @try_parse_saddr(from_text)
     }

@@ -1,6 +1,10 @@
 # RazorForge uaddr (system-sized unsigned integer) native type implementation
 # Maps to LLVM pointer-sized integer - u32 on 32-bit, u64 on 64-bit platforms
 # Used for array indices, sizes, and pointer arithmetic
+#
+# SAFETY: uaddr does NOT support base arithmetic operators (+, -, *, //, %, **, <<)
+# to prevent silent overflow bugs in pointer/size calculations.
+# You must use explicit wrapping (+%, -%, etc.) or checked (+?, -?, etc.) variants.
 
 # Core uaddr type definition - maps to LLVM iptr/usize
 record uaddr {
@@ -8,42 +12,121 @@ record uaddr {
 }
 
 # ============================================================================
-# Arithmetic Operations (system types use wrapping by default)
+# Wrapping Arithmetic Operations (+%, -%, *%, //%, %%, **%)
+# These explicitly wrap on overflow - use when wrapping is intentional
 # ============================================================================
 
-# Default operators use wrapping arithmetic for system types
-routine uaddr.__add__(other: uaddr) -> uaddr {
+routine uaddr.__add_wrap__(other: uaddr) -> uaddr {
     danger! {
         return @intrinsic.add.wrapping<uptr>(me, other)
     }
 }
 
-routine uaddr.__sub__(other: uaddr) -> uaddr {
+routine uaddr.__sub_wrap__(other: uaddr) -> uaddr {
     danger! {
         return @intrinsic.sub.wrapping<uptr>(me, other)
     }
 }
 
-routine uaddr.__mul__(other: uaddr) -> uaddr {
+routine uaddr.__mul_wrap__(other: uaddr) -> uaddr {
     danger! {
         return @intrinsic.mul.wrapping<uptr>(me, other)
     }
 }
 
-routine uaddr.__floordiv__(other: uaddr) -> uaddr {
+routine uaddr.__floordiv_wrap__(other: uaddr) -> uaddr {
     danger! {
         return @intrinsic.udiv<uptr>(me, other)
     }
 }
 
-routine uaddr.__mod__(other: uaddr) -> uaddr {
+routine uaddr.__mod_wrap__(other: uaddr) -> uaddr {
     danger! {
         return @intrinsic.urem<uptr>(me, other)
     }
 }
 
 # ============================================================================
-# Bitwise Operations
+# Checked Arithmetic Operations (+?, -?, *?, //?, %?, **?, <<?)
+# These return Maybe<uaddr> - None on overflow
+# ============================================================================
+
+routine uaddr.__add_checked__(other: uaddr) -> Maybe<uaddr> {
+    danger! {
+        let (result, overflow) = @intrinsic.add.overflow<uptr>(me, other)
+        return if overflow then None else result
+    }
+}
+
+routine uaddr.__sub_checked__(other: uaddr) -> Maybe<uaddr> {
+    danger! {
+        let (result, overflow) = @intrinsic.sub.overflow<uptr>(me, other)
+        return if overflow then None else result
+    }
+}
+
+routine uaddr.__mul_checked__(other: uaddr) -> Maybe<uaddr> {
+    danger! {
+        let (result, overflow) = @intrinsic.mul.overflow<uptr>(me, other)
+        return if overflow then None else result
+    }
+}
+
+routine uaddr.__floordiv_checked__(other: uaddr) -> Maybe<uaddr> {
+    if other == 0 {
+        return None
+    }
+    danger! {
+        return @intrinsic.udiv<uptr>(me, other)
+    }
+}
+
+routine uaddr.__mod_checked__(other: uaddr) -> Maybe<uaddr> {
+    if other == 0 {
+        return None
+    }
+    danger! {
+        return @intrinsic.urem<uptr>(me, other)
+    }
+}
+
+routine uaddr.__ashl_checked__(bits: u32) -> Maybe<uaddr> {
+    danger! {
+        # Check if shift would overflow (bits >= bit width or high bits would be lost)
+        let bit_width = @intrinsic.bitwidth<uptr>()
+        if bits >= bit_width {
+            return None
+        }
+        let result = @intrinsic.shl<uptr>(me, bits)
+        # Check if we can recover the original value by shifting back
+        let recovered = @intrinsic.lshr<uptr>(result, bits)
+        if recovered != me {
+            return None
+        }
+        return result
+    }
+}
+
+# ============================================================================
+# Shift Operations (<<<, >>>)
+# uaddr does NOT have >> (sign-preserving right shift) - use >>> instead
+# ============================================================================
+
+routine uaddr.__lshl__(bits: u32) -> uaddr {
+    danger! {
+        return @intrinsic.shl<uptr>(me, bits)
+    }
+}
+
+routine uaddr.__lshr__(bits: u32) -> uaddr {
+    danger! {
+        return @intrinsic.lshr<uptr>(me, bits)
+    }
+}
+
+# ============================================================================
+# Bitwise Operations (&, |, ^, ~)
+# These cannot overflow
 # ============================================================================
 
 routine uaddr.__and__(other: uaddr) -> uaddr {
@@ -70,33 +153,9 @@ routine uaddr.__not__() -> uaddr {
     }
 }
 
-routine uaddr.__shl__(bits: u32) -> uaddr {
-    danger! {
-        return @intrinsic.shl<uptr>(me, bits)
-    }
-}
-
-routine uaddr.__shr__(bits: u32) -> uaddr {
-    danger! {
-        return @intrinsic.lshr<uptr>(me, bits)
-    }
-}
-
 # ============================================================================
-# Comparison Operations
+# Comparison Operations (non-overloadable, but provided for completeness)
 # ============================================================================
-
-routine uaddr.__eq__(other: uaddr) -> bool {
-    danger! {
-        return @intrinsic.icmp.eq<uptr>(me, other)
-    }
-}
-
-routine uaddr.__ne__(other: uaddr) -> bool {
-    danger! {
-        return @intrinsic.icmp.ne<uptr>(me, other)
-    }
-}
 
 routine uaddr.__lt__(other: uaddr) -> bool {
     danger! {
@@ -123,7 +182,7 @@ routine uaddr.__ge__(other: uaddr) -> bool {
 }
 
 # ============================================================================
-# Math Operations
+# Utility Methods
 # ============================================================================
 
 routine uaddr.min(other: uaddr) -> uaddr {
@@ -135,7 +194,7 @@ routine uaddr.max(other: uaddr) -> uaddr {
 }
 
 routine uaddr.is_power_of_two() -> bool {
-    return me != 0 and (me & (me - 1)) == 0
+    return me != 0 and (me & (me -% 1)) == 0
 }
 
 # ============================================================================
@@ -198,6 +257,10 @@ routine uaddr(from: saddr) -> uaddr {
     }
 }
 
+public routine uaddr(from: MemorySize) -> uaddr {
+    return from.size_byte()
+}
+
 # ============================================================================
 # String Conversion
 # ============================================================================
@@ -211,14 +274,14 @@ routine uaddr.to_text() -> Text {
 # Parsing constructors using compiler intrinsics
 
 # Fallible constructor - crashes on invalid input
-routine uaddr!(from_text: Text) -> uaddr {
+routine uaddr.__create__!(from_text: Text) -> uaddr {
     danger! {
         return @parse_uaddr(from_text)
     }
 }
 
 # Safe constructor - returns Maybe<uaddr>
-routine uaddr?(from_text: Text) -> Maybe<uaddr> {
+routine uaddr.__create__?(from_text: Text) -> Maybe<uaddr> {
     danger! {
         return @try_parse_uaddr(from_text)
     }
