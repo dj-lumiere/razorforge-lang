@@ -1,0 +1,12 @@
+protocol Crashable {
+    # Required fields (compiler enforces these exist)
+    message_handle: MessageHandle
+    stack_trace: StackTrace
+    file_id: u32
+    routine_id: u32
+    line_no: u32
+    column_no: u32
+
+    # Required routine
+    routine crash_message() -> Text
+}
