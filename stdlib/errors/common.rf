@@ -9,13 +9,6 @@ namespace standard/error
 
 # AbsentValueError - thrown when accessing an absent value
 record AbsentValueError follows Crashable {
-    message_handle: MessageHandle
-    stack_trace: StackTrace
-    file_id: u32
-    routine_id: u32
-    line_no: u32
-    column_no: u32
-
     routine crash_message() -> Text {
         return @intrinsic.ptr_to_text(me.message_handle.ptr)
     }
@@ -35,8 +28,8 @@ record VerificationFailedError follows Crashable {
     }
 }
 
-# LogicBugError - thrown by bug!()
-record LogicBugError follows Crashable {
+# LogicBreachedError - thrown by breach!()
+record LogicBreachedError follows Crashable {
     routine crash_message() -> Text {
         return @intrinsic.ptr_to_text(me.message_handle.ptr)
     }
