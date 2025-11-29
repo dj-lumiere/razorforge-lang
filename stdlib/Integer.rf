@@ -1,0 +1,429 @@
+# RazorForge Integer - Arbitrary precision integer type
+# Powered by LibTomMath (https://github.com/libtom/libtommath)
+# License: Public Domain (Unlicense)
+
+import Text/Text
+import ErrorHandling/Maybe
+
+# Opaque handle to LibTomMath mp_int structure
+# The actual memory is managed by the native runtime
+entity Integer {
+    private handle: uaddr
+}
+
+# ============================================================================
+# Lifecycle Management
+# ============================================================================
+
+# Create a new Integer initialized to zero
+routine Integer.__create__() -> Integer {
+    danger! {
+        let int = Integer(handle: @native.rf_bigint_new())
+        return int
+    }
+}
+
+# Create Integer from s64
+routine Integer.__create__(value: s64) -> Integer {
+    danger! {
+        let int = Integer(handle: @native.rf_bigint_new())
+        @native.rf_bigint_set_i64(int.handle, value)
+        return int
+    }
+}
+
+# Create Integer from u64
+routine Integer.__create__(value: u64) -> Integer {
+    danger! {
+        let int = Integer(handle: @native.rf_bigint_new())
+        @native.rf_bigint_set_u64(int.handle, value)
+        return int
+    }
+}
+
+# Create Integer from string with base (2-36)
+routine Integer.__create__!(text: Text, radix: s32 = 10) -> Integer {
+    danger! {
+        let int = Integer(handle: @native.rf_bigint_new())
+        let result = @native.rf_bigint_set_str(int.handle, text.to_cstr(), radix)
+        if result != 0 {
+            throw ValueError(f"Invalid integer string: {text}")
+        }
+        return int
+    }
+}
+
+# Destructor - frees the LibTomMath structure
+routine Integer.__destroy__() {
+    danger! {
+        @native.rf_bigint_clear(me.handle)
+    }
+}
+
+# Copy constructor
+routine Integer.__copy__(other: Integer) -> Integer {
+    danger! {
+        let int = Integer(handle: @native.rf_bigint_new())
+        @native.rf_bigint_copy(int.handle, other.handle)
+        return int
+    }
+}
+
+# ============================================================================
+# Arithmetic Operations
+# ============================================================================
+
+routine Integer.__add__(other: Integer) -> Integer {
+    danger! {
+        let result = Integer(handle: @native.rf_bigint_new())
+        @native.rf_bigint_add(result.handle, me.handle, other.handle)
+        return result
+    }
+}
+
+routine Integer.__sub__(other: Integer) -> Integer {
+    danger! {
+        let result = Integer(handle: @native.rf_bigint_new())
+        @native.rf_bigint_sub(result.handle, me.handle, other.handle)
+        return result
+    }
+}
+
+routine Integer.__mul__(other: Integer) -> Integer {
+    danger! {
+        let result = Integer(handle: @native.rf_bigint_new())
+        @native.rf_bigint_mul(result.handle, me.handle, other.handle)
+        return result
+    }
+}
+
+routine Integer.__floordiv__(other: Integer) -> Integer {
+    danger! {
+        let quotient = Integer(handle: @native.rf_bigint_new())
+        let remainder = Integer(handle: @native.rf_bigint_new())
+        @native.rf_bigint_div(quotient.handle, remainder.handle, me.handle, other.handle)
+        @native.rf_bigint_clear(remainder.handle)
+        return quotient
+    }
+}
+
+routine Integer.__rem__(other: Integer) -> Integer {
+    danger! {
+        let result = Integer(handle: @native.rf_bigint_new())
+        @native.rf_bigint_mod(result.handle, me.handle, other.handle)
+        return result
+    }
+}
+
+routine Integer.__neg__() -> Integer {
+    danger! {
+        let result = Integer(handle: @native.rf_bigint_new())
+        @native.rf_bigint_neg(result.handle, me.handle)
+        return result
+    }
+}
+
+# ============================================================================
+# Comparison Operations
+# ============================================================================
+
+routine Integer.__eq__(other: Integer) -> bool {
+    danger! {
+        return @native.rf_bigint_cmp(me.handle, other.handle) == 0
+    }
+}
+
+routine Integer.__ne__(other: Integer) -> bool {
+    danger! {
+        return @native.rf_bigint_cmp(me.handle, other.handle) != 0
+    }
+}
+
+routine Integer.__lt__(other: Integer) -> bool {
+    danger! {
+        return @native.rf_bigint_cmp(me.handle, other.handle) < 0
+    }
+}
+
+routine Integer.__le__(other: Integer) -> bool {
+    danger! {
+        return @native.rf_bigint_cmp(me.handle, other.handle) <= 0
+    }
+}
+
+routine Integer.__gt__(other: Integer) -> bool {
+    danger! {
+        return @native.rf_bigint_cmp(me.handle, other.handle) > 0
+    }
+}
+
+routine Integer.__ge__(other: Integer) -> bool {
+    danger! {
+        return @native.rf_bigint_cmp(me.handle, other.handle) >= 0
+    }
+}
+
+# Compare with s64
+routine Integer.cmp(other: s64) -> s32 {
+    danger! {
+        return @native.rf_bigint_cmp_i64(me.handle, other)
+    }
+}
+
+# ============================================================================
+# Bitwise Operations
+# ============================================================================
+
+routine Integer.__and__(other: Integer) -> Integer {
+    danger! {
+        let result = Integer(handle: @native.rf_bigint_new())
+        @native.rf_bigint_and(result.handle, me.handle, other.handle)
+        return result
+    }
+}
+
+routine Integer.__or__(other: Integer) -> Integer {
+    danger! {
+        let result = Integer(handle: @native.rf_bigint_new())
+        @native.rf_bigint_or(result.handle, me.handle, other.handle)
+        return result
+    }
+}
+
+routine Integer.__xor__(other: Integer) -> Integer {
+    danger! {
+        let result = Integer(handle: @native.rf_bigint_new())
+        @native.rf_bigint_xor(result.handle, me.handle, other.handle)
+        return result
+    }
+}
+
+routine Integer.__shl__(bits: s32) -> Integer {
+    danger! {
+        let result = Integer(handle: @native.rf_bigint_new())
+        @native.rf_bigint_shl(result.handle, me.handle, bits)
+        return result
+    }
+}
+
+routine Integer.__shr__(bits: s32) -> Integer {
+    danger! {
+        let result = Integer(handle: @native.rf_bigint_new())
+        @native.rf_bigint_shr(result.handle, me.handle, bits)
+        return result
+    }
+}
+
+# ============================================================================
+# Math Operations
+# ============================================================================
+
+routine Integer.abs() -> Integer {
+    danger! {
+        let result = Integer(handle: @native.rf_bigint_new())
+        @native.rf_bigint_abs(result.handle, me.handle)
+        return result
+    }
+}
+
+routine Integer.pow(exp: u32) -> Integer {
+    danger! {
+        let result = Integer(handle: @native.rf_bigint_new())
+        @native.rf_bigint_pow(result.handle, me.handle, exp)
+        return result
+    }
+}
+
+routine Integer.sqrt() -> Integer {
+    danger! {
+        let result = Integer(handle: @native.rf_bigint_new())
+        @native.rf_bigint_sqrt(result.handle, me.handle)
+        return result
+    }
+}
+
+routine Integer.gcd(other: Integer) -> Integer {
+    danger! {
+        let result = Integer(handle: @native.rf_bigint_new())
+        @native.rf_bigint_gcd(result.handle, me.handle, other.handle)
+        return result
+    }
+}
+
+routine Integer.lcm(other: Integer) -> Integer {
+    danger! {
+        let result = Integer(handle: @native.rf_bigint_new())
+        @native.rf_bigint_lcm(result.handle, me.handle, other.handle)
+        return result
+    }
+}
+
+# ============================================================================
+# Utility Methods
+# ============================================================================
+
+routine Integer.is_zero() -> bool {
+    danger! {
+        return @native.rf_bigint_is_zero(me.handle) != 0
+    }
+}
+
+routine Integer.is_negative() -> bool {
+    danger! {
+        return @native.rf_bigint_is_neg(me.handle) != 0
+    }
+}
+
+routine Integer.is_positive() -> bool {
+    return not me.is_zero() and not me.is_negative()
+}
+
+routine Integer.signum() -> s32 {
+    when {
+        me.is_positive() => 1,
+        me.is_negative() => -1,
+        _ => 0
+    }
+}
+
+# ============================================================================
+# Conversions
+# ============================================================================
+
+# Convert to s64 (may overflow/truncate for large values)
+routine Integer.to_s64() -> s64 {
+    danger! {
+        return @native.rf_bigint_get_i64(me.handle)
+    }
+}
+
+# Convert to u64 (may overflow/truncate for large values)
+routine Integer.to_u64() -> u64 {
+    danger! {
+        return @native.rf_bigint_get_u64(me.handle)
+    }
+}
+
+# Convert to string with specified radix (2-36)
+routine Integer.to_text(radix: s32 = 10) -> Text {
+    danger! {
+        let cstr = @native.rf_bigint_get_str(me.handle, radix)
+        let text = Text.from_cstr(cstr)
+        @native.free(cstr)
+        return text
+    }
+}
+
+# Default string conversion (base 10)
+routine Integer.to_string() -> Text {
+    return me.to_text(10)
+}
+
+# Convert to binary string
+routine Integer.to_binary() -> Text {
+    return me.to_text(2)
+}
+
+# Convert to hexadecimal string
+routine Integer.to_hex() -> Text {
+    return me.to_text(16)
+}
+
+# Convert to octal string
+routine Integer.to_octal() -> Text {
+    return me.to_text(8)
+}
+
+# ============================================================================
+# Factory Methods
+# ============================================================================
+
+# Parse from decimal string - returns None on failure
+routine Integer.parse(text: Text) -> Maybe<Integer> {
+    danger! {
+        let int = Integer(handle: @native.rf_bigint_new())
+        let result = @native.rf_bigint_set_str(int.handle, text.to_cstr(), 10)
+        if result != 0 {
+            @native.rf_bigint_clear(int.handle)
+            return None
+        }
+        return int
+    }
+}
+
+# Parse from binary string (without 0b prefix) - returns None on failure
+routine Integer.from_binary(text: Text) -> Maybe<Integer> {
+    danger! {
+        let int = Integer(handle: @native.rf_bigint_new())
+        let result = @native.rf_bigint_set_str(int.handle, text.to_cstr(), 2)
+        if result != 0 {
+            @native.rf_bigint_clear(int.handle)
+            return None
+        }
+        return int
+    }
+}
+
+# Parse from hexadecimal string (without 0x prefix) - returns None on failure
+routine Integer.from_hex(text: Text) -> Maybe<Integer> {
+    danger! {
+        let int = Integer(handle: @native.rf_bigint_new())
+        let result = @native.rf_bigint_set_str(int.handle, text.to_cstr(), 16)
+        if result != 0 {
+            @native.rf_bigint_clear(int.handle)
+            return None
+        }
+        return int
+    }
+}
+
+# Zero constant
+routine Integer.zero() -> Integer {
+    return Integer(0_s64)
+}
+
+# One constant
+routine Integer.one() -> Integer {
+    return Integer(1_s64)
+}
+
+# ============================================================================
+# Examples
+# ============================================================================
+
+# Factorial of large numbers
+routine factorial(n: Integer) -> Integer {
+    if n.is_zero() or n == Integer.one() {
+        return Integer.one()
+    }
+
+    var result = Integer.one()
+    var i = Integer(2_s64)
+
+    while i <= n {
+        result = result * i
+        i = i + Integer.one()
+    }
+
+    return result
+}
+
+# Fibonacci with arbitrary precision
+routine fibonacci_big(n: s64) -> Integer {
+    if n <= 1 {
+        return Integer(n)
+    }
+
+    var a = Integer.zero()
+    var b = Integer.one()
+
+    var i: s64 = 2
+    while i <= n {
+        let temp = a + b
+        a = b
+        b = temp
+        i = i + 1
+    }
+
+    return b
+}

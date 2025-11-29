@@ -1,0 +1,496 @@
+# RazorForge Decimal - Arbitrary precision decimal floating-point type
+# Powered by MAPM - Mike's Arbitrary Precision Math Library
+# https://github.com/LuaDist/mapm
+# License: Freeware
+
+import Text/Text
+import ErrorHandling/Maybe
+
+# Default precision for operations (decimal places)
+preset DECIMAL_DEFAULT_PRECISION: s32 = 50
+
+# Opaque handle to MAPM M_APM structure
+# The actual memory is managed by the native runtime
+entity Decimal {
+    private handle: uaddr
+}
+
+# ============================================================================
+# Lifecycle Management
+# ============================================================================
+
+# Create a new Decimal initialized to zero
+routine Decimal.__create__() -> Decimal {
+    danger! {
+        let dec = Decimal(handle: @native.rf_bigdec_new())
+        @native.rf_bigdec_set_i64(dec.handle, 0)
+        return dec
+    }
+}
+
+# Create Decimal from s64
+routine Decimal.__create__(value: s64) -> Decimal {
+    danger! {
+        let dec = Decimal(handle: @native.rf_bigdec_new())
+        @native.rf_bigdec_set_i64(dec.handle, value)
+        return dec
+    }
+}
+
+# Create Decimal from f64
+routine Decimal.__create__(value: f64) -> Decimal {
+    danger! {
+        let dec = Decimal(handle: @native.rf_bigdec_new())
+        @native.rf_bigdec_set_f64(dec.handle, value)
+        return dec
+    }
+}
+
+# Create Decimal from string
+routine Decimal.__create__!(text: Text) -> Decimal {
+    danger! {
+        let dec = Decimal(handle: @native.rf_bigdec_new())
+        @native.rf_bigdec_set_str(dec.handle, text.to_cstr())
+        return dec
+    }
+}
+
+# Destructor - frees the MAPM structure
+routine Decimal.__destroy__() {
+    danger! {
+        @native.rf_bigdec_free(me.handle)
+    }
+}
+
+# Copy constructor
+routine Decimal.__copy__(other: Decimal) -> Decimal {
+    danger! {
+        let dec = Decimal(handle: @native.rf_bigdec_copy(other.handle))
+        return dec
+    }
+}
+
+# ============================================================================
+# Arithmetic Operations
+# ============================================================================
+
+routine Decimal.__add__(other: Decimal) -> Decimal {
+    danger! {
+        let result = Decimal(handle: @native.rf_bigdec_new())
+        @native.rf_bigdec_add(result.handle, me.handle, other.handle)
+        return result
+    }
+}
+
+routine Decimal.__sub__(other: Decimal) -> Decimal {
+    danger! {
+        let result = Decimal(handle: @native.rf_bigdec_new())
+        @native.rf_bigdec_sub(result.handle, me.handle, other.handle)
+        return result
+    }
+}
+
+routine Decimal.__mul__(other: Decimal) -> Decimal {
+    danger! {
+        let result = Decimal(handle: @native.rf_bigdec_new())
+        @native.rf_bigdec_mul(result.handle, me.handle, other.handle)
+        return result
+    }
+}
+
+# Division with default precision
+routine Decimal.__truediv__(other: Decimal) -> Decimal {
+    danger! {
+        let result = Decimal(handle: @native.rf_bigdec_new())
+        @native.rf_bigdec_div(result.handle, DECIMAL_DEFAULT_PRECISION, me.handle, other.handle)
+        return result
+    }
+}
+
+# Division with specified precision
+routine Decimal.divide(other: Decimal, precision: s32) -> Decimal {
+    danger! {
+        let result = Decimal(handle: @native.rf_bigdec_new())
+        @native.rf_bigdec_div(result.handle, precision, me.handle, other.handle)
+        return result
+    }
+}
+
+routine Decimal.__neg__() -> Decimal {
+    danger! {
+        let result = Decimal(handle: @native.rf_bigdec_new())
+        @native.rf_bigdec_neg(result.handle, me.handle)
+        return result
+    }
+}
+
+# ============================================================================
+# Comparison Operations
+# ============================================================================
+
+routine Decimal.__eq__(other: Decimal) -> bool {
+    danger! {
+        return @native.rf_bigdec_cmp(me.handle, other.handle) == 0
+    }
+}
+
+routine Decimal.__ne__(other: Decimal) -> bool {
+    danger! {
+        return @native.rf_bigdec_cmp(me.handle, other.handle) != 0
+    }
+}
+
+routine Decimal.__lt__(other: Decimal) -> bool {
+    danger! {
+        return @native.rf_bigdec_cmp(me.handle, other.handle) < 0
+    }
+}
+
+routine Decimal.__le__(other: Decimal) -> bool {
+    danger! {
+        return @native.rf_bigdec_cmp(me.handle, other.handle) <= 0
+    }
+}
+
+routine Decimal.__gt__(other: Decimal) -> bool {
+    danger! {
+        return @native.rf_bigdec_cmp(me.handle, other.handle) > 0
+    }
+}
+
+routine Decimal.__ge__(other: Decimal) -> bool {
+    danger! {
+        return @native.rf_bigdec_cmp(me.handle, other.handle) >= 0
+    }
+}
+
+# ============================================================================
+# Math Operations (with precision parameter)
+# ============================================================================
+
+routine Decimal.abs() -> Decimal {
+    danger! {
+        let result = Decimal(handle: @native.rf_bigdec_new())
+        @native.rf_bigdec_abs(result.handle, me.handle)
+        return result
+    }
+}
+
+routine Decimal.sqrt(precision: s32 = DECIMAL_DEFAULT_PRECISION) -> Decimal {
+    danger! {
+        let result = Decimal(handle: @native.rf_bigdec_new())
+        @native.rf_bigdec_sqrt(result.handle, precision, me.handle)
+        return result
+    }
+}
+
+routine Decimal.pow(exp: Decimal, precision: s32 = DECIMAL_DEFAULT_PRECISION) -> Decimal {
+    danger! {
+        let result = Decimal(handle: @native.rf_bigdec_new())
+        @native.rf_bigdec_pow(result.handle, precision, me.handle, exp.handle)
+        return result
+    }
+}
+
+routine Decimal.exp(precision: s32 = DECIMAL_DEFAULT_PRECISION) -> Decimal {
+    danger! {
+        let result = Decimal(handle: @native.rf_bigdec_new())
+        @native.rf_bigdec_exp(result.handle, precision, me.handle)
+        return result
+    }
+}
+
+routine Decimal.log(precision: s32 = DECIMAL_DEFAULT_PRECISION) -> Decimal {
+    danger! {
+        let result = Decimal(handle: @native.rf_bigdec_new())
+        @native.rf_bigdec_log(result.handle, precision, me.handle)
+        return result
+    }
+}
+
+routine Decimal.log10(precision: s32 = DECIMAL_DEFAULT_PRECISION) -> Decimal {
+    danger! {
+        let result = Decimal(handle: @native.rf_bigdec_new())
+        @native.rf_bigdec_log10(result.handle, precision, me.handle)
+        return result
+    }
+}
+
+# ============================================================================
+# Trigonometric Functions (with precision parameter)
+# ============================================================================
+
+routine Decimal.sin(precision: s32 = DECIMAL_DEFAULT_PRECISION) -> Decimal {
+    danger! {
+        let result = Decimal(handle: @native.rf_bigdec_new())
+        @native.rf_bigdec_sin(result.handle, precision, me.handle)
+        return result
+    }
+}
+
+routine Decimal.cos(precision: s32 = DECIMAL_DEFAULT_PRECISION) -> Decimal {
+    danger! {
+        let result = Decimal(handle: @native.rf_bigdec_new())
+        @native.rf_bigdec_cos(result.handle, precision, me.handle)
+        return result
+    }
+}
+
+routine Decimal.tan(precision: s32 = DECIMAL_DEFAULT_PRECISION) -> Decimal {
+    danger! {
+        let result = Decimal(handle: @native.rf_bigdec_new())
+        @native.rf_bigdec_tan(result.handle, precision, me.handle)
+        return result
+    }
+}
+
+routine Decimal.asin(precision: s32 = DECIMAL_DEFAULT_PRECISION) -> Decimal {
+    danger! {
+        let result = Decimal(handle: @native.rf_bigdec_new())
+        @native.rf_bigdec_asin(result.handle, precision, me.handle)
+        return result
+    }
+}
+
+routine Decimal.acos(precision: s32 = DECIMAL_DEFAULT_PRECISION) -> Decimal {
+    danger! {
+        let result = Decimal(handle: @native.rf_bigdec_new())
+        @native.rf_bigdec_acos(result.handle, precision, me.handle)
+        return result
+    }
+}
+
+routine Decimal.atan(precision: s32 = DECIMAL_DEFAULT_PRECISION) -> Decimal {
+    danger! {
+        let result = Decimal(handle: @native.rf_bigdec_new())
+        @native.rf_bigdec_atan(result.handle, precision, me.handle)
+        return result
+    }
+}
+
+# Hyperbolic functions
+routine Decimal.sinh(precision: s32 = DECIMAL_DEFAULT_PRECISION) -> Decimal {
+    danger! {
+        let result = Decimal(handle: @native.rf_bigdec_new())
+        @native.rf_bigdec_sinh(result.handle, precision, me.handle)
+        return result
+    }
+}
+
+routine Decimal.cosh(precision: s32 = DECIMAL_DEFAULT_PRECISION) -> Decimal {
+    danger! {
+        let result = Decimal(handle: @native.rf_bigdec_new())
+        @native.rf_bigdec_cosh(result.handle, precision, me.handle)
+        return result
+    }
+}
+
+routine Decimal.tanh(precision: s32 = DECIMAL_DEFAULT_PRECISION) -> Decimal {
+    danger! {
+        let result = Decimal(handle: @native.rf_bigdec_new())
+        @native.rf_bigdec_tanh(result.handle, precision, me.handle)
+        return result
+    }
+}
+
+# ============================================================================
+# Rounding Operations
+# ============================================================================
+
+routine Decimal.ceil() -> Decimal {
+    danger! {
+        let result = Decimal(handle: @native.rf_bigdec_new())
+        @native.rf_bigdec_ceil(result.handle, me.handle)
+        return result
+    }
+}
+
+routine Decimal.floor() -> Decimal {
+    danger! {
+        let result = Decimal(handle: @native.rf_bigdec_new())
+        @native.rf_bigdec_floor(result.handle, me.handle)
+        return result
+    }
+}
+
+routine Decimal.round(decimal_places: s32 = 0) -> Decimal {
+    danger! {
+        let result = Decimal(handle: @native.rf_bigdec_new())
+        @native.rf_bigdec_round(result.handle, decimal_places, me.handle)
+        return result
+    }
+}
+
+routine Decimal.trunc(decimal_places: s32 = 0) -> Decimal {
+    danger! {
+        let result = Decimal(handle: @native.rf_bigdec_new())
+        @native.rf_bigdec_trunc(result.handle, decimal_places, me.handle)
+        return result
+    }
+}
+
+# ============================================================================
+# Utility Methods
+# ============================================================================
+
+routine Decimal.is_zero() -> bool {
+    danger! {
+        return @native.rf_bigdec_is_zero(me.handle) != 0
+    }
+}
+
+routine Decimal.is_negative() -> bool {
+    danger! {
+        return @native.rf_bigdec_is_neg(me.handle) != 0
+    }
+}
+
+routine Decimal.is_positive() -> bool {
+    return not me.is_zero() and not me.is_negative()
+}
+
+routine Decimal.signum() -> s32 {
+    when {
+        me.is_positive() => 1,
+        me.is_negative() => -1,
+        _ => 0
+    }
+}
+
+# ============================================================================
+# Conversions
+# ============================================================================
+
+# Convert to s64 (truncates decimal part)
+routine Decimal.to_s64() -> s64 {
+    danger! {
+        return @native.rf_bigdec_get_i64(me.handle)
+    }
+}
+
+# Convert to f64 (may lose precision)
+routine Decimal.to_f64() -> f64 {
+    danger! {
+        return @native.rf_bigdec_get_f64(me.handle)
+    }
+}
+
+# Convert to string with specified decimal places
+routine Decimal.to_text(decimal_places: s32 = 10) -> Text {
+    danger! {
+        let cstr = @native.rf_bigdec_get_str(me.handle, decimal_places)
+        let text = Text.from_cstr(cstr)
+        @native.free(cstr)
+        return text
+    }
+}
+
+# Default string conversion
+routine Decimal.to_string() -> Text {
+    return me.to_text(10)
+}
+
+# ============================================================================
+# Constants (computed with high precision)
+# ============================================================================
+
+# Pi constant
+routine Decimal.pi(precision: s32 = DECIMAL_DEFAULT_PRECISION) -> Decimal {
+    danger! {
+        let result = Decimal(handle: @native.rf_bigdec_new())
+        @native.rf_bigdec_pi(result.handle, precision)
+        return result
+    }
+}
+
+# Euler's number e
+routine Decimal.e(precision: s32 = DECIMAL_DEFAULT_PRECISION) -> Decimal {
+    danger! {
+        let result = Decimal(handle: @native.rf_bigdec_new())
+        @native.rf_bigdec_e(result.handle, precision)
+        return result
+    }
+}
+
+# ============================================================================
+# Factory Methods
+# ============================================================================
+
+# Parse from string - returns None on failure
+# Note: MAPM is lenient with parsing, so most strings will succeed
+routine Decimal.parse(text: Text) -> Maybe<Decimal> {
+    danger! {
+        let dec = Decimal(handle: @native.rf_bigdec_new())
+        @native.rf_bigdec_set_str(dec.handle, text.to_cstr())
+        # MAPM doesn't return error codes for parsing, so we just return the result
+        return dec
+    }
+}
+
+# Zero constant
+routine Decimal.zero() -> Decimal {
+    return Decimal(0_s64)
+}
+
+# One constant
+routine Decimal.one() -> Decimal {
+    return Decimal(1_s64)
+}
+
+# ============================================================================
+# Examples
+# ============================================================================
+
+# Compute e^x with arbitrary precision using Taylor series
+# (This is just for demonstration - MAPM has a better implementation)
+routine exp_taylor(x: Decimal, terms: s32 = 20, precision: s32 = 50) -> Decimal {
+    var result = Decimal.one()
+    var term = Decimal.one()
+
+    var i: s32 = 1
+    while i <= terms {
+        term = term * x
+        term = term.divide(Decimal(s64!(i)), precision)
+        result = result + term
+        i = i + 1
+    }
+
+    return result
+}
+
+# Compute square root using Newton-Raphson method
+# (This is just for demonstration - MAPM has a better implementation)
+routine sqrt_newton(x: Decimal, iterations: s32 = 20, precision: s32 = 50) -> Decimal {
+    if x.is_zero() or x.is_negative() {
+        return Decimal.zero()
+    }
+
+    var guess = x.divide(Decimal(2_s64), precision)
+    var two = Decimal(2_s64)
+
+    var i: s32 = 0
+    while i < iterations {
+        # Newton-Raphson: guess = (guess + x/guess) / 2
+        let quotient = x.divide(guess, precision)
+        let sum = guess + quotient
+        guess = sum.divide(two, precision)
+        i = i + 1
+    }
+
+    return guess
+}
+
+# Calculate pi using Machin's formula
+# pi/4 = 4*arctan(1/5) - arctan(1/239)
+routine compute_pi(precision: s32 = 50) -> Decimal {
+    let one = Decimal.one()
+    let four = Decimal(4_s64)
+    let five = Decimal(5_s64)
+    let two_thirty_nine = Decimal(239_s64)
+
+    let atan_1_5 = one.divide(five, precision + 10).atan(precision + 10)
+    let atan_1_239 = one.divide(two_thirty_nine, precision + 10).atan(precision + 10)
+
+    let pi_over_4 = four * atan_1_5 - atan_1_239
+    return four * pi_over_4
+}
