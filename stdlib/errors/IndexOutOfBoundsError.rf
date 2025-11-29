@@ -11,7 +11,7 @@ record IndexOutOfBoundsError follows Crashable {
 }
 
 record EmptyCollectionError follows Crashable {
-    public operation: Text<letter32>
+    public operation: ValueText<letter32, 64>
 
     routine crash_message(me) -> Text<letter32> {
         return f"Cannot {me.operation} on empty collection"
