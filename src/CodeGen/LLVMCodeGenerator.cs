@@ -84,6 +84,10 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     private int _lambdaCounter;
     private List<string> _pendingLambdaDefinitions = new();
 
+    // Stack trace support for runtime error reporting
+    private readonly SymbolTables _symbolTables = new();
+    private StackTraceCodeGen? _stackTraceCodeGen;
+
     /// <summary>
     /// Initializes a new LLVM IR code generator for the specified language and mode configuration.
     /// Sets up the internal state required for AST traversal and IR generation.
@@ -110,6 +114,7 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         _tempCounter = 0;
         _labelCounter = 0;
         _symbolTypes = new Dictionary<string, string>();
+        _stackTraceCodeGen = new StackTraceCodeGen(symbolTables: _symbolTables, output: _output);
     }
 
     /// <summary>
@@ -163,8 +168,8 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             value: "declare i8* @__acrt_iob_func(i32)"); // Windows: get stdin/stdout/stderr
         _output.AppendLine();
 
-        // Mathematical library function declarations - precision arithmetic support
-        _output.AppendLine(value: MathLibrarySupport.GenerateDeclarations());
+        // Stack trace runtime support declarations
+        _stackTraceCodeGen?.EmitGlobalDeclarations();
 
         // String constants for I/O operations and error messages
         _output.AppendLine(value: "; String constants");
@@ -213,6 +218,9 @@ public class LLVMCodeGenerator : IAstVisitor<string>
                 _output.Append(value: after);
             }
         }
+
+        // Emit symbol tables for stack trace runtime support
+        _stackTraceCodeGen?.EmitSymbolTables();
 
         _output.AppendLine();
     }
@@ -379,14 +387,12 @@ public class LLVMCodeGenerator : IAstVisitor<string>
 
     /// <summary>
     /// Maps RazorForge type names to their corresponding LLVM IR type representations.
-    /// Handles both primitive types and specialized mathematical library types.
     /// </summary>
     /// <param name="rfType">RazorForge type name (s32, f64, bool, Text, etc.)</param>
     /// <returns>Corresponding LLVM IR type string</returns>
     /// <remarks>
     /// Type mapping priorities:
     /// <list type="bullet">
-    /// <item>Math library types (d32, d64, d128, bigint, decimal) are handled first</item>
     /// <item>Unsigned integers use the same LLVM types as signed (signedness tracked separately)</item>
     /// <item>System-dependent types (saddr, uaddr) map to 64-bit on x86_64</item>
     /// <item>Text types map to i8* (null-terminated C strings)</item>
@@ -395,12 +401,6 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     /// </remarks>
     private string MapTypeToLLVM(string rfType)
     {
-        // Check for math library types first (d32, d64, d128, bigint, decimal)
-        if (MathLibrarySupport.IsMathLibraryType(type: rfType))
-        {
-            return MathLibrarySupport.MapMathTypeToLLVM(rfType: rfType);
-        }
-
         // Check for generic type syntax: TypeName<T1, T2, ...>
         if (rfType.Contains(value: '<') && rfType.Contains(value: '>'))
         {
@@ -623,10 +623,15 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     private string GenerateFunctionCode(FunctionDeclaration node,
         Dictionary<string, string>? typeSubstitutions, string? mangledName = null)
     {
+        string functionName = mangledName ?? SanitizeFunctionName(name: node.Name);
+
+        // Special case: main() must return i32 for C ABI compatibility, even if declared as Blank
+        bool isMain = functionName == "main";
+
         string returnType = node.ReturnType != null
             ? MapTypeWithSubstitution(typeName: node.ReturnType.Name,
                 substitutions: typeSubstitutions)
-            : "void";
+            : (isMain ? "i32" : "void");
 
         // Set the current function return type for return statement processing
         _currentFunctionReturnType = returnType;
@@ -655,9 +660,19 @@ public class LLVMCodeGenerator : IAstVisitor<string>
 
         string paramList = string.Join(separator: ", ", values: parameters);
 
-        string functionName = mangledName ?? SanitizeFunctionName(name: node.Name);
         _output.AppendLine(handler: $"define {returnType} @{functionName}({paramList}) {{");
         _output.AppendLine(value: "entry:");
+
+        // Register file and routine for stack trace support
+        uint fileId = _symbolTables.RegisterFile(filePath: _currentFileName ?? "<unknown>");
+        uint routineId = _symbolTables.RegisterRoutine(routineName: _currentFunctionName ?? functionName);
+        // For free functions, typeId is 0; for methods, it would be the enclosing type
+        uint typeId = 0; // TODO: Set to enclosing type ID when inside record/entity/resident
+        uint line = (uint)node.Location.Line;
+        uint column = (uint)node.Location.Column;
+
+        // Emit stack frame push at routine entry
+        _stackTraceCodeGen?.EmitPushFrame(fileId: fileId, routineId: routineId, typeId: typeId, line: line, column: column);
 
         // Reset return flag for this function
         _hasReturn = false;
@@ -677,6 +692,9 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         // Add default return if needed (only if no explicit return was generated)
         if (!_hasReturn)
         {
+            // Emit stack frame pop before return
+            _stackTraceCodeGen?.EmitPopFrame();
+
             if (returnType == "void")
             {
                 _output.AppendLine(value: "  ret void");
@@ -874,13 +892,6 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         // Get operand type information (assume both operands have same type)
         TypeInfo leftTypeInfo = GetTypeInfo(expr: node.Left);
         string operandType = leftTypeInfo.LLVMType;
-
-        // Check if this is a math library operation
-        if (MathLibrarySupport.IsMathLibraryType(type: leftTypeInfo.RazorForgeType))
-        {
-            return GenerateMathLibraryBinaryOp(node: node, left: left, right: right,
-                result: result, typeInfo: leftTypeInfo);
-        }
 
         string op = node.Operator switch
         {
@@ -1191,44 +1202,6 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             };
             return (maxValue, minValue);
         }
-    }
-
-    private string GenerateMathLibraryBinaryOp(BinaryExpression node, string left, string right,
-        string result, TypeInfo typeInfo)
-    {
-        string operation = node.Operator switch
-        {
-            BinaryOperator.Add => "+",
-            BinaryOperator.Subtract => "-",
-            BinaryOperator.Multiply => "*",
-            BinaryOperator.Divide => "/",
-            BinaryOperator.TrueDivide => "/",
-            _ => throw new NotSupportedException(
-                message:
-                $"Operator {node.Operator} not supported for math library type {typeInfo.RazorForgeType}")
-        };
-
-        string mathLibraryCode = typeInfo.RazorForgeType switch
-        {
-            "d32" => MathLibrarySupport.GenerateD32BinaryOp(operation: operation,
-                leftOperand: left, rightOperand: right, resultTemp: result),
-            "d64" => MathLibrarySupport.GenerateD64BinaryOp(operation: operation,
-                leftOperand: left, rightOperand: right, resultTemp: result),
-            "d128" => MathLibrarySupport.GenerateD128BinaryOp(operation: operation,
-                leftOperand: left, rightOperand: right, resultTemp: result),
-            "bigint" => MathLibrarySupport.GenerateBigIntBinaryOp(operation: operation,
-                leftOperand: left, rightOperand: right, resultTemp: result,
-                tempCounter: _tempCounter.ToString()),
-            "decimal" => MathLibrarySupport.GenerateHighPrecisionDecimalBinaryOp(
-                operation: operation, leftOperand: left, rightOperand: right, resultTemp: result,
-                contextPtr: "%decimal_context"),
-            _ => throw new NotSupportedException(
-                message: $"Math library type {typeInfo.RazorForgeType} not supported")
-        };
-
-        _output.AppendLine(value: mathLibraryCode);
-        _tempTypes[key: result] = typeInfo; // Result has same type as operands
-        return result;
     }
 
     // Literal expression
@@ -1570,6 +1543,9 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     {
         _hasReturn = true; // Mark that we've generated a return
         _blockTerminated = true; // Mark block as terminated
+
+        // Emit stack frame pop before return
+        _stackTraceCodeGen?.EmitPopFrame();
 
         if (node.Value != null)
         {
@@ -2243,6 +2219,11 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     {
         return "";
     }
+    public string VisitNamespaceDeclaration(NamespaceDeclaration node)
+    {
+        // Namespace declarations are handled at a higher level for symbol resolution
+        return "";
+    }
     public string VisitRedefinitionDeclaration(RedefinitionDeclaration node)
     {
         return "";
@@ -2828,18 +2809,45 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         // Generate the error expression to get the error message
         string error = node.Error.Accept(visitor: this);
 
-        // Print error message and crash
-        _output.AppendLine(handler: $"  ; throw - crashing with error");
+        _output.AppendLine(handler: $"  ; throw - capturing stack and crashing with error");
 
-        // If error is a string pointer, print it
+        // Get error type name and message pointer
+        // TODO: Extract actual error type name from the error expression
+        string errorTypeName = "Error";
+        string errorTypeConst = $"@.str_errtype{_tempCounter++}";
+        int typeLen = errorTypeName.Length + 1;
+
+        if (_stringConstants == null)
+        {
+            _stringConstants = new List<string>();
+        }
+        _stringConstants.Add(
+            item: $"{errorTypeConst} = private unnamed_addr constant [{typeLen} x i8] c\"{errorTypeName}\\00\", align 1");
+
+        string typePtr = GetNextTemp();
+        _output.AppendLine(handler: $"  {typePtr} = getelementptr [{typeLen} x i8], [{typeLen} x i8]* {errorTypeConst}, i32 0, i32 0");
+
+        // Get message pointer (error may already be a string pointer)
+        string messagePtr;
         if (_tempTypes.TryGetValue(key: error, out TypeInfo? errorType) &&
             (errorType.LLVMType == "i8*" || errorType.LLVMType == "ptr"))
         {
-            _output.AppendLine(handler: $"  call i32 @puts(i8* {error})");
+            messagePtr = error;
+        }
+        else
+        {
+            // Create a generic error message
+            string genericMsg = "Error thrown";
+            string msgConst = $"@.str_errmsg{_tempCounter++}";
+            int msgLen = genericMsg.Length + 1;
+            _stringConstants.Add(
+                item: $"{msgConst} = private unnamed_addr constant [{msgLen} x i8] c\"{genericMsg}\\00\", align 1");
+            messagePtr = GetNextTemp();
+            _output.AppendLine(handler: $"  {messagePtr} = getelementptr [{msgLen} x i8], [{msgLen} x i8]* {msgConst}, i32 0, i32 0");
         }
 
-        _output.AppendLine(handler: $"  call void @exit(i32 1)");
-        _output.AppendLine(handler: $"  unreachable");
+        // Use stack trace infrastructure to throw
+        _stackTraceCodeGen?.EmitThrow(errorTypePtr: typePtr, messagePtr: messagePtr);
 
         return "";
     }
@@ -2851,26 +2859,10 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         _hasReturn = true;
         _blockTerminated = true;
 
-        // Generate a crash with AbsentValueError message
-        string errorMsg = "Value not found (absent)";
-        string strConst = $"@.str_absent{_tempCounter++}";
-        int len = errorMsg.Length + 1;
+        _output.AppendLine(handler: $"  ; absent - capturing stack and crashing with AbsentValueError");
 
-        // Store string constant
-        if (_stringConstants == null)
-        {
-            _stringConstants = new List<string>();
-        }
-        _stringConstants.Add(
-            item: $"{strConst} = private unnamed_addr constant [{len} x i8] c\"{errorMsg}\\00\", align 1");
-
-        // Print error message and call abort/exit
-        string msgPtr = GetNextTemp();
-        _output.AppendLine(handler: $"  ; absent - crashing with AbsentValueError");
-        _output.AppendLine(handler: $"  {msgPtr} = getelementptr [{len} x i8], [{len} x i8]* {strConst}, i32 0, i32 0");
-        _output.AppendLine(handler: $"  call i32 @puts(i8* {msgPtr})");
-        _output.AppendLine(handler: $"  call void @exit(i32 1)");
-        _output.AppendLine(handler: $"  unreachable");
+        // Use stack trace infrastructure to throw AbsentValueError
+        _stackTraceCodeGen?.EmitAbsent();
 
         return "";
     }
