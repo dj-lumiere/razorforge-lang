@@ -80,8 +80,7 @@ public abstract class BaseParser
 
         Token current = CurrentToken;
         throw new ParseException(
-            message: $"{errorMessage} at line {current.Line}, column {current.Column}. " +
-                     $"Expected {type}, got {current.Type}.");
+            message: $"{errorMessage}. Expected {type}, got {current.Type}.");
     }
 
     /// <summary>
@@ -123,23 +122,24 @@ public abstract class BaseParser
         None = 0,
         Lambda = 1, // lambda expressions
         Conditional = 2, // if then else
-        Range = 3, // a to b step c
-        LogicalOr = 4, // or
-        LogicalAnd = 5, // and
-        LogicalNot = 6, // not
+        NoneCoalesce = 3, // ??
+        Range = 4, // a to b step c
+        LogicalOr = 5, // or
+        LogicalAnd = 6, // and
+        LogicalNot = 7, // not
 
         Comparison =
-            7, // in, is, from, follows, <, <=, >, >=, ==, !=, notin, isnot, notfrom, notfollows
-        BitwiseOr = 8, // |
-        BitwiseXor = 9, // ^
-        BitwiseAnd = 10, // &
-        Shift = 11, // <<, >>
-        Additive = 12, // +, - and variants
-        Multiplicative = 13, // *, /, //, % and variants
-        Unary = 14, // +x, -x, ~x
-        Power = 15, // **, **%, **^, **?, **!
-        Postfix = 16, // x[index], x.member, x()
-        Primary = 17 // literals, identifiers, ()
+            8, // in, is, from, follows, <, <=, >, >=, ==, !=, notin, isnot, notfrom, notfollows
+        BitwiseOr = 9, // |
+        BitwiseXor = 10, // ^
+        BitwiseAnd = 11, // &
+        Shift = 12, // <<, >>
+        Additive = 13, // +, - and variants
+        Multiplicative = 14, // *, /, //, % and variants
+        Unary = 15, // +x, -x, ~x
+        Power = 16, // **, **%, **^, **?, **!
+        Postfix = 17, // x[index], x.member, x()
+        Primary = 18 // literals, identifiers, ()
     }
 
     /// <summary>
@@ -149,6 +149,9 @@ public abstract class BaseParser
     {
         return type switch
         {
+            // None coalescing operator
+            TokenType.NoneCoalesce => Precedence.NoneCoalesce,
+
             // Logical operators
             TokenType.Or => Precedence.LogicalOr,
             TokenType.And => Precedence.LogicalAnd,
@@ -168,7 +171,8 @@ public abstract class BaseParser
             TokenType.Ampersand => Precedence.BitwiseAnd,
 
             // Shift operators
-            TokenType.LeftShift or TokenType.RightShift => Precedence.Shift,
+            TokenType.LeftShift or TokenType.LeftShiftChecked or TokenType.RightShift
+                or TokenType.LogicalLeftShift or TokenType.LogicalRightShift => Precedence.Shift,
 
             // Additive operators
             TokenType.Plus or TokenType.Minus => Precedence.Additive,
@@ -371,18 +375,19 @@ public abstract class BaseParser
         // Parse prefix expression (unary operators, literals, etc.)
         Expression left = ParsePrefixExpression();
 
-        // Handle range expressions: a to b [step c]
-        if (minPrecedence <= Precedence.Range && Match(type: TokenType.To))
+        // Handle range expressions: a to b [by c] or a downto b [by c]
+        if (minPrecedence <= Precedence.Range && (Match(type: TokenType.To) || Match(type: TokenType.Downto)))
         {
+            bool isDescending = PeekToken(offset: -1).Type == TokenType.Downto;
             Expression end = ParseExpression(minPrecedence: Precedence.LogicalOr);
             Expression? step = null;
 
-            if (Match(type: TokenType.Step))
+            if (Match(type: TokenType.By))
             {
                 step = ParseExpression(minPrecedence: Precedence.LogicalOr);
             }
 
-            left = new RangeExpression(Start: left, End: end, Step: step, Location: GetLocation());
+            left = new RangeExpression(Start: left, End: end, Step: step, IsDescending: isDescending, Location: GetLocation());
         }
 
         // Check for comparison chaining at comparison precedence level
@@ -412,7 +417,7 @@ public abstract class BaseParser
             }
 
             // Skip range operators - they're handled above
-            if (CurrentToken.Type == TokenType.To || CurrentToken.Type == TokenType.Step)
+            if (CurrentToken.Type == TokenType.To || CurrentToken.Type == TokenType.Downto || CurrentToken.Type == TokenType.By)
             {
                 break;
             }
@@ -771,7 +776,7 @@ public abstract class BaseParser
         {
             throw new ParseException(
                 message:
-                $"Invalid comparison chain: mixed ascending and descending operators at line {CurrentToken.Line}");
+                $"Invalid comparison chain: mixed ascending and descending operators");
         }
 
         return new ChainedComparisonExpression(Operands: operands, Operators: operators,
@@ -887,7 +892,8 @@ public abstract class BaseParser
             TokenType.Ampersand => 9,
 
             // Bitwise Shift
-            TokenType.LeftShift or TokenType.RightShift => 10,
+            TokenType.LeftShift or TokenType.LeftShiftChecked or TokenType.RightShift
+                or TokenType.LogicalLeftShift or TokenType.LogicalRightShift => 10,
 
             // Addition, Subtraction
             TokenType.Plus or TokenType.Minus or TokenType.PlusWrap or TokenType.PlusSaturate
@@ -967,7 +973,10 @@ public abstract class BaseParser
             TokenType.Pipe => BinaryOperator.BitwiseOr,
             TokenType.Caret => BinaryOperator.BitwiseXor,
             TokenType.LeftShift => BinaryOperator.LeftShift,
+            TokenType.LeftShiftChecked => BinaryOperator.LeftShiftChecked,
             TokenType.RightShift => BinaryOperator.RightShift,
+            TokenType.LogicalLeftShift => BinaryOperator.LogicalLeftShift,
+            TokenType.LogicalRightShift => BinaryOperator.LogicalRightShift,
             TokenType.Assign => BinaryOperator.Assign,
             TokenType.In => BinaryOperator.In,
             TokenType.NotIn => BinaryOperator.NotIn,
@@ -977,6 +986,7 @@ public abstract class BaseParser
             TokenType.NotFrom => BinaryOperator.NotFrom,
             TokenType.Follows => BinaryOperator.Follows,
             TokenType.NotFollows => BinaryOperator.NotFollows,
+            TokenType.NoneCoalesce => BinaryOperator.NoneCoalesce,
 
             _ => throw new ParseException(message: $"Unknown binary operator: {tokenType}")
         };

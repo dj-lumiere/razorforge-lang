@@ -325,7 +325,8 @@ public record FeatureDeclaration(
     List<FunctionSignature> Methods,
     VisibilityModifier Visibility,
     SourceLocation Location,
-    List<GenericConstraintDeclaration>? GenericConstraints = null)
+    List<GenericConstraintDeclaration>? GenericConstraints = null,
+    List<FieldRequirement>? RequiredFields = null)
     : Declaration(Location: Location)
 {
     public override T Accept<T>(IAstVisitor<T> visitor)
@@ -333,6 +334,18 @@ public record FeatureDeclaration(
         return visitor.VisitFeatureDeclaration(node: this);
     }
 }
+
+/// <summary>
+/// Represents a required field in a feature/protocol declaration.
+/// Types implementing the feature must have this field.
+/// </summary>
+/// <param name="Name">The field name</param>
+/// <param name="Type">The required field type</param>
+/// <param name="Location">Source location</param>
+public record FieldRequirement(
+    string Name,
+    TypeExpression Type,
+    SourceLocation Location);
 
 /// <summary>
 /// Implementation block that provides method implementations for types.
@@ -631,6 +644,7 @@ public record ExternalDeclaration(
     List<Parameter> Parameters,
     TypeExpression? ReturnType,
     string? CallingConvention,
+    bool IsVariadic,
     SourceLocation Location) : Declaration(Location: Location)
 {
     public override T Accept<T>(IAstVisitor<T> visitor)

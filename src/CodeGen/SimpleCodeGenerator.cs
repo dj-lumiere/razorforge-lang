@@ -576,6 +576,25 @@ public class SimpleCodeGenerator : IAstVisitor<string>
         };
     }
 
+    public string VisitListLiteralExpression(ListLiteralExpression node)
+    {
+        var elements = node.Elements.Select(e => e.Accept(visitor: this));
+        return $"[{string.Join(", ", elements)}]";
+    }
+
+    public string VisitSetLiteralExpression(SetLiteralExpression node)
+    {
+        var elements = node.Elements.Select(e => e.Accept(visitor: this));
+        return $"{{{string.Join(", ", elements)}}}";
+    }
+
+    public string VisitDictLiteralExpression(DictLiteralExpression node)
+    {
+        var pairs = node.Pairs.Select(p =>
+            $"{p.Key.Accept(visitor: this)}: {p.Value.Accept(visitor: this)}");
+        return $"{{{string.Join(", ", pairs)}}}";
+    }
+
     public string VisitIdentifierExpression(IdentifierExpression node)
     {
         return node.Name;
@@ -648,19 +667,26 @@ public class SimpleCodeGenerator : IAstVisitor<string>
         return $"({condition} ? {trueExpr} : {falseExpr})";
     }
 
+    public string VisitBlockExpression(BlockExpression node)
+    {
+        // A block expression evaluates to its inner expression
+        return node.Value.Accept(visitor: this);
+    }
+
     public string VisitRangeExpression(RangeExpression node)
     {
         string start = node.Start.Accept(visitor: this);
         string end = node.End.Accept(visitor: this);
+        string rangeOp = node.IsDescending ? "downto" : "to";
 
         if (node.Step != null)
         {
             string step = node.Step.Accept(visitor: this);
-            return $"({start} to {end} step {step})";
+            return $"({start} {rangeOp} {end} by {step})";
         }
         else
         {
-            return $"({start} to {end})";
+            return $"({start} {rangeOp} {end})";
         }
     }
 
@@ -813,6 +839,13 @@ public class SimpleCodeGenerator : IAstVisitor<string>
         string args = string.Join(separator: ", ",
             values: node.Arguments.Select(selector: a => a.Accept(visitor: this)));
         return $"@intrinsic.{node.IntrinsicName}{typeArgs}({args})";
+    }
+
+    public string VisitNativeCallExpression(NativeCallExpression node)
+    {
+        string args = string.Join(separator: ", ",
+            values: node.Arguments.Select(selector: a => a.Accept(visitor: this)));
+        return $"@native.{node.FunctionName}({args})";
     }
 
     public string VisitDangerStatement(DangerStatement node)
@@ -986,5 +1019,22 @@ public class SimpleCodeGenerator : IAstVisitor<string>
     {
         string value = node.Value.Accept(visitor: this);
         return $"{node.Name}: {value}";
+    }
+
+    /// <summary>
+    /// Generates code for a struct literal expression (Type { field: value, ... }).
+    /// </summary>
+    public string VisitStructLiteralExpression(StructLiteralExpression node)
+    {
+        string typeName = node.TypeName;
+        if (node.TypeArguments != null && node.TypeArguments.Count > 0)
+        {
+            typeName += "<" + string.Join(separator: ", ",
+                values: node.TypeArguments.Select(selector: t => t.Name)) + ">";
+        }
+
+        var fieldStrs = node.Fields.Select(selector: f =>
+            $"{f.Name}: {f.Value.Accept(visitor: this)}");
+        return $"{typeName} {{ {string.Join(separator: ", ", values: fieldStrs)} }}";
     }
 }

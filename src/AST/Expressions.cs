@@ -60,6 +60,65 @@ public record LiteralExpression(object Value, TokenType LiteralType, SourceLocat
 }
 
 /// <summary>
+/// Expression representing a list literal: [1, 2, 3]
+/// Creates a List containing the specified elements.
+/// </summary>
+/// <param name="Elements">The expressions for each list element</param>
+/// <param name="ElementType">Optional explicit element type annotation</param>
+/// <param name="Location">Source location information</param>
+public record ListLiteralExpression(
+    List<Expression> Elements,
+    TypeExpression? ElementType,
+    SourceLocation Location) : Expression(Location: Location)
+{
+    /// <summary>Accepts a visitor for AST traversal and transformation</summary>
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitListLiteralExpression(node: this);
+    }
+}
+
+/// <summary>
+/// Expression representing a set literal: {1, 2, 3}
+/// Creates a Set containing the specified unique elements.
+/// </summary>
+/// <param name="Elements">The expressions for each set element</param>
+/// <param name="ElementType">Optional explicit element type annotation</param>
+/// <param name="Location">Source location information</param>
+public record SetLiteralExpression(
+    List<Expression> Elements,
+    TypeExpression? ElementType,
+    SourceLocation Location) : Expression(Location: Location)
+{
+    /// <summary>Accepts a visitor for AST traversal and transformation</summary>
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitSetLiteralExpression(node: this);
+    }
+}
+
+/// <summary>
+/// Expression representing a dictionary literal: {key1: value1, key2: value2}
+/// Creates a Dict with the specified key-value pairs.
+/// </summary>
+/// <param name="Pairs">The key-value expression pairs</param>
+/// <param name="KeyType">Optional explicit key type annotation</param>
+/// <param name="ValueType">Optional explicit value type annotation</param>
+/// <param name="Location">Source location information</param>
+public record DictLiteralExpression(
+    List<(Expression Key, Expression Value)> Pairs,
+    TypeExpression? KeyType,
+    TypeExpression? ValueType,
+    SourceLocation Location) : Expression(Location: Location)
+{
+    /// <summary>Accepts a visitor for AST traversal and transformation</summary>
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitDictLiteralExpression(node: this);
+    }
+}
+
+/// <summary>
 /// Expression that references a named symbol (variable, function, entity, etc.).
 /// Represents the use of identifiers that must be resolved during semantic analysis.
 /// </summary>
@@ -208,6 +267,35 @@ public record NamedArgumentExpression(string Name, Expression Value, SourceLocat
 }
 
 /// <summary>
+/// Expression representing a struct/record literal with named field initializers.
+/// Creates instances using brace syntax: TypeName { field1: value1, field2: value2 }
+/// </summary>
+/// <param name="TypeName">The name of the struct/record type being instantiated</param>
+/// <param name="TypeArguments">Optional generic type arguments (e.g., List&lt;T&gt;)</param>
+/// <param name="Fields">List of field name-value pairs for initialization</param>
+/// <param name="Location">Source location information</param>
+/// <remarks>
+/// Struct literal patterns:
+/// <list type="bullet">
+/// <item>Simple: Point { x: 10, y: 20 }</item>
+/// <item>Generic: TextIterator&lt;T&gt; { text: me, index: 0 }</item>
+/// <item>Nested: Node { value: 5, next: Node { value: 10, next: none } }</item>
+/// </list>
+/// </remarks>
+public record StructLiteralExpression(
+    string TypeName,
+    List<TypeExpression>? TypeArguments,
+    List<(string Name, Expression Value)> Fields,
+    SourceLocation Location) : Expression(Location: Location)
+{
+    /// <summary>Accepts a visitor for AST traversal and transformation</summary>
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitStructLiteralExpression(node: this);
+    }
+}
+
+/// <summary>
 /// Expression that accesses a member (field, property, or method) of an object.
 /// Represents the dot notation for accessing object members.
 /// </summary>
@@ -290,6 +378,31 @@ public record ConditionalExpression(
 }
 
 /// <summary>
+/// Expression representing a block that evaluates to a value.
+/// The block consists of statements followed by a final expression that becomes the block's value.
+/// </summary>
+/// <param name="Value">The expression that the block evaluates to</param>
+/// <param name="Location">Source location information</param>
+/// <remarks>
+/// Block expressions are used for:
+/// <list type="bullet">
+/// <item>Inline if-else expressions: if condition { expr1 } else { expr2 }</item>
+/// <item>Multi-statement computations that produce a value</item>
+/// <item>Scoped variable declarations that contribute to a result</item>
+/// </list>
+/// </remarks>
+public record BlockExpression(
+    Expression Value,
+    SourceLocation Location) : Expression(Location: Location)
+{
+    /// <summary>Accepts a visitor for AST traversal and transformation</summary>
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitBlockExpression(node: this);
+    }
+}
+
+/// <summary>
 /// Expression that chains multiple comparison operations in a single statement.
 /// Allows natural mathematical notation like a < b < c instead of a < b && b < c.
 /// </summary>
@@ -329,8 +442,9 @@ public record ChainedComparisonExpression(
 /// Range expression variants:
 /// <list type="bullet">
 /// <item>Simple range: (0 to 10) creates sequence [0, 1, 2, ..., 10]</item>
-/// <item>Step range: (0 to 10 step 2) creates [0, 2, 4, 6, 8, 10]</item>
-/// <item>Reverse range: (10 to 0 step -1) creates [10, 9, 8, ..., 0]</item>
+/// <item>Step range: (0 to 10 by 2) creates [0, 2, 4, 6, 8, 10]</item>
+/// <item>Reverse range: (10 downto 0) creates [10, 9, 8, ..., 0]</item>
+/// <item>Reverse with step: (10 downto 0 by 2) creates [10, 8, 6, 4, 2, 0]</item>
 /// <item>Iterable: can be used in for loops and collection operations</item>
 /// </list>
 /// </remarks>
@@ -338,6 +452,7 @@ public record RangeExpression(
     Expression Start,
     Expression End,
     Expression? Step,
+    bool IsDescending,
     SourceLocation Location) : Expression(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
@@ -411,10 +526,14 @@ public enum BinaryOperator
     And, Or,
 
     // Bitwise - low-level bit manipulation
-    BitwiseAnd, BitwiseOr, BitwiseXor, LeftShift, RightShift,
+    BitwiseAnd, BitwiseOr, BitwiseXor, LeftShift, LeftShiftChecked, RightShift,
+    LogicalLeftShift, LogicalRightShift,
 
     // Assignment - when assignment is used as expression
-    Assign
+    Assign,
+
+    // None coalescing - returns left if not None/Error, otherwise right
+    NoneCoalesce
 }
 
 /// <summary>
@@ -447,13 +566,96 @@ public static class BinaryOperatorExtensions
             BinaryOperator.BitwiseOr => "|",
             BinaryOperator.BitwiseXor => "^",
             BinaryOperator.LeftShift => "<<",
+            BinaryOperator.LeftShiftChecked => "<<?",
             BinaryOperator.RightShift => ">>",
+            BinaryOperator.LogicalLeftShift => "<<<",
+            BinaryOperator.LogicalRightShift => ">>>",
             BinaryOperator.In => "in",
             BinaryOperator.NotIn => "not in",
             BinaryOperator.Is => "is",
             BinaryOperator.IsNot => "is not",
             BinaryOperator.Assign => "=",
+            BinaryOperator.NoneCoalesce => "??",
             _ => op.ToString()
+        };
+    }
+
+    /// <summary>
+    /// Gets the dunder method name for operator overloading.
+    /// Returns null if the operator is not overloadable.
+    /// </summary>
+    public static string? GetMethodName(this BinaryOperator op)
+    {
+        return op switch
+        {
+            // Arithmetic
+            BinaryOperator.Add => "__add__",
+            BinaryOperator.Subtract => "__sub__",
+            BinaryOperator.Multiply => "__mul__",
+            BinaryOperator.TrueDivide => "__truediv__",
+            BinaryOperator.Divide => "__floordiv__",
+            BinaryOperator.Modulo => "__mod__",
+            BinaryOperator.Power => "__pow__",
+
+            // Wrapping arithmetic
+            BinaryOperator.AddWrap => "__add_wrap__",
+            BinaryOperator.SubtractWrap => "__sub_wrap__",
+            BinaryOperator.MultiplyWrap => "__mul_wrap__",
+            BinaryOperator.DivideWrap => "__floordiv_wrap__",
+            BinaryOperator.ModuloWrap => "__mod_wrap__",
+            BinaryOperator.PowerWrap => "__pow_wrap__",
+
+            // Saturating arithmetic
+            BinaryOperator.AddSaturate => "__add_sat__",
+            BinaryOperator.SubtractSaturate => "__sub_sat__",
+            BinaryOperator.MultiplySaturate => "__mul_sat__",
+            BinaryOperator.DivideSaturate => "__floordiv_sat__",
+            BinaryOperator.ModuloSaturate => "__mod_sat__",
+            BinaryOperator.PowerSaturate => "__pow_sat__",
+
+            // Checked arithmetic
+            BinaryOperator.AddChecked => "__add_checked__",
+            BinaryOperator.SubtractChecked => "__sub_checked__",
+            BinaryOperator.MultiplyChecked => "__mul_checked__",
+            BinaryOperator.DivideChecked => "__floordiv_checked__",
+            BinaryOperator.ModuloChecked => "__mod_checked__",
+            BinaryOperator.PowerChecked => "__pow_checked__",
+
+            // Ordering (overloadable)
+            BinaryOperator.Less => "__lt__",
+            BinaryOperator.LessEqual => "__le__",
+            BinaryOperator.Greater => "__gt__",
+            BinaryOperator.GreaterEqual => "__ge__",
+
+            // Bitwise
+            BinaryOperator.BitwiseAnd => "__and__",
+            BinaryOperator.BitwiseOr => "__or__",
+            BinaryOperator.BitwiseXor => "__xor__",
+
+            // Shift operators
+            BinaryOperator.LeftShift => "__ashl__",
+            BinaryOperator.LeftShiftChecked => "__ashl_checked__",
+            BinaryOperator.RightShift => "__ashr__",
+            BinaryOperator.LogicalLeftShift => "__lshl__",
+            BinaryOperator.LogicalRightShift => "__lshr__",
+
+            // Non-overloadable operators return null
+            BinaryOperator.Equal => null,
+            BinaryOperator.NotEqual => null,
+            BinaryOperator.And => null,
+            BinaryOperator.Or => null,
+            BinaryOperator.In => null,
+            BinaryOperator.NotIn => null,
+            BinaryOperator.Is => null,
+            BinaryOperator.IsNot => null,
+            BinaryOperator.From => null,
+            BinaryOperator.NotFrom => null,
+            BinaryOperator.Follows => null,
+            BinaryOperator.NotFollows => null,
+            BinaryOperator.Assign => null,
+            BinaryOperator.NoneCoalesce => null,
+
+            _ => null
         };
     }
 }
@@ -718,6 +920,36 @@ public record IntrinsicCallExpression(
     public override T Accept<T>(IAstVisitor<T> visitor)
     {
         return visitor.VisitIntrinsicCallExpression(node: this);
+    }
+}
+
+/// <summary>
+/// Expression for native function calls via FFI.
+/// Native calls invoke C library functions and are only available in danger! blocks.
+/// </summary>
+/// <param name="FunctionName">Name of the native function to call (e.g., "rf_bigint_new", "malloc", "free")</param>
+/// <param name="Arguments">Arguments passed to the native function</param>
+/// <param name="Location">Source location information</param>
+/// <remarks>
+/// Examples:
+/// <list type="bullet">
+/// <item>@native.rf_bigint_new() - Create a new LibTomMath integer</item>
+/// <item>@native.rf_bigint_add(result, a, b) - Add two arbitrary precision integers</item>
+/// <item>@native.malloc(size) - Allocate memory</item>
+/// <item>@native.free(ptr) - Free memory</item>
+/// </list>
+/// All native calls must be called within danger! blocks.
+/// The compiler will emit external function declarations for these calls.
+/// </remarks>
+public record NativeCallExpression(
+    string FunctionName,
+    List<Expression> Arguments,
+    SourceLocation Location) : Expression(Location: Location)
+{
+    /// <summary>Accepts a visitor for AST traversal and transformation</summary>
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitNativeCallExpression(node: this);
     }
 }
 

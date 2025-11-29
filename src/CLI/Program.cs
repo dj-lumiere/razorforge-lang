@@ -23,7 +23,7 @@ internal class Program
 
         // Check if first arg is a command or a file
         bool isCommand = command == "compile" || command == "run" || command == "compileandrun" ||
-                         command == "lsp";
+                         command == "check" || command == "lsp";
 
         if (!isCommand)
         {
@@ -55,12 +55,18 @@ internal class Program
             {
                 case "compile":
                     CompileFile(sourceFile: sourceFile, executeAfter: false,
-                        programArgs: programArgs);
+                        programArgs: programArgs, noMain: false);
                     break;
                 case "run":
                 case "compileandrun":
                     CompileFile(sourceFile: sourceFile, executeAfter: true,
-                        programArgs: programArgs);
+                        programArgs: programArgs, noMain: false);
+                    break;
+                case "check":
+                    // Check mode: parse and analyze only, no executable generation required
+                    // Useful for libraries, modules, or files without main()
+                    CompileFile(sourceFile: sourceFile, executeAfter: false,
+                        programArgs: programArgs, noMain: true);
                     break;
                 default:
                     PrintUsage();
@@ -83,6 +89,8 @@ internal class Program
             value:
             "  RazorForge compileandrun <source-file> [args...]  - Compile and run file with optional arguments");
         Console.WriteLine(
+            value: "  RazorForge check <source-file>                    - Check file (no main required)");
+        Console.WriteLine(
             value: "  RazorForge lsp                                    - Start language server");
         Console.WriteLine();
         Console.WriteLine(
@@ -91,7 +99,7 @@ internal class Program
             value: "  [args...]:     Optional arguments to pass to the compiled program");
     }
 
-    private static void CompileFile(string sourceFile, bool executeAfter, string[] programArgs)
+    private static void CompileFile(string sourceFile, bool executeAfter, string[] programArgs, bool noMain = false)
     {
         if (!File.Exists(path: sourceFile))
         {
@@ -212,44 +220,54 @@ internal class Program
 
             // Generate LLVM IR
             var llvmCodeGen = new LLVMCodeGenerator(language: language, mode: mode);
+            llvmCodeGen.SourceFileName = sourceFile;
             llvmCodeGen.Generate(program: ast);
             string llvmFile = Path.ChangeExtension(path: sourceFile, extension: ".ll");
             File.WriteAllText(path: llvmFile, contents: llvmCodeGen.GetGeneratedCode());
             Console.WriteLine(value: $"LLVM IR written to: {llvmFile}");
 
-            // Complete bootstrap pipeline: compile to executable
-            Console.WriteLine(value: "=== EXECUTABLE GENERATION ===");
-            string? executablePath = GenerateExecutable(llvmFile: llvmFile);
-            if (executablePath != null)
+            // In noMain mode (check command), skip executable generation
+            if (noMain)
             {
-                Console.WriteLine(value: $"Executable generated: {executablePath}");
-
-                // If run command, execute the generated executable
-                if (executeAfter)
-                {
-                    Console.WriteLine();
-                    Console.WriteLine(value: "=== RUNNING PROGRAM ===");
-                    Console.WriteLine();
-
-                    RunExecutable(executablePath: executablePath, programArgs: programArgs);
-                }
+                Console.WriteLine();
+                Console.WriteLine(value: "✅ Check successful! (no-main mode, executable not generated)");
             }
             else
             {
-                Console.WriteLine(
-                    value: "Note: LLVM tools not available. Skipping executable generation.");
-                Console.WriteLine(
-                    value: "To generate executables, install LLVM and ensure 'clang' is in PATH.");
-
-                if (executeAfter)
+                // Complete bootstrap pipeline: compile to executable
+                Console.WriteLine(value: "=== EXECUTABLE GENERATION ===");
+                string? executablePath = GenerateExecutable(llvmFile: llvmFile);
+                if (executablePath != null)
                 {
-                    Console.WriteLine();
-                    Console.WriteLine(value: "Cannot run program without executable.");
-                }
-            }
+                    Console.WriteLine(value: $"Executable generated: {executablePath}");
 
-            Console.WriteLine();
-            Console.WriteLine(value: "✅ Compilation successful!");
+                    // If run command, execute the generated executable
+                    if (executeAfter)
+                    {
+                        Console.WriteLine();
+                        Console.WriteLine(value: "=== RUNNING PROGRAM ===");
+                        Console.WriteLine();
+
+                        RunExecutable(executablePath: executablePath, programArgs: programArgs);
+                    }
+                }
+                else
+                {
+                    Console.WriteLine(
+                        value: "Note: LLVM tools not available. Skipping executable generation.");
+                    Console.WriteLine(
+                        value: "To generate executables, install LLVM and ensure 'clang' is in PATH.");
+
+                    if (executeAfter)
+                    {
+                        Console.WriteLine();
+                        Console.WriteLine(value: "Cannot run program without executable.");
+                    }
+                }
+
+                Console.WriteLine();
+                Console.WriteLine(value: "✅ Compilation successful!");
+            }
         }
         catch (Exception ex)
         {
@@ -267,6 +285,21 @@ internal class Program
         {
             string executablePath = Path.ChangeExtension(path: llvmFile, extension: ".exe");
 
+            // Find the RazorForge runtime C source files
+            string? projectRoot = FindProjectRoot(startPath: llvmFile);
+            string runtimeSources = "";
+            if (projectRoot != null)
+            {
+                string runtimeDir = Path.Combine(path1: projectRoot, path2: "native", path3: "runtime");
+                string memoryC = Path.Combine(path1: runtimeDir, path2: "memory.c");
+                string stacktraceC = Path.Combine(path1: runtimeDir, path2: "stacktrace.c");
+
+                if (File.Exists(path: memoryC) && File.Exists(path: stacktraceC))
+                {
+                    runtimeSources = $"\"{memoryC}\" \"{stacktraceC}\"";
+                }
+            }
+
             // Use clang to compile LLVM IR to executable
             // On Windows, we need to link with legacy_stdio_definitions for printf/scanf
             // On Unix-like systems, libc is linked automatically
@@ -277,7 +310,7 @@ internal class Program
             var clangProcess = new System.Diagnostics.ProcessStartInfo
             {
                 FileName = "clang",
-                Arguments = $"\"{llvmFile}\" -o \"{executablePath}\" {linkerFlags}",
+                Arguments = $"\"{llvmFile}\" {runtimeSources} -o \"{executablePath}\" {linkerFlags}",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -347,5 +380,30 @@ internal class Program
         {
             Console.WriteLine(value: $"Error running executable: {ex.Message}");
         }
+    }
+
+    private static string? FindProjectRoot(string startPath)
+    {
+        // Walk up the directory tree looking for RazorForge.csproj or native/runtime directory
+        string? directory = Path.GetDirectoryName(path: startPath);
+        while (directory != null)
+        {
+            // Check for RazorForge.csproj
+            if (File.Exists(path: Path.Combine(path1: directory, path2: "RazorForge.csproj")))
+            {
+                return directory;
+            }
+
+            // Check for native/runtime directory
+            string runtimeDir = Path.Combine(path1: directory, path2: "native", path3: "runtime");
+            if (Directory.Exists(path: runtimeDir))
+            {
+                return directory;
+            }
+
+            directory = Path.GetDirectoryName(path: directory);
+        }
+
+        return null;
     }
 }

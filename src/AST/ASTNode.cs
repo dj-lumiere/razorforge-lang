@@ -112,6 +112,21 @@ public interface IAstVisitor<T>
     /// <returns>Result of visiting the literal expression</returns>
     T VisitLiteralExpression(LiteralExpression node);
 
+    /// <summary>Visits a list literal expression node [1, 2, 3]</summary>
+    /// <param name="node">The list literal to visit</param>
+    /// <returns>Result of visiting the list literal</returns>
+    T VisitListLiteralExpression(ListLiteralExpression node);
+
+    /// <summary>Visits a set literal expression node {1, 2, 3}</summary>
+    /// <param name="node">The set literal to visit</param>
+    /// <returns>Result of visiting the set literal</returns>
+    T VisitSetLiteralExpression(SetLiteralExpression node);
+
+    /// <summary>Visits a dict literal expression node {k: v}</summary>
+    /// <param name="node">The dict literal to visit</param>
+    /// <returns>Result of visiting the dict literal</returns>
+    T VisitDictLiteralExpression(DictLiteralExpression node);
+
     /// <summary>Visits an identifier expression node (variable/function references)</summary>
     /// <param name="node">The identifier expression to visit</param>
     /// <returns>Result of visiting the identifier expression</returns>
@@ -137,6 +152,11 @@ public interface IAstVisitor<T>
     /// <returns>Result of visiting the named argument expression</returns>
     T VisitNamedArgumentExpression(NamedArgumentExpression node);
 
+    /// <summary>Visits a struct literal expression node (Type { field: value } syntax)</summary>
+    /// <param name="node">The struct literal expression to visit</param>
+    /// <returns>Result of visiting the struct literal expression</returns>
+    T VisitStructLiteralExpression(StructLiteralExpression node);
+
     /// <summary>Visits a member expression node (property/field access like obj.field)</summary>
     /// <param name="node">The member expression to visit</param>
     /// <returns>Result of visiting the member expression</returns>
@@ -151,6 +171,11 @@ public interface IAstVisitor<T>
     /// <param name="node">The conditional expression to visit</param>
     /// <returns>Result of visiting the conditional expression</returns>
     T VisitConditionalExpression(ConditionalExpression node);
+
+    /// <summary>Visits a block expression node ({ expr })</summary>
+    /// <param name="node">The block expression to visit</param>
+    /// <returns>Result of visiting the block expression</returns>
+    T VisitBlockExpression(BlockExpression node);
 
     /// <summary>Visits a chained comparison expression node (like 1 &lt; x &lt; 10)</summary>
     /// <param name="node">The chained comparison expression to visit</param>
@@ -203,6 +228,11 @@ public interface IAstVisitor<T>
     /// <param name="node">The intrinsic call expression to visit</param>
     /// <returns>Result of visiting the intrinsic call expression</returns>
     T VisitIntrinsicCallExpression(IntrinsicCallExpression node);
+
+    /// <summary>Visits a native call expression node (@native.* function calls)</summary>
+    /// <param name="node">The native call expression to visit</param>
+    /// <returns>Result of visiting the native call expression</returns>
+    T VisitNativeCallExpression(NativeCallExpression node);
 
     // Statement visitor methods - handle all statement node types
 

@@ -21,6 +21,18 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
     private readonly List<FunctionDeclaration> _generatedVariants = new();
     private bool _hasThrow;
     private bool _hasAbsent;
+    private bool _hasUnrecoverableIntrinsic;
+
+    /// <summary>
+    /// Unrecoverable intrinsics that implicitly have @crash_only behavior.
+    /// These functions cannot be safely wrapped in try_/check_/find_ variants.
+    /// </summary>
+    private static readonly HashSet<string> UnrecoverableIntrinsics = new()
+    {
+        "stop!",    // User-initiated termination
+        "breach!",  // Logic breach (unreachable code reached)
+        "verify!"   // Verification/assertion failure
+    };
 
     /// <summary>
     /// Gets the list of generated function variants.
@@ -54,13 +66,27 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
             return null;
         }
 
-        // Analyze the function body to detect throw/absent usage
+        // Skip if function has @crash_only attribute - no safe variants generated
+        if (node.Attributes.Contains(item: "crash_only"))
+        {
+            return null;
+        }
+
+        // Analyze the function body to detect throw/absent usage and unrecoverable intrinsics
         _hasThrow = false;
         _hasAbsent = false;
+        _hasUnrecoverableIntrinsic = false;
 
         if (node.Body != null)
         {
             AnalyzeFunctionBody(statement: node.Body);
+        }
+
+        // Skip if function contains unrecoverable intrinsics (stop!, breach!, verify!)
+        // These are implicitly @crash_only - they cannot be safely wrapped
+        if (_hasUnrecoverableIntrinsic)
+        {
+            return null;
         }
 
         // Generate variants based on what was found
@@ -93,7 +119,7 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
     }
 
     /// <summary>
-    /// Analyzes a function body to detect throw and absent statements.
+    /// Analyzes a function body to detect throw/absent statements and unrecoverable intrinsics.
     /// </summary>
     private void AnalyzeFunctionBody(Statement statement)
     {
@@ -114,6 +140,7 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
         }
         else if (statement is IfStatement ifStmt)
         {
+            AnalyzeExpression(expression: ifStmt.Condition);
             AnalyzeFunctionBody(statement: ifStmt.ThenStatement);
             if (ifStmt.ElseStatement != null)
             {
@@ -122,19 +149,99 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
         }
         else if (statement is WhileStatement whileStmt)
         {
+            AnalyzeExpression(expression: whileStmt.Condition);
             AnalyzeFunctionBody(statement: whileStmt.Body);
         }
         else if (statement is ForStatement forStmt)
         {
+            AnalyzeExpression(expression: forStmt.Iterable);
             AnalyzeFunctionBody(statement: forStmt.Body);
         }
         else if (statement is WhenStatement whenStmt)
         {
+            AnalyzeExpression(expression: whenStmt.Expression);
             foreach (WhenClause clause in whenStmt.Clauses)
             {
                 AnalyzeFunctionBody(statement: clause.Body);
             }
         }
+        else if (statement is ExpressionStatement exprStmt)
+        {
+            AnalyzeExpression(expression: exprStmt.Expression);
+        }
+        else if (statement is DeclarationStatement declStmt && declStmt.Declaration is VariableDeclaration varDecl)
+        {
+            if (varDecl.Initializer != null)
+            {
+                AnalyzeExpression(expression: varDecl.Initializer);
+            }
+        }
+        else if (statement is ReturnStatement returnStmt)
+        {
+            if (returnStmt.Value != null)
+            {
+                AnalyzeExpression(expression: returnStmt.Value);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Analyzes an expression to detect calls to unrecoverable intrinsics.
+    /// </summary>
+    private void AnalyzeExpression(Expression expression)
+    {
+        if (expression is CallExpression call)
+        {
+            // Check if this is a call to an unrecoverable intrinsic
+            string? functionName = GetFunctionName(callee: call.Callee);
+            if (functionName != null && UnrecoverableIntrinsics.Contains(item: functionName))
+            {
+                _hasUnrecoverableIntrinsic = true;
+            }
+
+            // Analyze arguments
+            foreach (Expression arg in call.Arguments)
+            {
+                AnalyzeExpression(expression: arg);
+            }
+        }
+        else if (expression is BinaryExpression binary)
+        {
+            AnalyzeExpression(expression: binary.Left);
+            AnalyzeExpression(expression: binary.Right);
+        }
+        else if (expression is UnaryExpression unary)
+        {
+            AnalyzeExpression(expression: unary.Operand);
+        }
+        else if (expression is ConditionalExpression cond)
+        {
+            AnalyzeExpression(expression: cond.Condition);
+            AnalyzeExpression(expression: cond.TrueExpression);
+            AnalyzeExpression(expression: cond.FalseExpression);
+        }
+        else if (expression is MemberExpression member)
+        {
+            AnalyzeExpression(expression: member.Object);
+        }
+        else if (expression is IndexExpression index)
+        {
+            AnalyzeExpression(expression: index.Object);
+            AnalyzeExpression(expression: index.Index);
+        }
+    }
+
+    /// <summary>
+    /// Extracts the function name from a callee expression.
+    /// </summary>
+    private static string? GetFunctionName(Expression callee)
+    {
+        return callee switch
+        {
+            IdentifierExpression id => id.Name,
+            MemberExpression member => member.PropertyName,
+            _ => null
+        };
     }
 
     /// <summary>
@@ -491,6 +598,22 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
     {
         return null;
     }
+
+    public object? VisitListLiteralExpression(ListLiteralExpression node)
+    {
+        return null;
+    }
+
+    public object? VisitSetLiteralExpression(SetLiteralExpression node)
+    {
+        return null;
+    }
+
+    public object? VisitDictLiteralExpression(DictLiteralExpression node)
+    {
+        return null;
+    }
+
     public object? VisitIdentifierExpression(IdentifierExpression node)
     {
         return null;
@@ -519,6 +642,12 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
     {
         return null;
     }
+
+    public object? VisitBlockExpression(BlockExpression node)
+    {
+        return null;
+    }
+
     public object? VisitRangeExpression(RangeExpression node)
     {
         return null;
@@ -559,6 +688,10 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
     {
         return null;
     }
+    public object? VisitNativeCallExpression(NativeCallExpression node)
+    {
+        return null;
+    }
     public object? VisitDangerStatement(DangerStatement node)
     {
         return null;
@@ -584,6 +717,11 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
         return null;
     }
     public object? VisitNamedArgumentExpression(NamedArgumentExpression node)
+    {
+        return null;
+    }
+
+    public object? VisitStructLiteralExpression(StructLiteralExpression node)
     {
         return null;
     }

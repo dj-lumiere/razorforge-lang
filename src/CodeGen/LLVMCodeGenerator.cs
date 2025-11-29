@@ -80,6 +80,16 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     private string? _currentFileName;
     private string? _currentFunctionName;
 
+    /// <summary>
+    /// Sets the source file name for stack trace information.
+    /// Should be called before Generate() with the path to the source file.
+    /// </summary>
+    public string? SourceFileName
+    {
+        get => _currentFileName;
+        set => _currentFileName = value;
+    }
+
     // Lambda code generation tracking
     private int _lambdaCounter;
     private List<string> _pendingLambdaDefinitions = new();
@@ -87,6 +97,9 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     // Stack trace support for runtime error reporting
     private readonly SymbolTables _symbolTables = new();
     private StackTraceCodeGen? _stackTraceCodeGen;
+
+    // Crash message resolver for reading error messages from stdlib
+    private CrashMessageResolver? _crashMessageResolver;
 
     /// <summary>
     /// Initializes a new LLVM IR code generator for the specified language and mode configuration.
@@ -105,7 +118,7 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     /// </list>
     /// </remarks>
     public LLVMCodeGenerator(Language language, LanguageMode mode,
-        TargetPlatform? targetPlatform = null)
+        TargetPlatform? targetPlatform = null, string? stdlibPath = null)
     {
         _language = language;
         _mode = mode;
@@ -115,6 +128,40 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         _labelCounter = 0;
         _symbolTypes = new Dictionary<string, string>();
         _stackTraceCodeGen = new StackTraceCodeGen(symbolTables: _symbolTables, output: _output);
+
+        // Initialize crash message resolver if stdlib path is available
+        if (stdlibPath != null)
+        {
+            _crashMessageResolver = new CrashMessageResolver(stdlibPath);
+        }
+        else
+        {
+            // Try to find stdlib relative to executable
+            string? exeDir = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
+            if (exeDir != null)
+            {
+                string defaultStdlibPath = Path.Combine(exeDir, "stdlib");
+                if (Directory.Exists(defaultStdlibPath))
+                {
+                    _crashMessageResolver = new CrashMessageResolver(defaultStdlibPath);
+                }
+                else
+                {
+                    // Try parent directories
+                    string? parent = Path.GetDirectoryName(exeDir);
+                    while (parent != null)
+                    {
+                        defaultStdlibPath = Path.Combine(parent, "stdlib");
+                        if (Directory.Exists(defaultStdlibPath))
+                        {
+                            _crashMessageResolver = new CrashMessageResolver(defaultStdlibPath);
+                            break;
+                        }
+                        parent = Path.GetDirectoryName(parent);
+                    }
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -221,6 +268,9 @@ public class LLVMCodeGenerator : IAstVisitor<string>
 
         // Emit symbol tables for stack trace runtime support
         _stackTraceCodeGen?.EmitSymbolTables();
+
+        // Emit symbol table initialization function (uses llvm.global_ctors to run before main)
+        _stackTraceCodeGen?.EmitSymbolTableInitFunction();
 
         _output.AppendLine();
     }
@@ -839,16 +889,37 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     // Variable declaration
     public string VisitVariableDeclaration(VariableDeclaration node)
     {
-        string type = node.Type != null
-            ? MapTypeToLLVM(rfType: node.Type.Name)
-            : "i32";
-        string varName = $"%{node.Name}";
+        string type;
+        string? initValue = null;
 
+        if (node.Type != null)
+        {
+            // Explicit type annotation
+            type = MapTypeToLLVM(rfType: node.Type.Name);
+        }
+        else if (node.Initializer != null)
+        {
+            // Infer type from initializer - visit first to get the type
+            initValue = node.Initializer.Accept(visitor: this);
+            TypeInfo inferredType = GetTypeInfo(expr: node.Initializer);
+            type = inferredType.LLVMType;
+        }
+        else
+        {
+            // No type and no initializer - default to i32
+            type = "i32";
+        }
+
+        string varName = $"%{node.Name}";
         _symbolTypes[key: node.Name] = type;
 
         if (node.Initializer != null)
         {
-            string initValue = node.Initializer.Accept(visitor: this);
+            // If we already visited the initializer for type inference, use that value
+            if (initValue == null)
+            {
+                initValue = node.Initializer.Accept(visitor: this);
+            }
             _output.AppendLine(handler: $"  {varName} = alloca {type}");
             _output.AppendLine(handler: $"  store {type} {initValue}, {type}* {varName}");
         }
@@ -885,6 +956,12 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     /// </remarks>
     public string VisitBinaryExpression(BinaryExpression node)
     {
+        // Handle NoneCoalesce (??) specially - it requires short-circuit evaluation
+        if (node.Operator == BinaryOperator.NoneCoalesce)
+        {
+            return GenerateNoneCoalesce(node: node);
+        }
+
         string left = node.Left.Accept(visitor: this);
         string right = node.Right.Accept(visitor: this);
         string result = GetNextTemp();
@@ -932,6 +1009,18 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             BinaryOperator.Equal => "icmp eq",
             BinaryOperator.NotEqual => "icmp ne",
 
+            // Bitwise operations
+            BinaryOperator.BitwiseAnd => "and",
+            BinaryOperator.BitwiseOr => "or",
+            BinaryOperator.BitwiseXor => "xor",
+
+            // Shift operations
+            BinaryOperator.LeftShift => "shl",
+            BinaryOperator.RightShift => "", // Handled separately (ashr/lshr based on signedness)
+            BinaryOperator.LogicalLeftShift => "shl",
+            BinaryOperator.LogicalRightShift => "lshr",
+            BinaryOperator.LeftShiftChecked => "", // Handled separately with overflow check
+
             _ => "add"
         };
 
@@ -953,6 +1042,21 @@ public class LLVMCodeGenerator : IAstVisitor<string>
                 case BinaryOperator.MultiplyChecked:
                     return GenerateCheckedArithmetic(op: node.Operator, left: left, right: right,
                         result: result, typeInfo: leftTypeInfo, llvmType: operandType);
+
+                case BinaryOperator.RightShift:
+                    // Use ashr for signed, lshr for unsigned
+                    string shiftOp = leftTypeInfo.IsUnsigned ? "lshr" : "ashr";
+                    _output.AppendLine(handler: $"  {result} = {shiftOp} {operandType} {left}, {right}");
+                    _tempTypes[key: result] = leftTypeInfo;
+                    return result;
+
+                case BinaryOperator.LeftShiftChecked:
+                    // TODO: Implement overflow-checked left shift (returns Maybe<T>)
+                    // For now, generate regular shl with a comment
+                    _output.AppendLine(handler: $"  ; TODO: Checked left shift - should return Maybe<T>");
+                    _output.AppendLine(handler: $"  {result} = shl {operandType} {left}, {right}");
+                    _tempTypes[key: result] = leftTypeInfo;
+                    return result;
 
                 default:
                     throw new NotSupportedException(
@@ -1204,6 +1308,87 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         }
     }
 
+    /// <summary>
+    /// Generates LLVM IR for the none coalescing operator (??).
+    /// Returns the left value if it's valid (not None/Error), otherwise returns the right value.
+    /// Works with Maybe, Result, and Lookup types.
+    /// </summary>
+    private string GenerateNoneCoalesce(BinaryExpression node)
+    {
+        // Evaluate the left side first
+        string left = node.Left.Accept(visitor: this);
+        TypeInfo leftTypeInfo = GetTypeInfo(expr: node.Left);
+        string leftTypeName = leftTypeInfo.RazorForgeType ?? "";
+
+        // Generate unique labels for branching
+        string validLabel = $"coalesce_valid_{_labelCounter}";
+        string invalidLabel = $"coalesce_invalid_{_labelCounter}";
+        string endLabel = $"coalesce_end_{_labelCounter}";
+        _labelCounter++;
+
+        // Determine how to check validity based on the type
+        string isValidTemp = GetNextTemp();
+
+        if (leftTypeName.StartsWith("Maybe") || leftTypeName.StartsWith("Result"))
+        {
+            // Maybe and Result have is_valid: bool as first field
+            // Load the is_valid field (index 0)
+            string isValidPtr = GetNextTemp();
+            _output.AppendLine(handler: $"  {isValidPtr} = getelementptr inbounds {{i1, i8*}}, {{i1, i8*}}* {left}, i32 0, i32 0");
+            _output.AppendLine(handler: $"  {isValidTemp} = load i1, i1* {isValidPtr}");
+        }
+        else if (leftTypeName.StartsWith("Lookup"))
+        {
+            // Lookup has state: DataState as first field where VALID = 0
+            string statePtr = GetNextTemp();
+            string stateVal = GetNextTemp();
+            _output.AppendLine(handler: $"  {statePtr} = getelementptr inbounds {{i32, i8*}}, {{i32, i8*}}* {left}, i32 0, i32 0");
+            _output.AppendLine(handler: $"  {stateVal} = load i32, i32* {statePtr}");
+            _output.AppendLine(handler: $"  {isValidTemp} = icmp eq i32 {stateVal}, 0");
+        }
+        else
+        {
+            // For non-wrapper types (null pointer check), treat as pointer comparison
+            _output.AppendLine(handler: $"  {isValidTemp} = icmp ne i8* {left}, null");
+        }
+
+        // Branch based on validity
+        _output.AppendLine(handler: $"  br i1 {isValidTemp}, label %{validLabel}, label %{invalidLabel}");
+
+        // Valid case - extract the value from the wrapper
+        _output.AppendLine(handler: $"{validLabel}:");
+        string validValue;
+        if (leftTypeName.StartsWith("Maybe") || leftTypeName.StartsWith("Result") || leftTypeName.StartsWith("Lookup"))
+        {
+            // Extract handle from wrapper (index 1)
+            string handlePtr = GetNextTemp();
+            validValue = GetNextTemp();
+            string structType = leftTypeName.StartsWith("Lookup") ? "{i32, i8*}" : "{i1, i8*}";
+            _output.AppendLine(handler: $"  {handlePtr} = getelementptr inbounds {structType}, {structType}* {left}, i32 0, i32 1");
+            _output.AppendLine(handler: $"  {validValue} = load i8*, i8** {handlePtr}");
+        }
+        else
+        {
+            validValue = left;
+        }
+        _output.AppendLine(handler: $"  br label %{endLabel}");
+
+        // Invalid case - evaluate the right side
+        _output.AppendLine(handler: $"{invalidLabel}:");
+        string invalidValue = node.Right.Accept(visitor: this);
+        _output.AppendLine(handler: $"  br label %{endLabel}");
+
+        // Merge point with phi
+        _output.AppendLine(handler: $"{endLabel}:");
+        string result = GetNextTemp();
+        TypeInfo rightTypeInfo = GetTypeInfo(expr: node.Right);
+        string resultType = rightTypeInfo.LLVMType;
+        _output.AppendLine(handler: $"  {result} = phi {resultType} [{validValue}, %{validLabel}], [{invalidValue}, %{invalidLabel}]");
+
+        _tempTypes[key: result] = rightTypeInfo;
+        return result;
+    }
+
     // Literal expression
     public string VisitLiteralExpression(LiteralExpression node)
     {
@@ -1291,6 +1476,28 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         return "0";
     }
 
+    public string VisitListLiteralExpression(ListLiteralExpression node)
+    {
+        // TODO: Generate actual List allocation and initialization
+        // For now, just generate a comment placeholder
+        _output.AppendLine($"  ; List literal with {node.Elements.Count} elements");
+        return "null"; // Placeholder
+    }
+
+    public string VisitSetLiteralExpression(SetLiteralExpression node)
+    {
+        // TODO: Generate actual Set allocation and initialization
+        _output.AppendLine($"  ; Set literal with {node.Elements.Count} elements");
+        return "null"; // Placeholder
+    }
+
+    public string VisitDictLiteralExpression(DictLiteralExpression node)
+    {
+        // TODO: Generate actual Dict allocation and initialization
+        _output.AppendLine($"  ; Dict literal with {node.Pairs.Count} pairs");
+        return "null"; // Placeholder
+    }
+
     // Map TokenType to LLVM type
     private string GetLLVMType(TokenType tokenType)
     {
@@ -1314,6 +1521,13 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             TokenType.Decimal => "double", // Default floating type
             TokenType.True => "i1",
             TokenType.False => "i1",
+            // Text/String types - all return pointer to i8 (C-style strings)
+            TokenType.TextLiteral or TokenType.Text8Literal or TokenType.Text16Literal
+                or TokenType.FormattedText or TokenType.Text8FormattedText
+                or TokenType.Text16FormattedText or TokenType.RawText
+                or TokenType.Text8RawText or TokenType.Text16RawText
+                or TokenType.RawFormattedText or TokenType.Text8RawFormattedText
+                or TokenType.Text16RawFormattedText => "i8*",
             _ => "i32" // Default fallback
         };
     }
@@ -1347,6 +1561,11 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         // For local variables, we need to load from the stack
         string temp = GetNextTemp();
         _output.AppendLine(handler: $"  {temp} = load {type}, {type}* %{node.Name}");
+
+        // Track the type of this temp so it can be used correctly in function calls
+        _tempTypes[key: temp] = new TypeInfo(LLVMType: type, IsUnsigned: type.StartsWith(value: "u"),
+            IsFloatingPoint: type.StartsWith(value: "f") || type.StartsWith(value: "double"),
+            RazorForgeType: node.Name);
         return temp;
     }
 
@@ -1369,6 +1588,56 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             if (IsSourceLocationIntrinsic(functionName: dangerfunctionName))
             {
                 return HandleSourceLocationIntrinsic(node: node, functionName: dangerfunctionName,
+                    resultTemp: result);
+            }
+
+            // Check for error intrinsics (verify!, breach!, stop!)
+            if (IsErrorIntrinsic(functionName: dangerfunctionName))
+            {
+                return HandleErrorIntrinsic(node: node, functionName: dangerfunctionName,
+                    resultTemp: result);
+            }
+        }
+
+        // Check for special handlers BEFORE visiting arguments to avoid double-visiting
+        if (node.Callee is MemberExpression memberExprEarly)
+        {
+            string objectNameEarly = memberExprEarly.Object switch
+            {
+                IdentifierExpression idExpr => idExpr.Name,
+                _ => "unknown"
+            };
+
+            // Special handling for Console I/O - map directly to C runtime
+            if (objectNameEarly == "Console")
+            {
+                return HandleConsoleCall(methodName: memberExprEarly.PropertyName,
+                    arguments: node.Arguments, resultTemp: result);
+            }
+
+            // Special handling for Error type
+            if (objectNameEarly == "Error")
+            {
+                return HandleErrorCall(methodName: memberExprEarly.PropertyName,
+                    arguments: node.Arguments, resultTemp: result);
+            }
+        }
+
+        // Check for type constructor calls BEFORE visiting arguments
+        if (node.Callee is IdentifierExpression identifierEarly)
+        {
+            string sanitizedNameEarly = SanitizeFunctionName(name: identifierEarly.Name);
+            if (IsTypeConstructorCall(sanitizedName: sanitizedNameEarly))
+            {
+                return HandleTypeConstructorCall(functionName: sanitizedNameEarly,
+                    arguments: node.Arguments, resultTemp: result);
+            }
+
+            // Check for Crashable error type constructors (e.g., DivisionByZeroError())
+            // These return a string pointer to the error message for use in safe variants
+            if (IsCrashableErrorType(typeName: identifierEarly.Name))
+            {
+                return HandleCrashableErrorConstructor(errorTypeName: identifierEarly.Name,
                     resultTemp: result);
             }
         }
@@ -1421,14 +1690,6 @@ public class LLVMCodeGenerator : IAstVisitor<string>
                 return HandleNonGenericDangerZoneFunction(node: node, functionName: functionName,
                     resultTemp: result);
             }
-
-            // Check for type constructor calls (e.g., s32!, u64!, s32?, etc.)
-            string sanitizedName = SanitizeFunctionName(name: functionName);
-            if (IsTypeConstructorCall(sanitizedName: sanitizedName))
-            {
-                return HandleTypeConstructorCall(functionName: sanitizedName,
-                    arguments: node.Arguments, resultTemp: result);
-            }
         }
         else if (node.Callee is MemberExpression memberExpr)
         {
@@ -1439,20 +1700,7 @@ public class LLVMCodeGenerator : IAstVisitor<string>
                 _ => "unknown"
             };
 
-            // Special handling for Console I/O - map directly to C runtime
-            if (objectName == "Console")
-            {
-                return HandleConsoleCall(methodName: memberExpr.PropertyName,
-                    arguments: node.Arguments, resultTemp: result);
-            }
-
-            // Special handling for Error type
-            if (objectName == "Error")
-            {
-                return HandleErrorCall(methodName: memberExpr.PropertyName,
-                    arguments: node.Arguments, resultTemp: result);
-            }
-
+            // Already handled Console and Error above, so this is for other member calls
             // For other member calls, convert to mangled name: Object.method -> Object_method
             functionName = $"{objectName}_{memberExpr.PropertyName}";
         }
@@ -1690,12 +1938,31 @@ public class LLVMCodeGenerator : IAstVisitor<string>
             return new TypeInfo(LLVMType: llvmType, IsUnsigned: isUnsigned,
                 IsFloatingPoint: isFloatingPoint, RazorForgeType: razorForgeType);
         }
-        // For binary expressions, we need to evaluate them first to get the result type
-        // This is handled by the visitor methods storing results in _tempTypes
 
-        // Default to signed i32
+        // For binary expressions, get the type from the left operand (result type matches left operand)
+        if (expr is BinaryExpression binaryExpr)
+        {
+            return GetTypeInfo(expr: binaryExpr.Left);
+        }
+
+        // For unary expressions, get the type from the operand
+        if (expr is UnaryExpression unaryExpr)
+        {
+            return GetTypeInfo(expr: unaryExpr.Operand);
+        }
+
+        // For identifier expressions (variables/parameters), look up the stored type
+        if (expr is IdentifierExpression identExpr)
+        {
+            if (_symbolTypes.TryGetValue(key: identExpr.Name, value: out string? llvmType))
+            {
+                return GetTypeInfo(typeName: llvmType);
+            }
+        }
+
+        // Default to signed i32 for unknown expressions (safer default for function params)
         return new TypeInfo(LLVMType: "i32", IsUnsigned: false, IsFloatingPoint: false,
-            RazorForgeType: "i32");
+            RazorForgeType: "s32");
     }
 
     // Get type info for a temporary variable or literal value
@@ -2325,23 +2592,31 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     {
         return "";
     }
+
+    public string VisitBlockExpression(BlockExpression node)
+    {
+        // A block expression evaluates to its inner expression
+        return node.Value.Accept(visitor: this);
+    }
+
     public string VisitRangeExpression(RangeExpression node)
     {
         // For now, generate a simple record representation
         // In a real implementation, this would create a Range<T> object
         string start = node.Start.Accept(visitor: this);
         string end = node.End.Accept(visitor: this);
+        string rangeOp = node.IsDescending ? "downto" : "to";
 
         if (node.Step != null)
         {
             string step = node.Step.Accept(visitor: this);
             // Generate code for range with step
-            _output.AppendLine(handler: $"; Range from {start} to {end} step {step}");
+            _output.AppendLine(handler: $"; Range from {start} {rangeOp} {end} by {step}");
         }
         else
         {
-            // Generate code for range without step (default step 1)
-            _output.AppendLine(handler: $"; Range from {start} to {end}");
+            // Generate code for range without step (default step 1 or -1 for descending)
+            _output.AppendLine(handler: $"; Range from {start} {rangeOp} {end}");
         }
 
         return start; // Placeholder
@@ -2806,50 +3081,246 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         _hasReturn = true;
         _blockTerminated = true;
 
-        // Generate the error expression to get the error message
-        string error = node.Error.Accept(visitor: this);
-
         _output.AppendLine(handler: $"  ; throw - capturing stack and crashing with error");
 
-        // Get error type name and message pointer
-        // TODO: Extract actual error type name from the error expression
+        // Extract error type name and try to get message from constructor args
         string errorTypeName = "Error";
-        string errorTypeConst = $"@.str_errtype{_tempCounter++}";
-        int typeLen = errorTypeName.Length + 1;
+        string? customMessage = null;
 
+        if (node.Error is CallExpression callExpr)
+        {
+            if (callExpr.Callee is IdentifierExpression identExpr)
+            {
+                errorTypeName = identExpr.Name;
+
+                // Try dynamic throw for error types with fields (calls crash_message equivalent)
+                if (TryGenerateDynamicThrow(errorTypeName, callExpr))
+                {
+                    return "";
+                }
+
+                // Try to extract message from constructor arguments
+                customMessage = ExtractErrorMessageFromArgs(callExpr.Arguments);
+            }
+        }
+
+        // Use custom message if provided, otherwise fall back to default
+        string errorMessage = customMessage ?? GetDefaultErrorMessage(errorTypeName: errorTypeName);
+
+        // Create string constants for error type and message
         if (_stringConstants == null)
         {
             _stringConstants = new List<string>();
         }
+
+        string errorTypeConst = $"@.str_errtype{_tempCounter++}";
+        int typeLen = errorTypeName.Length + 1;
         _stringConstants.Add(
             item: $"{errorTypeConst} = private unnamed_addr constant [{typeLen} x i8] c\"{errorTypeName}\\00\", align 1");
 
         string typePtr = GetNextTemp();
         _output.AppendLine(handler: $"  {typePtr} = getelementptr [{typeLen} x i8], [{typeLen} x i8]* {errorTypeConst}, i32 0, i32 0");
 
-        // Get message pointer (error may already be a string pointer)
-        string messagePtr;
-        if (_tempTypes.TryGetValue(key: error, out TypeInfo? errorType) &&
-            (errorType.LLVMType == "i8*" || errorType.LLVMType == "ptr"))
-        {
-            messagePtr = error;
-        }
-        else
-        {
-            // Create a generic error message
-            string genericMsg = "Error thrown";
-            string msgConst = $"@.str_errmsg{_tempCounter++}";
-            int msgLen = genericMsg.Length + 1;
-            _stringConstants.Add(
-                item: $"{msgConst} = private unnamed_addr constant [{msgLen} x i8] c\"{genericMsg}\\00\", align 1");
-            messagePtr = GetNextTemp();
-            _output.AppendLine(handler: $"  {messagePtr} = getelementptr [{msgLen} x i8], [{msgLen} x i8]* {msgConst}, i32 0, i32 0");
-        }
+        string msgConst = $"@.str_errmsg{_tempCounter++}";
+        int msgLen = errorMessage.Length + 1;
+        string escapedMsg = errorMessage.Replace(oldValue: "\\", newValue: "\\5C")
+                                        .Replace(oldValue: "\"", newValue: "\\22");
+        _stringConstants.Add(
+            item: $"{msgConst} = private unnamed_addr constant [{msgLen} x i8] c\"{escapedMsg}\\00\", align 1");
+
+        string messagePtr = GetNextTemp();
+        _output.AppendLine(handler: $"  {messagePtr} = getelementptr [{msgLen} x i8], [{msgLen} x i8]* {msgConst}, i32 0, i32 0");
 
         // Use stack trace infrastructure to throw
         _stackTraceCodeGen?.EmitThrow(errorTypePtr: typePtr, messagePtr: messagePtr);
 
         return "";
+    }
+
+    /// <summary>
+    /// Extracts error message from constructor arguments.
+    /// Looks for a 'message' named argument or the first string literal.
+    /// </summary>
+    private string? ExtractErrorMessageFromArgs(List<Expression> arguments)
+    {
+        foreach (var arg in arguments)
+        {
+            // Check for named argument like message: "..."
+            if (arg is NamedArgumentExpression namedArg)
+            {
+                if (namedArg.Name == "message" && namedArg.Value is LiteralExpression msgLiteral)
+                {
+                    if (msgLiteral.Value is string msgStr)
+                    {
+                        return msgStr;
+                    }
+                }
+            }
+            // Check for positional string literal (first one)
+            else if (arg is LiteralExpression literal && literal.Value is string str)
+            {
+                return str;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Generates a dynamic throw for error types that have fields affecting the message.
+    /// Uses runtime sprintf to format the message with field values.
+    /// Returns true if handled, false if should use static message.
+    /// </summary>
+    private bool TryGenerateDynamicThrow(string errorTypeName, CallExpression callExpr)
+    {
+        // Handle IndexOutOfBoundsError(index: X, count: Y)
+        if (errorTypeName == "IndexOutOfBoundsError")
+        {
+            var indexArg = GetNamedArgument(callExpr.Arguments, "index");
+            var countArg = GetNamedArgument(callExpr.Arguments, "count");
+
+            if (indexArg != null && countArg != null)
+            {
+                string indexVal = indexArg.Accept(visitor: this);
+                string countVal = countArg.Accept(visitor: this);
+
+                // Call runtime function: __rf_throw_index_out_of_bounds(index, count)
+                _output.AppendLine(value: $"  call void @__rf_throw_index_out_of_bounds(i32 {indexVal}, i32 {countVal})");
+                _output.AppendLine(value: "  unreachable");
+                return true;
+            }
+        }
+
+        // Handle IntegerOverflowError(message: "...")
+        if (errorTypeName == "IntegerOverflowError")
+        {
+            var msgArg = GetNamedArgument(callExpr.Arguments, "message");
+            if (msgArg is LiteralExpression literal && literal.Value is string msg)
+            {
+                // Create string constant and call runtime
+                string msgConst = $"@.str_overflow_msg{_tempCounter++}";
+                int msgLen = msg.Length + 1;
+                string escapedMsg = msg.Replace("\\", "\\5C").Replace("\"", "\\22");
+                _stringConstants ??= new List<string>();
+                _stringConstants.Add($"{msgConst} = private unnamed_addr constant [{msgLen} x i8] c\"{escapedMsg}\\00\", align 1");
+
+                string msgPtr = GetNextTemp();
+                _output.AppendLine(value: $"  {msgPtr} = getelementptr [{msgLen} x i8], [{msgLen} x i8]* {msgConst}, i32 0, i32 0");
+                _output.AppendLine(value: $"  call void @__rf_throw_integer_overflow(i8* {msgPtr})");
+                _output.AppendLine(value: "  unreachable");
+                return true;
+            }
+        }
+
+        // Handle EmptyCollectionError(operation: "...")
+        if (errorTypeName == "EmptyCollectionError")
+        {
+            var opArg = GetNamedArgument(callExpr.Arguments, "operation");
+            if (opArg is LiteralExpression literal && literal.Value is string op)
+            {
+                // Create string constant and call runtime
+                string opConst = $"@.str_empty_op{_tempCounter++}";
+                int opLen = op.Length + 1;
+                string escapedOp = op.Replace("\\", "\\5C").Replace("\"", "\\22");
+                _stringConstants ??= new List<string>();
+                _stringConstants.Add($"{opConst} = private unnamed_addr constant [{opLen} x i8] c\"{escapedOp}\\00\", align 1");
+
+                string opPtr = GetNextTemp();
+                _output.AppendLine(value: $"  {opPtr} = getelementptr [{opLen} x i8], [{opLen} x i8]* {opConst}, i32 0, i32 0");
+                _output.AppendLine(value: $"  call void @__rf_throw_empty_collection(i8* {opPtr})");
+                _output.AppendLine(value: "  unreachable");
+                return true;
+            }
+        }
+
+        // Handle ElementNotFoundError (no fields)
+        if (errorTypeName == "ElementNotFoundError")
+        {
+            _output.AppendLine(value: "  call void @__rf_throw_element_not_found()");
+            _output.AppendLine(value: "  unreachable");
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Gets a named argument from argument list.
+    /// </summary>
+    private Expression? GetNamedArgument(List<Expression> arguments, string name)
+    {
+        foreach (var arg in arguments)
+        {
+            if (arg is NamedArgumentExpression namedArg && namedArg.Name == name)
+            {
+                return namedArg.Value;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Gets a default error message for a Crashable error type.
+    /// First tries to read from stdlib crash_message() implementations,
+    /// then falls back to minimal placeholders for types not yet parsed.
+    /// </summary>
+    private string GetDefaultErrorMessage(string errorTypeName)
+    {
+        // First, try to get the message from stdlib source files
+        if (_crashMessageResolver != null)
+        {
+            string? stdlibMessage = _crashMessageResolver.GetStaticMessage(errorTypeName);
+            if (stdlibMessage != null)
+            {
+                return stdlibMessage;
+            }
+        }
+
+        // Fallback for when stdlib is not available or message is dynamic
+        // These should ideally never be used - dynamic messages should use runtime calls
+        return $"{errorTypeName} occurred";
+    }
+
+    /// <summary>
+    /// Checks if a type name is a known Crashable error type.
+    /// </summary>
+    private bool IsCrashableErrorType(string typeName)
+    {
+        return typeName switch
+        {
+            "DivisionByZeroError" or "IntegerOverflowError" or "IndexOutOfBoundsError" or
+            "EmptyCollectionError" or "ElementNotFoundError" or
+            "VerificationFailedError" or "LogicBreachedError" or "UserTerminationError" or
+            "AbsentValueError" => true,
+            // Also check for any type ending in "Error" as a convention
+            _ => typeName.EndsWith(value: "Error")
+        };
+    }
+
+    /// <summary>
+    /// Handles a Crashable error type constructor call.
+    /// Returns a string pointer to the error message for use in safe variants.
+    /// </summary>
+    private string HandleCrashableErrorConstructor(string errorTypeName, string resultTemp)
+    {
+        string errorMessage = GetDefaultErrorMessage(errorTypeName: errorTypeName);
+
+        if (_stringConstants == null)
+        {
+            _stringConstants = new List<string>();
+        }
+
+        string msgConst = $"@.str_errmsg{_tempCounter++}";
+        int msgLen = errorMessage.Length + 1;
+        string escapedMsg = errorMessage.Replace(oldValue: "\\", newValue: "\\5C")
+                                        .Replace(oldValue: "\"", newValue: "\\22");
+        _stringConstants.Add(
+            item: $"{msgConst} = private unnamed_addr constant [{msgLen} x i8] c\"{escapedMsg}\\00\", align 1");
+
+        _output.AppendLine(handler: $"  {resultTemp} = getelementptr [{msgLen} x i8], [{msgLen} x i8]* {msgConst}, i32 0, i32 0");
+        _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i8*", IsUnsigned: false,
+            IsFloatingPoint: false, RazorForgeType: "text");
+
+        return resultTemp;
     }
 
     public string VisitAbsentStatement(AbsentStatement node)
@@ -2869,6 +3340,123 @@ public class LLVMCodeGenerator : IAstVisitor<string>
 
     public string VisitWhenStatement(WhenStatement node)
     {
+        // Check if this is a standalone when (no subject expression, just guards)
+        // or a when with a subject expression to match against
+        bool isStandaloneWhen = node.Expression is LiteralExpression lit && lit.Value is int i && i == 0;
+
+        string endLabel = GetNextLabel();
+
+        if (isStandaloneWhen)
+        {
+            // Standalone when: when { condition1 => body1, condition2 => body2, _ => default }
+            // Each clause has an ExpressionPattern with a boolean condition
+            for (int idx = 0; idx < node.Clauses.Count; idx++)
+            {
+                WhenClause clause = node.Clauses[idx];
+                string nextLabel = idx < node.Clauses.Count - 1 ? GetNextLabel() : endLabel;
+
+                if (clause.Pattern is WildcardPattern)
+                {
+                    // Wildcard pattern - always matches (default case)
+                    clause.Body.Accept(visitor: this);
+                    _output.AppendLine(value: $"  br label %{endLabel}");
+                }
+                else if (clause.Pattern is ExpressionPattern exprPat)
+                {
+                    // Expression pattern - evaluate the boolean condition
+                    string condResult = exprPat.Expression.Accept(visitor: this);
+                    string thenLabel = GetNextLabel();
+
+                    // Convert to i1 if needed (non-zero = true)
+                    string condBool = GetNextTemp();
+                    _output.AppendLine(value: $"  {condBool} = icmp ne i32 {condResult}, 0");
+                    _output.AppendLine(value: $"  br i1 {condBool}, label %{thenLabel}, label %{nextLabel}");
+
+                    _output.AppendLine(value: $"{thenLabel}:");
+                    clause.Body.Accept(visitor: this);
+                    _output.AppendLine(value: $"  br label %{endLabel}");
+
+                    if (idx < node.Clauses.Count - 1)
+                    {
+                        _output.AppendLine(value: $"{nextLabel}:");
+                    }
+                }
+                else
+                {
+                    // Unknown pattern type in standalone when - skip
+                    if (idx < node.Clauses.Count - 1)
+                    {
+                        _output.AppendLine(value: $"{nextLabel}:");
+                    }
+                }
+            }
+        }
+        else
+        {
+            // When with subject: when expr { value1 => body1, value2 => body2, _ => default }
+            string subjectValue = node.Expression.Accept(visitor: this);
+            TypeInfo subjectType = GetTypeInfo(expr: node.Expression);
+
+            for (int idx = 0; idx < node.Clauses.Count; idx++)
+            {
+                WhenClause clause = node.Clauses[idx];
+                string nextLabel = idx < node.Clauses.Count - 1 ? GetNextLabel() : endLabel;
+
+                if (clause.Pattern is WildcardPattern)
+                {
+                    // Wildcard pattern - always matches (default case)
+                    clause.Body.Accept(visitor: this);
+                    _output.AppendLine(value: $"  br label %{endLabel}");
+                }
+                else if (clause.Pattern is LiteralPattern litPat)
+                {
+                    // Literal pattern - compare subject to literal value
+                    string litValue = litPat.Value.ToString() ?? "0";
+                    string cmpResult = GetNextTemp();
+                    string thenLabel = GetNextLabel();
+
+                    _output.AppendLine(value: $"  {cmpResult} = icmp eq {subjectType.LLVMType} {subjectValue}, {litValue}");
+                    _output.AppendLine(value: $"  br i1 {cmpResult}, label %{thenLabel}, label %{nextLabel}");
+
+                    _output.AppendLine(value: $"{thenLabel}:");
+                    clause.Body.Accept(visitor: this);
+                    _output.AppendLine(value: $"  br label %{endLabel}");
+
+                    if (idx < node.Clauses.Count - 1)
+                    {
+                        _output.AppendLine(value: $"{nextLabel}:");
+                    }
+                }
+                else if (clause.Pattern is IdentifierPattern idPat)
+                {
+                    // Identifier pattern - bind the subject to a variable and execute body
+                    // This is like a default case that captures the value
+                    string varPtr = $"%{idPat.Name}";
+                    _output.AppendLine(value: $"  {varPtr} = alloca {subjectType.LLVMType}");
+                    _output.AppendLine(value: $"  store {subjectType.LLVMType} {subjectValue}, {subjectType.LLVMType}* {varPtr}");
+                    _symbolTypes[key: idPat.Name] = subjectType.LLVMType;
+
+                    clause.Body.Accept(visitor: this);
+                    _output.AppendLine(value: $"  br label %{endLabel}");
+
+                    if (idx < node.Clauses.Count - 1)
+                    {
+                        _output.AppendLine(value: $"{nextLabel}:");
+                    }
+                }
+                else
+                {
+                    // Unknown pattern type - skip to next
+                    if (idx < node.Clauses.Count - 1)
+                    {
+                        _output.AppendLine(value: $"  br label %{nextLabel}");
+                        _output.AppendLine(value: $"{nextLabel}:");
+                    }
+                }
+            }
+        }
+
+        _output.AppendLine(value: $"{endLabel}:");
         return "";
     }
     public string VisitBlockStatement(BlockStatement node)
@@ -3285,6 +3873,139 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         }
     }
 
+    public string VisitNativeCallExpression(NativeCallExpression node)
+    {
+        string resultTemp = GetNextTemp();
+        string functionName = node.FunctionName;
+
+        // Build arguments list
+        var argTemps = new List<string>();
+        var argTypes = new List<string>();
+
+        foreach (Expression arg in node.Arguments)
+        {
+            string argTemp = arg.Accept(visitor: this);
+            argTemps.Add(item: argTemp);
+
+            // Determine argument type based on expression type
+            // For now, default to i64 for numeric types and i8* for pointers
+            string argType = DetermineNativeArgType(expr: arg);
+            argTypes.Add(item: argType);
+        }
+
+        // Build the call
+        string argsStr = string.Join(separator: ", ",
+            values: argTemps.Zip(second: argTypes,
+                resultSelector: (temp, type) => $"{type} {temp}"));
+
+        // Determine return type (default to i8* for pointer-returning functions, i64 otherwise)
+        string returnType = DetermineNativeFunctionReturnType(functionName: functionName);
+
+        if (returnType == "void")
+        {
+            _output.AppendLine(value: $"  call void @{functionName}({argsStr})");
+            return ""; // void functions don't return a value
+        }
+        else
+        {
+            _output.AppendLine(value: $"  {resultTemp} = call {returnType} @{functionName}({argsStr})");
+            return resultTemp;
+        }
+    }
+
+    private string DetermineNativeArgType(Expression expr)
+    {
+        // For native calls, we use pointer types for addresses and i64 for integers
+        if (expr is MemberExpression memberExpr && memberExpr.PropertyName == "handle")
+        {
+            return "i8*"; // Handle fields are typically pointers
+        }
+        else if (expr is LiteralExpression litExpr)
+        {
+            // String literals are pointers
+            if (litExpr.LiteralType == TokenType.TextLiteral ||
+                litExpr.LiteralType == TokenType.Text8Literal ||
+                litExpr.LiteralType == TokenType.Text16Literal)
+            {
+                return "i8*";
+            }
+        }
+        else if (expr is IdentifierExpression idExpr)
+        {
+            // Check if we know the type from symbol table
+            if (_symbolTypes.TryGetValue(key: idExpr.Name, value: out string? varType))
+            {
+                if (varType == "uaddr" || varType.Contains(value: "*") ||
+                    varType == "text" || varType == "Text")
+                {
+                    return "i8*";
+                }
+            }
+        }
+
+        // Default to i64 for integer values
+        return "i64";
+    }
+
+    private string DetermineNativeFunctionReturnType(string functionName)
+    {
+        // Known return types for common native functions
+        if (functionName.StartsWith(value: "rf_bigint_") ||
+            functionName.StartsWith(value: "rf_bigdec_"))
+        {
+            // BigInt/BigDec functions that return handles
+            if (functionName.EndsWith(value: "_new") || functionName.EndsWith(value: "_copy"))
+            {
+                return "i8*"; // Returns a pointer/handle
+            }
+
+            // Comparison and query functions return i32
+            if (functionName.Contains(value: "_cmp") || functionName.Contains(value: "_is_"))
+            {
+                return "i32";
+            }
+
+            // Get functions may return values
+            if (functionName.Contains(value: "_get_i64"))
+            {
+                return "i64";
+            }
+
+            if (functionName.Contains(value: "_get_u64"))
+            {
+                return "i64";
+            }
+
+            if (functionName.Contains(value: "_get_str"))
+            {
+                return "i8*"; // Returns a string pointer
+            }
+
+            // Default for bigint/bigdec operations that modify in-place
+            return "i32"; // Return status code
+        }
+
+        // Standard C library functions
+        return functionName switch
+        {
+            "printf" => "i32",
+            "puts" => "i32",
+            "putchar" => "i32",
+            "malloc" => "i8*",
+            "calloc" => "i8*",
+            "realloc" => "i8*",
+            "free" => "void",
+            "memcpy" => "i8*",
+            "memmove" => "i8*",
+            "memset" => "i8*",
+            "strlen" => "i64",
+            "strcmp" => "i32",
+            "strcpy" => "i8*",
+            "strdup" => "i8*",
+            _ => "i64" // Default return type
+        };
+    }
+
     public string VisitDangerStatement(DangerStatement node)
     {
         // Add comment to indicate unsafe block
@@ -3303,12 +4024,36 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         return "";
     }
 
+    // Set of C runtime functions already declared in boilerplate
+    private static readonly HashSet<string> _builtinExternals = new()
+    {
+        "printf", "puts", "putchar", "scanf", "fgets", "fflush",
+        "malloc", "free", "strtol", "exit", "__acrt_iob_func"
+    };
+
     public string VisitExternalDeclaration(ExternalDeclaration node)
     {
+        string sanitizedName = SanitizeFunctionName(name: node.Name);
+
+        // Skip if already declared in boilerplate
+        if (_builtinExternals.Contains(item: sanitizedName))
+        {
+            return "";
+        }
+
         // Generate external function declaration
         string paramTypes = string.Join(separator: ", ",
             values: node.Parameters.Select(selector: p =>
                 MapRazorForgeTypeToLLVM(razorForgeType: p.Type?.Name ?? "void")));
+
+        // Add variadic marker if needed
+        if (node.IsVariadic)
+        {
+            paramTypes = string.IsNullOrEmpty(value: paramTypes)
+                ? "..."
+                : paramTypes + ", ...";
+        }
+
         string returnType = node.ReturnType != null
             ? MapRazorForgeTypeToLLVM(razorForgeType: node.ReturnType.Name)
             : "void";
@@ -3316,8 +4061,6 @@ public class LLVMCodeGenerator : IAstVisitor<string>
         // Map calling convention to LLVM calling convention attribute
         string callingConventionAttr =
             MapCallingConventionToLLVM(callingConvention: node.CallingConvention);
-
-        string sanitizedName = SanitizeFunctionName(name: node.Name);
 
         if (node.GenericParameters != null && node.GenericParameters.Count > 0)
         {
@@ -3720,6 +4463,125 @@ public class LLVMCodeGenerator : IAstVisitor<string>
                 throw new NotImplementedException(
                     message: $"Source location intrinsic {functionName} not implemented");
         }
+    }
+
+    /// <summary>
+    /// Checks if the function is an error intrinsic (verify!, breach!, stop!).
+    /// </summary>
+    private bool IsErrorIntrinsic(string functionName)
+    {
+        return functionName switch
+        {
+            "verify!" or "breach!" or "stop!" => true,
+            _ => false
+        };
+    }
+
+    /// <summary>
+    /// Handles error intrinsic calls (verify!, breach!, stop!).
+    /// These throw specific Crashable error types.
+    /// </summary>
+    private string HandleErrorIntrinsic(CallExpression node, string functionName, string resultTemp)
+    {
+        _hasReturn = true;
+        _blockTerminated = true;
+
+        switch (functionName)
+        {
+            case "verify!":
+                // verify!(condition) or verify!(condition, message)
+                // Throws VerificationFailedError if condition is false
+                if (node.Arguments.Count == 0)
+                {
+                    throw new InvalidOperationException(message: "verify!() requires at least one argument (condition)");
+                }
+
+                string condition = node.Arguments[index: 0].Accept(visitor: this);
+                string verifyTrueLabel = GetNextLabel();
+                string verifyFalseLabel = GetNextLabel();
+
+                _output.AppendLine(handler: $"  br i1 {condition}, label %{verifyTrueLabel}, label %{verifyFalseLabel}");
+
+                // False branch - throw error
+                _output.AppendLine(handler: $"{verifyFalseLabel}:");
+                string verifyMessage = "Verification failed";
+                if (node.Arguments.Count > 1 && node.Arguments[index: 1] is LiteralExpression msgLit &&
+                    msgLit.Value is string msgStr)
+                {
+                    verifyMessage = msgStr;
+                }
+
+                EmitThrowError(errorTypeName: "VerificationFailedError", message: verifyMessage);
+
+                // True branch - continue execution
+                _output.AppendLine(handler: $"{verifyTrueLabel}:");
+                _blockTerminated = false;
+                _hasReturn = false;
+                return resultTemp;
+
+            case "breach!":
+                // breach!() or breach!(message)
+                // Throws LogicBreachedError - indicates unreachable code was reached
+                string breachMessage = "Logic breach: unreachable code executed";
+                if (node.Arguments.Count > 0 && node.Arguments[index: 0] is LiteralExpression breachMsgLit &&
+                    breachMsgLit.Value is string breachMsgStr)
+                {
+                    breachMessage = breachMsgStr;
+                }
+
+                EmitThrowError(errorTypeName: "LogicBreachedError", message: breachMessage);
+                return resultTemp;
+
+            case "stop!":
+                // stop!() or stop!(message)
+                // Throws UserTerminationError - explicit program termination
+                string stopMessage = "Program terminated by user";
+                if (node.Arguments.Count > 0 && node.Arguments[index: 0] is LiteralExpression stopMsgLit &&
+                    stopMsgLit.Value is string stopMsgStr)
+                {
+                    stopMessage = stopMsgStr;
+                }
+
+                EmitThrowError(errorTypeName: "UserTerminationError", message: stopMessage);
+                return resultTemp;
+
+            default:
+                throw new NotImplementedException(
+                    message: $"Error intrinsic {functionName} not implemented");
+        }
+    }
+
+    /// <summary>
+    /// Emits code to throw a Crashable error with the given type name and message.
+    /// </summary>
+    private void EmitThrowError(string errorTypeName, string message)
+    {
+        // Create string constants for error type and message
+        string errorTypeConst = $"@.str_errtype{_tempCounter++}";
+        int typeLen = errorTypeName.Length + 1;
+
+        if (_stringConstants == null)
+        {
+            _stringConstants = new List<string>();
+        }
+        _stringConstants.Add(
+            item: $"{errorTypeConst} = private unnamed_addr constant [{typeLen} x i8] c\"{errorTypeName}\\00\", align 1");
+
+        string msgConst = $"@.str_errmsg{_tempCounter++}";
+        int msgLen = message.Length + 1;
+        string escapedMsg = message.Replace(oldValue: "\\", newValue: "\\5C")
+                                   .Replace(oldValue: "\"", newValue: "\\22");
+        _stringConstants.Add(
+            item: $"{msgConst} = private unnamed_addr constant [{msgLen} x i8] c\"{escapedMsg}\\00\", align 1");
+
+        string typePtr = GetNextTemp();
+        _output.AppendLine(handler: $"  {typePtr} = getelementptr [{typeLen} x i8], [{typeLen} x i8]* {errorTypeConst}, i32 0, i32 0");
+
+        string messagePtr = GetNextTemp();
+        _output.AppendLine(handler: $"  {messagePtr} = getelementptr [{msgLen} x i8], [{msgLen} x i8]* {msgConst}, i32 0, i32 0");
+
+        // Use stack trace infrastructure to throw
+        _stackTraceCodeGen?.EmitThrow(errorTypePtr: typePtr, messagePtr: messagePtr);
     }
 
     /// <summary>
@@ -4944,5 +5806,24 @@ public class LLVMCodeGenerator : IAstVisitor<string>
     {
         // For LLVM IR, we just generate the value - argument matching happens at the call site
         return node.Value.Accept(visitor: this);
+    }
+
+    /// <summary>
+    /// Generates LLVM IR for a struct literal expression (Type { field: value, ... }).
+    /// Allocates memory for the struct and initializes fields.
+    /// </summary>
+    public string VisitStructLiteralExpression(StructLiteralExpression node)
+    {
+        // TODO: Implement struct literal code generation
+        // For now, generate a placeholder that will be expanded when structs are fully implemented
+        string structType = node.TypeName;
+        if (node.TypeArguments != null && node.TypeArguments.Count > 0)
+        {
+            structType += "<" + string.Join(separator: ", ",
+                values: node.TypeArguments.Select(selector: t => t.Name)) + ">";
+        }
+
+        _output.AppendLine(value: $"  ; TODO: Struct literal not yet implemented: {structType}");
+        return "null";
     }
 }

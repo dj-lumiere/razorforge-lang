@@ -158,6 +158,10 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         RegisterPrimitiveType(typeName: "letter");
         RegisterPrimitiveType(typeName: "letter8");
         RegisterPrimitiveType(typeName: "letter16");
+
+        // Note: Crashable, Maybe, and error types are loaded from prelude modules
+        // (ErrorHandling/Maybe, errors/Crashable, errors/common, etc.)
+        // They are no longer hardcoded here.
     }
 
     /// <summary>
@@ -203,17 +207,149 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     // Program
     /// <summary>
     /// Visits a program node and analyzes all top-level declarations.
+    /// Automatically loads prelude modules before processing user code.
     /// </summary>
     /// <param name="node">Program node containing all declarations</param>
     /// <returns>Null</returns>
     public object? VisitProgram(AST.Program node)
     {
+        // Load prelude modules (Maybe, Crashable, common error types)
+        LoadPrelude();
+
         foreach (IAstNode declaration in node.Declarations)
         {
             declaration.Accept(visitor: this);
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Loads prelude modules that are automatically available without explicit import.
+    /// Includes Maybe, Crashable, and common error types.
+    /// For Suflae, also includes Integer, Decimal, Console, and Collections.
+    /// Note: Result/Lookup are NOT preluded as they are for immediate pattern matching, not storage.
+    /// </summary>
+    private void LoadPrelude()
+    {
+        // Common prelude modules for both languages
+        var preludeModules = new List<string>
+        {
+            "ErrorHandling/Maybe",
+            "errors/Crashable",
+            "errors/common",
+            "errors/DivisionByZeroError",
+            "errors/IntegerOverflowError",
+            "errors/IndexOutOfBoundsError"
+        };
+
+        // Suflae-specific prelude: auto-import Integer, Decimal, Console, and Collections
+        // These are the default types for Suflae's high-level programming model
+        if (_language == Language.Suflae)
+        {
+            preludeModules.AddRange(new[]
+            {
+                // Arbitrary precision numeric types (Suflae defaults)
+                "Integer",
+                "Decimal",
+                "Fraction",
+                // Console I/O
+                "Console",
+                // Text
+                "Text/Text",
+                // Collections - Dynamic (heap-allocated, growable)
+                "Collections/List",
+                "Collections/Dict",
+                "Collections/Set",
+                "Collections/Deque",
+                "Collections/BitList",
+                "Collections/PriorityQueue",
+                "Collections/SortedDict",
+                "Collections/SortedList",
+                "Collections/SortedSet",
+                // Collections - Fixed capacity (heap-allocated, fixed size)
+                "Collections/FixedList",
+                "Collections/FixedDict",
+                "Collections/FixedSet",
+                "Collections/FixedDeque",
+                "Collections/FixedBitList",
+                // Collections - Value types (stack-allocated)
+                "Collections/ValueList",
+                "Collections/ValueBitList",
+                "Collections/ValueTuple",
+                // Collections - Tuple
+                "Collections/Tuple"
+            });
+        }
+
+        foreach (string modulePath in preludeModules)
+        {
+            try
+            {
+                ModuleResolver.ModuleInfo? moduleInfo = _moduleResolver.LoadModule(importPath: modulePath);
+                if (moduleInfo != null)
+                {
+                    // Register all declarations from the prelude module
+                    RegisterPreludeDeclarations(ast: moduleInfo.Ast);
+                }
+            }
+            catch (ModuleException)
+            {
+                // Silently ignore missing prelude modules during development
+                // In production, these should always exist
+            }
+        }
+    }
+
+    /// <summary>
+    /// Registers declarations from a prelude module into the symbol table.
+    /// </summary>
+    private void RegisterPreludeDeclarations(AST.Program ast)
+    {
+        foreach (IAstNode declaration in ast.Declarations)
+        {
+            if (declaration is FunctionDeclaration funcDecl)
+            {
+                var funcSymbol = new FunctionSymbol(Name: funcDecl.Name,
+                    Parameters: funcDecl.Parameters,
+                    ReturnType: ResolveType(typeExpr: funcDecl.ReturnType),
+                    Visibility: funcDecl.Visibility,
+                    GenericParameters: funcDecl.GenericParameters);
+                _symbolTable.TryDeclare(symbol: funcSymbol);
+            }
+            else if (declaration is StructDeclaration structDecl)
+            {
+                List<string>? interfaceNames = structDecl.Interfaces?.Select(selector: i => i.Name).ToList();
+                var structSymbol = new StructSymbol(Name: structDecl.Name,
+                    Visibility: structDecl.Visibility,
+                    GenericParameters: structDecl.GenericParameters,
+                    Interfaces: interfaceNames);
+                _symbolTable.TryDeclare(symbol: structSymbol);
+            }
+            else if (declaration is ClassDeclaration classDecl)
+            {
+                var classSymbol = new ClassSymbol(Name: classDecl.Name,
+                    BaseClass: classDecl.BaseClass,
+                    Interfaces: classDecl.Interfaces,
+                    Visibility: classDecl.Visibility,
+                    GenericParameters: classDecl.GenericParameters);
+                _symbolTable.TryDeclare(symbol: classSymbol);
+            }
+            else if (declaration is FeatureDeclaration featureDecl)
+            {
+                var featureSymbol = new FeatureSymbol(Name: featureDecl.Name,
+                    Visibility: featureDecl.Visibility,
+                    GenericParameters: featureDecl.GenericParameters);
+                _symbolTable.TryDeclare(symbol: featureSymbol);
+            }
+            else if (declaration is VariantDeclaration variantDecl)
+            {
+                var variantSymbol = new VariantSymbol(Name: variantDecl.Name,
+                    Visibility: variantDecl.Visibility,
+                    GenericParameters: variantDecl.GenericParameters);
+                _symbolTable.TryDeclare(symbol: variantSymbol);
+            }
+        }
     }
 
     // Declarations
@@ -298,6 +434,26 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     /// </summary>
     public object? VisitFunctionDeclaration(FunctionDeclaration node)
     {
+        // Check for reserved function name prefixes (compiler-generated variants)
+        if (node.Name.StartsWith(value: "try_"))
+        {
+            AddError(
+                message: $"Function name '{node.Name}' uses reserved prefix 'try_'. This prefix is reserved for compiler-generated safe variants.",
+                location: node.Location);
+        }
+        else if (node.Name.StartsWith(value: "check_"))
+        {
+            AddError(
+                message: $"Function name '{node.Name}' uses reserved prefix 'check_'. This prefix is reserved for compiler-generated safe variants.",
+                location: node.Location);
+        }
+        else if (node.Name.StartsWith(value: "find_"))
+        {
+            AddError(
+                message: $"Function name '{node.Name}' uses reserved prefix 'find_'. This prefix is reserved for compiler-generated safe variants.",
+                location: node.Location);
+        }
+
         // Detect usurping functions that can return exclusive tokens (Hijacked<T>)
         // TODO: This should be replaced with an IsUsurping property on FunctionDeclaration
         bool isUsurping = node.Name.Contains(value: "usurping") ||
@@ -433,7 +589,13 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     public object? VisitStructDeclaration(StructDeclaration node)
     {
         // Similar to entity but with value semantics
-        var structSymbol = new StructSymbol(Name: node.Name, Visibility: node.Visibility);
+        // Extract interface names for the symbol
+        List<string>? interfaceNames = node.Interfaces?.Select(selector: i => i.Name).ToList();
+
+        var structSymbol = new StructSymbol(Name: node.Name, Visibility: node.Visibility,
+            GenericParameters: node.GenericParameters,
+            GenericConstraints: null,
+            Interfaces: interfaceNames);
         if (!_symbolTable.TryDeclare(symbol: structSymbol))
         {
             AddError(message: $"Record '{node.Name}' is already declared",
@@ -632,9 +794,13 @@ public class SemanticAnalyzer : IAstVisitor<object?>
             }
             else if (declaration is StructDeclaration structDecl)
             {
-                // Create struct/record symbol
+                // Create struct/record symbol with interfaces
+                List<string>? interfaceNames = structDecl.Interfaces?.Select(selector: i => i.Name).ToList();
                 var structSymbol = new StructSymbol(Name: structDecl.Name,
-                    Visibility: structDecl.Visibility);
+                    Visibility: structDecl.Visibility,
+                    GenericParameters: structDecl.GenericParameters,
+                    GenericConstraints: null,
+                    Interfaces: interfaceNames);
 
                 if (!_symbolTable.TryDeclare(symbol: structSymbol))
                 {
@@ -1056,6 +1222,7 @@ public class SemanticAnalyzer : IAstVisitor<object?>
 
     /// <summary>
     /// Visits a throw statement that returns an error via Result.
+    /// Validates that only Crashable types can be thrown.
     /// </summary>
     /// <param name="node">Throw statement node</param>
     /// <returns>Null</returns>
@@ -1063,6 +1230,59 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     {
         // Visit the error expression
         node.Error.Accept(visitor: this);
+
+        // Validate that throw only accepts Crashable types, not string literals
+        if (node.Error is LiteralExpression literal)
+        {
+            if (literal.Value is string)
+            {
+                AddError(
+                    message: "Cannot throw a string literal. Use a Crashable error type instead (e.g., throw MyError())",
+                    location: node.Location);
+            }
+            else
+            {
+                AddError(
+                    message: "Cannot throw a literal value. Use a Crashable error type instead",
+                    location: node.Location);
+            }
+            return null;
+        }
+
+        // Check if it's a call expression to a Crashable type constructor
+        if (node.Error is CallExpression callExpr)
+        {
+            string? typeName = null;
+            if (callExpr.Callee is IdentifierExpression ident)
+            {
+                typeName = ident.Name;
+            }
+
+            if (typeName != null)
+            {
+                Symbol? symbol = _symbolTable.Lookup(name: typeName);
+                if (symbol is StructSymbol structSymbol)
+                {
+                    if (!structSymbol.IsCrashable)
+                    {
+                        AddError(
+                            message: $"Cannot throw '{typeName}': type does not implement Crashable feature",
+                            location: node.Location);
+                    }
+                }
+                else if (symbol == null)
+                {
+                    // Type not found - will be caught by other semantic checks
+                }
+                else
+                {
+                    AddError(
+                        message: $"Cannot throw '{typeName}': only Crashable record types can be thrown",
+                        location: node.Location);
+                }
+            }
+        }
+
         return null;
     }
 
@@ -1166,6 +1386,98 @@ public class SemanticAnalyzer : IAstVisitor<object?>
             TokenType.None => new TypeInfo(Name: "none", IsReference: false),
             _ => InferLiteralType(value: node.Value) // Fallback to runtime type inference
         };
+    }
+
+    /// <summary>
+    /// Visits a list literal expression [1, 2, 3] and infers its type.
+    /// </summary>
+    public object? VisitListLiteralExpression(ListLiteralExpression node)
+    {
+        TypeInfo? elementType = null;
+
+        // Analyze each element and infer element type from first element
+        foreach (Expression element in node.Elements)
+        {
+            var type = element.Accept(visitor: this) as TypeInfo;
+            if (elementType == null && type != null)
+            {
+                elementType = type;
+            }
+            // TODO: Check that all elements have compatible types
+        }
+
+        // Use explicit type annotation if provided
+        if (node.ElementType != null)
+        {
+            elementType = ResolveType(typeExpr: node.ElementType);
+        }
+
+        string typeName = elementType?.Name ?? "unknown";
+        return new TypeInfo(
+            Name: "List",
+            IsReference: true,
+            GenericArguments: [new TypeInfo(Name: typeName, IsReference: false)]
+        );
+    }
+
+    /// <summary>
+    /// Visits a set literal expression {1, 2, 3} and infers its type.
+    /// </summary>
+    public object? VisitSetLiteralExpression(SetLiteralExpression node)
+    {
+        TypeInfo? elementType = null;
+
+        foreach (Expression element in node.Elements)
+        {
+            var type = element.Accept(visitor: this) as TypeInfo;
+            if (elementType == null && type != null)
+            {
+                elementType = type;
+            }
+        }
+
+        if (node.ElementType != null)
+        {
+            elementType = ResolveType(typeExpr: node.ElementType);
+        }
+
+        string typeName = elementType?.Name ?? "unknown";
+        return new TypeInfo(
+            Name: "Set",
+            IsReference: true,
+            GenericArguments: [new TypeInfo(Name: typeName, IsReference: false)]
+        );
+    }
+
+    /// <summary>
+    /// Visits a dict literal expression {k: v} and infers its type.
+    /// </summary>
+    public object? VisitDictLiteralExpression(DictLiteralExpression node)
+    {
+        TypeInfo? keyType = null;
+        TypeInfo? valueType = null;
+
+        foreach (var (key, value) in node.Pairs)
+        {
+            var kt = key.Accept(visitor: this) as TypeInfo;
+            var vt = value.Accept(visitor: this) as TypeInfo;
+            if (keyType == null && kt != null) keyType = kt;
+            if (valueType == null && vt != null) valueType = vt;
+        }
+
+        if (node.KeyType != null) keyType = ResolveType(typeExpr: node.KeyType);
+        if (node.ValueType != null) valueType = ResolveType(typeExpr: node.ValueType);
+
+        string keyTypeName = keyType?.Name ?? "unknown";
+        string valueTypeName = valueType?.Name ?? "unknown";
+        return new TypeInfo(
+            Name: "Dict",
+            IsReference: true,
+            GenericArguments: [
+                new TypeInfo(Name: keyTypeName, IsReference: false),
+                new TypeInfo(Name: valueTypeName, IsReference: false)
+            ]
+        );
     }
 
     /// <summary>
@@ -1342,6 +1654,42 @@ public class SemanticAnalyzer : IAstVisitor<object?>
                     // Return the target type as the result type
                     return new TypeInfo(Name: baseTypeName, IsReference: false);
                 }
+            }
+
+            // Check for error intrinsics (verify!, breach!, stop!)
+            if (IsErrorIntrinsic(functionName: functionName))
+            {
+                // Validate arguments for each intrinsic
+                if (functionName == "verify!")
+                {
+                    if (node.Arguments.Count == 0)
+                    {
+                        AddError(
+                            message: "verify!() requires at least one argument (condition)",
+                            location: node.Location);
+                    }
+                    else
+                    {
+                        // Type check the condition argument
+                        node.Arguments[index: 0].Accept(visitor: this);
+                        // Optionally type check message argument
+                        if (node.Arguments.Count > 1)
+                        {
+                            node.Arguments[index: 1].Accept(visitor: this);
+                        }
+                    }
+                }
+                else
+                {
+                    // breach! and stop! have optional message argument
+                    foreach (Expression arg in node.Arguments)
+                    {
+                        arg.Accept(visitor: this);
+                    }
+                }
+
+                // Error intrinsics return void (they don't return on failure)
+                return new TypeInfo(Name: "void", IsReference: false);
             }
 
             if (IsNonGenericDangerZoneFunction(functionName: functionName))
@@ -1584,6 +1932,17 @@ public class SemanticAnalyzer : IAstVisitor<object?>
 
         // TODO: Return common type of true/false branches
         return trueType;
+    }
+
+    /// <summary>
+    /// Visits a block expression and returns the type of its value expression.
+    /// </summary>
+    /// <param name="node">Block expression node</param>
+    /// <returns>TypeInfo of the block's value expression</returns>
+    public object? VisitBlockExpression(BlockExpression node)
+    {
+        // A block expression evaluates to its inner expression
+        return node.Value.Accept(visitor: this);
     }
 
     /// <summary>
@@ -2916,6 +3275,29 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         return new TypeInfo(Name: "intrinsic_result", IsReference: false);
     }
 
+    public object? VisitNativeCallExpression(NativeCallExpression node)
+    {
+        // Native calls can only be used inside danger! blocks
+        if (!_isInDangerMode)
+        {
+            AddError(
+                message:
+                $"Native call '@native.{node.FunctionName}' can only be used inside danger! blocks",
+                location: node.Location);
+            return null;
+        }
+
+        // Visit arguments for type checking
+        foreach (Expression arg in node.Arguments)
+        {
+            arg.Accept(visitor: this);
+        }
+
+        // Native calls return uaddr by default (pointer-sized value)
+        // The actual return type depends on the native function signature
+        return new TypeInfo(Name: "uaddr", IsReference: false);
+    }
+
     /// <summary>
     /// Visits an external declaration for FFI bindings.
     /// Registers external functions in the symbol table.
@@ -3433,6 +3815,18 @@ public class SemanticAnalyzer : IAstVisitor<object?>
         return functionName switch
         {
             "address_of" or "invalidate" => true,
+            _ => false
+        };
+    }
+
+    /// <summary>
+    /// Checks if a function name is an error intrinsic (verify!, breach!, stop!).
+    /// </summary>
+    private bool IsErrorIntrinsic(string functionName)
+    {
+        return functionName switch
+        {
+            "verify!" or "breach!" or "stop!" => true,
             _ => false
         };
     }
@@ -4404,5 +4798,21 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     {
         // Type check the value expression
         return node.Value.Accept(visitor: this);
+    }
+
+    /// <summary>
+    /// Visits a struct literal expression (Type { field: value, ... }).
+    /// Verifies the type exists and all fields are properly initialized.
+    /// </summary>
+    public object? VisitStructLiteralExpression(StructLiteralExpression node)
+    {
+        // Type check all field value expressions
+        foreach (var field in node.Fields)
+        {
+            field.Value.Accept(visitor: this);
+        }
+
+        // TODO: Verify struct type exists and fields match
+        return null;
     }
 }

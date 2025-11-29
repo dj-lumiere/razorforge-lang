@@ -40,9 +40,14 @@ public class StackTraceCodeGen
         _output.AppendLine(value: "; __rf_stack_push(file_id, routine_id, type_id, line, column)");
         _output.AppendLine(value: "declare void @__rf_stack_push(i32, i32, i32, i32, i32)");
         _output.AppendLine(value: "declare void @__rf_stack_pop()");
-        _output.AppendLine(value: "declare void @__rf_stack_capture()");
         _output.AppendLine(value: "declare void @__rf_throw(i8*, i8*)");
         _output.AppendLine(value: "declare void @__rf_throw_absent()");
+        _output.AppendLine(value: "declare void @__rf_throw_index_out_of_bounds(i32, i32)");
+        _output.AppendLine(value: "declare void @__rf_throw_integer_overflow(i8*)");
+        _output.AppendLine(value: "declare void @__rf_throw_empty_collection(i8*)");
+        _output.AppendLine(value: "declare void @__rf_throw_element_not_found()");
+        _output.AppendLine(value: "; __rf_init_symbol_tables(file_table, file_count, routine_table, routine_count, type_table, type_count)");
+        _output.AppendLine(value: "declare void @__rf_init_symbol_tables(i8**, i32, i8**, i32, i8**, i32)");
         _output.AppendLine();
     }
 
@@ -135,6 +140,62 @@ public class StackTraceCodeGen
     }
 
     /// <summary>
+    /// Emits the symbol table initialization function and registers it with llvm.global_ctors.
+    /// This ensures symbol tables are initialized before main() runs.
+    /// Call this AFTER EmitSymbolTables() so counts are finalized.
+    /// </summary>
+    public void EmitSymbolTableInitFunction()
+    {
+        if (!Enabled) return;
+
+        // Get table pointers - use bitcast for empty tables to avoid type issues
+        string fileTablePtr;
+        string routineTablePtr;
+        string typeTablePtr;
+
+        if (_symbolTables.FileCount > 0)
+        {
+            fileTablePtr = $"bitcast ([{_symbolTables.FileCount} x i8*]* @__rf_file_table to i8**)";
+        }
+        else
+        {
+            fileTablePtr = "null";
+        }
+
+        if (_symbolTables.RoutineCount > 0)
+        {
+            routineTablePtr = $"bitcast ([{_symbolTables.RoutineCount} x i8*]* @__rf_routine_table to i8**)";
+        }
+        else
+        {
+            routineTablePtr = "null";
+        }
+
+        if (_symbolTables.TypeCount > 0)
+        {
+            typeTablePtr = $"bitcast ([{_symbolTables.TypeCount} x i8*]* @__rf_type_table to i8**)";
+        }
+        else
+        {
+            typeTablePtr = "null";
+        }
+
+        // Emit the initialization function
+        _output.AppendLine(value: "; Symbol table initialization function");
+        _output.AppendLine(value: "define internal void @__rf_init_symbols() {");
+        _output.AppendLine(value: "entry:");
+        _output.AppendLine(value: $"  call void @__rf_init_symbol_tables(i8** {fileTablePtr}, i32 {_symbolTables.FileCount}, i8** {routineTablePtr}, i32 {_symbolTables.RoutineCount}, i8** {typeTablePtr}, i32 {_symbolTables.TypeCount})");
+        _output.AppendLine(value: "  ret void");
+        _output.AppendLine(value: "}");
+        _output.AppendLine();
+
+        // Register with llvm.global_ctors to run before main
+        _output.AppendLine(value: "; Register initialization function to run before main");
+        _output.AppendLine(value: "@llvm.global_ctors = appending global [1 x { i32, void ()*, i8* }] [{ i32, void ()*, i8* } { i32 65535, void ()* @__rf_init_symbols, i8* null }]");
+        _output.AppendLine();
+    }
+
+    /// <summary>
     /// Emits code to push a stack frame at routine entry.
     /// </summary>
     /// <param name="fileId">The file ID from SymbolTables</param>
@@ -176,25 +237,16 @@ public class StackTraceCodeGen
             return;
         }
 
-        _output.AppendLine(value: "  call void @__rf_stack_capture()");
         _output.AppendLine(value: $"  call void @__rf_throw(i8* {errorTypePtr}, i8* {messagePtr})");
         _output.AppendLine(value: "  unreachable");
     }
 
     /// <summary>
     /// Emits code for an absent statement.
-    /// Captures the stack trace and throws AbsentValueError.
+    /// Throws AbsentValueError (the runtime prints the current stack).
     /// </summary>
     public void EmitAbsent()
     {
-        if (!Enabled)
-        {
-            _output.AppendLine(value: "  call void @__rf_throw_absent()");
-            _output.AppendLine(value: "  unreachable");
-            return;
-        }
-
-        _output.AppendLine(value: "  call void @__rf_stack_capture()");
         _output.AppendLine(value: "  call void @__rf_throw_absent()");
         _output.AppendLine(value: "  unreachable");
     }

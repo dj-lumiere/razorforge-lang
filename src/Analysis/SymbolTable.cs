@@ -216,11 +216,15 @@ public record StructSymbol(
     string Name,
     VisibilityModifier Visibility,
     List<string>? GenericParameters = null,
-    List<GenericConstraint>? GenericConstraints = null)
+    List<GenericConstraint>? GenericConstraints = null,
+    List<string>? Interfaces = null)
     : Symbol(Name: Name, Type: null, Visibility: Visibility)
 {
     /// <summary>true if this record has generic parameters</summary>
     public bool IsGeneric => GenericParameters != null && GenericParameters.Count > 0;
+
+    /// <summary>true if this record implements the Crashable feature</summary>
+    public bool IsCrashable => Interfaces?.Contains(item: "Crashable") ?? false;
 }
 
 /// <summary>
