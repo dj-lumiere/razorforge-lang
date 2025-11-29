@@ -1,0 +1,19 @@
+namespace standard/errors
+
+# Error - Base error record with message and stack trace
+#
+# This is the core error type used by Result<T> and Lookup<T>.
+# All fields are compiler-generated when throw is executed.
+#
+# Size: ~228 bytes (fixed, fits inline in type unions)
+
+import errors/message
+import errors/stacktrace
+
+record Error follows Crashable {
+    routine crash_message() -> Text {
+        # Dereference the message pointer to get the string
+        # This is handled by compiler intrinsic
+        return @intrinsic.ptr_to_text(me.message_handle.ptr)
+    }
+}
