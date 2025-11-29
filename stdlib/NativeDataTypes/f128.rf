@@ -67,18 +67,6 @@ routine f128.__neg__() -> f128 {
 # Comparison Operations (ordered - false if NaN)
 # ============================================================================
 
-routine f128.__eq__(other: f128) -> bool {
-    danger! {
-        return @intrinsic.fcmp.oeq<fp128>(me, other)
-    }
-}
-
-routine f128.__ne__(other: f128) -> bool {
-    danger! {
-        return @intrinsic.fcmp.one<fp128>(me, other)
-    }
-}
-
 routine f128.__lt__(other: f128) -> bool {
     danger! {
         return @intrinsic.fcmp.olt<fp128>(me, other)

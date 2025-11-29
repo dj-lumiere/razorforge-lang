@@ -67,18 +67,6 @@ routine f32.__neg__() -> f32 {
 # Comparison Operations (ordered - false if NaN)
 # ============================================================================
 
-routine f32.__eq__(other: f32) -> bool {
-    danger! {
-        return @intrinsic.fcmp.oeq<float>(me, other)
-    }
-}
-
-routine f32.__ne__(other: f32) -> bool {
-    danger! {
-        return @intrinsic.fcmp.one<float>(me, other)
-    }
-}
-
 routine f32.__lt__(other: f32) -> bool {
     danger! {
         return @intrinsic.fcmp.olt<float>(me, other)

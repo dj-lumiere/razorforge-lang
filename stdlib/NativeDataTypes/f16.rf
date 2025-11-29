@@ -65,18 +65,6 @@ routine f16.__neg__() -> f16 {
 # Comparison Operations (ordered - false if NaN)
 # ============================================================================
 
-routine f16.__eq__(other: f16) -> bool {
-    danger! {
-        return @intrinsic.fcmp.oeq<half>(me, other)
-    }
-}
-
-routine f16.__ne__(other: f16) -> bool {
-    danger! {
-        return @intrinsic.fcmp.one<half>(me, other)
-    }
-}
-
 routine f16.__lt__(other: f16) -> bool {
     danger! {
         return @intrinsic.fcmp.olt<half>(me, other)

@@ -53,18 +53,6 @@ routine f64.__neg__() -> f64 {
 # Comparison Operations (ordered - false if NaN)
 # ============================================================================
 
-routine f64.__eq__(other: f64) -> bool {
-    danger! {
-        return @intrinsic.fcmp.oeq<double>(me, other)
-    }
-}
-
-routine f64.__ne__(other: f64) -> bool {
-    danger! {
-        return @intrinsic.fcmp.one<double>(me, other)
-    }
-}
-
 routine f64.__lt__(other: f64) -> bool {
     danger! {
         return @intrinsic.fcmp.olt<double>(me, other)
