@@ -51,15 +51,9 @@ routine f32.__mul__(other: f32) -> f32 {
     }
 }
 
-routine f32.__div__(other: f32) -> f32 {
+routine f32.__truediv__(other: f32) -> f32 {
     danger! {
         return @intrinsic.div.wrapping<float>(me, other)
-    }
-}
-
-routine f32.__rem__(other: f32) -> f32 {
-    danger! {
-        return @intrinsic.rem.wrapping<float>(me, other)
     }
 }
 

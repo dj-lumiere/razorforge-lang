@@ -49,15 +49,9 @@ routine f16.__mul__(other: f16) -> f16 {
     }
 }
 
-routine f16.__div__(other: f16) -> f16 {
+routine f16.__truediv__(other: f16) -> f16 {
     danger! {
         return @intrinsic.div.wrapping<half>(me, other)
-    }
-}
-
-routine f16.__rem__(other: f16) -> f16 {
-    danger! {
-        return @intrinsic.rem.wrapping<half>(me, other)
     }
 }
 

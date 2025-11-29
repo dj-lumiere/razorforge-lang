@@ -8,4 +8,5 @@ namespace standard/errors
 record StackTrace {
     frames: ValueList<StackFrame, 10>
     depth: u32
+    truncated: bool
 }

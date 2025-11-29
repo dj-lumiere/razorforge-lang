@@ -6,6 +6,7 @@ protocol Crashable {
     routine_id: u32
     line_no: u32
     column_no: u32
+    error_code: u32
 
     # Required routine
     routine crash_message() -> Text

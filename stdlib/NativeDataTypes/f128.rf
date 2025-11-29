@@ -51,15 +51,9 @@ routine f128.__mul__(other: f128) -> f128 {
     }
 }
 
-routine f128.__div__(other: f128) -> f128 {
+routine f128.__truediv__(other: f128) -> f128 {
     danger! {
         return @intrinsic.div.wrapping<fp128>(me, other)
-    }
-}
-
-routine f128.__rem__(other: f128) -> f128 {
-    danger! {
-        return @intrinsic.rem.wrapping<fp128>(me, other)
     }
 }
 

@@ -37,15 +37,9 @@ routine f64.__mul__(other: f64) -> f64 {
     }
 }
 
-routine f64.__div__(other: f64) -> f64 {
+routine f64.__truediv__(other: f64) -> f64 {
     danger! {
         return @intrinsic.div.wrapping<double>(me, other)
-    }
-}
-
-routine f64.__rem__(other: f64) -> f64 {
-    danger! {
-        return @intrinsic.rem.wrapping<double>(me, other)
     }
 }
 
