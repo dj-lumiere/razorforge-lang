@@ -1,0 +1,7 @@
+record NegativeExponentError follows Crashable {
+    private s128 exp
+
+    routine crash_message() -> Text<letter32> {
+        return f"Negative exponent {me.exp} results in a fraction, which is not supported for integer types."
+    }
+}
