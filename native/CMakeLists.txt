@@ -32,9 +32,10 @@ add_subdirectory(libbf)
 # mafm - Multiple precision arithmetic
 add_subdirectory(mafm)
 
-# Runtime library for memory management only (math libraries disabled for now)
+# Runtime library for memory management and error handling
 add_library(razorforge_runtime SHARED
     runtime/memory.c
+    runtime/stacktrace.c
 )
 
 target_include_directories(razorforge_runtime PUBLIC include)

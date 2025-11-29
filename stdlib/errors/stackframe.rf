@@ -1,0 +1,15 @@
+namespace standard/errors
+
+# StackFrame - Runtime stack frame for error tracking
+#
+# Each frame represents a single routine call in the call stack.
+# All fields are u32 IDs that reference compiler-generated lookup tables.
+
+record StackFrame {
+    file_id: u32
+    routine_id: u32
+    namespace_id: u32
+    type_id: u32
+    line_no: u32
+    column_no: u32
+}

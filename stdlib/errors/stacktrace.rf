@@ -1,0 +1,11 @@
+namespace standard/errors
+
+# StackTrace - Collection of stack frames captured at error time
+#
+# Contains up to 10 stack frames, stored inline as a ValueList.
+# The depth field indicates how many frames are actually valid.
+
+record StackTrace {
+    frames: ValueList<StackFrame, 10>
+    depth: u32
+}
