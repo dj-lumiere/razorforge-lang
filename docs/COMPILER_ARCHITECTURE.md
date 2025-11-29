@@ -39,7 +39,20 @@ Source Code (.rf/.sf)
     - Produces: .exe/.out binary
 ```
 
-**Entry Point:** `src/CLI/Program.cs:94` (Main method)
+**Compiler Entry Point:** `src/CLI/Program.cs:94` (Main method)
+
+**Language Entry Point:** `routine main()` - Returns `Blank` (no return type specified, no return statement needed)
+
+```razorforge
+routine main() {
+    Console.show_line("Hello, RazorForge!")
+}
+```
+
+**C ABI Compatibility:** The code generator automatically treats `main()` specially:
+- Generates `define i32 @main()` in LLVM IR (not `void`)
+- Adds implicit `ret i32 0` at the end
+- This ensures proper exit code handling on all platforms
 
 ---
 
@@ -75,7 +88,6 @@ src/
 └── CodeGen/
     ├── LLVMCodeGenerator.cs    # LLVM IR generation ⭐
     ├── SimpleCodeGenerator.cs  # Readable output generation
-    ├── MathLibrarySupport.cs   # Math intrinsics
     └── TargetPlatform.cs       # Platform-specific config (Win/Linux/macOS)
 
 ⭐ = Files with generic/import/variant implementation

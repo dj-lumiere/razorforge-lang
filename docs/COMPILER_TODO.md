@@ -6,6 +6,7 @@ This document tracks compiler features needed for full RazorForge standard libra
 
 ### ✅ Working Features
 
+- Entry point: `routine main()` returns `Blank` (no return type, no return statement needed) - compiler automatically generates `i32` return for C ABI compatibility
 - Basic function declarations and calls
 - Primitive types (s32, u64, f64, bool, etc.)
 - Duration literals (5w, 3d, 2h, 30m, 45s, 100ms, 500us, 1000ns)

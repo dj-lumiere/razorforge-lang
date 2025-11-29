@@ -150,9 +150,9 @@ Source Code:
         return value
     }
 
-    routine main() -> s32 {
+    routine main() {
         let x = identity<s32>(42)
-        return x
+        Console.show_line(x)
     }
 
 
@@ -647,6 +647,15 @@ IMPORTS:
 │ Symbol population              │ ❌ TODO  │ Add to symbol table       │
 │ Circular detection             │ ❌ TODO  │ Track loaded modules      │
 │ Transitive imports             │ ❌ TODO  │ Handle nested imports     │
+└────────────────────────────────┴──────────┴───────────────────────────┘
+
+ENTRY POINT:
+┌────────────────────────────────┬──────────┬───────────────────────────┐
+│ Feature                        │ Status   │ Notes                     │
+├────────────────────────────────┼──────────┼───────────────────────────┤
+│ routine main() returns Blank   │ ✅ DONE  │ No return type needed     │
+│ C ABI compatibility            │ ✅ DONE  │ Generates i32 @main()     │
+│ Implicit ret i32 0             │ ✅ DONE  │ Auto-added for main()     │
 └────────────────────────────────┴──────────┴───────────────────────────┘
 
 FAILABLE FUNCTIONS & ERROR HANDLING:
