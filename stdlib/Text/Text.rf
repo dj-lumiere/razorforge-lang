@@ -4,6 +4,8 @@
 # Immutable - use TextBuffer<T> for mutable text
 
 import Collections/List
+import memory/DynamicSlice
+import memory/MemorySize
 
 entity Text<T> {
     private letters: List<T>  # Dynamic array of letters
@@ -11,27 +13,22 @@ entity Text<T> {
 
 # Constructors
 
-routine Text<T>() -> Text<T> {
+routine Text<T>.__create__() -> Text<T> {
     # Create empty text
-    return Text<T> {
-        letters: List<T>()
-    }
+    return Text<T>(letters: List<T>())
 }
 
-routine Text<T>(from_list: List<T>) -> Text<T> {
+routine Text<T>.__create__(from_list: List<T>) -> Text<T> {
     # Create text from list of letters
-    return Text<T> {
-        letters: from_list
-    }
+    return Text<T>(letters: from_list)
 }
 
-routine Text<T>(from_letter: T) -> Text<T> {
+
+routine Text<T>.__create__(from_letter: T) -> Text<T> {
     # Create text from single letter
     let list = List<T>()
     list.push(from_letter)
-    return Text<T> {
-        letters: list
-    }
+    return Text<T>(letters: list)
 }
 
 # Core operations
@@ -99,7 +96,7 @@ routine Text<T>.slice(me: Text<T>, start: u64, end: u64) -> Text<T> {
     return Text<T>(from_list: result)
 }
 
-routine Text<T>.eq(me: Text<T>, other: Text<T>) -> bool {
+routine Text<T>.__eq__(me: Text<T>, other: Text<T>) -> bool {
     # Compare texts for equality
     if me.length() != other.length() {
         return false
@@ -160,4 +157,86 @@ routine TextIterator<T>.next(me: TextIterator<T>) -> T? {
     let value = me.text.get(me.index)
     me.index = me.index + 1u64
     return some(value)
+}
+
+# C-String Conversion (for runtime interop)
+
+routine Text<letter8>.to_cstr(me: Text<letter8>) -> uaddr {
+    # Convert Text<letter8> to null-terminated C string
+    # Returns pointer to newly allocated memory (caller must free)
+    let len = me.length()
+    let buffer = DynamicSlice(MemorySize(len + 1u64))  # +1 for null terminator
+
+    # Copy characters
+    var i: u64 = 0u64
+    loop {
+        if i >= len {
+            break
+        }
+        buffer.write<letter8>!(i, me.get(i))
+        i = i + 1u64
+    }
+
+    # Add null terminator
+    buffer.write<letter8>!(len, 0u8)
+
+    # Return raw pointer (caller owns the memory)
+    return buffer.snatch!(0u64)
+}
+
+routine Text<letter32>.to_cstr(me: Text<letter>) -> uaddr {
+    # Convert Text<letter32> (UTF-32) to null-terminated UTF-8 C string
+    # Returns pointer to newly allocated memory (caller must free)
+    # Note: Each letter (u32 codepoint) may need 1-4 bytes in UTF-8
+    let len = me.length()
+
+    # Worst case: 4 bytes per codepoint + null terminator
+    let max_size = (len * 4u64) + 1u64
+    let buffer = DynamicSlice(MemorySize(max_size))
+
+    var write_pos: u64 = 0u64
+    var i: u64 = 0u64
+    loop {
+        if i >= len {
+            break
+        }
+        let codepoint = u32!(me.get(i))
+
+        when true {
+            codepoint <= 0x7Fu32 => {
+                # 1-byte UTF-8 (ASCII)
+                buffer.write<u8>!(write_pos, u8!(codepoint))
+                write_pos = write_pos + 1u64
+            }
+            codepoint <= 0x7FFu32 => {
+                # 2-byte UTF-8
+                buffer.write<u8>!(write_pos, u8!(0xC0u32 | (codepoint >> 6u32)))
+                buffer.write<u8>!(write_pos + 1u64, u8!(0x80u32 | (codepoint & 0x3Fu32)))
+                write_pos = write_pos + 2u64
+            }
+            codepoint <= 0xFFFFu32 => {
+                # 3-byte UTF-8
+                buffer.write<u8>!(write_pos, u8!(0xE0u32 | (codepoint >> 12u32)))
+                buffer.write<u8>!(write_pos + 1u64, u8!(0x80u32 | ((codepoint >> 6u32) & 0x3Fu32)))
+                buffer.write<u8>!(write_pos + 2u64, u8!(0x80u32 | (codepoint & 0x3Fu32)))
+                write_pos = write_pos + 3u64
+            }
+            _ => {
+                # 4-byte UTF-8
+                buffer.write<u8>!(write_pos, u8!(0xF0u32 | (codepoint >> 18u32)))
+                buffer.write<u8>!(write_pos + 1u64, u8!(0x80u32 | ((codepoint >> 12u32) & 0x3Fu32)))
+                buffer.write<u8>!(write_pos + 2u64, u8!(0x80u32 | ((codepoint >> 6u32) & 0x3Fu32)))
+                buffer.write<u8>!(write_pos + 3u64, u8!(0x80u32 | (codepoint & 0x3Fu32)))
+                write_pos = write_pos + 4u64
+            }
+        }
+
+        i = i + 1u64
+    }
+
+    # Add null terminator
+    buffer.write<u8>!(write_pos, 0u8)
+
+    # Return raw pointer (caller owns the memory)
+    return buffer.snatch!(0u64)
 }
