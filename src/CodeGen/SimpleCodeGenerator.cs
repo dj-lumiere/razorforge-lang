@@ -344,6 +344,12 @@ public class SimpleCodeGenerator : IAstVisitor<string>
         return "";
     }
 
+    public string VisitNamespaceDeclaration(NamespaceDeclaration node)
+    {
+        WriteLine(text: $"namespace {node.Path}");
+        return "";
+    }
+
     public string VisitRedefinitionDeclaration(RedefinitionDeclaration node)
     {
         WriteLine(text: $"redefine {node.OldName} as {node.NewName}");

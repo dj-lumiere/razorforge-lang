@@ -388,6 +388,9 @@ public enum TokenType
     /// <summary>Import statement keyword</summary>
     Import,
 
+    /// <summary>Namespace declaration keyword</summary>
+    Namespace,
+
     #endregion
 
     #region Keywords - Special

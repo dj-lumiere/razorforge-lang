@@ -369,6 +369,31 @@ public record ImplementationDeclaration(
 #region Import and Module Declarations
 
 /// <summary>
+/// Namespace declaration that establishes the module path for all symbols in a file.
+/// Must appear at the top of a source file, before any other declarations.
+/// </summary>
+/// <param name="Path">Slash-separated namespace path (e.g., "standard/errors")</param>
+/// <param name="Location">Source location information</param>
+/// <remarks>
+/// Namespace declarations establish module identity:
+/// <list type="bullet">
+/// <item>Module path: namespace standard/errors</item>
+/// <item>Nested namespaces: namespace company/project/utils</item>
+/// <item>Symbol qualification: types become fully qualified as path.TypeName</item>
+/// <item>Import resolution: other files import this namespace by path</item>
+/// </list>
+/// </remarks>
+public record NamespaceDeclaration(
+    string Path,
+    SourceLocation Location) : Declaration(Location: Location)
+{
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitNamespaceDeclaration(node: this);
+    }
+}
+
+/// <summary>
 /// Import declaration that brings external modules and symbols into scope.
 /// Enables code organization and dependency management.
 /// </summary>

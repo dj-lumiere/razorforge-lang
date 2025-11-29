@@ -49,6 +49,7 @@ public class RazorForgeTokenizer : BaseTokenizer
         [key: "from"] = TokenType.From,
         [key: "follows"] = TokenType.Follows,
         [key: "import"] = TokenType.Import,
+        [key: "namespace"] = TokenType.Namespace,
         [key: "define"] = TokenType.Define,
         [key: "using"] = TokenType.Using,
         [key: "as"] = TokenType.As,

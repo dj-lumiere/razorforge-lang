@@ -348,6 +348,11 @@ public interface IAstVisitor<T>
     /// <returns>Result of visiting the import declaration</returns>
     T VisitImportDeclaration(ImportDeclaration node);
 
+    /// <summary>Visits a namespace declaration node (module path declaration)</summary>
+    /// <param name="node">The namespace declaration to visit</param>
+    /// <returns>Result of visiting the namespace declaration</returns>
+    T VisitNamespaceDeclaration(NamespaceDeclaration node);
+
     /// <summary>Visits a redefinition declaration node (symbol aliasing)</summary>
     /// <param name="node">The redefinition declaration to visit</param>
     /// <returns>Result of visiting the redefinition declaration</returns>

@@ -419,6 +419,10 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
     {
         return null;
     }
+    public object? VisitNamespaceDeclaration(NamespaceDeclaration node)
+    {
+        return null;
+    }
     public object? VisitRedefinitionDeclaration(RedefinitionDeclaration node)
     {
         return null;

@@ -665,6 +665,18 @@ public class SemanticAnalyzer : IAstVisitor<object?>
     }
 
     /// <summary>
+    /// Visits a namespace declaration that establishes the module path for the file.
+    /// </summary>
+    /// <param name="node">Namespace declaration node</param>
+    /// <returns>Null</returns>
+    public object? VisitNamespaceDeclaration(NamespaceDeclaration node)
+    {
+        // Namespace declarations establish the module path for symbol resolution
+        // This is handled at a higher level during module loading
+        return null;
+    }
+
+    /// <summary>
     /// Visits a redefinition declaration that redefines an existing function.
     /// Validates that the original function exists and signatures match.
     /// </summary>

@@ -66,6 +66,12 @@ public class SuflaeParser : BaseParser
 
     private IAstNode? ParseDeclaration()
     {
+        // Namespace declaration (must appear at top of file)
+        if (Match(type: TokenType.Namespace))
+        {
+            return ParseNamespaceDeclaration();
+        }
+
         // Import declaration
         if (Match(type: TokenType.Import))
         {
@@ -748,6 +754,33 @@ public class SuflaeParser : BaseParser
 
         return new ImplementationDeclaration(Type: type, Trait: trait, Methods: methods,
             Location: location);
+    }
+
+    private NamespaceDeclaration ParseNamespaceDeclaration()
+    {
+        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
+
+        string namespacePath = "";
+
+        // Parse namespace path - could be multiple identifiers separated by slashes
+        // e.g., namespace standard/errors
+        do
+        {
+            string part = ConsumeIdentifier(errorMessage: "Expected namespace name");
+            namespacePath += part;
+            if (Match(type: TokenType.Slash))
+            {
+                namespacePath += "/";
+            }
+            else
+            {
+                break;
+            }
+        } while (true);
+
+        ConsumeStatementTerminator();
+
+        return new NamespaceDeclaration(Path: namespacePath, Location: location);
     }
 
     private ImportDeclaration ParseImportDeclaration()
