@@ -32,7 +32,7 @@ public class RazorForgeTokenizer : BaseTokenizer
         [key: "me"] = TokenType.Self,
         [key: "parent"] = TokenType.Super,
         [key: "if"] = TokenType.If,
-        [key: "elif"] = TokenType.Elif,
+        [key: "elseif"] = TokenType.Elseif,
         [key: "else"] = TokenType.Else,
         [key: "then"] = TokenType.Then,
         [key: "unless"] = TokenType.Unless,
@@ -63,7 +63,8 @@ public class RazorForgeTokenizer : BaseTokenizer
         [key: "notfollows"] = TokenType.NotFollows,
         [key: "in"] = TokenType.In,
         [key: "to"] = TokenType.To,
-        [key: "step"] = TokenType.Step,
+        [key: "downto"] = TokenType.Downto,
+        [key: "by"] = TokenType.By,
         [key: "and"] = TokenType.And,
         [key: "or"] = TokenType.Or,
         [key: "not"] = TokenType.Not,
@@ -189,8 +190,8 @@ public class RazorForgeTokenizer : BaseTokenizer
                         : TokenType.NotEqual
                     : TokenType.Bang); break;
             case '?':
-                AddToken(type: Match(expected: ':')
-                    ? TokenType.QuestionColon
+                AddToken(type: Match(expected: '?')
+                    ? TokenType.NoneCoalesce
                     : TokenType.Question); break;
 
             // Arithmetic operators (delegated to specialized methods)
@@ -216,12 +217,8 @@ public class RazorForgeTokenizer : BaseTokenizer
                         ? TokenType.ReferenceEqual
                         : TokenType.Equal :
                     Match(expected: '>') ? TokenType.FatArrow : TokenType.Assign); break;
-            case '<':
-                AddToken(type: Match(expected: '=') ? TokenType.LessEqual :
-                    Match(expected: '<') ? TokenType.LeftShift : TokenType.Less); break;
-            case '>':
-                AddToken(type: Match(expected: '=') ? TokenType.GreaterEqual :
-                    Match(expected: '>') ? TokenType.RightShift : TokenType.Greater); break;
+            case '<': ScanLessThanOperator(); break;
+            case '>': ScanGreaterThanOperator(); break;
 
             // Single-character operators
             case '&': AddToken(type: TokenType.Ampersand); break;
@@ -240,6 +237,16 @@ public class RazorForgeTokenizer : BaseTokenizer
 
                     AddToken(type: TokenType.Intrinsic);
                 }
+                else if (Peek() == 'n' && PeekWord() == "native")
+                {
+                    // Consume "native"
+                    for (int i = 0; i < 6; i++)
+                    {
+                        Advance();
+                    }
+
+                    AddToken(type: TokenType.Native);
+                }
                 else
                 {
                     AddToken(type: TokenType.At);
@@ -253,8 +260,12 @@ public class RazorForgeTokenizer : BaseTokenizer
                 {
                     ScanPrefixedNumber(isHex: true);
                 }
-                else if (Match(expected: 'b') || Match(expected: 'B'))
+                else if ((Peek() == 'b' || Peek() == 'B') &&
+                         (Peek(offset: 1) == '0' || Peek(offset: 1) == '1' || Peek(offset: 1) == '_'))
                 {
+                    // Only treat as binary prefix if followed by binary digit or underscore
+                    // Otherwise, 'b' is a byte suffix (e.g., 0b = 0 bytes)
+                    Advance(); // consume 'b' or 'B'
                     ScanPrefixedNumber(isHex: false);
                 }
                 else
@@ -371,6 +382,68 @@ public class RazorForgeTokenizer : BaseTokenizer
         }
 
         AddToken(type: tokenType);
+    }
+
+    #endregion
+
+    #region Shift Operator Scanning
+
+    /// <summary>
+    /// Scans operators starting with '&lt;': &lt;, &lt;=, &lt;&lt;, &lt;&lt;?, &lt;&lt;&lt;
+    /// </summary>
+    private void ScanLessThanOperator()
+    {
+        if (Match(expected: '='))
+        {
+            AddToken(type: TokenType.LessEqual);
+        }
+        else if (Match(expected: '<'))
+        {
+            // << or <<? or <<<
+            if (Match(expected: '<'))
+            {
+                AddToken(type: TokenType.LogicalLeftShift); // <<<
+            }
+            else if (Match(expected: '?'))
+            {
+                AddToken(type: TokenType.LeftShiftChecked); // <<?
+            }
+            else
+            {
+                AddToken(type: TokenType.LeftShift); // <<
+            }
+        }
+        else
+        {
+            AddToken(type: TokenType.Less);
+        }
+    }
+
+    /// <summary>
+    /// Scans operators starting with '>': >, >=, >>, >>>
+    /// </summary>
+    private void ScanGreaterThanOperator()
+    {
+        if (Match(expected: '='))
+        {
+            AddToken(type: TokenType.GreaterEqual);
+        }
+        else if (Match(expected: '>'))
+        {
+            // >> or >>>
+            if (Match(expected: '>'))
+            {
+                AddToken(type: TokenType.LogicalRightShift); // >>>
+            }
+            else
+            {
+                AddToken(type: TokenType.RightShift); // >>
+            }
+        }
+        else
+        {
+            AddToken(type: TokenType.Greater);
+        }
     }
 
     #endregion

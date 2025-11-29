@@ -44,7 +44,7 @@ public class SuflaeTokenizer : BaseTokenizer
         [key: "me"] = TokenType.Self,
         [key: "parent"] = TokenType.Super,
         [key: "if"] = TokenType.If,
-        [key: "elif"] = TokenType.Elif,
+        [key: "elseif"] = TokenType.Elseif,
         [key: "else"] = TokenType.Else,
         [key: "then"] = TokenType.Then,
         [key: "unless"] = TokenType.Unless,
@@ -74,7 +74,8 @@ public class SuflaeTokenizer : BaseTokenizer
         [key: "notfollows"] = TokenType.NotFollows,
         [key: "in"] = TokenType.In,
         [key: "to"] = TokenType.To,
-        [key: "step"] = TokenType.Step,
+        [key: "downto"] = TokenType.Downto,
+        [key: "by"] = TokenType.By,
         [key: "and"] = TokenType.And,
         [key: "or"] = TokenType.Or,
         [key: "not"] = TokenType.Not,
@@ -250,12 +251,8 @@ public class SuflaeTokenizer : BaseTokenizer
                         ? TokenType.ReferenceNotEqual
                         : TokenType.NotEqual
                     : TokenType.Bang); break;
-            case '<':
-                AddToken(type: Match(expected: '=') ? TokenType.LessEqual :
-                    Match(expected: '<') ? TokenType.LeftShift : TokenType.Less); break;
-            case '>':
-                AddToken(type: Match(expected: '=') ? TokenType.GreaterEqual :
-                    Match(expected: '>') ? TokenType.RightShift : TokenType.Greater); break;
+            case '<': ScanLessThanOperator(); break;
+            case '>': ScanGreaterThanOperator(); break;
 
             // Single-character operators
             case '&': AddToken(type: TokenType.Ampersand); break;
@@ -263,10 +260,36 @@ public class SuflaeTokenizer : BaseTokenizer
             case '^': AddToken(type: TokenType.Caret); break;
             case '~': AddToken(type: TokenType.Tilde); break;
             case '?':
-                AddToken(type: Match(expected: ':')
-                    ? TokenType.QuestionColon
+                AddToken(type: Match(expected: '?')
+                    ? TokenType.NoneCoalesce
                     : TokenType.Question); break;
-            case '@': AddToken(type: TokenType.At); break;
+            case '@':
+                // Check for @intrinsic or @native
+                if (Peek() == 'i' && PeekWord() == "intrinsic")
+                {
+                    // Consume "intrinsic"
+                    for (int i = 0; i < 9; i++)
+                    {
+                        Advance();
+                    }
+
+                    AddToken(type: TokenType.Intrinsic);
+                }
+                else if (Peek() == 'n' && PeekWord() == "native")
+                {
+                    // Consume "native"
+                    for (int i = 0; i < 6; i++)
+                    {
+                        Advance();
+                    }
+
+                    AddToken(type: TokenType.Native);
+                }
+                else
+                {
+                    AddToken(type: TokenType.At);
+                }
+                break;
 
             // Numbers
             case '0':
@@ -708,6 +731,90 @@ public class SuflaeTokenizer : BaseTokenizer
             // Use Suflae's default Integer type for unsuffixed hex/binary numbers
             AddToken(type: TokenType.Integer);
         }
+    }
+
+    #endregion
+
+    #region Shift Operator Scanning
+
+    /// <summary>
+    /// Scans operators starting with '&lt;': &lt;, &lt;=, &lt;&lt;, &lt;&lt;?, &lt;&lt;&lt;
+    /// </summary>
+    private void ScanLessThanOperator()
+    {
+        if (Match(expected: '='))
+        {
+            AddToken(type: TokenType.LessEqual);
+        }
+        else if (Match(expected: '<'))
+        {
+            // << or <<? or <<<
+            if (Match(expected: '<'))
+            {
+                AddToken(type: TokenType.LogicalLeftShift); // <<<
+            }
+            else if (Match(expected: '?'))
+            {
+                AddToken(type: TokenType.LeftShiftChecked); // <<?
+            }
+            else
+            {
+                AddToken(type: TokenType.LeftShift); // <<
+            }
+        }
+        else
+        {
+            AddToken(type: TokenType.Less);
+        }
+    }
+
+    /// <summary>
+    /// Scans operators starting with '>': >, >=, >>, >>>
+    /// </summary>
+    private void ScanGreaterThanOperator()
+    {
+        if (Match(expected: '='))
+        {
+            AddToken(type: TokenType.GreaterEqual);
+        }
+        else if (Match(expected: '>'))
+        {
+            // >> or >>>
+            if (Match(expected: '>'))
+            {
+                AddToken(type: TokenType.LogicalRightShift); // >>>
+            }
+            else
+            {
+                AddToken(type: TokenType.RightShift); // >>
+            }
+        }
+        else
+        {
+            AddToken(type: TokenType.Greater);
+        }
+    }
+
+    #endregion
+
+    #region Helper Methods
+
+    /// <summary>
+    /// Peeks at the word starting at the current position without consuming it.
+    /// Used for multi-character token detection like @intrinsic and @native.
+    /// </summary>
+    private string PeekWord()
+    {
+        var word = new System.Text.StringBuilder();
+        int offset = 0;
+
+        while (!IsAtEnd() && char.IsLetterOrDigit(c: Peek(offset: offset)))
+        {
+            word.Append(value: Peek(offset: offset));
+            offset++;
+        }
+
+        return word.ToString();
     }
 
     #endregion

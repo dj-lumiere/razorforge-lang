@@ -339,8 +339,8 @@ public enum TokenType
     /// <summary>Conditional if statement keyword</summary>
     If,
 
-    /// <summary>Else-if conditional keyword</summary>
-    Elif,
+    /// <summary>Elseif conditional keyword</summary>
+    Elseif,
 
     /// <summary>Else conditional keyword</summary>
     Else,
@@ -440,11 +440,14 @@ public enum TokenType
     /// <summary>Not follows keyword - negated ordering constraint (notfollows)</summary>
     NotFollows,
 
-    /// <summary>To keyword for Range object(ex, for i in 1 to 10 step 2)</summary>
+    /// <summary>To keyword for Range object (ex, for i in 1 to 10 by 2)</summary>
     To,
 
-    /// <summary>Step keyword for Range object(ex, for i in 1 to 10 step 2)</summary>
-    Step,
+    /// <summary>Downto keyword for reverse Range object (ex, for i in 10 downto 1 by 2)</summary>
+    Downto,
+
+    /// <summary>By keyword for Range object step (ex, for i in 1 to 10 by 2)</summary>
+    By,
 
     #endregion
 
@@ -620,8 +623,17 @@ public enum TokenType
     /// <summary>Left bit shift operator (&lt;&lt;)</summary>
     LeftShift,
 
+    /// <summary>Checked left bit shift operator (&lt;&lt;?)</summary>
+    LeftShiftChecked,
+
     /// <summary>Right bit shift operator (>>)</summary>
     RightShift,
+
+    /// <summary>Logical left bit shift operator (&lt;&lt;&lt;)</summary>
+    LogicalLeftShift,
+
+    /// <summary>Logical right bit shift operator (>>>)</summary>
+    LogicalRightShift,
 
     #endregion
 
@@ -642,6 +654,9 @@ public enum TokenType
     /// <summary>Intrinsic function call (@intrinsic)</summary>
     Intrinsic,
 
+    /// <summary>Native function call (@native)</summary>
+    Native,
+
     /// <summary>Comment or preprocessing operator (#)</summary>
     Hash,
 
@@ -651,8 +666,8 @@ public enum TokenType
     /// <summary>Match/lambda fat arrow operator (=>)</summary>
     FatArrow,
 
-    /// <summary>Ternary conditional operator (?:)</summary>
-    QuestionColon,
+    /// <summary>None coalescing operator (??)</summary>
+    NoneCoalesce,
 
     #endregion
 
