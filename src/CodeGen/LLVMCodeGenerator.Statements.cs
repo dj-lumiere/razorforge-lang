@@ -12,7 +12,8 @@ public partial class LLVMCodeGenerator
         string elseLabel = GetNextLabel();
         string endLabel = GetNextLabel();
 
-        _output.AppendLine(handler: $"  br i1 {condition}, label %{thenLabel}, label %{elseLabel}");
+        _output.AppendLine(
+            handler: $"  br i1 {condition}, label %{thenLabel}, label %{elseLabel}");
 
         // Then block
         _output.AppendLine(handler: $"{thenLabel}:");
@@ -89,7 +90,10 @@ public partial class LLVMCodeGenerator
             if (valueTypeInfo.LLVMType != _currentFunctionReturnType)
             {
                 string castResult = GetNextTemp();
-                GenerateCastInstruction(result: castResult, value: value, fromType: valueTypeInfo, toType: _currentFunctionReturnType);
+                GenerateCastInstruction(result: castResult,
+                    value: value,
+                    fromType: valueTypeInfo,
+                    toType: _currentFunctionReturnType);
                 _output.AppendLine(handler: $"  ret {_currentFunctionReturnType} {castResult}");
             }
             else
@@ -106,7 +110,8 @@ public partial class LLVMCodeGenerator
     }
 
     // Generate appropriate cast instruction
-    private void GenerateCastInstruction(string result, string value, TypeInfo fromType, string toType)
+    private void GenerateCastInstruction(string result, string value, TypeInfo fromType,
+        string toType)
     {
         bool fromIsPointer = fromType.LLVMType.EndsWith(value: "*");
         bool toIsPointer = toType.EndsWith(value: "*");
@@ -115,19 +120,22 @@ public partial class LLVMCodeGenerator
         if (!fromIsPointer && toIsPointer)
         {
             // Integer to pointer: use inttoptr
-            _output.AppendLine(handler: $"  {result} = inttoptr {fromType.LLVMType} {value} to {toType}");
+            _output.AppendLine(
+                handler: $"  {result} = inttoptr {fromType.LLVMType} {value} to {toType}");
             return;
         }
         else if (fromIsPointer && !toIsPointer)
         {
             // Pointer to integer: use ptrtoint
-            _output.AppendLine(handler: $"  {result} = ptrtoint {fromType.LLVMType} {value} to {toType}");
+            _output.AppendLine(
+                handler: $"  {result} = ptrtoint {fromType.LLVMType} {value} to {toType}");
             return;
         }
         else if (fromIsPointer && toIsPointer)
         {
             // Pointer to pointer: use bitcast
-            _output.AppendLine(handler: $"  {result} = bitcast {fromType.LLVMType} {value} to {toType}");
+            _output.AppendLine(
+                handler: $"  {result} = bitcast {fromType.LLVMType} {value} to {toType}");
             return;
         }
 
@@ -135,7 +143,8 @@ public partial class LLVMCodeGenerator
         if (fromType.IsFloatingPoint || IsFloatingPointType(llvmType: toType))
         {
             // Float conversions need special handling
-            _output.AppendLine(handler: $"  {result} = fptoui {fromType.LLVMType} {value} to {toType}");
+            _output.AppendLine(
+                handler: $"  {result} = fptoui {fromType.LLVMType} {value} to {toType}");
         }
         else
         {
@@ -146,24 +155,28 @@ public partial class LLVMCodeGenerator
             if (fromSize > toSize)
             {
                 // Truncation
-                _output.AppendLine(handler: $"  {result} = trunc {fromType.LLVMType} {value} to {toType}");
+                _output.AppendLine(
+                    handler: $"  {result} = trunc {fromType.LLVMType} {value} to {toType}");
             }
             else if (fromSize < toSize)
             {
                 // Extension
                 if (fromType.IsUnsigned)
                 {
-                    _output.AppendLine(handler: $"  {result} = zext {fromType.LLVMType} {value} to {toType}");
+                    _output.AppendLine(
+                        handler: $"  {result} = zext {fromType.LLVMType} {value} to {toType}");
                 }
                 else
                 {
-                    _output.AppendLine(handler: $"  {result} = sext {fromType.LLVMType} {value} to {toType}");
+                    _output.AppendLine(
+                        handler: $"  {result} = sext {fromType.LLVMType} {value} to {toType}");
                 }
             }
             else
             {
                 // Same size, just use as-is (bitcast if needed)
-                _output.AppendLine(handler: $"  {result} = bitcast {fromType.LLVMType} {value} to {toType}");
+                _output.AppendLine(
+                    handler: $"  {result} = bitcast {fromType.LLVMType} {value} to {toType}");
             }
         }
     }

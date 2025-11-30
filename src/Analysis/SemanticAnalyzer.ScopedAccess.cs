@@ -7,7 +7,7 @@ namespace Compilers.Shared.Analysis;
 /// </summary>
 public partial class SemanticAnalyzer
 {
-       /// <summary>
+    /// <summary>
     /// Visits a viewing statement node (scoped read-only access).
     /// Syntax: viewing &lt;source&gt; as &lt;handle&gt; { ... }
     /// Creates a temporary Viewed&lt;T&gt; handle with read-only access.
@@ -34,11 +34,15 @@ public partial class SemanticAnalyzer
             var viewedType = new TypeInfo(Name: $"Viewed<{sourceType.Name}>", IsReference: true);
 
             // Declare the handle variable in the scope
-            var handleSymbol = new VariableSymbol(Name: node.Handle, Type: viewedType, Visibility: VisibilityModifier.Private, IsMutable: false);
+            var handleSymbol = new VariableSymbol(Name: node.Handle,
+                Type: viewedType,
+                Visibility: VisibilityModifier.Private,
+                IsMutable: false);
 
             if (!_symbolTable.TryDeclare(symbol: handleSymbol))
             {
-                AddError(message: $"Handle '{node.Handle}' already declared in this scope", location: node.Location);
+                AddError(message: $"Handle '{node.Handle}' already declared in this scope",
+                    location: node.Location);
             }
 
             // CRITICAL: Register this as a scoped token that cannot escape
@@ -79,7 +83,8 @@ public partial class SemanticAnalyzer
 
         if (sourceType == null)
         {
-            AddError(message: "Cannot hijack expression with unknown type", location: node.Location);
+            AddError(message: "Cannot hijack expression with unknown type",
+                location: node.Location);
             return null;
         }
 
@@ -91,14 +96,19 @@ public partial class SemanticAnalyzer
         try
         {
             // Create a Hijacked<T> type for the handle
-            var hijackedType = new TypeInfo(Name: $"Hijacked<{sourceType.Name}>", IsReference: true);
+            var hijackedType =
+                new TypeInfo(Name: $"Hijacked<{sourceType.Name}>", IsReference: true);
 
             // Declare the handle variable in the scope
-            var handleSymbol = new VariableSymbol(Name: node.Handle, Type: hijackedType, Visibility: VisibilityModifier.Private, IsMutable: true);
+            var handleSymbol = new VariableSymbol(Name: node.Handle,
+                Type: hijackedType,
+                Visibility: VisibilityModifier.Private,
+                IsMutable: true);
 
             if (!_symbolTable.TryDeclare(symbol: handleSymbol))
             {
-                AddError(message: $"Handle '{node.Handle}' already declared in this scope", location: node.Location);
+                AddError(message: $"Handle '{node.Handle}' already declared in this scope",
+                    location: node.Location);
             }
 
             // CRITICAL: Register this as a scoped token that cannot escape
@@ -141,7 +151,8 @@ public partial class SemanticAnalyzer
 
         if (sourceType == null)
         {
-            AddError(message: "Cannot observe expression with unknown type", location: node.Location);
+            AddError(message: "Cannot observe expression with unknown type",
+                location: node.Location);
             return null;
         }
 
@@ -152,9 +163,13 @@ public partial class SemanticAnalyzer
             if (sourceObj != null)
             {
                 // COMPILE-TIME CHECK: observing requires MultiReadLock policy
-                if (sourceObj.Wrapper == WrapperType.Shared && sourceObj.Policy != LockingPolicy.MultiReadLock)
+                if (sourceObj.Wrapper == WrapperType.Shared &&
+                    sourceObj.Policy != LockingPolicy.MultiReadLock)
                 {
-                    AddError(message: $"observing requires Shared<T, MultiReadLock>. " + $"Object '{sourceId.Name}' has policy {sourceObj.Policy}. " + $"Use seizing for exclusive access, or create with MultiReadLock policy.", location: node.Location);
+                    AddError(message: $"observing requires Shared<T, MultiReadLock>. " +
+                                      $"Object '{sourceId.Name}' has policy {sourceObj.Policy}. " +
+                                      $"Use seizing for exclusive access, or create with MultiReadLock policy.",
+                        location: node.Location);
                     return null;
                 }
             }
@@ -168,14 +183,19 @@ public partial class SemanticAnalyzer
         try
         {
             // Create an Observed<T> type for the handle (not Witnessed<T>)
-            var observedType = new TypeInfo(Name: $"Observed<{sourceType.Name}>", IsReference: true);
+            var observedType =
+                new TypeInfo(Name: $"Observed<{sourceType.Name}>", IsReference: true);
 
             // Declare the handle variable in the scope
-            var handleSymbol = new VariableSymbol(Name: node.Handle, Type: observedType, Visibility: VisibilityModifier.Private, IsMutable: false);
+            var handleSymbol = new VariableSymbol(Name: node.Handle,
+                Type: observedType,
+                Visibility: VisibilityModifier.Private,
+                IsMutable: false);
 
             if (!_symbolTable.TryDeclare(symbol: handleSymbol))
             {
-                AddError(message: $"Handle '{node.Handle}' already declared in this scope", location: node.Location);
+                AddError(message: $"Handle '{node.Handle}' already declared in this scope",
+                    location: node.Location);
             }
 
             // CRITICAL: Register this as a scoped token that cannot escape
@@ -217,7 +237,8 @@ public partial class SemanticAnalyzer
 
         if (sourceType == null)
         {
-            AddError(message: "Cannot seize expression with unknown type", location: node.Location);
+            AddError(message: "Cannot seize expression with unknown type",
+                location: node.Location);
             return null;
         }
 
@@ -232,11 +253,15 @@ public partial class SemanticAnalyzer
             var seizedType = new TypeInfo(Name: $"Seized<{sourceType.Name}>", IsReference: true);
 
             // Declare the handle variable in the scope
-            var handleSymbol = new VariableSymbol(Name: node.Handle, Type: seizedType, Visibility: VisibilityModifier.Private, IsMutable: true);
+            var handleSymbol = new VariableSymbol(Name: node.Handle,
+                Type: seizedType,
+                Visibility: VisibilityModifier.Private,
+                IsMutable: true);
 
             if (!_symbolTable.TryDeclare(symbol: handleSymbol))
             {
-                AddError(message: $"Handle '{node.Handle}' already declared in this scope", location: node.Location);
+                AddError(message: $"Handle '{node.Handle}' already declared in this scope",
+                    location: node.Location);
             }
 
             // CRITICAL: Register this as a scoped token that cannot escape

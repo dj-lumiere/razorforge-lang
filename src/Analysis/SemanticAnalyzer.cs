@@ -91,7 +91,8 @@ public partial class SemanticAnalyzer : IAstVisitor<object?>
     /// - seizing shared_x as s { ... } - shared_x is invalidated (lock held)
     /// - observing shared_x as o { ... } - shared_x is invalidated (lock held)
     /// </summary>
-    private readonly Dictionary<string, (int scopeDepth, string accessType)> _invalidatedSources = new();
+    private readonly Dictionary<string, (int scopeDepth, string accessType)> _invalidatedSources =
+        new();
 
     /// <summary>
     /// Gets the symbol table containing all resolved symbols.
@@ -103,7 +104,9 @@ public partial class SemanticAnalyzer : IAstVisitor<object?>
     /// Gets the loaded module information including ASTs.
     /// Used by code generator to compile imported module functions.
     /// </summary>
-    public IReadOnlyDictionary<string, ModuleResolver.ModuleInfo> LoadedModules => _moduleResolver.ModuleCache;
+    public IReadOnlyDictionary<string, ModuleResolver.ModuleInfo> LoadedModules =>
+        _moduleResolver.ModuleCache;
+
     /// <summary>
     /// Get all semantic and memory safety errors discovered during analysis.
     /// Combines traditional semantic errors with memory safety violations
@@ -115,7 +118,8 @@ public partial class SemanticAnalyzer : IAstVisitor<object?>
         {
             var allErrors = new List<SemanticError>(collection: _errors);
             // Convert memory safety violations to semantic errors for unified reporting
-            allErrors.AddRange(collection: _memoryAnalyzer.Errors.Select(selector: me => new SemanticError(Message: me.Message, Location: me.Location)));
+            allErrors.AddRange(collection: _memoryAnalyzer.Errors.Select(selector: me =>
+                new SemanticError(Message: me.Message, Location: me.Location)));
             return allErrors;
         }
     }
@@ -131,11 +135,13 @@ public partial class SemanticAnalyzer : IAstVisitor<object?>
     /// <param name="mode">Language mode for behavior customization</param>
     /// <param name="searchPaths">Optional custom search paths for module resolution</param>
     /// <param name="fileName">Source file name for error reporting</param>
-    public SemanticAnalyzer(Language language, LanguageMode mode, List<string>? searchPaths = null, string? fileName = null)
+    public SemanticAnalyzer(Language language, LanguageMode mode, List<string>? searchPaths = null,
+        string? fileName = null)
     {
         _symbolTable = new SymbolTable();
         _memoryAnalyzer = new MemoryAnalyzer(language: language, mode: mode);
-        _moduleResolver = new ModuleResolver(language: language, mode: mode, searchPaths: searchPaths);
+        _moduleResolver =
+            new ModuleResolver(language: language, mode: mode, searchPaths: searchPaths);
         _errors = new List<SemanticError>();
         _language = language;
         _mode = mode;
@@ -152,12 +158,14 @@ public partial class SemanticAnalyzer : IAstVisitor<object?>
     {
         // Register DynamicSlice record type
         var heapSliceType = new TypeInfo(Name: "DynamicSlice", IsReference: false);
-        var heapSliceSymbol = new StructSymbol(Name: "DynamicSlice", Visibility: VisibilityModifier.Public);
+        var heapSliceSymbol =
+            new StructSymbol(Name: "DynamicSlice", Visibility: VisibilityModifier.Public);
         _symbolTable.TryDeclare(symbol: heapSliceSymbol);
 
         // Register TemporarySlice record type
         var stackSliceType = new TypeInfo(Name: "TemporarySlice", IsReference: false);
-        var stackSliceSymbol = new StructSymbol(Name: "TemporarySlice", Visibility: VisibilityModifier.Public);
+        var stackSliceSymbol =
+            new StructSymbol(Name: "TemporarySlice", Visibility: VisibilityModifier.Public);
         _symbolTable.TryDeclare(symbol: stackSliceSymbol);
 
         // Register primitive types
@@ -196,7 +204,9 @@ public partial class SemanticAnalyzer : IAstVisitor<object?>
     private void RegisterPrimitiveType(string typeName)
     {
         var typeInfo = new TypeInfo(Name: typeName, IsReference: false);
-        var typeSymbol = new TypeSymbol(Name: typeName, TypeInfo: typeInfo, Visibility: VisibilityModifier.Public);
+        var typeSymbol = new TypeSymbol(Name: typeName,
+            TypeInfo: typeInfo,
+            Visibility: VisibilityModifier.Public);
         _symbolTable.TryDeclare(symbol: typeSymbol);
     }
 
@@ -255,7 +265,7 @@ public partial class SemanticAnalyzer : IAstVisitor<object?>
         // These are the default types for Suflae's high-level programming model
         if (_language == Language.Suflae)
         {
-            preludeModules.AddRange(new[]
+            preludeModules.AddRange(collection: new[]
             {
                 // Arbitrary precision numeric types (Suflae defaults)
                 "Integer",
@@ -294,7 +304,8 @@ public partial class SemanticAnalyzer : IAstVisitor<object?>
         {
             try
             {
-                ModuleResolver.ModuleInfo? moduleInfo = _moduleResolver.LoadModule(importPath: modulePath);
+                ModuleResolver.ModuleInfo? moduleInfo =
+                    _moduleResolver.LoadModule(importPath: modulePath);
                 if (moduleInfo != null)
                 {
                     // Register all declarations from the prelude module
@@ -308,5 +319,4 @@ public partial class SemanticAnalyzer : IAstVisitor<object?>
             }
         }
     }
-
 }

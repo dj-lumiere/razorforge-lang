@@ -29,7 +29,8 @@ public partial class LLVMCodeGenerator
 
         // Get the type of the source
         string sourceType = "ptr";
-        if (node.Source is IdentifierExpression sourceId && _symbolTypes.ContainsKey(key: sourceId.Name))
+        if (node.Source is IdentifierExpression sourceId &&
+            _symbolTypes.ContainsKey(key: sourceId.Name))
         {
             sourceType = _symbolTypes[key: sourceId.Name];
         }
@@ -44,15 +45,19 @@ public partial class LLVMCodeGenerator
         if (sourcePtr.StartsWith(value: "%") && !sourcePtr.StartsWith(value: "%t"))
         {
             // Source is a named variable - the handle points to same location
-            _output.AppendLine(handler: $"  ; viewing {node.Source} as {node.Handle} - read-only alias");
-            _output.AppendLine(handler: $"  {handleName} = bitcast {sourceType}* {sourcePtr} to {sourceType}*");
+            _output.AppendLine(
+                handler: $"  ; viewing {node.Source} as {node.Handle} - read-only alias");
+            _output.AppendLine(
+                handler: $"  {handleName} = bitcast {sourceType}* {sourcePtr} to {sourceType}*");
         }
         else
         {
             // Source is a temporary or literal - store in alloca for handle
-            _output.AppendLine(handler: $"  ; viewing expression as {node.Handle} - read-only access");
+            _output.AppendLine(
+                handler: $"  ; viewing expression as {node.Handle} - read-only access");
             _output.AppendLine(handler: $"  {handleName} = alloca {sourceType}");
-            _output.AppendLine(handler: $"  store {sourceType} {sourcePtr}, {sourceType}* {handleName}");
+            _output.AppendLine(
+                handler: $"  store {sourceType} {sourcePtr}, {sourceType}* {handleName}");
         }
 
         // Execute the body with the handle available
@@ -86,7 +91,8 @@ public partial class LLVMCodeGenerator
 
         // Get the type of the source
         string sourceType = "ptr";
-        if (node.Source is IdentifierExpression sourceId && _symbolTypes.ContainsKey(key: sourceId.Name))
+        if (node.Source is IdentifierExpression sourceId &&
+            _symbolTypes.ContainsKey(key: sourceId.Name))
         {
             sourceType = _symbolTypes[key: sourceId.Name];
         }
@@ -100,15 +106,19 @@ public partial class LLVMCodeGenerator
         if (sourcePtr.StartsWith(value: "%") && !sourcePtr.StartsWith(value: "%t"))
         {
             // Source is a named variable - the handle points to same location
-            _output.AppendLine(handler: $"  ; hijacking {node.Source} as {node.Handle} - exclusive access");
-            _output.AppendLine(handler: $"  {handleName} = bitcast {sourceType}* {sourcePtr} to {sourceType}*");
+            _output.AppendLine(
+                handler: $"  ; hijacking {node.Source} as {node.Handle} - exclusive access");
+            _output.AppendLine(
+                handler: $"  {handleName} = bitcast {sourceType}* {sourcePtr} to {sourceType}*");
         }
         else
         {
             // Source is a temporary or literal - store in alloca for handle
-            _output.AppendLine(handler: $"  ; hijacking expression as {node.Handle} - exclusive access");
+            _output.AppendLine(
+                handler: $"  ; hijacking expression as {node.Handle} - exclusive access");
             _output.AppendLine(handler: $"  {handleName} = alloca {sourceType}");
-            _output.AppendLine(handler: $"  store {sourceType} {sourcePtr}, {sourceType}* {handleName}");
+            _output.AppendLine(
+                handler: $"  store {sourceType} {sourcePtr}, {sourceType}* {handleName}");
         }
 
         // Execute the body with the handle available (exclusive read/write access)
@@ -141,12 +151,14 @@ public partial class LLVMCodeGenerator
 
         string handleName = $"%{node.Handle}";
 
-        _output.AppendLine(handler: $"  ; observing {node.Source} as {node.Handle} - acquiring read lock");
+        _output.AppendLine(
+            handler: $"  ; observing {node.Source} as {node.Handle} - acquiring read lock");
 
         // Call runtime to acquire read lock
         // The runtime function returns a pointer to the inner data
         string innerPtr = GetNextTemp();
-        _output.AppendLine(handler: $"  {innerPtr} = call ptr @razorforge_rwlock_read_lock(ptr {sourcePtr})");
+        _output.AppendLine(
+            handler: $"  {innerPtr} = call ptr @razorforge_rwlock_read_lock(ptr {sourcePtr})");
 
         // Create handle as alias to inner data
         _output.AppendLine(handler: $"  {handleName} = bitcast ptr {innerPtr} to ptr");
@@ -156,7 +168,8 @@ public partial class LLVMCodeGenerator
         node.Body.Accept(visitor: this);
 
         // Release the read lock
-        _output.AppendLine(handler: $"  call void @razorforge_rwlock_read_unlock(ptr {sourcePtr})");
+        _output.AppendLine(
+            handler: $"  call void @razorforge_rwlock_read_unlock(ptr {sourcePtr})");
         _output.AppendLine(handler: $"  ; end observing {node.Handle} - read lock released");
 
         return "";
@@ -184,12 +197,14 @@ public partial class LLVMCodeGenerator
 
         string handleName = $"%{node.Handle}";
 
-        _output.AppendLine(handler: $"  ; seizing {node.Source} as {node.Handle} - acquiring exclusive lock");
+        _output.AppendLine(
+            handler: $"  ; seizing {node.Source} as {node.Handle} - acquiring exclusive lock");
 
         // Call runtime to acquire exclusive lock
         // The runtime function returns a pointer to the inner data
         string innerPtr = GetNextTemp();
-        _output.AppendLine(handler: $"  {innerPtr} = call ptr @razorforge_mutex_lock(ptr {sourcePtr})");
+        _output.AppendLine(
+            handler: $"  {innerPtr} = call ptr @razorforge_mutex_lock(ptr {sourcePtr})");
 
         // Create handle as alias to inner data
         _output.AppendLine(handler: $"  {handleName} = bitcast ptr {innerPtr} to ptr");

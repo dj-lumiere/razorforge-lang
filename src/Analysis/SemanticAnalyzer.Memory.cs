@@ -7,7 +7,7 @@ namespace Compilers.Shared.Analysis;
 /// </summary>
 public partial class SemanticAnalyzer
 {
-        /// <summary>
+    /// <summary>
     /// Detect memory operation method calls by their distinctive '!' suffix.
     ///
     /// Memory operations are the heart of RazorForge's explicit memory model:
@@ -34,7 +34,8 @@ public partial class SemanticAnalyzer
         return methodName switch
         {
             // Core memory transformation operations
-            "retain" or "share" or "track" or "snatch!" or "try_recover" or "recover!" or "try_seize" or "check_seize" or "try_observe" or "check_observe" => true,
+            "retain" or "share" or "track" or "snatch!" or "try_recover" or "recover!"
+                or "try_seize" or "check_seize" or "try_observe" or "check_observe" => true,
             _ => false
         };
     }
@@ -118,13 +119,15 @@ public partial class SemanticAnalyzer
     /// <param name="arguments">Method arguments (usually empty for memory ops)</param>
     /// <param name="location">Source location for error reporting</param>
     /// <returns>Wrapper type info for the result, or None if operation failed</returns>
-    private TypeInfo? HandleMemoryOperationCall(MemberExpression memberExpr, string operationName, List<Expression> arguments, SourceLocation location)
+    private TypeInfo? HandleMemoryOperationCall(MemberExpression memberExpr, string operationName,
+        List<Expression> arguments, SourceLocation location)
     {
         // Extract object name - currently limited to simple identifiers
         // TODO: Support more complex expressions like container[index].share()
         if (memberExpr.Object is not IdentifierExpression objId)
         {
-            AddError(message: "Memory operations can only be called on simple identifiers", location: location);
+            AddError(message: "Memory operations can only be called on simple identifiers",
+                location: location);
             return null;
         }
 
@@ -139,7 +142,11 @@ public partial class SemanticAnalyzer
         // Validate that fallible lock operations are used in 'when' context
         if (RequiresWhenContext(operation: operation.Value) && !_isInWhenCondition)
         {
-            AddError(message: $"Operation '{operationName}' returns a scope-bound token and must be used directly in a 'when' expression. " + $"Tokens cannot be stored in variables.", location: location);
+            AddError(
+                message:
+                $"Operation '{operationName}' returns a scope-bound token and must be used directly in a 'when' expression. " +
+                $"Tokens cannot be stored in variables.",
+                location: location);
             return null;
         }
 
@@ -160,7 +167,10 @@ public partial class SemanticAnalyzer
 
                 if (policy == null)
                 {
-                    AddError(message: $"Invalid policy '{policyId.Name}'. Expected 'Mutex' or 'MultiReadLock'", location: location);
+                    AddError(
+                        message:
+                        $"Invalid policy '{policyId.Name}'. Expected 'Mutex' or 'MultiReadLock'",
+                        location: location);
                     return null;
                 }
             }
@@ -173,7 +183,10 @@ public partial class SemanticAnalyzer
 
         // CRITICAL: Delegate to memory analyzer for safety validation and ownership tracking
         // This is where all the memory safety magic happens
-        MemoryObject? resultObj = _memoryAnalyzer.HandleMemoryOperation(objectName: objId.Name, operation: operation.Value, location: location, policy: policy);
+        MemoryObject? resultObj = _memoryAnalyzer.HandleMemoryOperation(objectName: objId.Name,
+            operation: operation.Value,
+            location: location,
+            policy: policy);
         if (resultObj == null)
         {
             // Operation failed - error already reported by memory analyzer
@@ -240,7 +253,8 @@ public partial class SemanticAnalyzer
     {
         return operation switch
         {
-            MemoryOperation.TrySeize or MemoryOperation.CheckSeize or MemoryOperation.TryObserve or MemoryOperation.CheckObserve => true,
+            MemoryOperation.TrySeize or MemoryOperation.CheckSeize or MemoryOperation.TryObserve
+                or MemoryOperation.CheckObserve => true,
             _ => false
         };
     }
@@ -260,7 +274,8 @@ public partial class SemanticAnalyzer
         }
 
         string typeName = type.Name;
-        return typeName.StartsWith(value: "Viewed<") || typeName.StartsWith(value: "Hijacked<") || typeName.StartsWith(value: "Seized<") || typeName.StartsWith(value: "Observed<");
+        return typeName.StartsWith(value: "Viewed<") || typeName.StartsWith(value: "Hijacked<") ||
+               typeName.StartsWith(value: "Seized<") || typeName.StartsWith(value: "Observed<");
     }
 
     /// <summary>
@@ -289,8 +304,10 @@ public partial class SemanticAnalyzer
         // Check for Result<Seized<T>, E> or Result<Observed<T>, E>
         if (typeName.StartsWith(value: "Result<"))
         {
-            string firstArg = ExtractFirstGenericTypeArgument(typeName: typeName, wrapperName: "Result");
-            return firstArg.StartsWith(value: "Seized<") || firstArg.StartsWith(value: "Observed<");
+            string firstArg =
+                ExtractFirstGenericTypeArgument(typeName: typeName, wrapperName: "Result");
+            return firstArg.StartsWith(value: "Seized<") ||
+                   firstArg.StartsWith(value: "Observed<");
         }
 
         return false;
@@ -419,7 +436,8 @@ public partial class SemanticAnalyzer
     /// <returns>Access type (e.g., "viewing", "hijacking") or null if not invalidated</returns>
     private string? GetInvalidationAccessType(string sourceName)
     {
-        return _invalidatedSources.TryGetValue(key: sourceName, value: out (int scopeDepth, string accessType) info)
+        return _invalidatedSources.TryGetValue(key: sourceName,
+            value: out (int scopeDepth, string accessType) info)
             ? info.accessType
             : null;
     }
@@ -431,9 +449,10 @@ public partial class SemanticAnalyzer
     private void RestoreInvalidatedSources()
     {
         // Remove all sources that were invalidated at the current scope depth
-        var sourcesToRestore = _invalidatedSources.Where(predicate: kvp => kvp.Value.scopeDepth == _scopeDepth)
-                                                  .Select(selector: kvp => kvp.Key)
-                                                  .ToList();
+        var sourcesToRestore = _invalidatedSources
+                              .Where(predicate: kvp => kvp.Value.scopeDepth == _scopeDepth)
+                              .Select(selector: kvp => kvp.Key)
+                              .ToList();
 
         foreach (string source in sourcesToRestore)
         {
@@ -480,5 +499,4 @@ public partial class SemanticAnalyzer
 
         return new TypeInfo(Name: typeName, IsReference: baseType.IsReference);
     }
-
 }

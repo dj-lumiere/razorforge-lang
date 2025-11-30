@@ -43,7 +43,8 @@ public partial class LLVMCodeGenerator
         }
 
         // Use custom message if provided, otherwise fall back to default
-        string errorMessage = customMessage ?? GetDefaultErrorMessage(errorTypeName: errorTypeName);
+        string errorMessage =
+            customMessage ?? GetDefaultErrorMessage(errorTypeName: errorTypeName);
 
         // Create string constants for error type and message
         if (_stringConstants == null)
@@ -53,19 +54,27 @@ public partial class LLVMCodeGenerator
 
         string errorTypeConst = $"@.str_errtype{_tempCounter++}";
         int typeLen = errorTypeName.Length + 1;
-        _stringConstants.Add(item: $"{errorTypeConst} = private unnamed_addr constant [{typeLen} x i8] c\"{errorTypeName}\\00\", align 1");
+        _stringConstants.Add(
+            item:
+            $"{errorTypeConst} = private unnamed_addr constant [{typeLen} x i8] c\"{errorTypeName}\\00\", align 1");
 
         string typePtr = GetNextTemp();
-        _output.AppendLine(handler: $"  {typePtr} = getelementptr [{typeLen} x i8], [{typeLen} x i8]* {errorTypeConst}, i32 0, i32 0");
+        _output.AppendLine(
+            handler:
+            $"  {typePtr} = getelementptr [{typeLen} x i8], [{typeLen} x i8]* {errorTypeConst}, i32 0, i32 0");
 
         string msgConst = $"@.str_errmsg{_tempCounter++}";
         int msgLen = errorMessage.Length + 1;
         string escapedMsg = errorMessage.Replace(oldValue: "\\", newValue: "\\5C")
                                         .Replace(oldValue: "\"", newValue: "\\22");
-        _stringConstants.Add(item: $"{msgConst} = private unnamed_addr constant [{msgLen} x i8] c\"{escapedMsg}\\00\", align 1");
+        _stringConstants.Add(
+            item:
+            $"{msgConst} = private unnamed_addr constant [{msgLen} x i8] c\"{escapedMsg}\\00\", align 1");
 
         string messagePtr = GetNextTemp();
-        _output.AppendLine(handler: $"  {messagePtr} = getelementptr [{msgLen} x i8], [{msgLen} x i8]* {msgConst}, i32 0, i32 0");
+        _output.AppendLine(
+            handler:
+            $"  {messagePtr} = getelementptr [{msgLen} x i8], [{msgLen} x i8]* {msgConst}, i32 0, i32 0");
 
         // Use stack trace infrastructure to throw
         _stackTraceCodeGen?.EmitThrow(errorTypePtr: typePtr, messagePtr: messagePtr);
@@ -92,7 +101,9 @@ public partial class LLVMCodeGenerator
                 string countVal = countArg.Accept(visitor: this);
 
                 // Call runtime function: __rf_throw_index_out_of_bounds(index, count)
-                _output.AppendLine(value: $"  call void @__rf_throw_index_out_of_bounds(i32 {indexVal}, i32 {countVal})");
+                _output.AppendLine(
+                    value:
+                    $"  call void @__rf_throw_index_out_of_bounds(i32 {indexVal}, i32 {countVal})");
                 _output.AppendLine(value: "  unreachable");
                 return true;
             }
@@ -110,11 +121,16 @@ public partial class LLVMCodeGenerator
                 string escapedMsg = msg.Replace(oldValue: "\\", newValue: "\\5C")
                                        .Replace(oldValue: "\"", newValue: "\\22");
                 _stringConstants ??= new List<string>();
-                _stringConstants.Add(item: $"{msgConst} = private unnamed_addr constant [{msgLen} x i8] c\"{escapedMsg}\\00\", align 1");
+                _stringConstants.Add(
+                    item:
+                    $"{msgConst} = private unnamed_addr constant [{msgLen} x i8] c\"{escapedMsg}\\00\", align 1");
 
                 string msgPtr = GetNextTemp();
-                _output.AppendLine(value: $"  {msgPtr} = getelementptr [{msgLen} x i8], [{msgLen} x i8]* {msgConst}, i32 0, i32 0");
-                _output.AppendLine(value: $"  call void @__rf_throw_integer_overflow(i8* {msgPtr})");
+                _output.AppendLine(
+                    value:
+                    $"  {msgPtr} = getelementptr [{msgLen} x i8], [{msgLen} x i8]* {msgConst}, i32 0, i32 0");
+                _output.AppendLine(
+                    value: $"  call void @__rf_throw_integer_overflow(i8* {msgPtr})");
                 _output.AppendLine(value: "  unreachable");
                 return true;
             }
@@ -132,11 +148,16 @@ public partial class LLVMCodeGenerator
                 string escapedOp = op.Replace(oldValue: "\\", newValue: "\\5C")
                                      .Replace(oldValue: "\"", newValue: "\\22");
                 _stringConstants ??= new List<string>();
-                _stringConstants.Add(item: $"{opConst} = private unnamed_addr constant [{opLen} x i8] c\"{escapedOp}\\00\", align 1");
+                _stringConstants.Add(
+                    item:
+                    $"{opConst} = private unnamed_addr constant [{opLen} x i8] c\"{escapedOp}\\00\", align 1");
 
                 string opPtr = GetNextTemp();
-                _output.AppendLine(value: $"  {opPtr} = getelementptr [{opLen} x i8], [{opLen} x i8]* {opConst}, i32 0, i32 0");
-                _output.AppendLine(value: $"  call void @__rf_throw_empty_collection(i8* {opPtr})");
+                _output.AppendLine(
+                    value:
+                    $"  {opPtr} = getelementptr [{opLen} x i8], [{opLen} x i8]* {opConst}, i32 0, i32 0");
+                _output.AppendLine(
+                    value: $"  call void @__rf_throw_empty_collection(i8* {opPtr})");
                 _output.AppendLine(value: "  unreachable");
                 return true;
             }
@@ -162,7 +183,8 @@ public partial class LLVMCodeGenerator
         // First, try to get the message from stdlib source files
         if (_crashMessageResolver != null)
         {
-            string? stdlibMessage = _crashMessageResolver.GetStaticMessage(errorTypeName: errorTypeName);
+            string? stdlibMessage =
+                _crashMessageResolver.GetStaticMessage(errorTypeName: errorTypeName);
             if (stdlibMessage != null)
             {
                 return stdlibMessage;
@@ -181,7 +203,9 @@ public partial class LLVMCodeGenerator
     {
         return typeName switch
         {
-            "DivisionByZeroError" or "IntegerOverflowError" or "IndexOutOfBoundsError" or "EmptyCollectionError" or "ElementNotFoundError" or "VerificationFailedError" or "LogicBreachedError" or "UserTerminationError" or "AbsentValueError" => true,
+            "DivisionByZeroError" or "IntegerOverflowError" or "IndexOutOfBoundsError"
+                or "EmptyCollectionError" or "ElementNotFoundError" or "VerificationFailedError"
+                or "LogicBreachedError" or "UserTerminationError" or "AbsentValueError" => true,
             // Also check for any type ending in "Error" as a convention
             _ => typeName.EndsWith(value: "Error")
         };
@@ -204,10 +228,17 @@ public partial class LLVMCodeGenerator
         int msgLen = errorMessage.Length + 1;
         string escapedMsg = errorMessage.Replace(oldValue: "\\", newValue: "\\5C")
                                         .Replace(oldValue: "\"", newValue: "\\22");
-        _stringConstants.Add(item: $"{msgConst} = private unnamed_addr constant [{msgLen} x i8] c\"{escapedMsg}\\00\", align 1");
+        _stringConstants.Add(
+            item:
+            $"{msgConst} = private unnamed_addr constant [{msgLen} x i8] c\"{escapedMsg}\\00\", align 1");
 
-        _output.AppendLine(handler: $"  {resultTemp} = getelementptr [{msgLen} x i8], [{msgLen} x i8]* {msgConst}, i32 0, i32 0");
-        _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i8*", IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: "text");
+        _output.AppendLine(
+            handler:
+            $"  {resultTemp} = getelementptr [{msgLen} x i8], [{msgLen} x i8]* {msgConst}, i32 0, i32 0");
+        _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i8*",
+            IsUnsigned: false,
+            IsFloatingPoint: false,
+            RazorForgeType: "text");
 
         return resultTemp;
     }
@@ -228,7 +259,8 @@ public partial class LLVMCodeGenerator
         _hasReturn = true;
         _blockTerminated = true;
 
-        _output.AppendLine(handler: $"  ; absent - capturing stack and crashing with AbsentValueError");
+        _output.AppendLine(
+            handler: $"  ; absent - capturing stack and crashing with AbsentValueError");
 
         // Use stack trace infrastructure to throw AbsentValueError
         _stackTraceCodeGen?.EmitAbsent();
@@ -240,7 +272,8 @@ public partial class LLVMCodeGenerator
     {
         // Check if this is a standalone when (no subject expression, just guards)
         // or a when with a subject expression to match against
-        bool isStandaloneWhen = node.Expression is LiteralExpression lit && lit.Value is int i && i == 0;
+        bool isStandaloneWhen =
+            node.Expression is LiteralExpression lit && lit.Value is int i && i == 0;
 
         string endLabel = GetNextLabel();
 
@@ -270,7 +303,8 @@ public partial class LLVMCodeGenerator
                     // Convert to i1 if needed (non-zero = true)
                     string condBool = GetNextTemp();
                     _output.AppendLine(value: $"  {condBool} = icmp ne i32 {condResult}, 0");
-                    _output.AppendLine(value: $"  br i1 {condBool}, label %{thenLabel}, label %{nextLabel}");
+                    _output.AppendLine(
+                        value: $"  br i1 {condBool}, label %{thenLabel}, label %{nextLabel}");
 
                     _output.AppendLine(value: $"{thenLabel}:");
                     clause.Body.Accept(visitor: this);
@@ -317,8 +351,11 @@ public partial class LLVMCodeGenerator
                     string cmpResult = GetNextTemp();
                     string thenLabel = GetNextLabel();
 
-                    _output.AppendLine(value: $"  {cmpResult} = icmp eq {subjectType.LLVMType} {subjectValue}, {litValue}");
-                    _output.AppendLine(value: $"  br i1 {cmpResult}, label %{thenLabel}, label %{nextLabel}");
+                    _output.AppendLine(
+                        value:
+                        $"  {cmpResult} = icmp eq {subjectType.LLVMType} {subjectValue}, {litValue}");
+                    _output.AppendLine(
+                        value: $"  br i1 {cmpResult}, label %{thenLabel}, label %{nextLabel}");
 
                     _output.AppendLine(value: $"{thenLabel}:");
                     clause.Body.Accept(visitor: this);
@@ -335,7 +372,9 @@ public partial class LLVMCodeGenerator
                     // This is like a default case that captures the value
                     string varPtr = $"%{idPat.Name}";
                     _output.AppendLine(value: $"  {varPtr} = alloca {subjectType.LLVMType}");
-                    _output.AppendLine(value: $"  store {subjectType.LLVMType} {subjectValue}, {subjectType.LLVMType}* {varPtr}");
+                    _output.AppendLine(
+                        value:
+                        $"  store {subjectType.LLVMType} {subjectValue}, {subjectType.LLVMType}* {varPtr}");
                     _symbolTypes[key: idPat.Name] = subjectType.LLVMType;
 
                     clause.Body.Accept(visitor: this);

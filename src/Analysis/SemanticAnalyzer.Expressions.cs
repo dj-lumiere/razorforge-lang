@@ -8,7 +8,7 @@ namespace Compilers.Shared.Analysis;
 /// </summary>
 public partial class SemanticAnalyzer
 {
-       /// <summary>
+    /// <summary>
     /// Visits a literal expression and infers its type.
     /// </summary>
     /// <param name="node">Literal expression node</param>
@@ -35,8 +35,9 @@ public partial class SemanticAnalyzer
 
             // Untyped integer: RazorForge defaults to s64, Suflae defaults to Integer (arbitrary precision)
             TokenType.Integer => new TypeInfo(Name: _language == Language.Suflae
-                ? "Integer"
-                : "s64", IsReference: false),
+                    ? "Integer"
+                    : "s64",
+                IsReference: false),
 
             // Explicitly typed floating-point literals (same for both languages)
             TokenType.F16Literal => new TypeInfo(Name: "f16", IsReference: false),
@@ -49,27 +50,50 @@ public partial class SemanticAnalyzer
 
             // Untyped decimal: RazorForge defaults to f64, Suflae defaults to Decimal (arbitrary precision)
             TokenType.Decimal => new TypeInfo(Name: _language == Language.Suflae
-                ? "Decimal"
-                : "f64", IsReference: false),
+                    ? "Decimal"
+                    : "f64",
+                IsReference: false),
 
             // Text literals: RazorForge has Text<letter>/Text<letter8>/Text<letter16>, Suflae has Text (UTF-8) and Bytes (no Text16)
-            TokenType.TextLiteral or TokenType.FormattedText or TokenType.RawText or TokenType.RawFormattedText => new TypeInfo(Name: _language == Language.Suflae
-                ? "Text"
-                : "Text<letter>", IsReference: false),
-            TokenType.Text8Literal or TokenType.Text8FormattedText or TokenType.Text8RawText or TokenType.Text8RawFormattedText => new TypeInfo(Name: _language == Language.Suflae
-                ? "Bytes"
-                : "Text<letter8>", IsReference: false),
+            TokenType.TextLiteral or TokenType.FormattedText or TokenType.RawText
+                or TokenType.RawFormattedText => new TypeInfo(Name: _language == Language.Suflae
+                        ? "Text"
+                        : "Text<letter>",
+                    IsReference: false),
+            TokenType.Text8Literal or TokenType.Text8FormattedText or TokenType.Text8RawText
+                or TokenType.Text8RawFormattedText => new TypeInfo(
+                    Name: _language == Language.Suflae
+                        ? "Bytes"
+                        : "Text<letter8>",
+                    IsReference: false),
             // Text16 literals: Only supported in RazorForge, not in Suflae
-            TokenType.Text16Literal or TokenType.Text16FormattedText or TokenType.Text16RawText or TokenType.Text16RawFormattedText => HandleText16Literal(node: node),
+            TokenType.Text16Literal or TokenType.Text16FormattedText or TokenType.Text16RawText
+                or TokenType.Text16RawFormattedText => HandleText16Literal(node: node),
 
             // Suflae-only bytes literals (b"", br"", bf"", brf"")
-            TokenType.BytesLiteral or TokenType.BytesRawLiteral or TokenType.BytesFormatted or TokenType.BytesRawFormatted => HandleBytesLiteral(node: node),
+            TokenType.BytesLiteral or TokenType.BytesRawLiteral or TokenType.BytesFormatted
+                or TokenType.BytesRawFormatted => HandleBytesLiteral(node: node),
 
             // Duration literals - all produce Duration type
-            TokenType.WeekLiteral or TokenType.DayLiteral or TokenType.HourLiteral or TokenType.MinuteLiteral or TokenType.SecondLiteral or TokenType.MillisecondLiteral or TokenType.MicrosecondLiteral or TokenType.NanosecondLiteral => new TypeInfo(Name: "Duration", IsReference: false),
+            TokenType.WeekLiteral or TokenType.DayLiteral or TokenType.HourLiteral
+                or TokenType.MinuteLiteral or TokenType.SecondLiteral
+                or TokenType.MillisecondLiteral or TokenType.MicrosecondLiteral
+                or TokenType.NanosecondLiteral => new TypeInfo(Name: "Duration",
+                    IsReference: false),
 
             // Memory size literals - all produce MemorySize type
-            TokenType.ByteLiteral or TokenType.KilobyteLiteral or TokenType.KibibyteLiteral or TokenType.KilobitLiteral or TokenType.KibibitLiteral or TokenType.MegabyteLiteral or TokenType.MebibyteLiteral or TokenType.MegabitLiteral or TokenType.MebibitLiteral or TokenType.GigabyteLiteral or TokenType.GibibyteLiteral or TokenType.GigabitLiteral or TokenType.GibibitLiteral or TokenType.TerabyteLiteral or TokenType.TebibyteLiteral or TokenType.TerabitLiteral or TokenType.TebibitLiteral or TokenType.PetabyteLiteral or TokenType.PebibyteLiteral or TokenType.PetabitLiteral or TokenType.PebibitLiteral => new TypeInfo(Name: "MemorySize", IsReference: false),
+            TokenType.ByteLiteral or TokenType.KilobyteLiteral or TokenType.KibibyteLiteral
+                or TokenType.KilobitLiteral or TokenType.KibibitLiteral
+                or TokenType.MegabyteLiteral or TokenType.MebibyteLiteral
+                or TokenType.MegabitLiteral or TokenType.MebibitLiteral
+                or TokenType.GigabyteLiteral or TokenType.GibibyteLiteral
+                or TokenType.GigabitLiteral or TokenType.GibibitLiteral
+                or TokenType.TerabyteLiteral or TokenType.TebibyteLiteral
+                or TokenType.TerabitLiteral or TokenType.TebibitLiteral
+                or TokenType.PetabyteLiteral or TokenType.PebibyteLiteral
+                or TokenType.PetabitLiteral
+                or TokenType.PebibitLiteral =>
+                new TypeInfo(Name: "MemorySize", IsReference: false),
 
             // Boolean and none literals (same for both languages)
             TokenType.True or TokenType.False => new TypeInfo(Name: "Bool", IsReference: false),
@@ -103,7 +127,9 @@ public partial class SemanticAnalyzer
         }
 
         string typeName = elementType?.Name ?? "unknown";
-        return new TypeInfo(Name: "List", IsReference: true, GenericArguments: [new TypeInfo(Name: typeName, IsReference: false)]);
+        return new TypeInfo(Name: "List",
+            IsReference: true,
+            GenericArguments: [new TypeInfo(Name: typeName, IsReference: false)]);
     }
 
     /// <summary>
@@ -128,7 +154,9 @@ public partial class SemanticAnalyzer
         }
 
         string typeName = elementType?.Name ?? "unknown";
-        return new TypeInfo(Name: "Set", IsReference: true, GenericArguments: [new TypeInfo(Name: typeName, IsReference: false)]);
+        return new TypeInfo(Name: "Set",
+            IsReference: true,
+            GenericArguments: [new TypeInfo(Name: typeName, IsReference: false)]);
     }
 
     /// <summary>
@@ -139,24 +167,40 @@ public partial class SemanticAnalyzer
         TypeInfo? keyType = null;
         TypeInfo? valueType = null;
 
-        foreach (var (key, value) in node.Pairs)
+        foreach ((Expression key, Expression value) in node.Pairs)
         {
             var kt = key.Accept(visitor: this) as TypeInfo;
             var vt = value.Accept(visitor: this) as TypeInfo;
-            if (keyType == null && kt != null) keyType = kt;
-            if (valueType == null && vt != null) valueType = vt;
+            if (keyType == null && kt != null)
+            {
+                keyType = kt;
+            }
+
+            if (valueType == null && vt != null)
+            {
+                valueType = vt;
+            }
         }
 
-        if (node.KeyType != null) keyType = ResolveType(typeExpr: node.KeyType);
-        if (node.ValueType != null) valueType = ResolveType(typeExpr: node.ValueType);
+        if (node.KeyType != null)
+        {
+            keyType = ResolveType(typeExpr: node.KeyType);
+        }
+
+        if (node.ValueType != null)
+        {
+            valueType = ResolveType(typeExpr: node.ValueType);
+        }
 
         string keyTypeName = keyType?.Name ?? "unknown";
         string valueTypeName = valueType?.Name ?? "unknown";
-        return new TypeInfo(Name: "Dict", IsReference: true, GenericArguments:
-        [
-            new TypeInfo(Name: keyTypeName, IsReference: false),
-            new TypeInfo(Name: valueTypeName, IsReference: false)
-        ]);
+        return new TypeInfo(Name: "Dict",
+            IsReference: true,
+            GenericArguments:
+            [
+                new TypeInfo(Name: keyTypeName, IsReference: false),
+                new TypeInfo(Name: valueTypeName, IsReference: false)
+            ]);
     }
 
     /// <summary>
@@ -177,7 +221,12 @@ public partial class SemanticAnalyzer
         if (IsSourceInvalidated(sourceName: node.Name))
         {
             string? accessType = GetInvalidationAccessType(sourceName: node.Name);
-            AddError(message: $"Cannot access '{node.Name}' while it is being accessed via {accessType} statement. " + $"The source is temporarily unavailable while the scoped token exists. " + $"Access the data through the scoped token instead.", location: node.Location);
+            AddError(
+                message:
+                $"Cannot access '{node.Name}' while it is being accessed via {accessType} statement. " +
+                $"The source is temporarily unavailable while the scoped token exists. " +
+                $"Access the data through the scoped token instead.",
+                location: node.Location);
         }
 
         return symbol.Type;
@@ -198,7 +247,10 @@ public partial class SemanticAnalyzer
         {
             if (!AreTypesCompatible(left: leftType, right: rightType))
             {
-                AddError(message: $"Mixed-type arithmetic is not allowed. Cannot perform {node.Operator} between {leftType.Name} and {rightType.Name}. Use explicit type conversion with {rightType.Name}!(x) or x.{rightType.Name}!().", location: node.Location);
+                AddError(
+                    message:
+                    $"Mixed-type arithmetic is not allowed. Cannot perform {node.Operator} between {leftType.Name} and {rightType.Name}. Use explicit type conversion with {rightType.Name}!(x) or x.{rightType.Name}!().",
+                    location: node.Location);
                 return null;
             }
         }
@@ -223,7 +275,20 @@ public partial class SemanticAnalyzer
     {
         return op switch
         {
-            BinaryOperator.Add or BinaryOperator.Subtract or BinaryOperator.Multiply or BinaryOperator.TrueDivide or BinaryOperator.Divide or BinaryOperator.Modulo or BinaryOperator.Power or BinaryOperator.AddWrap or BinaryOperator.SubtractWrap or BinaryOperator.MultiplyWrap or BinaryOperator.DivideWrap or BinaryOperator.ModuloWrap or BinaryOperator.PowerWrap or BinaryOperator.AddSaturate or BinaryOperator.SubtractSaturate or BinaryOperator.MultiplySaturate or BinaryOperator.DivideSaturate or BinaryOperator.ModuloSaturate or BinaryOperator.PowerSaturate or BinaryOperator.AddUnchecked or BinaryOperator.SubtractUnchecked or BinaryOperator.MultiplyUnchecked or BinaryOperator.DivideUnchecked or BinaryOperator.ModuloUnchecked or BinaryOperator.PowerUnchecked or BinaryOperator.AddChecked or BinaryOperator.SubtractChecked or BinaryOperator.MultiplyChecked or BinaryOperator.DivideChecked or BinaryOperator.ModuloChecked or BinaryOperator.PowerChecked => true,
+            BinaryOperator.Add or BinaryOperator.Subtract or BinaryOperator.Multiply
+                or BinaryOperator.TrueDivide or BinaryOperator.Divide or BinaryOperator.Modulo
+                or BinaryOperator.Power or BinaryOperator.AddWrap or BinaryOperator.SubtractWrap
+                or BinaryOperator.MultiplyWrap or BinaryOperator.DivideWrap
+                or BinaryOperator.ModuloWrap or BinaryOperator.PowerWrap
+                or BinaryOperator.AddSaturate or BinaryOperator.SubtractSaturate
+                or BinaryOperator.MultiplySaturate or BinaryOperator.DivideSaturate
+                or BinaryOperator.ModuloSaturate or BinaryOperator.PowerSaturate
+                or BinaryOperator.AddUnchecked or BinaryOperator.SubtractUnchecked
+                or BinaryOperator.MultiplyUnchecked or BinaryOperator.DivideUnchecked
+                or BinaryOperator.ModuloUnchecked or BinaryOperator.PowerUnchecked
+                or BinaryOperator.AddChecked or BinaryOperator.SubtractChecked
+                or BinaryOperator.MultiplyChecked or BinaryOperator.DivideChecked
+                or BinaryOperator.ModuloChecked or BinaryOperator.PowerChecked => true,
             _ => false
         };
     }
@@ -232,7 +297,12 @@ public partial class SemanticAnalyzer
     {
         return op switch
         {
-            BinaryOperator.Equal or BinaryOperator.NotEqual or BinaryOperator.Less or BinaryOperator.LessEqual or BinaryOperator.Greater or BinaryOperator.GreaterEqual or BinaryOperator.In or BinaryOperator.NotIn or BinaryOperator.Is or BinaryOperator.IsNot or BinaryOperator.From or BinaryOperator.NotFrom or BinaryOperator.Follows or BinaryOperator.NotFollows => true,
+            BinaryOperator.Equal or BinaryOperator.NotEqual or BinaryOperator.Less
+                or BinaryOperator.LessEqual or BinaryOperator.Greater
+                or BinaryOperator.GreaterEqual or BinaryOperator.In or BinaryOperator.NotIn
+                or BinaryOperator.Is or BinaryOperator.IsNot or BinaryOperator.From
+                or BinaryOperator.NotFrom or BinaryOperator.Follows
+                or BinaryOperator.NotFollows => true,
             _ => false
         };
     }
@@ -287,7 +357,8 @@ public partial class SemanticAnalyzer
 
         // Check if accessing field through a wrapper type that allows transparent access
         // Hijacked<T>, Viewed<T>, Retained<T> all allow direct field access on inner type T
-        if (IsTransparentWrapperType(typeName: objectType.Name, innerType: out string? innerTypeName))
+        if (IsTransparentWrapperType(typeName: objectType.Name,
+                innerType: out string? innerTypeName))
         {
             // Unwrap to get the inner type and check member on that type
             // For now, we'll return a generic TypeInfo - full field validation would need type lookup
@@ -319,7 +390,8 @@ public partial class SemanticAnalyzer
             if (typeName.StartsWith(value: wrapperPrefix) && typeName.EndsWith(value: ">"))
             {
                 // Extract inner type T from Wrapper<T>
-                innerType = typeName.Substring(startIndex: wrapperPrefix.Length, length: typeName.Length - wrapperPrefix.Length - 1);
+                innerType = typeName.Substring(startIndex: wrapperPrefix.Length,
+                    length: typeName.Length - wrapperPrefix.Length - 1);
                 return true;
             }
         }
@@ -363,7 +435,8 @@ public partial class SemanticAnalyzer
 
         if (conditionType != null && conditionType.Name != "Bool")
         {
-            AddError(message: $"Conditional expression condition must be boolean", location: node.Location);
+            AddError(message: $"Conditional expression condition must be boolean",
+                location: node.Location);
         }
 
         // TODO: Return common type of true/false branches
@@ -396,7 +469,10 @@ public partial class SemanticAnalyzer
             foreach (Parameter param in node.Parameters)
             {
                 TypeInfo? paramType = ResolveType(typeExpr: param.Type);
-                var paramSymbol = new VariableSymbol(Name: param.Name, Type: paramType, IsMutable: false, Visibility: VisibilityModifier.Private);
+                var paramSymbol = new VariableSymbol(Name: param.Name,
+                    Type: paramType,
+                    IsMutable: false,
+                    Visibility: VisibilityModifier.Private);
                 _symbolTable.TryDeclare(symbol: paramSymbol);
             }
 
@@ -427,7 +503,8 @@ public partial class SemanticAnalyzer
                 // TODO: Check if types are comparable
                 if (!AreComparable(type1: prevType, type2: operandType))
                 {
-                    AddError(message: $"Cannot compare {prevType.Name} with {operandType.Name}", location: node.Location);
+                    AddError(message: $"Cannot compare {prevType.Name} with {operandType.Name}",
+                        location: node.Location);
                 }
             }
 
@@ -451,12 +528,14 @@ public partial class SemanticAnalyzer
 
         if (startType != null && !IsNumericType(type: startType))
         {
-            AddError(message: $"Range start must be numeric, got {startType.Name}", location: node.Location);
+            AddError(message: $"Range start must be numeric, got {startType.Name}",
+                location: node.Location);
         }
 
         if (endType != null && !IsNumericType(type: endType))
         {
-            AddError(message: $"Range end must be numeric, got {endType.Name}", location: node.Location);
+            AddError(message: $"Range end must be numeric, got {endType.Name}",
+                location: node.Location);
         }
 
         // Check step if present
@@ -465,7 +544,8 @@ public partial class SemanticAnalyzer
             var stepType = node.Step.Accept(visitor: this) as TypeInfo;
             if (stepType != null && !IsNumericType(type: stepType))
             {
-                AddError(message: $"Range step must be numeric, got {stepType.Name}", location: node.Location);
+                AddError(message: $"Range step must be numeric, got {stepType.Name}",
+                    location: node.Location);
             }
         }
 
@@ -498,19 +578,25 @@ public partial class SemanticAnalyzer
         string targetTypeName = node.TargetType;
         if (!IsValidType(typeName: targetTypeName))
         {
-            _errors.Add(item: new SemanticError(Message: $"Unknown type: {targetTypeName}", Location: node.Location));
+            _errors.Add(item: new SemanticError(Message: $"Unknown type: {targetTypeName}",
+                Location: node.Location));
             return null;
         }
 
         // Check if the conversion is valid
-        if (!IsValidConversion(sourceType: sourceType?.Name ?? "unknown", targetType: targetTypeName))
+        if (!IsValidConversion(sourceType: sourceType?.Name ?? "unknown",
+                targetType: targetTypeName))
         {
-            _errors.Add(item: new SemanticError(Message: $"Cannot convert from {sourceType?.Name ?? "unknown"} to {targetTypeName}", Location: node.Location));
+            _errors.Add(item: new SemanticError(
+                Message:
+                $"Cannot convert from {sourceType?.Name ?? "unknown"} to {targetTypeName}",
+                Location: node.Location));
             return null;
         }
 
         // Return the target type
-        return new TypeInfo(Name: targetTypeName, IsReference: IsUnsignedType(typeName: targetTypeName));
+        return new TypeInfo(Name: targetTypeName,
+            IsReference: IsUnsignedType(typeName: targetTypeName));
     }
 
     /// <summary>
@@ -530,7 +616,7 @@ public partial class SemanticAnalyzer
     public object? VisitStructLiteralExpression(StructLiteralExpression node)
     {
         // Type check all field value expressions
-        foreach (var field in node.Fields)
+        foreach ((string Name, Expression Value) field in node.Fields)
         {
             field.Value.Accept(visitor: this);
         }

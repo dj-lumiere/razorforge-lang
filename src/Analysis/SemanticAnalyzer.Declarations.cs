@@ -8,7 +8,7 @@ namespace Compilers.Shared.Analysis;
 /// </summary>
 public partial class SemanticAnalyzer
 {
-        /// <summary>
+    /// <summary>
     /// Registers declarations from a prelude module into the symbol table.
     /// </summary>
     private void RegisterPreludeDeclarations(AST.Program ast)
@@ -17,30 +17,45 @@ public partial class SemanticAnalyzer
         {
             if (declaration is FunctionDeclaration funcDecl)
             {
-                var funcSymbol = new FunctionSymbol(Name: funcDecl.Name, Parameters: funcDecl.Parameters, ReturnType: ResolveType(typeExpr: funcDecl.ReturnType), Visibility: funcDecl.Visibility, GenericParameters: funcDecl.GenericParameters);
+                var funcSymbol = new FunctionSymbol(Name: funcDecl.Name,
+                    Parameters: funcDecl.Parameters,
+                    ReturnType: ResolveType(typeExpr: funcDecl.ReturnType),
+                    Visibility: funcDecl.Visibility,
+                    GenericParameters: funcDecl.GenericParameters);
                 _symbolTable.TryDeclare(symbol: funcSymbol);
             }
             else if (declaration is StructDeclaration structDecl)
             {
-                List<string>? interfaceNames = structDecl.Interfaces
-                                                        ?.Select(selector: i => i.Name)
-                                                         .ToList();
-                var structSymbol = new StructSymbol(Name: structDecl.Name, Visibility: structDecl.Visibility, GenericParameters: structDecl.GenericParameters, Interfaces: interfaceNames);
+                var interfaceNames = structDecl.Interfaces
+                                              ?.Select(selector: i => i.Name)
+                                               .ToList();
+                var structSymbol = new StructSymbol(Name: structDecl.Name,
+                    Visibility: structDecl.Visibility,
+                    GenericParameters: structDecl.GenericParameters,
+                    Interfaces: interfaceNames);
                 _symbolTable.TryDeclare(symbol: structSymbol);
             }
             else if (declaration is ClassDeclaration classDecl)
             {
-                var classSymbol = new ClassSymbol(Name: classDecl.Name, BaseClass: classDecl.BaseClass, Interfaces: classDecl.Interfaces, Visibility: classDecl.Visibility, GenericParameters: classDecl.GenericParameters);
+                var classSymbol = new ClassSymbol(Name: classDecl.Name,
+                    BaseClass: classDecl.BaseClass,
+                    Interfaces: classDecl.Interfaces,
+                    Visibility: classDecl.Visibility,
+                    GenericParameters: classDecl.GenericParameters);
                 _symbolTable.TryDeclare(symbol: classSymbol);
             }
             else if (declaration is FeatureDeclaration featureDecl)
             {
-                var featureSymbol = new FeatureSymbol(Name: featureDecl.Name, Visibility: featureDecl.Visibility, GenericParameters: featureDecl.GenericParameters);
+                var featureSymbol = new FeatureSymbol(Name: featureDecl.Name,
+                    Visibility: featureDecl.Visibility,
+                    GenericParameters: featureDecl.GenericParameters);
                 _symbolTable.TryDeclare(symbol: featureSymbol);
             }
             else if (declaration is VariantDeclaration variantDecl)
             {
-                var variantSymbol = new VariantSymbol(Name: variantDecl.Name, Visibility: variantDecl.Visibility, GenericParameters: variantDecl.GenericParameters);
+                var variantSymbol = new VariantSymbol(Name: variantDecl.Name,
+                    Visibility: variantDecl.Visibility,
+                    GenericParameters: variantDecl.GenericParameters);
                 _symbolTable.TryDeclare(symbol: variantSymbol);
             }
         }
@@ -65,7 +80,10 @@ public partial class SemanticAnalyzer
             // These produce temporary tokens that cannot be stored in variables
             if (IsInlineOnlyMethodCall(expr: node.Initializer, methodName: out string? methodName))
             {
-                AddError(message: $"Cannot store result of '.{methodName}()' in a variable. " + $"Inline tokens must be used directly (e.g., 'obj.{methodName}().field') " + $"or use scoped syntax (e.g., '{(methodName == "view" ? "viewing" : "hijacking")} obj as handle {{ ... }}').", location: node.Location);
+                AddError(message: $"Cannot store result of '.{methodName}()' in a variable. " +
+                                  $"Inline tokens must be used directly (e.g., 'obj.{methodName}().field') " +
+                                  $"or use scoped syntax (e.g., '{(methodName == "view" ? "viewing" : "hijacking")} obj as handle {{ ... }}').",
+                    location: node.Location);
             }
 
             var initType = node.Initializer.Accept(visitor: this) as TypeInfo;
@@ -76,13 +94,17 @@ public partial class SemanticAnalyzer
                 TypeInfo? declaredType = ResolveType(typeExpr: node.Type);
                 if (declaredType != null && !IsAssignable(target: declaredType, source: initType))
                 {
-                    AddError(message: $"Cannot assign {initType?.Name ?? "unknown"} to {declaredType.Name}", location: node.Location);
+                    AddError(
+                        message:
+                        $"Cannot assign {initType?.Name ?? "unknown"} to {declaredType.Name}",
+                        location: node.Location);
                 }
             }
 
             // CRITICAL: Register object in memory analyzer for ownership tracking
             // This is where objects enter the memory model and become subject to safety rules
-            TypeInfo type = ResolveType(typeExpr: node.Type) ?? initType ?? new TypeInfo(Name: "Unknown", IsReference: false);
+            TypeInfo type = ResolveType(typeExpr: node.Type) ??
+                            initType ?? new TypeInfo(Name: "Unknown", IsReference: false);
             _memoryAnalyzer.RegisterObject(name: node.Name, type: type, location: node.Location);
         }
 
@@ -99,10 +121,14 @@ public partial class SemanticAnalyzer
             variableType = node.Initializer.Accept(visitor: this) as TypeInfo;
         }
 
-        var symbol = new VariableSymbol(Name: node.Name, Type: variableType, IsMutable: node.IsMutable, Visibility: node.Visibility);
+        var symbol = new VariableSymbol(Name: node.Name,
+            Type: variableType,
+            IsMutable: node.IsMutable,
+            Visibility: node.Visibility);
         if (!_symbolTable.TryDeclare(symbol: symbol))
         {
-            AddError(message: $"Variable '{node.Name}' is already declared in current scope", location: node.Location);
+            AddError(message: $"Variable '{node.Name}' is already declared in current scope",
+                location: node.Location);
         }
 
         return null;
@@ -121,20 +147,30 @@ public partial class SemanticAnalyzer
         // Check for reserved function name prefixes (compiler-generated variants)
         if (node.Name.StartsWith(value: "try_"))
         {
-            AddError(message: $"Function name '{node.Name}' uses reserved prefix 'try_'. This prefix is reserved for compiler-generated safe variants.", location: node.Location);
+            AddError(
+                message:
+                $"Function name '{node.Name}' uses reserved prefix 'try_'. This prefix is reserved for compiler-generated safe variants.",
+                location: node.Location);
         }
         else if (node.Name.StartsWith(value: "check_"))
         {
-            AddError(message: $"Function name '{node.Name}' uses reserved prefix 'check_'. This prefix is reserved for compiler-generated safe variants.", location: node.Location);
+            AddError(
+                message:
+                $"Function name '{node.Name}' uses reserved prefix 'check_'. This prefix is reserved for compiler-generated safe variants.",
+                location: node.Location);
         }
         else if (node.Name.StartsWith(value: "find_"))
         {
-            AddError(message: $"Function name '{node.Name}' uses reserved prefix 'find_'. This prefix is reserved for compiler-generated safe variants.", location: node.Location);
+            AddError(
+                message:
+                $"Function name '{node.Name}' uses reserved prefix 'find_'. This prefix is reserved for compiler-generated safe variants.",
+                location: node.Location);
         }
 
         // Detect usurping functions that can return exclusive tokens (Hijacked<T>)
         // TODO: This should be replaced with an IsUsurping property on FunctionDeclaration
-        bool isUsurping = node.Name.Contains(value: "usurping") || CheckIfUsurpingFunction(node: node);
+        bool isUsurping = node.Name.Contains(value: "usurping") ||
+                          CheckIfUsurpingFunction(node: node);
 
         if (isUsurping)
         {
@@ -164,14 +200,19 @@ public partial class SemanticAnalyzer
             foreach (Parameter param in node.Parameters)
             {
                 TypeInfo? paramType = ResolveType(typeExpr: param.Type);
-                var paramSymbol = new VariableSymbol(Name: param.Name, Type: paramType, IsMutable: false, Visibility: VisibilityModifier.Private);
+                var paramSymbol = new VariableSymbol(Name: param.Name,
+                    Type: paramType,
+                    IsMutable: false,
+                    Visibility: VisibilityModifier.Private);
                 _symbolTable.TryDeclare(symbol: paramSymbol);
 
                 // Register parameter objects in memory analyzer for ownership tracking
                 // Parameters enter the function with appropriate wrapper types based on language
                 if (paramType != null)
                 {
-                    _memoryAnalyzer.RegisterObject(name: param.Name, type: paramType, location: node.Location);
+                    _memoryAnalyzer.RegisterObject(name: param.Name,
+                        type: paramType,
+                        location: node.Location);
                 }
             }
 
@@ -182,7 +223,8 @@ public partial class SemanticAnalyzer
                 TypeInfo? funcReturnType = ResolveType(typeExpr: node.ReturnType);
                 if (funcReturnType != null)
                 {
-                    _memoryAnalyzer.ValidateFunctionReturn(returnType: funcReturnType, location: node.Location);
+                    _memoryAnalyzer.ValidateFunctionReturn(returnType: funcReturnType,
+                        location: node.Location);
                 }
             }
 
@@ -206,10 +248,16 @@ public partial class SemanticAnalyzer
 
         // Add function to symbol table (with generic parameters if present)
         TypeInfo? returnType = ResolveType(typeExpr: node.ReturnType);
-        var funcSymbol = new FunctionSymbol(Name: node.Name, Parameters: node.Parameters, ReturnType: returnType, Visibility: node.Visibility, IsUsurping: isUsurping, GenericParameters: node.GenericParameters?.ToList());
+        var funcSymbol = new FunctionSymbol(Name: node.Name,
+            Parameters: node.Parameters,
+            ReturnType: returnType,
+            Visibility: node.Visibility,
+            IsUsurping: isUsurping,
+            GenericParameters: node.GenericParameters?.ToList());
         if (!_symbolTable.TryDeclare(symbol: funcSymbol))
         {
-            AddError(message: $"Function '{node.Name}' is already declared", location: node.Location);
+            AddError(message: $"Function '{node.Name}' is already declared",
+                location: node.Location);
         }
 
         return null;
@@ -240,10 +288,14 @@ public partial class SemanticAnalyzer
         }
 
         // Add entity to symbol table
-        var classSymbol = new ClassSymbol(Name: node.Name, BaseClass: node.BaseClass, Interfaces: node.Interfaces, Visibility: node.Visibility);
+        var classSymbol = new ClassSymbol(Name: node.Name,
+            BaseClass: node.BaseClass,
+            Interfaces: node.Interfaces,
+            Visibility: node.Visibility);
         if (!_symbolTable.TryDeclare(symbol: classSymbol))
         {
-            AddError(message: $"Entity '{node.Name}' is already declared", location: node.Location);
+            AddError(message: $"Entity '{node.Name}' is already declared",
+                location: node.Location);
         }
 
         return null;
@@ -259,14 +311,19 @@ public partial class SemanticAnalyzer
     {
         // Similar to entity but with value semantics
         // Extract interface names for the symbol
-        List<string>? interfaceNames = node.Interfaces
-                                          ?.Select(selector: i => i.Name)
-                                           .ToList();
+        var interfaceNames = node.Interfaces
+                                ?.Select(selector: i => i.Name)
+                                 .ToList();
 
-        var structSymbol = new StructSymbol(Name: node.Name, Visibility: node.Visibility, GenericParameters: node.GenericParameters, GenericConstraints: null, Interfaces: interfaceNames);
+        var structSymbol = new StructSymbol(Name: node.Name,
+            Visibility: node.Visibility,
+            GenericParameters: node.GenericParameters,
+            GenericConstraints: null,
+            Interfaces: interfaceNames);
         if (!_symbolTable.TryDeclare(symbol: structSymbol))
         {
-            AddError(message: $"Record '{node.Name}' is already declared", location: node.Location);
+            AddError(message: $"Record '{node.Name}' is already declared",
+                location: node.Location);
         }
 
         return null;
@@ -283,7 +340,8 @@ public partial class SemanticAnalyzer
         var menuSymbol = new MenuSymbol(Name: node.Name, Visibility: node.Visibility);
         if (!_symbolTable.TryDeclare(symbol: menuSymbol))
         {
-            AddError(message: $"Option '{node.Name}' is already declared", location: node.Location);
+            AddError(message: $"Option '{node.Name}' is already declared",
+                location: node.Location);
         }
 
         return null;
@@ -306,7 +364,10 @@ public partial class SemanticAnalyzer
                 // For now, we'll add a warning
                 if (!IsInDangerBlock())
                 {
-                    AddError(message: $"{node.Kind} '{node.Name}' must be declared inside a danger! block", location: node.Location);
+                    AddError(
+                        message:
+                        $"{node.Kind} '{node.Name}' must be declared inside a danger! block",
+                        location: node.Location);
                 }
 
                 break;
@@ -322,7 +383,10 @@ public partial class SemanticAnalyzer
                             // Check if type is an entity (reference type)
                             if (IsEntityType(type: type))
                             {
-                                AddError(message: $"Variant '{node.Name}' case '{variantCase.Name}' contains entity type '{type}'. All variant fields must be records (value types)", location: node.Location);
+                                AddError(
+                                    message:
+                                    $"Variant '{node.Name}' case '{variantCase.Name}' contains entity type '{type}'. All variant fields must be records (value types)",
+                                    location: node.Location);
                             }
                         }
                     }
@@ -334,7 +398,8 @@ public partial class SemanticAnalyzer
         var variantSymbol = new VariantSymbol(Name: node.Name, Visibility: node.Visibility);
         if (!_symbolTable.TryDeclare(symbol: variantSymbol))
         {
-            AddError(message: $"Variant '{node.Name}' is already declared", location: node.Location);
+            AddError(message: $"Variant '{node.Name}' is already declared",
+                location: node.Location);
         }
 
         return null;
@@ -351,7 +416,8 @@ public partial class SemanticAnalyzer
         var featureSymbol = new FeatureSymbol(Name: node.Name, Visibility: node.Visibility);
         if (!_symbolTable.TryDeclare(symbol: featureSymbol))
         {
-            AddError(message: $"Feature '{node.Name}' is already declared", location: node.Location);
+            AddError(message: $"Feature '{node.Name}' is already declared",
+                location: node.Location);
         }
 
         return null;
@@ -380,7 +446,8 @@ public partial class SemanticAnalyzer
         try
         {
             // Load the module and all its dependencies
-            List<ModuleResolver.ModuleInfo> modules = _moduleResolver.LoadModuleWithDependencies(importPath: node.ModulePath);
+            List<ModuleResolver.ModuleInfo> modules =
+                _moduleResolver.LoadModuleWithDependencies(importPath: node.ModulePath);
 
             // Process each loaded module (dependencies first, then the requested module)
             foreach (ModuleResolver.ModuleInfo moduleInfo in modules)
@@ -392,7 +459,8 @@ public partial class SemanticAnalyzer
         }
         catch (ModuleException ex)
         {
-            AddError(message: $"Failed to import module '{node.ModulePath}': {ex.Message}", location: node.Location);
+            AddError(message: $"Failed to import module '{node.ModulePath}': {ex.Message}",
+                location: node.Location);
             return null;
         }
     }
@@ -400,7 +468,8 @@ public partial class SemanticAnalyzer
     /// <summary>
     /// Processes an imported module by adding its symbols to the symbol table.
     /// </summary>
-    private void ProcessImportedModule(ModuleResolver.ModuleInfo moduleInfo, ImportDeclaration importDecl)
+    private void ProcessImportedModule(ModuleResolver.ModuleInfo moduleInfo,
+        ImportDeclaration importDecl)
     {
         // Analyze the imported module's AST to extract symbols
         foreach (IAstNode declaration in moduleInfo.Ast.Declarations)
@@ -415,46 +484,78 @@ public partial class SemanticAnalyzer
             if (declaration is FunctionDeclaration funcDecl)
             {
                 // Create function symbol (reuse the Parameter objects from AST)
-                var funcSymbol = new FunctionSymbol(Name: funcDecl.Name, Parameters: funcDecl.Parameters, ReturnType: funcDecl.ReturnType != null
-                    ? ResolveTypeExpression(typeExpr: funcDecl.ReturnType)
-                    : new TypeInfo(Name: "void", IsReference: false), Visibility: funcDecl.Visibility, IsUsurping: false, GenericParameters: funcDecl.GenericParameters, GenericConstraints: new List<GenericConstraint>());
+                var funcSymbol = new FunctionSymbol(Name: funcDecl.Name,
+                    Parameters: funcDecl.Parameters,
+                    ReturnType: funcDecl.ReturnType != null
+                        ? ResolveTypeExpression(typeExpr: funcDecl.ReturnType)
+                        : new TypeInfo(Name: "void", IsReference: false),
+                    Visibility: funcDecl.Visibility,
+                    IsUsurping: false,
+                    GenericParameters: funcDecl.GenericParameters,
+                    GenericConstraints: new List<GenericConstraint>());
 
                 if (!_symbolTable.TryDeclare(symbol: funcSymbol))
                 {
-                    AddError(message: $"Imported symbol '{funcDecl.Name}' conflicts with existing declaration", location: importDecl.Location);
+                    AddError(
+                        message:
+                        $"Imported symbol '{funcDecl.Name}' conflicts with existing declaration",
+                        location: importDecl.Location);
                 }
             }
             else if (declaration is ClassDeclaration classDecl)
             {
                 // Create class/entity symbol
-                var classSymbol = new ClassSymbol(Name: classDecl.Name, BaseClass: null, Interfaces: new List<TypeExpression>(), Visibility: classDecl.Visibility, GenericParameters: classDecl.GenericParameters, GenericConstraints: new List<GenericConstraint>());
+                var classSymbol = new ClassSymbol(Name: classDecl.Name,
+                    BaseClass: null,
+                    Interfaces: new List<TypeExpression>(),
+                    Visibility: classDecl.Visibility,
+                    GenericParameters: classDecl.GenericParameters,
+                    GenericConstraints: new List<GenericConstraint>());
 
                 if (!_symbolTable.TryDeclare(symbol: classSymbol))
                 {
-                    AddError(message: $"Imported type '{classDecl.Name}' conflicts with existing declaration", location: importDecl.Location);
+                    AddError(
+                        message:
+                        $"Imported type '{classDecl.Name}' conflicts with existing declaration",
+                        location: importDecl.Location);
                 }
             }
             else if (declaration is StructDeclaration structDecl)
             {
                 // Create struct/record symbol with interfaces
-                List<string>? interfaceNames = structDecl.Interfaces
-                                                        ?.Select(selector: i => i.Name)
-                                                         .ToList();
-                var structSymbol = new StructSymbol(Name: structDecl.Name, Visibility: structDecl.Visibility, GenericParameters: structDecl.GenericParameters, GenericConstraints: null, Interfaces: interfaceNames);
+                var interfaceNames = structDecl.Interfaces
+                                              ?.Select(selector: i => i.Name)
+                                               .ToList();
+                var structSymbol = new StructSymbol(Name: structDecl.Name,
+                    Visibility: structDecl.Visibility,
+                    GenericParameters: structDecl.GenericParameters,
+                    GenericConstraints: null,
+                    Interfaces: interfaceNames);
 
                 if (!_symbolTable.TryDeclare(symbol: structSymbol))
                 {
-                    AddError(message: $"Imported type '{structDecl.Name}' conflicts with existing declaration", location: importDecl.Location);
+                    AddError(
+                        message:
+                        $"Imported type '{structDecl.Name}' conflicts with existing declaration",
+                        location: importDecl.Location);
                 }
             }
             else if (declaration is VariantDeclaration variantDecl)
             {
                 // Create variant symbol (chimera/variant/mutant)
-                var variantSymbol = new ClassSymbol(Name: variantDecl.Name, BaseClass: null, Interfaces: new List<TypeExpression>(), Visibility: variantDecl.Visibility, GenericParameters: variantDecl.GenericParameters, GenericConstraints: new List<GenericConstraint>());
+                var variantSymbol = new ClassSymbol(Name: variantDecl.Name,
+                    BaseClass: null,
+                    Interfaces: new List<TypeExpression>(),
+                    Visibility: variantDecl.Visibility,
+                    GenericParameters: variantDecl.GenericParameters,
+                    GenericConstraints: new List<GenericConstraint>());
 
                 if (!_symbolTable.TryDeclare(symbol: variantSymbol))
                 {
-                    AddError(message: $"Imported type '{variantDecl.Name}' conflicts with existing declaration", location: importDecl.Location);
+                    AddError(
+                        message:
+                        $"Imported type '{variantDecl.Name}' conflicts with existing declaration",
+                        location: importDecl.Location);
                 }
             }
             else if (declaration is ExternalDeclaration externalDecl)
@@ -464,11 +565,22 @@ public partial class SemanticAnalyzer
                     ? ResolveTypeExpression(typeExpr: externalDecl.ReturnType)
                     : new TypeInfo(Name: "void", IsReference: false);
 
-                var funcSymbol = new FunctionSymbol(Name: externalDecl.Name, Parameters: externalDecl.Parameters, ReturnType: returnType, Visibility: VisibilityModifier.External, IsUsurping: false, GenericParameters: externalDecl.GenericParameters, GenericConstraints: new List<GenericConstraint>(), CallingConvention: externalDecl.CallingConvention, IsExternal: true);
+                var funcSymbol = new FunctionSymbol(Name: externalDecl.Name,
+                    Parameters: externalDecl.Parameters,
+                    ReturnType: returnType,
+                    Visibility: VisibilityModifier.External,
+                    IsUsurping: false,
+                    GenericParameters: externalDecl.GenericParameters,
+                    GenericConstraints: new List<GenericConstraint>(),
+                    CallingConvention: externalDecl.CallingConvention,
+                    IsExternal: true);
 
                 if (!_symbolTable.TryDeclare(symbol: funcSymbol))
                 {
-                    AddError(message: $"Imported external function '{externalDecl.Name}' conflicts with existing declaration", location: importDecl.Location);
+                    AddError(
+                        message:
+                        $"Imported external function '{externalDecl.Name}' conflicts with existing declaration",
+                        location: importDecl.Location);
                 }
             }
             // TODO: Handle other declaration types (FeatureDeclaration, MenuDeclaration, etc.)
@@ -510,6 +622,4 @@ public partial class SemanticAnalyzer
         // TODO: Handle type alias
         return null;
     }
-
-
 }

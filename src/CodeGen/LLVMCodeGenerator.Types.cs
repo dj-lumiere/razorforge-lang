@@ -10,7 +10,11 @@ namespace Compilers.Shared.CodeGen;
 public partial class LLVMCodeGenerator
 {
     // Type information including signedness and RazorForge type
-    private record TypeInfo(string LLVMType, bool IsUnsigned, bool IsFloatingPoint, string RazorForgeType = "");
+    private record TypeInfo(
+        string LLVMType,
+        bool IsUnsigned,
+        bool IsFloatingPoint,
+        string RazorForgeType = "");
 
     // Get LLVM type for an expression
     private string GetExpressionType(Expression expr)
@@ -28,7 +32,10 @@ public partial class LLVMCodeGenerator
             bool isUnsigned = IsUnsignedTokenType(tokenType: literal.LiteralType);
             bool isFloatingPoint = IsFloatingPointTokenType(tokenType: literal.LiteralType);
             string razorForgeType = GetRazorForgeTypeFromToken(tokenType: literal.LiteralType);
-            return new TypeInfo(LLVMType: llvmType, IsUnsigned: isUnsigned, IsFloatingPoint: isFloatingPoint, RazorForgeType: razorForgeType);
+            return new TypeInfo(LLVMType: llvmType,
+                IsUnsigned: isUnsigned,
+                IsFloatingPoint: isFloatingPoint,
+                RazorForgeType: razorForgeType);
         }
 
         // For binary expressions, get the type from the left operand (result type matches left operand)
@@ -53,7 +60,10 @@ public partial class LLVMCodeGenerator
         }
 
         // Default to signed i32 for unknown expressions (safer default for function params)
-        return new TypeInfo(LLVMType: "i32", IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: "s32");
+        return new TypeInfo(LLVMType: "i32",
+            IsUnsigned: false,
+            IsFloatingPoint: false,
+            RazorForgeType: "s32");
     }
 
     // Get type info for a temporary variable or literal value
@@ -67,7 +77,10 @@ public partial class LLVMCodeGenerator
         // Handle LLVM null constant - it's a pointer type
         if (value == "null")
         {
-            return new TypeInfo(LLVMType: "i8*", IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: "None");
+            return new TypeInfo(LLVMType: "i8*",
+                IsUnsigned: false,
+                IsFloatingPoint: false,
+                RazorForgeType: "None");
         }
 
         // If it's not a temp variable, it might be a literal value
@@ -75,11 +88,17 @@ public partial class LLVMCodeGenerator
         if (int.TryParse(s: value, result: out _))
         {
             // It's a numeric literal, assume i32 for now
-            return new TypeInfo(LLVMType: "i32", IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: "i32");
+            return new TypeInfo(LLVMType: "i32",
+                IsUnsigned: false,
+                IsFloatingPoint: false,
+                RazorForgeType: "i32");
         }
 
         // Default fallback
-        return new TypeInfo(LLVMType: "i32", IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: "i32");
+        return new TypeInfo(LLVMType: "i32",
+            IsUnsigned: false,
+            IsFloatingPoint: false,
+            RazorForgeType: "i32");
     }
 
     // Get type info from string type name
@@ -88,40 +107,109 @@ public partial class LLVMCodeGenerator
         return typeName switch
         {
             // Signed integers
-            "i8" => new TypeInfo(LLVMType: "i8", IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: "i8"),
-            "i16" => new TypeInfo(LLVMType: "i16", IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: "i16"),
-            "i32" => new TypeInfo(LLVMType: "i32", IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: "i32"),
-            "i64" => new TypeInfo(LLVMType: "i64", IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: "i64"),
-            "i128" => new TypeInfo(LLVMType: "i128", IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: "i128"),
+            "i8" => new TypeInfo(LLVMType: "i8",
+                IsUnsigned: false,
+                IsFloatingPoint: false,
+                RazorForgeType: "i8"),
+            "i16" => new TypeInfo(LLVMType: "i16",
+                IsUnsigned: false,
+                IsFloatingPoint: false,
+                RazorForgeType: "i16"),
+            "i32" => new TypeInfo(LLVMType: "i32",
+                IsUnsigned: false,
+                IsFloatingPoint: false,
+                RazorForgeType: "i32"),
+            "i64" => new TypeInfo(LLVMType: "i64",
+                IsUnsigned: false,
+                IsFloatingPoint: false,
+                RazorForgeType: "i64"),
+            "i128" => new TypeInfo(LLVMType: "i128",
+                IsUnsigned: false,
+                IsFloatingPoint: false,
+                RazorForgeType: "i128"),
 
             // Unsigned integers
-            "u8" => new TypeInfo(LLVMType: "i8", IsUnsigned: true, IsFloatingPoint: false, RazorForgeType: "u8"),
-            "u16" => new TypeInfo(LLVMType: "i16", IsUnsigned: true, IsFloatingPoint: false, RazorForgeType: "u16"),
-            "u32" => new TypeInfo(LLVMType: "i32", IsUnsigned: true, IsFloatingPoint: false, RazorForgeType: "u32"),
-            "u64" => new TypeInfo(LLVMType: "i64", IsUnsigned: true, IsFloatingPoint: false, RazorForgeType: "u64"),
-            "u128" => new TypeInfo(LLVMType: "i128", IsUnsigned: true, IsFloatingPoint: false, RazorForgeType: "u128"),
+            "u8" => new TypeInfo(LLVMType: "i8",
+                IsUnsigned: true,
+                IsFloatingPoint: false,
+                RazorForgeType: "u8"),
+            "u16" => new TypeInfo(LLVMType: "i16",
+                IsUnsigned: true,
+                IsFloatingPoint: false,
+                RazorForgeType: "u16"),
+            "u32" => new TypeInfo(LLVMType: "i32",
+                IsUnsigned: true,
+                IsFloatingPoint: false,
+                RazorForgeType: "u32"),
+            "u64" => new TypeInfo(LLVMType: "i64",
+                IsUnsigned: true,
+                IsFloatingPoint: false,
+                RazorForgeType: "u64"),
+            "u128" => new TypeInfo(LLVMType: "i128",
+                IsUnsigned: true,
+                IsFloatingPoint: false,
+                RazorForgeType: "u128"),
 
             // System-dependent integers
-            "isys" => new TypeInfo(LLVMType: "i64", IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: "isys"), // intptr_t - typically i64 on 64-bit systems
-            "usys" => new TypeInfo(LLVMType: "i64", IsUnsigned: true, IsFloatingPoint: false, RazorForgeType: "usys"), // uintptr_t - typically i64 on 64-bit systems
+            "isys" => new TypeInfo(LLVMType: "i64",
+                IsUnsigned: false,
+                IsFloatingPoint: false,
+                RazorForgeType: "isys"), // intptr_t - typically i64 on 64-bit systems
+            "usys" => new TypeInfo(LLVMType: "i64",
+                IsUnsigned: true,
+                IsFloatingPoint: false,
+                RazorForgeType: "usys"), // uintptr_t - typically i64 on 64-bit systems
 
             // Floating point types
-            "f16" => new TypeInfo(LLVMType: "half", IsUnsigned: false, IsFloatingPoint: true, RazorForgeType: "f16"),
-            "f32" => new TypeInfo(LLVMType: "float", IsUnsigned: false, IsFloatingPoint: true, RazorForgeType: "f32"),
-            "f64" => new TypeInfo(LLVMType: "double", IsUnsigned: false, IsFloatingPoint: true, RazorForgeType: "f64"),
-            "f128" => new TypeInfo(LLVMType: "fp128", IsUnsigned: false, IsFloatingPoint: true, RazorForgeType: "f128"),
+            "f16" => new TypeInfo(LLVMType: "half",
+                IsUnsigned: false,
+                IsFloatingPoint: true,
+                RazorForgeType: "f16"),
+            "f32" => new TypeInfo(LLVMType: "float",
+                IsUnsigned: false,
+                IsFloatingPoint: true,
+                RazorForgeType: "f32"),
+            "f64" => new TypeInfo(LLVMType: "double",
+                IsUnsigned: false,
+                IsFloatingPoint: true,
+                RazorForgeType: "f64"),
+            "f128" => new TypeInfo(LLVMType: "fp128",
+                IsUnsigned: false,
+                IsFloatingPoint: true,
+                RazorForgeType: "f128"),
 
             // Boolean
-            "bool" => new TypeInfo(LLVMType: "i1", IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: "bool"),
+            "bool" => new TypeInfo(LLVMType: "i1",
+                IsUnsigned: false,
+                IsFloatingPoint: false,
+                RazorForgeType: "bool"),
 
             // Math library types
-            "d32" => new TypeInfo(LLVMType: "i32", IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: "d32"),
-            "d64" => new TypeInfo(LLVMType: "i64", IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: "d64"),
-            "d128" => new TypeInfo(LLVMType: "{i64, i64}", IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: "d128"),
-            "bigint" => new TypeInfo(LLVMType: "i8*", IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: "bigint"),
-            "decimal" => new TypeInfo(LLVMType: "i8*", IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: "decimal"),
+            "d32" => new TypeInfo(LLVMType: "i32",
+                IsUnsigned: false,
+                IsFloatingPoint: false,
+                RazorForgeType: "d32"),
+            "d64" => new TypeInfo(LLVMType: "i64",
+                IsUnsigned: false,
+                IsFloatingPoint: false,
+                RazorForgeType: "d64"),
+            "d128" => new TypeInfo(LLVMType: "{i64, i64}",
+                IsUnsigned: false,
+                IsFloatingPoint: false,
+                RazorForgeType: "d128"),
+            "bigint" => new TypeInfo(LLVMType: "i8*",
+                IsUnsigned: false,
+                IsFloatingPoint: false,
+                RazorForgeType: "bigint"),
+            "decimal" => new TypeInfo(LLVMType: "i8*",
+                IsUnsigned: false,
+                IsFloatingPoint: false,
+                RazorForgeType: "decimal"),
 
-            _ => new TypeInfo(LLVMType: "i32", IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: "i32")
+            _ => new TypeInfo(LLVMType: "i32",
+                IsUnsigned: false,
+                IsFloatingPoint: false,
+                RazorForgeType: "i32")
         };
     }
 
@@ -167,7 +255,8 @@ public partial class LLVMCodeGenerator
     {
         return tokenType switch
         {
-            TokenType.U8Literal or TokenType.U16Literal or TokenType.U32Literal or TokenType.U64Literal or TokenType.U128Literal => true,
+            TokenType.U8Literal or TokenType.U16Literal or TokenType.U32Literal
+                or TokenType.U64Literal or TokenType.U128Literal => true,
             _ => false
         };
     }
@@ -177,7 +266,8 @@ public partial class LLVMCodeGenerator
     {
         return tokenType switch
         {
-            TokenType.F16Literal or TokenType.F32Literal or TokenType.F64Literal or TokenType.F128Literal or TokenType.Decimal => true,
+            TokenType.F16Literal or TokenType.F32Literal or TokenType.F64Literal
+                or TokenType.F128Literal or TokenType.Decimal => true,
             _ => false
         };
     }

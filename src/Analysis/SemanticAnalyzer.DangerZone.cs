@@ -7,7 +7,7 @@ namespace Compilers.Shared.Analysis;
 /// </summary>
 public partial class SemanticAnalyzer
 {
-        /// <summary>
+    /// <summary>
     /// Visits a danger! block that disables safety checks.
     /// Tracks danger mode state for validation.
     /// </summary>
@@ -80,7 +80,10 @@ public partial class SemanticAnalyzer
         // Intrinsics can only be used inside danger! blocks
         if (!_isInDangerMode)
         {
-            AddError(message: $"Intrinsic '{node.IntrinsicName}' can only be used inside danger! blocks", location: node.Location);
+            AddError(
+                message:
+                $"Intrinsic '{node.IntrinsicName}' can only be used inside danger! blocks",
+                location: node.Location);
             return null;
         }
 
@@ -100,7 +103,10 @@ public partial class SemanticAnalyzer
         // Native calls can only be used inside danger! blocks
         if (!_isInDangerMode)
         {
-            AddError(message: $"Native call '@native.{node.FunctionName}' can only be used inside danger! blocks", location: node.Location);
+            AddError(
+                message:
+                $"Native call '@native.{node.FunctionName}' can only be used inside danger! blocks",
+                location: node.Location);
             return null;
         }
 
@@ -129,17 +135,24 @@ public partial class SemanticAnalyzer
             ? new TypeInfo(Name: node.ReturnType.Name, IsReference: false)
             : null;
 
-        var functionSymbol = new FunctionSymbol(Name: node.Name, Parameters: parameters, ReturnType: returnType, Visibility: VisibilityModifier.External, IsUsurping: false, GenericParameters: node.GenericParameters?.ToList());
+        var functionSymbol = new FunctionSymbol(Name: node.Name,
+            Parameters: parameters,
+            ReturnType: returnType,
+            Visibility: VisibilityModifier.External,
+            IsUsurping: false,
+            GenericParameters: node.GenericParameters?.ToList());
 
         if (!_symbolTable.TryDeclare(symbol: functionSymbol))
         {
-            AddError(message: $"External function '{node.Name}' is already declared", location: node.Location);
+            AddError(message: $"External function '{node.Name}' is already declared",
+                location: node.Location);
         }
 
         return null;
     }
 
-    private object? ValidateGenericMethodCall(GenericMethodCallExpression node, TypeInfo objectType)
+    private object? ValidateGenericMethodCall(GenericMethodCallExpression node,
+        TypeInfo objectType)
     {
         // Check if this is actually a generic function call (not a method on an object)
         if (node.Object is IdentifierExpression funcIdent)
@@ -153,7 +166,8 @@ public partial class SemanticAnalyzer
                 // Find a matching overload with the right number of generic parameters
                 foreach (FunctionSymbol overload in overloadSet.Overloads)
                 {
-                    if (overload.GenericParameters != null && overload.GenericParameters.Count == node.TypeArguments.Count)
+                    if (overload.GenericParameters != null && overload.GenericParameters.Count ==
+                        node.TypeArguments.Count)
                     {
                         funcSymbol = overload;
                         break;
@@ -161,14 +175,18 @@ public partial class SemanticAnalyzer
                 }
             }
 
-            if (funcSymbol is FunctionSymbol func && func.GenericParameters != null && func.GenericParameters.Count > 0)
+            if (funcSymbol is FunctionSymbol func && func.GenericParameters != null &&
+                func.GenericParameters.Count > 0)
             {
                 // This is a generic function call - resolve the return type
                 // by substituting the type arguments
 
                 // Create binding map from type parameters to concrete types
                 var genericBindings = new Dictionary<string, TypeInfo>();
-                for (int i = 0; i < Math.Min(val1: func.GenericParameters.Count, val2: node.TypeArguments.Count); i++)
+                for (int i = 0;
+                     i < Math.Min(val1: func.GenericParameters.Count,
+                         val2: node.TypeArguments.Count);
+                     i++)
                 {
                     string paramName = func.GenericParameters[index: i];
                     TypeInfo? argType = ResolveType(typeExpr: node.TypeArguments[index: i]);
@@ -182,7 +200,8 @@ public partial class SemanticAnalyzer
                 if (func.ReturnType != null)
                 {
                     // If return type is a generic parameter, substitute it
-                    if (genericBindings.TryGetValue(key: func.ReturnType.Name, value: out TypeInfo? resolvedReturnType))
+                    if (genericBindings.TryGetValue(key: func.ReturnType.Name,
+                            value: out TypeInfo? resolvedReturnType))
                     {
                         return resolvedReturnType;
                     }
@@ -205,9 +224,17 @@ public partial class SemanticAnalyzer
         if (memOp != null)
         {
             // Create a temporary memory object for validation
-            var memoryObject = new MemoryObject(Name: node.Object.ToString() ?? "slice", BaseType: sliceType, Wrapper: WrapperType.Owned, State: ObjectState.Valid, ReferenceCount: 1, Location: node.Location);
+            var memoryObject = new MemoryObject(Name: node.Object.ToString() ?? "slice",
+                BaseType: sliceType,
+                Wrapper: WrapperType.Owned,
+                State: ObjectState.Valid,
+                ReferenceCount: 1,
+                Location: node.Location);
 
-            MemoryOperationResult result = _memoryAnalyzer.ValidateMemoryOperation(memoryObject: memoryObject, operation: memOp.Value, location: node.Location);
+            MemoryOperationResult result = _memoryAnalyzer.ValidateMemoryOperation(
+                memoryObject: memoryObject,
+                operation: memOp.Value,
+                location: node.Location);
             if (!result.IsSuccess)
             {
                 foreach (MemoryError error in result.Errors)
@@ -232,32 +259,41 @@ public partial class SemanticAnalyzer
         return GetMemoryOperation(operationName: operationName);
     }
 
-    private object? ValidateSliceGenericMethod(GenericMethodCallExpression node, TypeInfo sliceType, SourceLocation location)
+    private object? ValidateSliceGenericMethod(GenericMethodCallExpression node,
+        TypeInfo sliceType, SourceLocation location)
     {
         return ValidateSliceGenericMethod(node: node, sliceType: sliceType);
     }
 
-    private object? ValidateGenericMethodCall(GenericMethodCallExpression node, TypeInfo objectType, SourceLocation location)
+    private object? ValidateGenericMethodCall(GenericMethodCallExpression node,
+        TypeInfo objectType, SourceLocation location)
     {
         return ValidateGenericMethodCall(node: node, objectType: objectType);
     }
 
-    private object? ValidateSliceMemoryOperation(MemoryOperationExpression node, TypeInfo sliceType, SourceLocation location)
+    private object? ValidateSliceMemoryOperation(MemoryOperationExpression node,
+        TypeInfo sliceType, SourceLocation location)
     {
         return ValidateSliceMemoryOperation(node: node, sliceType: sliceType);
     }
 
-    private object? HandleMemoryModelOperation(MemoryOperationExpression node, TypeInfo sliceType, SourceLocation location)
+    private object? HandleMemoryModelOperation(MemoryOperationExpression node, TypeInfo sliceType,
+        SourceLocation location)
     {
         return HandleMemoryModelOperation(node: node, sliceType: sliceType);
     }
 
-    private TypeInfo? HandleMemoryOperationCall(MemberExpression memberExpr, string operationName, List<Expression> arguments, SourceLocation location, SourceLocation nodeLocation)
+    private TypeInfo? HandleMemoryOperationCall(MemberExpression memberExpr, string operationName,
+        List<Expression> arguments, SourceLocation location, SourceLocation nodeLocation)
     {
-        return HandleMemoryOperationCall(memberExpr: memberExpr, operationName: operationName, arguments: arguments, location: location);
+        return HandleMemoryOperationCall(memberExpr: memberExpr,
+            operationName: operationName,
+            arguments: arguments,
+            location: location);
     }
 
-    private TypeInfo CreateWrapperTypeInfo(TypeInfo baseType, WrapperType wrapper, SourceLocation location)
+    private TypeInfo CreateWrapperTypeInfo(TypeInfo baseType, WrapperType wrapper,
+        SourceLocation location)
     {
         return CreateWrapperTypeInfo(baseType: baseType, wrapper: wrapper);
     }
@@ -292,17 +328,20 @@ public partial class SemanticAnalyzer
     {
         return functionName switch
         {
-            "write_as" or "read_as" or "volatile_write" or "volatile_read" or "address_of" or "invalidate" => true,
+            "write_as" or "read_as" or "volatile_write" or "volatile_read" or "address_of"
+                or "invalidate" => true,
             _ => false
         };
     }
 
-    private object? ValidateDangerZoneFunction(GenericMethodCallExpression node, string functionName)
+    private object? ValidateDangerZoneFunction(GenericMethodCallExpression node,
+        string functionName)
     {
         // These functions are only available in danger blocks
         if (!_isInDangerMode)
         {
-            AddError(message: $"Function '{functionName}' is only available within danger! blocks", location: node.Location);
+            AddError(message: $"Function '{functionName}' is only available within danger! blocks",
+                location: node.Location);
             return null;
         }
 
@@ -313,25 +352,33 @@ public partial class SemanticAnalyzer
         {
             "write_as" => ValidateWriteAs(args: args, typeArgs: typeArgs, location: node.Location),
             "read_as" => ValidateReadAs(args: args, typeArgs: typeArgs, location: node.Location),
-            "volatile_write" => ValidateVolatileWrite(args: args, typeArgs: typeArgs, location: node.Location),
-            "volatile_read" => ValidateVolatileRead(args: args, typeArgs: typeArgs, location: node.Location),
+            "volatile_write" => ValidateVolatileWrite(args: args,
+                typeArgs: typeArgs,
+                location: node.Location),
+            "volatile_read" => ValidateVolatileRead(args: args,
+                typeArgs: typeArgs,
+                location: node.Location),
             "address_of" => ValidateAddrOf(args: args, location: node.Location),
             "invalidate" => ValidateInvalidate(args: args, location: node.Location),
-            _ => throw new InvalidOperationException(message: $"Unknown danger zone function: {functionName}")
+            _ => throw new InvalidOperationException(
+                message: $"Unknown danger zone function: {functionName}")
         };
     }
 
-    private object? ValidateWriteAs(List<Expression> args, List<TypeExpression> typeArgs, SourceLocation location)
+    private object? ValidateWriteAs(List<Expression> args, List<TypeExpression> typeArgs,
+        SourceLocation location)
     {
         if (typeArgs.Count != 1)
         {
-            AddError(message: "write_as<T>! requires exactly one type argument", location: location);
+            AddError(message: "write_as<T>! requires exactly one type argument",
+                location: location);
             return null;
         }
 
         if (args.Count != 2)
         {
-            AddError(message: "write_as<T>! requires exactly two arguments (address, value)", location: location);
+            AddError(message: "write_as<T>! requires exactly two arguments (address, value)",
+                location: location);
             return null;
         }
 
@@ -348,25 +395,30 @@ public partial class SemanticAnalyzer
         }
 
         // Value should be compatible with target type
-        if (valueType?.Name != targetType && !IsCompatibleType(sourceType: valueType?.Name, targetType: targetType))
+        if (valueType?.Name != targetType &&
+            !IsCompatibleType(sourceType: valueType?.Name, targetType: targetType))
         {
-            AddError(message: $"write_as<T>! value must be of type {targetType}", location: location);
+            AddError(message: $"write_as<T>! value must be of type {targetType}",
+                location: location);
         }
 
         return new TypeInfo(Name: "void", IsReference: false);
     }
 
-    private object? ValidateReadAs(List<Expression> args, List<TypeExpression> typeArgs, SourceLocation location)
+    private object? ValidateReadAs(List<Expression> args, List<TypeExpression> typeArgs,
+        SourceLocation location)
     {
         if (typeArgs.Count != 1)
         {
-            AddError(message: "read_as<T>! requires exactly one type argument", location: location);
+            AddError(message: "read_as<T>! requires exactly one type argument",
+                location: location);
             return null;
         }
 
         if (args.Count != 1)
         {
-            AddError(message: "read_as<T>! requires exactly one argument (address)", location: location);
+            AddError(message: "read_as<T>! requires exactly one argument (address)",
+                location: location);
             return null;
         }
 
@@ -383,13 +435,15 @@ public partial class SemanticAnalyzer
         return new TypeInfo(Name: targetType, IsReference: false);
     }
 
-    private object? ValidateVolatileWrite(List<Expression> args, List<TypeExpression> typeArgs, SourceLocation location)
+    private object? ValidateVolatileWrite(List<Expression> args, List<TypeExpression> typeArgs,
+        SourceLocation location)
     {
         // Same validation as write_as but for volatile operations
         return ValidateWriteAs(args: args, typeArgs: typeArgs, location: location);
     }
 
-    private object? ValidateVolatileRead(List<Expression> args, List<TypeExpression> typeArgs, SourceLocation location)
+    private object? ValidateVolatileRead(List<Expression> args, List<TypeExpression> typeArgs,
+        SourceLocation location)
     {
         // Same validation as read_as but for volatile operations
         return ValidateReadAs(args: args, typeArgs: typeArgs, location: location);
@@ -399,7 +453,8 @@ public partial class SemanticAnalyzer
     {
         if (args.Count != 1)
         {
-            AddError(message: "address_of! requires exactly one argument (variable)", location: location);
+            AddError(message: "address_of! requires exactly one argument (variable)",
+                location: location);
             return null;
         }
 
@@ -420,7 +475,8 @@ public partial class SemanticAnalyzer
     {
         if (args.Count != 1)
         {
-            AddError(message: "invalidate! requires exactly one argument (slice or pointer)", location: location);
+            AddError(message: "invalidate! requires exactly one argument (slice or pointer)",
+                location: location);
             return null;
         }
 
@@ -428,9 +484,11 @@ public partial class SemanticAnalyzer
            .Accept(visitor: this) as TypeInfo;
 
         // Should be a slice type or pointer
-        if (argType?.Name != "DynamicSlice" && argType?.Name != "TemporarySlice" && argType?.Name != "ptr")
+        if (argType?.Name != "DynamicSlice" && argType?.Name != "TemporarySlice" &&
+            argType?.Name != "ptr")
         {
-            AddError(message: "invalidate! argument must be a slice or pointer", location: location);
+            AddError(message: "invalidate! argument must be a slice or pointer",
+                location: location);
         }
 
         return new TypeInfo(Name: "void", IsReference: false);
@@ -462,15 +520,18 @@ public partial class SemanticAnalyzer
         // These functions are only available in danger blocks
         if (!_isInDangerMode)
         {
-            AddError(message: $"Function '{functionName}' is only available within danger! blocks", location: node.Location);
+            AddError(message: $"Function '{functionName}' is only available within danger! blocks",
+                location: node.Location);
             return null;
         }
 
         return functionName switch
         {
             "address_of" => ValidateAddrOfFunction(args: node.Arguments, location: node.Location),
-            "invalidate" => ValidateInvalidateFunction(args: node.Arguments, location: node.Location),
-            _ => throw new InvalidOperationException(message: $"Unknown non-generic danger zone function: {functionName}")
+            "invalidate" => ValidateInvalidateFunction(args: node.Arguments,
+                location: node.Location),
+            _ => throw new InvalidOperationException(
+                message: $"Unknown non-generic danger zone function: {functionName}")
         };
     }
 
@@ -478,7 +539,8 @@ public partial class SemanticAnalyzer
     {
         if (args.Count != 1)
         {
-            AddError(message: "address_of! requires exactly one argument (variable)", location: location);
+            AddError(message: "address_of! requires exactly one argument (variable)",
+                location: location);
             return null;
         }
 
@@ -486,7 +548,8 @@ public partial class SemanticAnalyzer
         Expression arg = args[index: 0];
         if (arg is not IdentifierExpression)
         {
-            AddError(message: "address_of! argument must be a variable identifier", location: location);
+            AddError(message: "address_of! argument must be a variable identifier",
+                location: location);
             return null;
         }
 
@@ -506,7 +569,8 @@ public partial class SemanticAnalyzer
     {
         if (args.Count != 1)
         {
-            AddError(message: "invalidate! requires exactly one argument (slice or pointer)", location: location);
+            AddError(message: "invalidate! requires exactly one argument (slice or pointer)",
+                location: location);
             return null;
         }
 
@@ -514,9 +578,11 @@ public partial class SemanticAnalyzer
            .Accept(visitor: this) as TypeInfo;
 
         // Should be a slice type or pointer
-        if (argType?.Name != "DynamicSlice" && argType?.Name != "TemporarySlice" && argType?.Name != "ptr")
+        if (argType?.Name != "DynamicSlice" && argType?.Name != "TemporarySlice" &&
+            argType?.Name != "ptr")
         {
-            AddError(message: "invalidate! argument must be a slice or pointer", location: location);
+            AddError(message: "invalidate! argument must be a slice or pointer",
+                location: location);
         }
 
         return new TypeInfo(Name: "void", IsReference: false);
@@ -527,5 +593,4 @@ public partial class SemanticAnalyzer
         // Use the tracked danger/mayhem mode state
         return _isInDangerMode || _isInMayhemMode;
     }
-
 }

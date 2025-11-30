@@ -19,15 +19,22 @@ public partial class LLVMCodeGenerator
             {
                 // Get type argument for generic method
                 TypeExpression dangerTypeArg = node.TypeArguments.First();
-                string dangerLlvmType = MapRazorForgeTypeToLLVM(razorForgeType: dangerTypeArg.Name);
+                string dangerLlvmType =
+                    MapRazorForgeTypeToLLVM(razorForgeType: dangerTypeArg.Name);
 
-                return HandleDangerZoneFunction(node: node, functionName: functionName, llvmType: dangerLlvmType, typeName: dangerTypeArg.Name, resultTemp: resultTemp);
+                return HandleDangerZoneFunction(node: node,
+                    functionName: functionName,
+                    llvmType: dangerLlvmType,
+                    typeName: dangerTypeArg.Name,
+                    resultTemp: resultTemp);
             }
 
             // Check for CompilerService intrinsics
             if (IsCompilerServiceIntrinsic(functionName: functionName))
             {
-                return HandleCompilerServiceIntrinsic(node: node, functionName: functionName, resultTemp: resultTemp);
+                return HandleCompilerServiceIntrinsic(node: node,
+                    functionName: functionName,
+                    resultTemp: resultTemp);
             }
 
             // Check for user-defined generic function
@@ -39,7 +46,8 @@ public partial class LLVMCodeGenerator
                                    .ToList();
 
                 // Instantiate the generic function (queues for later code generation)
-                string mangledName = InstantiateGenericFunction(functionName: functionName, typeArguments: typeArgs);
+                string mangledName = InstantiateGenericFunction(functionName: functionName,
+                    typeArguments: typeArgs);
 
                 // Generate call to the instantiated function
                 var argTemps = new List<string>();
@@ -54,12 +62,15 @@ public partial class LLVMCodeGenerator
                     argTypes.Add(item: argType);
                 }
 
-                string argList = string.Join(separator: ", ", values: argTemps.Zip(second: argTypes, resultSelector: (temp, type) => $"{type} {temp}"));
+                string argList = string.Join(separator: ", ",
+                    values: argTemps.Zip(second: argTypes,
+                        resultSelector: (temp, type) => $"{type} {temp}"));
 
                 // Determine return type (simplified - would need proper type resolution)
                 string returnType = "i32"; // Default
 
-                _output.AppendLine(handler: $"  {resultTemp} = call {returnType} @{mangledName}({argList})");
+                _output.AppendLine(
+                    handler: $"  {resultTemp} = call {returnType} @{mangledName}({argList})");
                 return resultTemp;
             }
         }
@@ -75,8 +86,14 @@ public partial class LLVMCodeGenerator
             case "read":
                 string offsetTemp = node.Arguments[index: 0]
                                         .Accept(visitor: this);
-                _output.AppendLine(handler: $"  {resultTemp} = call {llvmType} @memory_read_{typeArg.Name}(ptr {objectTemp}, i64 {offsetTemp})");
-                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: MapRazorForgeTypeToLLVM(razorForgeType: typeArg.Name), IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: typeArg.Name);
+                _output.AppendLine(
+                    handler:
+                    $"  {resultTemp} = call {llvmType} @memory_read_{typeArg.Name}(ptr {objectTemp}, i64 {offsetTemp})");
+                _tempTypes[key: resultTemp] = new TypeInfo(
+                    LLVMType: MapRazorForgeTypeToLLVM(razorForgeType: typeArg.Name),
+                    IsUnsigned: false,
+                    IsFloatingPoint: false,
+                    RazorForgeType: typeArg.Name);
                 break;
 
             case "write":
@@ -84,7 +101,9 @@ public partial class LLVMCodeGenerator
                                              .Accept(visitor: this);
                 string valueTemp = node.Arguments[index: 1]
                                        .Accept(visitor: this);
-                _output.AppendLine(handler: $"  call void @memory_write_{typeArg.Name}(ptr {objectTemp}, i64 {writeOffsetTemp}, {llvmType} {valueTemp})");
+                _output.AppendLine(
+                    handler:
+                    $"  call void @memory_write_{typeArg.Name}(ptr {objectTemp}, i64 {writeOffsetTemp}, {llvmType} {valueTemp})");
                 resultTemp = ""; // void return
                 break;
 
@@ -94,8 +113,11 @@ public partial class LLVMCodeGenerator
                                       .Accept(visitor: this);
                 string writeValueTemp = node.Arguments[index: 1]
                                             .Accept(visitor: this);
-                _output.AppendLine(handler: $"  %ptr_{resultTemp} = inttoptr i64 {addrTemp} to ptr");
-                _output.AppendLine(handler: $"  store {llvmType} {writeValueTemp}, ptr %ptr_{resultTemp}, align {GetAlignment(typeName: typeArg.Name)}");
+                _output.AppendLine(
+                    handler: $"  %ptr_{resultTemp} = inttoptr i64 {addrTemp} to ptr");
+                _output.AppendLine(
+                    handler:
+                    $"  store {llvmType} {writeValueTemp}, ptr %ptr_{resultTemp}, align {GetAlignment(typeName: typeArg.Name)}");
                 resultTemp = ""; // void return
                 break;
 
@@ -103,9 +125,16 @@ public partial class LLVMCodeGenerator
                 // read_as<T>!(address) - direct memory read from address
                 string readAddrTemp = node.Arguments[index: 0]
                                           .Accept(visitor: this);
-                _output.AppendLine(handler: $"  %ptr_{resultTemp} = inttoptr i64 {readAddrTemp} to ptr");
-                _output.AppendLine(handler: $"  {resultTemp} = load {llvmType}, ptr %ptr_{resultTemp}, align {GetAlignment(typeName: typeArg.Name)}");
-                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: MapRazorForgeTypeToLLVM(razorForgeType: typeArg.Name), IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: typeArg.Name);
+                _output.AppendLine(
+                    handler: $"  %ptr_{resultTemp} = inttoptr i64 {readAddrTemp} to ptr");
+                _output.AppendLine(
+                    handler:
+                    $"  {resultTemp} = load {llvmType}, ptr %ptr_{resultTemp}, align {GetAlignment(typeName: typeArg.Name)}");
+                _tempTypes[key: resultTemp] = new TypeInfo(
+                    LLVMType: MapRazorForgeTypeToLLVM(razorForgeType: typeArg.Name),
+                    IsUnsigned: false,
+                    IsFloatingPoint: false,
+                    RazorForgeType: typeArg.Name);
                 break;
 
             case "volatile_write":
@@ -114,8 +143,11 @@ public partial class LLVMCodeGenerator
                                               .Accept(visitor: this);
                 string volWriteValueTemp = node.Arguments[index: 1]
                                                .Accept(visitor: this);
-                _output.AppendLine(handler: $"  %ptr_{resultTemp} = inttoptr i64 {volWriteAddrTemp} to ptr");
-                _output.AppendLine(handler: $"  store volatile {llvmType} {volWriteValueTemp}, ptr %ptr_{resultTemp}, align {GetAlignment(typeName: typeArg.Name)}");
+                _output.AppendLine(
+                    handler: $"  %ptr_{resultTemp} = inttoptr i64 {volWriteAddrTemp} to ptr");
+                _output.AppendLine(
+                    handler:
+                    $"  store volatile {llvmType} {volWriteValueTemp}, ptr %ptr_{resultTemp}, align {GetAlignment(typeName: typeArg.Name)}");
                 resultTemp = ""; // void return
                 break;
 
@@ -123,9 +155,16 @@ public partial class LLVMCodeGenerator
                 // volatile_read<T>!(address) - volatile memory read from address
                 string volReadAddrTemp = node.Arguments[index: 0]
                                              .Accept(visitor: this);
-                _output.AppendLine(handler: $"  %ptr_{resultTemp} = inttoptr i64 {volReadAddrTemp} to ptr");
-                _output.AppendLine(handler: $"  {resultTemp} = load volatile {llvmType}, ptr %ptr_{resultTemp}, align {GetAlignment(typeName: typeArg.Name)}");
-                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: MapRazorForgeTypeToLLVM(razorForgeType: typeArg.Name), IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: typeArg.Name);
+                _output.AppendLine(
+                    handler: $"  %ptr_{resultTemp} = inttoptr i64 {volReadAddrTemp} to ptr");
+                _output.AppendLine(
+                    handler:
+                    $"  {resultTemp} = load volatile {llvmType}, ptr %ptr_{resultTemp}, align {GetAlignment(typeName: typeArg.Name)}");
+                _tempTypes[key: resultTemp] = new TypeInfo(
+                    LLVMType: MapRazorForgeTypeToLLVM(razorForgeType: typeArg.Name),
+                    IsUnsigned: false,
+                    IsFloatingPoint: false,
+                    RazorForgeType: typeArg.Name);
                 break;
 
             default:
@@ -143,7 +182,9 @@ public partial class LLVMCodeGenerator
                                            .ToList();
 
                         // Instantiate the generic function (generates code if not already done)
-                        string mangledName = InstantiateGenericFunction(functionName: baseFunctionName, typeArguments: typeArgs);
+                        string mangledName =
+                            InstantiateGenericFunction(functionName: baseFunctionName,
+                                typeArguments: typeArgs);
 
                         // Generate call to the instantiated function
                         var argTemps = new List<string>();
@@ -151,19 +192,24 @@ public partial class LLVMCodeGenerator
                         foreach (Expression arg in node.Arguments)
                         {
                             string argTemp = arg.Accept(visitor: this);
-                            string argType = _tempTypes.TryGetValue(key: argTemp, value: out TypeInfo? ti)
-                                ? ti.LLVMType
-                                : "i32";
+                            string argType =
+                                _tempTypes.TryGetValue(key: argTemp, value: out TypeInfo? ti)
+                                    ? ti.LLVMType
+                                    : "i32";
                             argTemps.Add(item: argTemp);
                             argTypes.Add(item: argType);
                         }
 
-                        string argList = string.Join(separator: ", ", values: argTemps.Zip(second: argTypes, resultSelector: (temp, type) => $"{type} {temp}"));
+                        string argList = string.Join(separator: ", ",
+                            values: argTemps.Zip(second: argTypes,
+                                resultSelector: (temp, type) => $"{type} {temp}"));
 
                         // Determine return type (simplified - would need proper type resolution)
                         string returnType = "i32"; // Default
 
-                        _output.AppendLine(handler: $"  {resultTemp} = call {returnType} @{mangledName}({argList})");
+                        _output.AppendLine(
+                            handler:
+                            $"  {resultTemp} = call {returnType} @{mangledName}({argList})");
                         return resultTemp;
                     }
                 }
@@ -173,7 +219,8 @@ public partial class LLVMCodeGenerator
                 var methodTypeArgs = node.TypeArguments
                                          .Select(selector: t => t.Name)
                                          .ToList();
-                string methodMangledName = $"{node.MethodName}_{string.Join(separator: "_", values: methodTypeArgs)}";
+                string methodMangledName =
+                    $"{node.MethodName}_{string.Join(separator: "_", values: methodTypeArgs)}";
 
                 var methodArgTemps = new List<string>();
                 foreach (Expression arg in node.Arguments)
@@ -181,9 +228,12 @@ public partial class LLVMCodeGenerator
                     methodArgTemps.Add(item: arg.Accept(visitor: this));
                 }
 
-                string methodArgList = string.Join(separator: ", ", values: methodArgTemps.Select(selector: t => $"i32 {t}"));
+                string methodArgList = string.Join(separator: ", ",
+                    values: methodArgTemps.Select(selector: t => $"i32 {t}"));
 
-                _output.AppendLine(handler: $"  {resultTemp} = call i32 @{methodMangledName}(ptr {objMethodTemp}{(methodArgTemps.Count > 0 ? ", " + methodArgList : "")})");
+                _output.AppendLine(
+                    handler:
+                    $"  {resultTemp} = call i32 @{methodMangledName}(ptr {objMethodTemp}{(methodArgTemps.Count > 0 ? ", " + methodArgList : "")})");
                 return resultTemp;
         }
 
@@ -204,25 +254,42 @@ public partial class LLVMCodeGenerator
         switch (node.OperationName)
         {
             case "size":
-                _output.AppendLine(handler: $"  {resultTemp} = call i64 @slice_size(ptr {objectTemp})");
-                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i64", IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: "uaddr");
+                _output.AppendLine(
+                    handler: $"  {resultTemp} = call i64 @slice_size(ptr {objectTemp})");
+                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i64",
+                    IsUnsigned: false,
+                    IsFloatingPoint: false,
+                    RazorForgeType: "uaddr");
                 break;
 
             case "address":
-                _output.AppendLine(handler: $"  {resultTemp} = call i64 @slice_address(ptr {objectTemp})");
-                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i64", IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: "uaddr");
+                _output.AppendLine(
+                    handler: $"  {resultTemp} = call i64 @slice_address(ptr {objectTemp})");
+                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i64",
+                    IsUnsigned: false,
+                    IsFloatingPoint: false,
+                    RazorForgeType: "uaddr");
                 break;
 
             case "is_valid":
-                _output.AppendLine(handler: $"  {resultTemp} = call i1 @slice_is_valid(ptr {objectTemp})");
-                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i1", IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: "bool");
+                _output.AppendLine(
+                    handler: $"  {resultTemp} = call i1 @slice_is_valid(ptr {objectTemp})");
+                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i1",
+                    IsUnsigned: false,
+                    IsFloatingPoint: false,
+                    RazorForgeType: "bool");
                 break;
 
             case "unsafe_ptr":
                 string offsetTemp = node.Arguments[index: 0]
                                         .Accept(visitor: this);
-                _output.AppendLine(handler: $"  {resultTemp} = call i64 @slice_unsafe_ptr(ptr {objectTemp}, i64 {offsetTemp})");
-                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i64", IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: "uaddr");
+                _output.AppendLine(
+                    handler:
+                    $"  {resultTemp} = call i64 @slice_unsafe_ptr(ptr {objectTemp}, i64 {offsetTemp})");
+                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i64",
+                    IsUnsigned: false,
+                    IsFloatingPoint: false,
+                    RazorForgeType: "uaddr");
                 break;
 
             case "slice":
@@ -230,7 +297,9 @@ public partial class LLVMCodeGenerator
                                              .Accept(visitor: this);
                 string sliceBytesTemp = node.Arguments[index: 1]
                                             .Accept(visitor: this);
-                _output.AppendLine(handler: $"  {resultTemp} = call ptr @slice_subslice(ptr {objectTemp}, i64 {sliceOffsetTemp}, i64 {sliceBytesTemp})");
+                _output.AppendLine(
+                    handler:
+                    $"  {resultTemp} = call ptr @slice_subslice(ptr {objectTemp}, i64 {sliceOffsetTemp}, i64 {sliceBytesTemp})");
 
                 // Get the original slice type
                 if (_tempTypes.TryGetValue(key: objectTemp, value: out TypeInfo? objType))
@@ -241,21 +310,30 @@ public partial class LLVMCodeGenerator
                 break;
 
             case "hijack":
-                _output.AppendLine(handler: $"  {resultTemp} = call ptr @slice_hijack(ptr {objectTemp})");
+                _output.AppendLine(
+                    handler: $"  {resultTemp} = call ptr @slice_hijack(ptr {objectTemp})");
                 if (_tempTypes.TryGetValue(key: objectTemp, value: out TypeInfo? hijackType))
                 {
-                    _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "ptr", IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: $"Hijacked<{hijackType.RazorForgeType}>");
+                    _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "ptr",
+                        IsUnsigned: false,
+                        IsFloatingPoint: false,
+                        RazorForgeType: $"Hijacked<{hijackType.RazorForgeType}>");
                 }
 
                 break;
 
             case "refer":
-                _output.AppendLine(handler: $"  {resultTemp} = call i64 @slice_refer(ptr {objectTemp})");
-                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i64", IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: "uaddr");
+                _output.AppendLine(
+                    handler: $"  {resultTemp} = call i64 @slice_refer(ptr {objectTemp})");
+                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i64",
+                    IsUnsigned: false,
+                    IsFloatingPoint: false,
+                    RazorForgeType: "uaddr");
                 break;
 
             default:
-                throw new NotImplementedException(message: $"Memory operation {node.OperationName} not implemented");
+                throw new NotImplementedException(
+                    message: $"Memory operation {node.OperationName} not implemented");
         }
 
         return resultTemp;
@@ -267,28 +345,48 @@ public partial class LLVMCodeGenerator
         string intrinsicName = node.IntrinsicName;
 
         // Dispatch to specific intrinsic handler based on category
-        if (intrinsicName.StartsWith(value: "load") || intrinsicName.StartsWith(value: "store") || intrinsicName.StartsWith(value: "volatile_") || intrinsicName == "bitcast" || intrinsicName == "invalidate")
+        if (intrinsicName.StartsWith(value: "load") || intrinsicName.StartsWith(value: "store") ||
+            intrinsicName.StartsWith(value: "volatile_") || intrinsicName == "bitcast" ||
+            intrinsicName == "invalidate")
         {
             return EmitMemoryIntrinsic(node: node, resultTemp: resultTemp);
         }
         // Arithmetic operations - both with suffixes (add.wrapping) and bare (add, sdiv, neg)
-        else if (intrinsicName.StartsWith(value: "add.") || intrinsicName.StartsWith(value: "sub.") || intrinsicName.StartsWith(value: "mul.") || intrinsicName.StartsWith(value: "div.") || intrinsicName.StartsWith(value: "rem.") || intrinsicName == "add" || intrinsicName == "sub" || intrinsicName == "mul" || intrinsicName == "sdiv" || intrinsicName == "udiv" || intrinsicName == "srem" || intrinsicName == "urem" || intrinsicName == "neg")
+        else if (intrinsicName.StartsWith(value: "add.") ||
+                 intrinsicName.StartsWith(value: "sub.") ||
+                 intrinsicName.StartsWith(value: "mul.") ||
+                 intrinsicName.StartsWith(value: "div.") ||
+                 intrinsicName.StartsWith(value: "rem.") || intrinsicName == "add" ||
+                 intrinsicName == "sub" || intrinsicName == "mul" || intrinsicName == "sdiv" ||
+                 intrinsicName == "udiv" || intrinsicName == "srem" || intrinsicName == "urem" ||
+                 intrinsicName == "neg")
         {
             return EmitArithmeticIntrinsic(node: node, resultTemp: resultTemp);
         }
-        else if (intrinsicName.StartsWith(value: "icmp.") || intrinsicName.StartsWith(value: "fcmp."))
+        else if (intrinsicName.StartsWith(value: "icmp.") ||
+                 intrinsicName.StartsWith(value: "fcmp."))
         {
             return EmitComparisonIntrinsic(node: node, resultTemp: resultTemp);
         }
-        else if (intrinsicName == "and" || intrinsicName == "or" || intrinsicName == "xor" || intrinsicName == "not" || intrinsicName == "shl" || intrinsicName == "lshr" || intrinsicName == "ashr")
+        else if (intrinsicName == "and" || intrinsicName == "or" || intrinsicName == "xor" ||
+                 intrinsicName == "not" || intrinsicName == "shl" || intrinsicName == "lshr" ||
+                 intrinsicName == "ashr")
         {
             return EmitBitwiseIntrinsic(node: node, resultTemp: resultTemp);
         }
-        else if (intrinsicName == "trunc" || intrinsicName == "zext" || intrinsicName == "sext" || intrinsicName == "fptrunc" || intrinsicName == "fpext" || intrinsicName == "fptoui" || intrinsicName == "fptosi" || intrinsicName == "uitofp" || intrinsicName == "sitofp")
+        else if (intrinsicName == "trunc" || intrinsicName == "zext" || intrinsicName == "sext" ||
+                 intrinsicName == "fptrunc" || intrinsicName == "fpext" ||
+                 intrinsicName == "fptoui" || intrinsicName == "fptosi" ||
+                 intrinsicName == "uitofp" || intrinsicName == "sitofp")
         {
             return EmitConversionIntrinsic(node: node, resultTemp: resultTemp);
         }
-        else if (intrinsicName == "sqrt" || intrinsicName == "abs" || intrinsicName == "fabs" || intrinsicName == "copysign" || intrinsicName == "floor" || intrinsicName == "ceil" || intrinsicName == "trunc_float" || intrinsicName == "round" || intrinsicName == "pow" || intrinsicName == "exp" || intrinsicName == "log" || intrinsicName == "log10" || intrinsicName == "sin" || intrinsicName == "cos")
+        else if (intrinsicName == "sqrt" || intrinsicName == "abs" || intrinsicName == "fabs" ||
+                 intrinsicName == "copysign" || intrinsicName == "floor" ||
+                 intrinsicName == "ceil" || intrinsicName == "trunc_float" ||
+                 intrinsicName == "round" || intrinsicName == "pow" || intrinsicName == "exp" ||
+                 intrinsicName == "log" || intrinsicName == "log10" || intrinsicName == "sin" ||
+                 intrinsicName == "cos")
         {
             return EmitMathIntrinsic(node: node, resultTemp: resultTemp);
         }
@@ -296,13 +394,15 @@ public partial class LLVMCodeGenerator
         {
             return EmitAtomicIntrinsic(node: node, resultTemp: resultTemp);
         }
-        else if (intrinsicName == "ctpop" || intrinsicName == "ctlz" || intrinsicName == "cttz" || intrinsicName == "bswap" || intrinsicName == "bitreverse")
+        else if (intrinsicName == "ctpop" || intrinsicName == "ctlz" || intrinsicName == "cttz" ||
+                 intrinsicName == "bswap" || intrinsicName == "bitreverse")
         {
             return EmitBitManipIntrinsic(node: node, resultTemp: resultTemp);
         }
         else
         {
-            throw new NotImplementedException(message: $"Intrinsic {intrinsicName} not implemented");
+            throw new NotImplementedException(
+                message: $"Intrinsic {intrinsicName} not implemented");
         }
     }
 
@@ -327,7 +427,9 @@ public partial class LLVMCodeGenerator
         }
 
         // Build the call
-        string argsStr = string.Join(separator: ", ", values: argTemps.Zip(second: argTypes, resultSelector: (temp, type) => $"{type} {temp}"));
+        string argsStr = string.Join(separator: ", ",
+            values: argTemps.Zip(second: argTypes,
+                resultSelector: (temp, type) => $"{type} {temp}"));
 
         // Determine return type (default to i8* for pointer-returning functions, i64 otherwise)
         string returnType = DetermineNativeFunctionReturnType(functionName: functionName);
@@ -339,7 +441,8 @@ public partial class LLVMCodeGenerator
         }
         else
         {
-            _output.AppendLine(value: $"  {resultTemp} = call {returnType} @{functionName}({argsStr})");
+            _output.AppendLine(
+                value: $"  {resultTemp} = call {returnType} @{functionName}({argsStr})");
             return resultTemp;
         }
     }
@@ -354,7 +457,9 @@ public partial class LLVMCodeGenerator
         else if (expr is LiteralExpression litExpr)
         {
             // String literals are pointers
-            if (litExpr.LiteralType == TokenType.TextLiteral || litExpr.LiteralType == TokenType.Text8Literal || litExpr.LiteralType == TokenType.Text16Literal)
+            if (litExpr.LiteralType == TokenType.TextLiteral ||
+                litExpr.LiteralType == TokenType.Text8Literal ||
+                litExpr.LiteralType == TokenType.Text16Literal)
             {
                 return "i8*";
             }
@@ -364,7 +469,8 @@ public partial class LLVMCodeGenerator
             // Check if we know the type from symbol table
             if (_symbolTypes.TryGetValue(key: idExpr.Name, value: out string? varType))
             {
-                if (varType == "uaddr" || varType.Contains(value: "*") || varType == "text" || varType == "Text")
+                if (varType == "uaddr" || varType.Contains(value: "*") || varType == "text" ||
+                    varType == "Text")
                 {
                     return "i8*";
                 }
@@ -378,7 +484,8 @@ public partial class LLVMCodeGenerator
     private string DetermineNativeFunctionReturnType(string functionName)
     {
         // Known return types for common native functions
-        if (functionName.StartsWith(value: "rf_bigint_") || functionName.StartsWith(value: "rf_bigdec_"))
+        if (functionName.StartsWith(value: "rf_bigint_") ||
+            functionName.StartsWith(value: "rf_bigdec_"))
         {
             // BigInt/BigDec functions that return handles
             if (functionName.EndsWith(value: "_new") || functionName.EndsWith(value: "_copy"))

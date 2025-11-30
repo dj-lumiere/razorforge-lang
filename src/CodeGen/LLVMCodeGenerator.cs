@@ -50,18 +50,23 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
     private int _tempCounter;
     private int _labelCounter;
     private readonly Dictionary<string, string> _symbolTypes;
-    private readonly Dictionary<string, string> _symbolRfTypes = new(); // Track RazorForge types for symbols
 
-    private readonly HashSet<string> _functionParameters = new(); // Track function parameters (no load needed)
+    private readonly Dictionary<string, string>
+        _symbolRfTypes = new(); // Track RazorForge types for symbols
 
-    private readonly Dictionary<string, TypeInfo> _tempTypes = new(); // Track types of temporary variables
+    private readonly HashSet<string>
+        _functionParameters = new(); // Track function parameters (no load needed)
+
+    private readonly Dictionary<string, TypeInfo>
+        _tempTypes = new(); // Track types of temporary variables
 
     private bool _hasReturn = false;
     private bool _blockTerminated = false; // Track if current block is terminated (ret/br)
     private List<string>? _stringConstants; // Collect string constants for proper emission
 
     // Generic instantiation tracking for monomorphization
-    private readonly Dictionary<string, List<List<Analysis.TypeInfo>>> _genericInstantiations = new();
+    private readonly Dictionary<string, List<List<Analysis.TypeInfo>>> _genericInstantiations =
+        new();
 
     private readonly Dictionary<string, FunctionDeclaration> _genericFunctionTemplates = new();
     private readonly List<string> _pendingGenericInstantiations = new();
@@ -73,7 +78,8 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
     private readonly List<string> _pendingRecordInstantiations = new();
     private readonly List<string> _pendingEntityInstantiations = new();
 
-    private readonly HashSet<string> _emittedTypes = new(); // Track already emitted type definitions
+    private readonly HashSet<string>
+        _emittedTypes = new(); // Track already emitted type definitions
 
     // Non-generic record type tracking for constructor detection
     // Maps record name to its field declarations (name, type)
@@ -137,7 +143,8 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
     }
 
     // Return statement - we need to track the expected function return type
-    private string _currentFunctionReturnType = "i32"; // Default, will be set by VisitFunctionDeclaration
+    private string
+        _currentFunctionReturnType = "i32"; // Default, will be set by VisitFunctionDeclaration
 
     // Set of C runtime functions already declared in boilerplate
     private static readonly HashSet<string> _builtinExternals = new()
@@ -173,7 +180,8 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
     /// <item>Generated code optimization level</item>
     /// </list>
     /// </remarks>
-    public LLVMCodeGenerator(Language language, LanguageMode mode, TargetPlatform? targetPlatform = null, string? stdlibPath = null)
+    public LLVMCodeGenerator(Language language, LanguageMode mode,
+        TargetPlatform? targetPlatform = null, string? stdlibPath = null)
     {
         _language = language;
         _mode = mode;
@@ -192,14 +200,16 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
         else
         {
             // Try to find stdlib relative to executable
-            string? exeDir = Path.GetDirectoryName(path: System.Reflection.Assembly.GetExecutingAssembly()
-                                                               .Location);
+            string? exeDir = Path.GetDirectoryName(path: System
+                                                        .Reflection.Assembly.GetExecutingAssembly()
+                                                        .Location);
             if (exeDir != null)
             {
                 string defaultStdlibPath = Path.Combine(path1: exeDir, path2: "stdlib");
                 if (Directory.Exists(path: defaultStdlibPath))
                 {
-                    _crashMessageResolver = new CrashMessageResolver(stdlibPath: defaultStdlibPath);
+                    _crashMessageResolver =
+                        new CrashMessageResolver(stdlibPath: defaultStdlibPath);
                 }
                 else
                 {
@@ -210,7 +220,8 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
                         defaultStdlibPath = Path.Combine(path1: parent, path2: "stdlib");
                         if (Directory.Exists(path: defaultStdlibPath))
                         {
-                            _crashMessageResolver = new CrashMessageResolver(stdlibPath: defaultStdlibPath);
+                            _crashMessageResolver =
+                                new CrashMessageResolver(stdlibPath: defaultStdlibPath);
                             break;
                         }
 
@@ -268,8 +279,10 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
         _output.AppendLine(value: "declare void @free(i8*)"); // Memory deallocation
         _output.AppendLine(value: "declare i64 @strtol(i8*, i8**, i32)"); // String to long
         _output.AppendLine(value: "declare void @exit(i32)"); // Program exit
-        _output.AppendLine(value: "declare void @rf_runtime_init()"); // Runtime initialization function
-        _output.AppendLine(value: "declare i8* @__acrt_iob_func(i32)"); // Windows: get stdin/stdout/stderr
+        _output.AppendLine(
+            value: "declare void @rf_runtime_init()"); // Runtime initialization function
+        _output.AppendLine(
+            value: "declare i8* @__acrt_iob_func(i32)"); // Windows: get stdin/stdout/stderr
 
         // Emit external function declarations from imported modules
         EmitExternalDeclarationsFromSymbolTable();
@@ -281,11 +294,21 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
 
         // String constants for I/O operations and error messages
         _output.AppendLine(value: "; String constants");
-        _output.AppendLine(value: "@.str_int_fmt = private unnamed_addr constant [4 x i8] c\"%d\\0A\\00\", align 1"); // Integer format with newline
-        _output.AppendLine(value: "@.str_fmt = private unnamed_addr constant [3 x i8] c\"%s\\00\", align 1"); // String format
-        _output.AppendLine(value: "@.str_word_fmt = private unnamed_addr constant [6 x i8] c\"%255s\\00\", align 1"); // Word input format
-        _output.AppendLine(value: "@.str_line_fmt = private unnamed_addr constant [9 x i8] c\"%255[^\\0A]\\00\", align 1"); // Line input format (read until newline)
-        _output.AppendLine(value: "@.str_overflow = private unnamed_addr constant [20 x i8] c\"Arithmetic overflow\\00\", align 1"); // Overflow error
+        _output.AppendLine(
+            value:
+            "@.str_int_fmt = private unnamed_addr constant [4 x i8] c\"%d\\0A\\00\", align 1"); // Integer format with newline
+        _output.AppendLine(
+            value:
+            "@.str_fmt = private unnamed_addr constant [3 x i8] c\"%s\\00\", align 1"); // String format
+        _output.AppendLine(
+            value:
+            "@.str_word_fmt = private unnamed_addr constant [6 x i8] c\"%255s\\00\", align 1"); // Word input format
+        _output.AppendLine(
+            value:
+            "@.str_line_fmt = private unnamed_addr constant [9 x i8] c\"%255[^\\0A]\\00\", align 1"); // Line input format (read until newline)
+        _output.AppendLine(
+            value:
+            "@.str_overflow = private unnamed_addr constant [20 x i8] c\"Arithmetic overflow\\00\", align 1"); // Overflow error
 
         // Generate code for imported module functions first
         GenerateImportedModuleFunctions();
@@ -298,7 +321,8 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
         {
             string content = _output.ToString();
             // Find the line after @.str_fmt and insert our constants there
-            string strFmtLine = "@.str_fmt = private unnamed_addr constant [3 x i8] c\"%s\\00\", align 1";
+            string strFmtLine =
+                "@.str_fmt = private unnamed_addr constant [3 x i8] c\"%s\\00\", align 1";
             int insertPos = content.IndexOf(value: strFmtLine);
             if (insertPos >= 0)
             {
@@ -400,7 +424,8 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
     private bool IsTypeName(string name)
     {
         // Built-in numeric types
-        return name is "s8" or "s16" or "s32" or "s64" or "s128" or "u8" or "u16" or "u32" or "u64" or "u128" or "f16" or "f32" or "f64" or "f128" or "bool" or "Text" or "letter";
+        return name is "s8" or "s16" or "s32" or "s64" or "s128" or "u8" or "u16" or "u32" or "u64"
+            or "u128" or "f16" or "f32" or "f64" or "f128" or "bool" or "Text" or "letter";
     }
 
     /// <summary>
@@ -450,8 +475,10 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
             "u128" => "i128",
 
             // System-dependent integers (pointer-sized, architecture-dependent)
-            "saddr" or "iptr" => _targetPlatform.GetPointerSizedIntType(), // signed pointer-sized - varies by architecture
-            "uaddr" or "uptr" => _targetPlatform.GetPointerSizedIntType(), // unsigned pointer-sized - varies by architecture
+            "saddr" or "iptr" => _targetPlatform
+               .GetPointerSizedIntType(), // signed pointer-sized - varies by architecture
+            "uaddr" or "uptr" => _targetPlatform
+               .GetPointerSizedIntType(), // unsigned pointer-sized - varies by architecture
 
             // IEEE 754 floating point types
             "f16" => "half", // 16-bit half precision
@@ -474,7 +501,8 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
             // C FFI types - Character types
             "cchar" or "cschar" => "i8", // char, signed char
             "cuchar" => "i8", // unsigned char (same LLVM type, different signedness)
-            "cwchar" => _targetPlatform.GetWCharType(), // wchar_t (varies by OS: 32-bit on Unix/Linux, 16-bit on Windows)
+            "cwchar" => _targetPlatform
+               .GetWCharType(), // wchar_t (varies by OS: 32-bit on Unix/Linux, 16-bit on Windows)
             "cchar8" => "i8", // char8_t
             "cchar16" => "i16", // char16_t
             "cchar32" => "i32", // char32_t
@@ -484,19 +512,24 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
             "cushort" => "i16", // unsigned short
             "cint" => "i32", // int
             "cuint" => "i32", // unsigned int
-            "clong" => _targetPlatform.GetLongType(), // long (varies by OS: 64-bit on Unix x86_64, 32-bit on Windows x86_64)
-            "culong" => _targetPlatform.GetLongType(), // unsigned long (varies by OS: 64-bit on Unix x86_64, 32-bit on Windows x86_64)
+            "clong" => _targetPlatform
+               .GetLongType(), // long (varies by OS: 64-bit on Unix x86_64, 32-bit on Windows x86_64)
+            "culong" => _targetPlatform
+               .GetLongType(), // unsigned long (varies by OS: 64-bit on Unix x86_64, 32-bit on Windows x86_64)
             "cll" => "i64", // long long
             "cull" => "i64", // unsigned long long
             "cfloat" => "float", // float
             "cdouble" => "double", // double
 
             // C FFI types - Pointer-sized integers (architecture-dependent)
-            "csptr" => _targetPlatform.GetPointerSizedIntType(), // intptr_t (varies by architecture)
-            "cuptr" => _targetPlatform.GetPointerSizedIntType(), // uintptr_t (varies by architecture)
+            "csptr" => _targetPlatform
+               .GetPointerSizedIntType(), // intptr_t (varies by architecture)
+            "cuptr" => _targetPlatform
+               .GetPointerSizedIntType(), // uintptr_t (varies by architecture)
 
             // C FFI types - Special types
-            "cvoid" => _targetPlatform.GetPointerSizedIntType(), // void (represented as uaddr in RazorForge)
+            "cvoid" => _targetPlatform
+               .GetPointerSizedIntType(), // void (represented as uaddr in RazorForge)
             "cbool" => "i1", // C bool (_Bool)
 
             _ => "i8*" // Default to pointer for unknown types (including cptr<T>)
@@ -519,7 +552,8 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
         }
 
         string baseName = genericType.Substring(startIndex: 0, length: openBracket);
-        string typeArgsStr = genericType.Substring(startIndex: openBracket + 1, length: closeBracket - openBracket - 1);
+        string typeArgsStr = genericType.Substring(startIndex: openBracket + 1,
+            length: closeBracket - openBracket - 1);
 
         // Handle special generic types that map directly to LLVM types
         // Snatched<T> is a raw pointer type for C FFI
@@ -551,11 +585,13 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
         string mangledName;
         if (_genericRecordTemplates.ContainsKey(key: baseName))
         {
-            mangledName = InstantiateGenericRecord(recordName: baseName, typeArguments: typeArguments);
+            mangledName =
+                InstantiateGenericRecord(recordName: baseName, typeArguments: typeArguments);
         }
         else if (_genericEntityTemplates.ContainsKey(key: baseName))
         {
-            mangledName = InstantiateGenericEntity(entityName: baseName, typeArguments: typeArguments);
+            mangledName =
+                InstantiateGenericEntity(entityName: baseName, typeArguments: typeArguments);
         }
         else
         {

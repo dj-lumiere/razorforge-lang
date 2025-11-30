@@ -7,7 +7,7 @@ namespace Compilers.Shared.Analysis;
 /// </summary>
 public partial class SemanticAnalyzer
 {
-        /// <summary>
+    /// <summary>
     /// Visits an expression statement that evaluates an expression for its side effects.
     /// </summary>
     /// <param name="node">Expression statement node</param>
@@ -50,16 +50,21 @@ public partial class SemanticAnalyzer
         var targetType = node.Target.Accept(visitor: this) as TypeInfo;
         var valueType = node.Value.Accept(visitor: this) as TypeInfo;
 
-        if (targetType != null && valueType != null && !IsAssignable(target: targetType, source: valueType))
+        if (targetType != null && valueType != null &&
+            !IsAssignable(target: targetType, source: valueType))
         {
-            AddError(message: $"Cannot assign {valueType.Name} to {targetType.Name}", location: node.Location);
+            AddError(message: $"Cannot assign {valueType.Name} to {targetType.Name}",
+                location: node.Location);
         }
 
         // CRITICAL: Check for inline-only method calls (.view(), .hijack())
         // These produce temporary tokens that cannot be stored via assignment
         if (IsInlineOnlyMethodCall(expr: node.Value, methodName: out string? methodName))
         {
-            AddError(message: $"Cannot assign result of '.{methodName}()' to a variable. " + $"Inline tokens must be used directly (e.g., 'obj.{methodName}().field') " + $"or use scoped syntax (e.g., '{(methodName == "view" ? "viewing" : "hijacking")} obj as handle {{ ... }}').", location: node.Location);
+            AddError(message: $"Cannot assign result of '.{methodName}()' to a variable. " +
+                              $"Inline tokens must be used directly (e.g., 'obj.{methodName}().field') " +
+                              $"or use scoped syntax (e.g., '{(methodName == "view" ? "viewing" : "hijacking")} obj as handle {{ ... }}').",
+                location: node.Location);
         }
 
         // CRITICAL: Prevent mutation through read-only wrapper types
@@ -69,32 +74,45 @@ public partial class SemanticAnalyzer
             var objectType = memberTarget.Object.Accept(visitor: this) as TypeInfo;
             if (objectType != null && IsReadOnlyWrapperType(typeName: objectType.Name))
             {
-                AddError(message: $"Cannot mutate field through read-only wrapper '{objectType.Name}'. " + $"Read-only wrappers (Viewed<T>, Observed<T>) do not allow mutation. " + $"Use hijacking or seizing for mutable access.", location: node.Location);
+                AddError(
+                    message:
+                    $"Cannot mutate field through read-only wrapper '{objectType.Name}'. " +
+                    $"Read-only wrappers (Viewed<T>, Observed<T>) do not allow mutation. " +
+                    $"Use hijacking or seizing for mutable access.",
+                    location: node.Location);
             }
         }
 
         // CRITICAL: Prevent scoped tokens from escaping their scope
         // Scoped tokens (Viewed, Hijacked, Seized, Observed) cannot be assigned to variables
-        if (node.Value is IdentifierExpression valIdent && IsScopedToken(variableName: valIdent.Name))
+        if (node.Value is IdentifierExpression valIdent &&
+            IsScopedToken(variableName: valIdent.Name))
         {
-            AddError(message: $"Cannot assign scoped token '{valIdent.Name}' to a variable. " + $"Scoped tokens are bound to their declaring scope and cannot escape. " + $"Use the token directly within the scoped statement block.", location: node.Location);
+            AddError(message: $"Cannot assign scoped token '{valIdent.Name}' to a variable. " +
+                              $"Scoped tokens are bound to their declaring scope and cannot escape. " +
+                              $"Use the token directly within the scoped statement block.",
+                location: node.Location);
         }
 
         // CRITICAL: Language-specific memory model handling for assignments
-        if (node.Target is IdentifierExpression targetId && node.Value is IdentifierExpression valueId)
+        if (node.Target is IdentifierExpression targetId &&
+            node.Value is IdentifierExpression valueId)
         {
             if (_language == Language.Suflae)
             {
                 // Suflae: Automatic reference counting - both variables share the same object
                 // Source remains valid, RC is incremented, no invalidation occurs
-                _memoryAnalyzer.HandleSuflaeAssignment(target: targetId.Name, source: valueId.Name, location: node.Location);
+                _memoryAnalyzer.HandleSuflaeAssignment(target: targetId.Name,
+                    source: valueId.Name,
+                    location: node.Location);
             }
             else if (_language == Language.RazorForge)
             {
                 // RazorForge: Move semantics - determine if assignment is copy or move
                 if (targetType != null)
                 {
-                    bool isMove = DetermineMoveSemantics(valueExpr: node.Value, targetType: targetType);
+                    bool isMove =
+                        DetermineMoveSemantics(valueExpr: node.Value, targetType: targetType);
 
                     if (isMove)
                     {
@@ -107,12 +125,16 @@ public partial class SemanticAnalyzer
                         }
 
                         // Register new object with ownership transferred
-                        _memoryAnalyzer.RegisterObject(name: targetId.Name, type: targetType, location: node.Location);
+                        _memoryAnalyzer.RegisterObject(name: targetId.Name,
+                            type: targetType,
+                            location: node.Location);
                     }
                     else
                     {
                         // Copy operation: Create new reference
-                        _memoryAnalyzer.RegisterObject(name: targetId.Name, type: targetType, location: node.Location);
+                        _memoryAnalyzer.RegisterObject(name: targetId.Name,
+                            type: targetType,
+                            location: node.Location);
                     }
                 }
             }
@@ -136,23 +158,34 @@ public partial class SemanticAnalyzer
             // .view() and .hijack() produce tokens that cannot escape the immediate expression
             if (IsInlineOnlyMethodCall(expr: node.Value, methodName: out string? methodName))
             {
-                AddError(message: $"Cannot return result of '.{methodName}()' from a routine. " + $"Inline tokens (Viewed<T>, Hijacked<T>) cannot escape their usage context. " + $"Return the extracted value instead, or use a callback pattern.", location: node.Location);
+                AddError(message: $"Cannot return result of '.{methodName}()' from a routine. " +
+                                  $"Inline tokens (Viewed<T>, Hijacked<T>) cannot escape their usage context. " +
+                                  $"Return the extracted value instead, or use a callback pattern.",
+                    location: node.Location);
             }
 
             // CRITICAL: Prevent scoped tokens from escaping via return
             // Only usurping functions can return Hijacked<T> tokens
             // Viewed, Seized, Observed tokens can NEVER escape (even from usurping functions)
-            if (node.Value is IdentifierExpression returnId && IsScopedToken(variableName: returnId.Name))
+            if (node.Value is IdentifierExpression returnId &&
+                IsScopedToken(variableName: returnId.Name))
             {
                 // Check if this is a Hijacked<T> token and we're in a usurping function
-                if (returnType != null && returnType.Name.StartsWith(value: "Hijacked<") && _isInUsurpingFunction)
+                if (returnType != null && returnType.Name.StartsWith(value: "Hijacked<") &&
+                    _isInUsurpingFunction)
                 {
                     // Allowed: usurping functions can return Hijacked<T>
                 }
                 else
                 {
                     string tokenType = returnType?.Name ?? "scoped token";
-                    AddError(message: $"Cannot return scoped token '{returnId.Name}' of type {tokenType}. " + $"Scoped tokens are bound to their declaring scope and cannot escape. " + $"Only usurping functions can return Hijacked<T> tokens. " + $"Viewed, Seized, and Observed tokens can never escape.", location: node.Location);
+                    AddError(
+                        message:
+                        $"Cannot return scoped token '{returnId.Name}' of type {tokenType}. " +
+                        $"Scoped tokens are bound to their declaring scope and cannot escape. " +
+                        $"Only usurping functions can return Hijacked<T> tokens. " +
+                        $"Viewed, Seized, and Observed tokens can never escape.",
+                        location: node.Location);
                 }
             }
         }
@@ -171,7 +204,8 @@ public partial class SemanticAnalyzer
         var conditionType = node.Condition.Accept(visitor: this) as TypeInfo;
         if (conditionType != null && conditionType.Name != "Bool")
         {
-            AddError(message: $"If condition must be boolean, got {conditionType.Name}", location: node.Location);
+            AddError(message: $"If condition must be boolean, got {conditionType.Name}",
+                location: node.Location);
         }
 
         node.ThenStatement.Accept(visitor: this);
@@ -190,7 +224,8 @@ public partial class SemanticAnalyzer
         var conditionType = node.Condition.Accept(visitor: this) as TypeInfo;
         if (conditionType != null && conditionType.Name != "Bool")
         {
-            AddError(message: $"While condition must be boolean, got {conditionType.Name}", location: node.Location);
+            AddError(message: $"While condition must be boolean, got {conditionType.Name}",
+                location: node.Location);
         }
 
         node.Body.Accept(visitor: this);
@@ -214,7 +249,10 @@ public partial class SemanticAnalyzer
             // TODO: Check if iterable implements Iterable interface
 
             // Add loop variable to scope
-            var loopVarSymbol = new VariableSymbol(Name: node.Variable, Type: null, IsMutable: false, Visibility: VisibilityModifier.Private);
+            var loopVarSymbol = new VariableSymbol(Name: node.Variable,
+                Type: null,
+                IsMutable: false,
+                Visibility: VisibilityModifier.Private);
             _symbolTable.TryDeclare(symbol: loopVarSymbol);
 
             node.Body.Accept(visitor: this);
@@ -254,7 +292,9 @@ public partial class SemanticAnalyzer
             {
                 // Type check pattern against expression and bind pattern variables
                 // This may register scoped tokens from fallible lock operations
-                ValidatePatternMatch(pattern: clause.Pattern, expressionType: expressionType, location: clause.Location);
+                ValidatePatternMatch(pattern: clause.Pattern,
+                    expressionType: expressionType,
+                    location: clause.Location);
 
                 clause.Body.Accept(visitor: this);
             }
@@ -340,11 +380,16 @@ public partial class SemanticAnalyzer
         {
             if (literal.Value is string)
             {
-                AddError(message: "Cannot throw a string literal. Use a Crashable error type instead (e.g., throw MyError())", location: node.Location);
+                AddError(
+                    message:
+                    "Cannot throw a string literal. Use a Crashable error type instead (e.g., throw MyError())",
+                    location: node.Location);
             }
             else
             {
-                AddError(message: "Cannot throw a literal value. Use a Crashable error type instead", location: node.Location);
+                AddError(
+                    message: "Cannot throw a literal value. Use a Crashable error type instead",
+                    location: node.Location);
             }
 
             return null;
@@ -366,7 +411,10 @@ public partial class SemanticAnalyzer
                 {
                     if (!structSymbol.IsCrashable)
                     {
-                        AddError(message: $"Cannot throw '{typeName}': type does not implement Crashable feature", location: node.Location);
+                        AddError(
+                            message:
+                            $"Cannot throw '{typeName}': type does not implement Crashable feature",
+                            location: node.Location);
                     }
                 }
                 else if (symbol == null)
@@ -375,7 +423,10 @@ public partial class SemanticAnalyzer
                 }
                 else
                 {
-                    AddError(message: $"Cannot throw '{typeName}': only Crashable record types can be thrown", location: node.Location);
+                    AddError(
+                        message:
+                        $"Cannot throw '{typeName}': only Crashable record types can be thrown",
+                        location: node.Location);
                 }
             }
         }

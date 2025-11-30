@@ -7,7 +7,7 @@ namespace Compilers.Shared.Analysis;
 /// </summary>
 public partial class SemanticAnalyzer
 {
-       /// <summary>
+    /// <summary>
     /// Visits a slice constructor expression and validates the slice creation.
     /// </summary>
     /// <param name="node">Slice constructor expression node</param>
@@ -30,13 +30,17 @@ public partial class SemanticAnalyzer
             }
             else
             {
-                AddError(message: $"Slice size must be of type uaddr or compatible integer type, found {sizeType.Name}", location: node.Location);
+                AddError(
+                    message:
+                    $"Slice size must be of type uaddr or compatible integer type, found {sizeType.Name}",
+                    location: node.Location);
             }
         }
 
         // Return appropriate slice type
         string sliceTypeName = node.SliceType;
-        return new TypeInfo(Name: sliceTypeName, IsReference: false); // Slice types are value types (structs)
+        return new TypeInfo(Name: sliceTypeName,
+            IsReference: false); // Slice types are value types (structs)
     }
 
     /// <summary>
@@ -96,12 +100,16 @@ public partial class SemanticAnalyzer
             TypeInfo? resolvedType = ResolveTypeExpression(typeExpr: typeArg);
             if (resolvedType == null)
             {
-                AddError(message: $"Unknown type argument '{typeArg.Name}'", location: node.Location);
+                AddError(message: $"Unknown type argument '{typeArg.Name}'",
+                    location: node.Location);
             }
         }
 
         // Validate member exists and is generic
-        TypeInfo? memberType = ValidateGenericMember(objectType: objectType, memberName: node.MemberName, typeArguments: node.TypeArguments, location: node.Location);
+        TypeInfo? memberType = ValidateGenericMember(objectType: objectType,
+            memberName: node.MemberName,
+            typeArguments: node.TypeArguments,
+            location: node.Location);
 
         return memberType ?? new TypeInfo(Name: "unknown", IsReference: false);
     }
@@ -116,7 +124,8 @@ public partial class SemanticAnalyzer
         var objectType = node.Object.Accept(visitor: this) as TypeInfo;
         if (objectType == null)
         {
-            AddError(message: "Cannot perform memory operation on null object", location: node.Location);
+            AddError(message: "Cannot perform memory operation on null object",
+                location: node.Location);
             return null;
         }
 
@@ -133,16 +142,21 @@ public partial class SemanticAnalyzer
             return objectType;
         }
 
-        MemoryObject? memoryObject = _memoryAnalyzer.GetMemoryObject(name: node.Object.ToString() ?? "");
+        MemoryObject? memoryObject =
+            _memoryAnalyzer.GetMemoryObject(name: node.Object.ToString() ?? "");
         if (memoryObject == null)
         {
             return objectType;
         }
 
-        MemoryOperationResult result = _memoryAnalyzer.ValidateMemoryOperation(memoryObject: memoryObject, operation: memOp.Value, location: node.Location);
+        MemoryOperationResult result = _memoryAnalyzer.ValidateMemoryOperation(
+            memoryObject: memoryObject,
+            operation: memOp.Value,
+            location: node.Location);
         if (result.IsSuccess)
         {
-            return CreateWrapperTypeInfo(baseType: memoryObject.BaseType, wrapper: result.NewWrapperType);
+            return CreateWrapperTypeInfo(baseType: memoryObject.BaseType,
+                wrapper: result.NewWrapperType);
         }
 
         foreach (MemoryError error in result.Errors)
@@ -150,9 +164,11 @@ public partial class SemanticAnalyzer
             AddError(message: error.Message, location: error.Location);
         }
 
-        return CreateWrapperTypeInfo(baseType: memoryObject.BaseType, wrapper: result.NewWrapperType);
+        return CreateWrapperTypeInfo(baseType: memoryObject.BaseType,
+            wrapper: result.NewWrapperType);
     }
-    private object? ValidateSliceGenericMethod(GenericMethodCallExpression node, TypeInfo sliceType)
+    private object? ValidateSliceGenericMethod(GenericMethodCallExpression node,
+        TypeInfo sliceType)
     {
         string methodName = node.MethodName;
         List<TypeExpression> typeArgs = node.TypeArguments;
@@ -161,7 +177,8 @@ public partial class SemanticAnalyzer
         // Validate type arguments
         if (typeArgs.Count != 1)
         {
-            AddError(message: $"Slice method '{methodName}' requires exactly one type argument", location: node.Location);
+            AddError(message: $"Slice method '{methodName}' requires exactly one type argument",
+                location: node.Location);
             return null;
         }
 
@@ -173,7 +190,8 @@ public partial class SemanticAnalyzer
                 // read<T>!(offset: uaddr) -> T
                 if (args.Count != 1)
                 {
-                    AddError(message: "read<T>! requires exactly one argument (offset)", location: node.Location);
+                    AddError(message: "read<T>! requires exactly one argument (offset)",
+                        location: node.Location);
                     return null;
                 }
 
@@ -181,7 +199,8 @@ public partial class SemanticAnalyzer
                    .Accept(visitor: this) as TypeInfo;
                 if (offsetType?.Name != "uaddr" && !IsIntegerType(typeName: offsetType?.Name))
                 {
-                    AddError(message: "read<T>! offset must be of type uaddr", location: node.Location);
+                    AddError(message: "read<T>! offset must be of type uaddr",
+                        location: node.Location);
                 }
 
                 return new TypeInfo(Name: targetType.Name, IsReference: false);
@@ -190,7 +209,8 @@ public partial class SemanticAnalyzer
                 // write<T>!(offset: uaddr, value: T)
                 if (args.Count != 2)
                 {
-                    AddError(message: "write<T>! requires exactly two arguments (offset, value)", location: node.Location);
+                    AddError(message: "write<T>! requires exactly two arguments (offset, value)",
+                        location: node.Location);
                     return null;
                 }
 
@@ -199,25 +219,31 @@ public partial class SemanticAnalyzer
                 var valueType = args[index: 1]
                    .Accept(visitor: this) as TypeInfo;
 
-                if (writeOffsetType?.Name != "uaddr" && !IsIntegerType(typeName: writeOffsetType?.Name))
+                if (writeOffsetType?.Name != "uaddr" &&
+                    !IsIntegerType(typeName: writeOffsetType?.Name))
                 {
-                    AddError(message: "write<T>! offset must be of type uaddr", location: node.Location);
+                    AddError(message: "write<T>! offset must be of type uaddr",
+                        location: node.Location);
                 }
 
-                if (valueType?.Name != targetType.Name && !IsCompatibleType(sourceType: valueType?.Name, targetType: targetType.Name))
+                if (valueType?.Name != targetType.Name &&
+                    !IsCompatibleType(sourceType: valueType?.Name, targetType: targetType.Name))
                 {
-                    AddError(message: $"write<T>! value must be of type {targetType.Name}", location: node.Location);
+                    AddError(message: $"write<T>! value must be of type {targetType.Name}",
+                        location: node.Location);
                 }
 
                 return new TypeInfo(Name: "void", IsReference: false);
 
             default:
-                AddError(message: $"Unknown slice generic method: {methodName}", location: node.Location);
+                AddError(message: $"Unknown slice generic method: {methodName}",
+                    location: node.Location);
                 return null;
         }
     }
 
-    private object? ValidateSliceMemoryOperation(MemoryOperationExpression node, TypeInfo sliceType)
+    private object? ValidateSliceMemoryOperation(MemoryOperationExpression node,
+        TypeInfo sliceType)
     {
         string operationName = node.OperationName;
         List<Expression> args = node.Arguments;
@@ -227,7 +253,8 @@ public partial class SemanticAnalyzer
             case "size":
                 if (args.Count != 0)
                 {
-                    AddError(message: "size! operation takes no arguments", location: node.Location);
+                    AddError(message: "size! operation takes no arguments",
+                        location: node.Location);
                 }
 
                 return new TypeInfo(Name: "uaddr", IsReference: false);
@@ -235,7 +262,8 @@ public partial class SemanticAnalyzer
             case "address":
                 if (args.Count != 0)
                 {
-                    AddError(message: "address! operation takes no arguments", location: node.Location);
+                    AddError(message: "address! operation takes no arguments",
+                        location: node.Location);
                 }
 
                 return new TypeInfo(Name: "uaddr", IsReference: false);
@@ -243,7 +271,8 @@ public partial class SemanticAnalyzer
             case "is_valid":
                 if (args.Count != 0)
                 {
-                    AddError(message: "is_valid! operation takes no arguments", location: node.Location);
+                    AddError(message: "is_valid! operation takes no arguments",
+                        location: node.Location);
                 }
 
                 return new TypeInfo(Name: "bool", IsReference: false);
@@ -251,7 +280,8 @@ public partial class SemanticAnalyzer
             case "unsafe_ptr":
                 if (args.Count != 1)
                 {
-                    AddError(message: "unsafe_ptr! requires exactly one argument (offset)", location: node.Location);
+                    AddError(message: "unsafe_ptr! requires exactly one argument (offset)",
+                        location: node.Location);
                     return null;
                 }
 
@@ -259,7 +289,8 @@ public partial class SemanticAnalyzer
                    .Accept(visitor: this) as TypeInfo;
                 if (offsetType?.Name != "uaddr")
                 {
-                    AddError(message: "unsafe_ptr! offset must be of type uaddr", location: node.Location);
+                    AddError(message: "unsafe_ptr! offset must be of type uaddr",
+                        location: node.Location);
                 }
 
                 return new TypeInfo(Name: "uaddr", IsReference: false);
@@ -267,11 +298,13 @@ public partial class SemanticAnalyzer
             case "slice":
                 if (args.Count != 2)
                 {
-                    AddError(message: "slice! requires exactly two arguments (offset, bytes)", location: node.Location);
+                    AddError(message: "slice! requires exactly two arguments (offset, bytes)",
+                        location: node.Location);
                     return null;
                 }
 
-                return new TypeInfo(Name: sliceType.Name, IsReference: true); // Returns same slice type
+                return new TypeInfo(Name: sliceType.Name,
+                    IsReference: true); // Returns same slice type
 
             case "hijack":
             case "refer":
@@ -279,7 +312,8 @@ public partial class SemanticAnalyzer
                 return HandleMemoryModelOperation(node: node, sliceType: sliceType);
 
             default:
-                AddError(message: $"Unknown slice operation: {operationName}", location: node.Location);
+                AddError(message: $"Unknown slice operation: {operationName}",
+                    location: node.Location);
                 return null;
         }
     }

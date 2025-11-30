@@ -17,7 +17,9 @@ public partial class LLVMCodeGenerator
         {
             // Store the template for later instantiation
             _genericEntityTemplates[key: node.Name] = node;
-            _output.AppendLine(handler: $"; Generic entity template: {node.Name}<{string.Join(separator: ", ", values: node.GenericParameters)}>");
+            _output.AppendLine(
+                handler:
+                $"; Generic entity template: {node.Name}<{string.Join(separator: ", ", values: node.GenericParameters)}>");
             return "";
         }
 
@@ -37,7 +39,9 @@ public partial class LLVMCodeGenerator
         {
             // Store the template for later instantiation
             _genericRecordTemplates[key: node.Name] = node;
-            _output.AppendLine(handler: $"; Generic record template: {node.Name}<{string.Join(separator: ", ", values: node.GenericParameters)}>");
+            _output.AppendLine(
+                handler:
+                $"; Generic record template: {node.Name}<{string.Join(separator: ", ", values: node.GenericParameters)}>");
             return "";
         }
 
@@ -48,7 +52,8 @@ public partial class LLVMCodeGenerator
     /// <summary>
     /// Generates LLVM struct type definition for an entity (class).
     /// </summary>
-    private string GenerateEntityType(ClassDeclaration node, Dictionary<string, string>? typeSubstitutions, string? mangledName)
+    private string GenerateEntityType(ClassDeclaration node,
+        Dictionary<string, string>? typeSubstitutions, string? mangledName)
     {
         string typeName = mangledName ?? node.Name;
 
@@ -69,7 +74,8 @@ public partial class LLVMCodeGenerator
             if (member is VariableDeclaration field)
             {
                 string fieldType = field.Type != null
-                    ? MapTypeWithSubstitution(typeName: field.Type.Name, substitutions: typeSubstitutions)
+                    ? MapTypeWithSubstitution(typeName: field.Type.Name,
+                        substitutions: typeSubstitutions)
                     : "i32";
                 fieldTypes.Add(item: fieldType);
                 fieldNames.Add(item: field.Name);
@@ -84,7 +90,9 @@ public partial class LLVMCodeGenerator
         // Add comment with field names for debugging
         if (fieldNames.Count > 0)
         {
-            _output.AppendLine(handler: $"; Fields: {string.Join(separator: ", ", values: fieldNames.Select(selector: (n, i) => $"{n}: {fieldTypes[index: i]}"))}");
+            _output.AppendLine(
+                handler:
+                $"; Fields: {string.Join(separator: ", ", values: fieldNames.Select(selector: (n, i) => $"{n}: {fieldTypes[index: i]}"))}");
         }
 
         _output.AppendLine();
@@ -95,7 +103,8 @@ public partial class LLVMCodeGenerator
     /// <summary>
     /// Generates LLVM struct type definition for a record (struct).
     /// </summary>
-    private string GenerateRecordType(StructDeclaration node, Dictionary<string, string>? typeSubstitutions, string? mangledName)
+    private string GenerateRecordType(StructDeclaration node,
+        Dictionary<string, string>? typeSubstitutions, string? mangledName)
     {
         string typeName = mangledName ?? node.Name;
 
@@ -116,7 +125,8 @@ public partial class LLVMCodeGenerator
             if (member is VariableDeclaration field)
             {
                 string fieldType = field.Type != null
-                    ? MapTypeWithSubstitution(typeName: field.Type.Name, substitutions: typeSubstitutions)
+                    ? MapTypeWithSubstitution(typeName: field.Type.Name,
+                        substitutions: typeSubstitutions)
                     : "i32";
                 fieldTypes.Add(item: fieldType);
                 fieldNames.Add(item: field.Name);
@@ -131,7 +141,9 @@ public partial class LLVMCodeGenerator
         // Add comment with field names for debugging
         if (fieldNames.Count > 0)
         {
-            _output.AppendLine(handler: $"; Fields: {string.Join(separator: ", ", values: fieldNames.Select(selector: (n, i) => $"{n}: {fieldTypes[index: i]}"))}");
+            _output.AppendLine(
+                handler:
+                $"; Fields: {string.Join(separator: ", ", values: fieldNames.Select(selector: (n, i) => $"{n}: {fieldTypes[index: i]}"))}");
         }
 
         _output.AppendLine();
@@ -153,7 +165,8 @@ public partial class LLVMCodeGenerator
     /// </summary>
     public string InstantiateGenericRecord(string recordName, List<string> typeArguments)
     {
-        if (!_genericRecordTemplates.TryGetValue(key: recordName, value: out StructDeclaration? template))
+        if (!_genericRecordTemplates.TryGetValue(key: recordName,
+                value: out StructDeclaration? template))
         {
             return recordName; // Not a generic record
         }
@@ -175,7 +188,8 @@ public partial class LLVMCodeGenerator
 
         _genericTypeInstantiations[key: recordName]
            .Add(item: typeArguments);
-        _pendingRecordInstantiations.Add(item: $"{recordName}|{string.Join(separator: ",", values: typeArguments)}");
+        _pendingRecordInstantiations.Add(
+            item: $"{recordName}|{string.Join(separator: ",", values: typeArguments)}");
 
         return mangledName;
     }
@@ -185,7 +199,8 @@ public partial class LLVMCodeGenerator
     /// </summary>
     public string InstantiateGenericEntity(string entityName, List<string> typeArguments)
     {
-        if (!_genericEntityTemplates.TryGetValue(key: entityName, value: out ClassDeclaration? template))
+        if (!_genericEntityTemplates.TryGetValue(key: entityName,
+                value: out ClassDeclaration? template))
         {
             return entityName; // Not a generic entity
         }
@@ -207,7 +222,8 @@ public partial class LLVMCodeGenerator
 
         _genericTypeInstantiations[key: entityName]
            .Add(item: typeArguments);
-        _pendingEntityInstantiations.Add(item: $"{entityName}|{string.Join(separator: ",", values: typeArguments)}");
+        _pendingEntityInstantiations.Add(
+            item: $"{entityName}|{string.Join(separator: ",", values: typeArguments)}");
 
         return mangledName;
     }
@@ -227,23 +243,29 @@ public partial class LLVMCodeGenerator
                                .Split(separator: ',')
                                .ToList();
 
-            if (!_genericRecordTemplates.TryGetValue(key: recordName, value: out StructDeclaration? template))
+            if (!_genericRecordTemplates.TryGetValue(key: recordName,
+                    value: out StructDeclaration? template))
             {
                 continue;
             }
 
             // Create type substitution map
             var substitutions = new Dictionary<string, string>();
-            for (int i = 0; i < Math.Min(val1: template.GenericParameters!.Count, val2: typeArguments.Count); i++)
+            for (int i = 0;
+                 i < Math.Min(val1: template.GenericParameters!.Count, val2: typeArguments.Count);
+                 i++)
             {
                 substitutions[key: template.GenericParameters[index: i]] = typeArguments[index: i];
             }
 
             // Generate mangled name
-            string mangledName = $"{recordName}_{string.Join(separator: "_", values: typeArguments)}";
+            string mangledName =
+                $"{recordName}_{string.Join(separator: "_", values: typeArguments)}";
 
             // Generate the instantiated record type
-            GenerateRecordType(node: template, typeSubstitutions: substitutions, mangledName: mangledName);
+            GenerateRecordType(node: template,
+                typeSubstitutions: substitutions,
+                mangledName: mangledName);
         }
 
         _pendingRecordInstantiations.Clear();
@@ -257,23 +279,29 @@ public partial class LLVMCodeGenerator
                                .Split(separator: ',')
                                .ToList();
 
-            if (!_genericEntityTemplates.TryGetValue(key: entityName, value: out ClassDeclaration? template))
+            if (!_genericEntityTemplates.TryGetValue(key: entityName,
+                    value: out ClassDeclaration? template))
             {
                 continue;
             }
 
             // Create type substitution map
             var substitutions = new Dictionary<string, string>();
-            for (int i = 0; i < Math.Min(val1: template.GenericParameters!.Count, val2: typeArguments.Count); i++)
+            for (int i = 0;
+                 i < Math.Min(val1: template.GenericParameters!.Count, val2: typeArguments.Count);
+                 i++)
             {
                 substitutions[key: template.GenericParameters[index: i]] = typeArguments[index: i];
             }
 
             // Generate mangled name
-            string mangledName = $"{entityName}_{string.Join(separator: "_", values: typeArguments)}";
+            string mangledName =
+                $"{entityName}_{string.Join(separator: "_", values: typeArguments)}";
 
             // Generate the instantiated entity type
-            GenerateEntityType(node: template, typeSubstitutions: substitutions, mangledName: mangledName);
+            GenerateEntityType(node: template,
+                typeSubstitutions: substitutions,
+                mangledName: mangledName);
         }
 
         _pendingEntityInstantiations.Clear();

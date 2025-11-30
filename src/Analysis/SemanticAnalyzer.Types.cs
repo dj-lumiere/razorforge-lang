@@ -8,11 +8,13 @@ namespace Compilers.Shared.Analysis;
 /// </summary>
 public partial class SemanticAnalyzer
 {
-        private bool IsValidType(string typeName)
+    private bool IsValidType(string typeName)
     {
         return typeName switch
         {
-            "s8" or "s16" or "s32" or "s64" or "s128" or "saddr" or "u8" or "u16" or "u32" or "u64" or "u128" or "uaddr" or "f16" or "f32" or "f64" or "f128" or "d32" or "d64" or "d128" or "bool" or "letter8" or "letter16" or "letter32" => true,
+            "s8" or "s16" or "s32" or "s64" or "s128" or "saddr" or "u8" or "u16" or "u32" or "u64"
+                or "u128" or "uaddr" or "f16" or "f32" or "f64" or "f128" or "d32" or "d64"
+                or "d128" or "bool" or "letter8" or "letter16" or "letter32" => true,
             _ => false
         };
     }
@@ -28,7 +30,9 @@ public partial class SemanticAnalyzer
     {
         return typeName switch
         {
-            "s8" or "s16" or "s32" or "s64" or "s128" or "saddr" or "u8" or "u16" or "u32" or "u64" or "u128" or "uaddr" or "f16" or "f32" or "f64" or "f128" or "d32" or "d64" or "d128" => true,
+            "s8" or "s16" or "s32" or "s64" or "s128" or "saddr" or "u8" or "u16" or "u32" or "u64"
+                or "u128" or "uaddr" or "f16" or "f32" or "f64" or "f128" or "d32" or "d64"
+                or "d128" => true,
             _ => false
         };
     }
@@ -63,7 +67,8 @@ public partial class SemanticAnalyzer
                                        .Cast<TypeInfo>()
                                        .ToList();
 
-            return new TypeInfo(Name: typeExpr.Name, IsReference: false, // TODO: Determine based on base type
+            return new TypeInfo(Name: typeExpr.Name,
+                IsReference: false, // TODO: Determine based on base type
                 GenericArguments: resolvedArgs);
         }
 
@@ -82,7 +87,8 @@ public partial class SemanticAnalyzer
     /// <param name="typeExpr">The type expression to resolve</param>
     /// <param name="genericBindings">Map of generic parameter names to concrete types</param>
     /// <returns>Resolved type with generic parameters substituted</returns>
-    private TypeInfo? ResolveGenericType(TypeExpression? typeExpr, Dictionary<string, TypeInfo> genericBindings)
+    private TypeInfo? ResolveGenericType(TypeExpression? typeExpr,
+        Dictionary<string, TypeInfo> genericBindings)
     {
         if (typeExpr == null)
         {
@@ -99,12 +105,15 @@ public partial class SemanticAnalyzer
         if (typeExpr.GenericArguments != null && typeExpr.GenericArguments.Count > 0)
         {
             var resolvedArgs = typeExpr.GenericArguments
-                                       .Select(selector: arg => ResolveGenericType(typeExpr: arg, genericBindings: genericBindings))
+                                       .Select(selector: arg => ResolveGenericType(typeExpr: arg,
+                                            genericBindings: genericBindings))
                                        .Where(predicate: t => t != null)
                                        .Cast<TypeInfo>()
                                        .ToList();
 
-            return new TypeInfo(Name: typeExpr.Name, IsReference: false, GenericArguments: resolvedArgs);
+            return new TypeInfo(Name: typeExpr.Name,
+                IsReference: false,
+                GenericArguments: resolvedArgs);
         }
 
         // Regular non-generic type
@@ -119,7 +128,8 @@ public partial class SemanticAnalyzer
     /// <param name="actualType">The concrete type being validated</param>
     /// <param name="constraint">The constraint to validate against</param>
     /// <param name="location">Source location for error reporting</param>
-    private void ValidateGenericConstraints(string genericParam, TypeInfo actualType, GenericConstraint? constraint, SourceLocation location)
+    private void ValidateGenericConstraints(string genericParam, TypeInfo actualType,
+        GenericConstraint? constraint, SourceLocation location)
     {
         if (constraint == null)
         {
@@ -129,13 +139,19 @@ public partial class SemanticAnalyzer
         // Validate value type constraint (record)
         if (constraint.IsValueType && actualType.IsReference)
         {
-            AddError(message: $"Type argument '{actualType.Name}' for generic parameter '{genericParam}' must be a value type (record)", location: location);
+            AddError(
+                message:
+                $"Type argument '{actualType.Name}' for generic parameter '{genericParam}' must be a value type (record)",
+                location: location);
         }
 
         // Validate reference type constraint (entity)
         if (constraint.IsReferenceType && !actualType.IsReference)
         {
-            AddError(message: $"Type argument '{actualType.Name}' for generic parameter '{genericParam}' must be a reference type (entity)", location: location);
+            AddError(
+                message:
+                $"Type argument '{actualType.Name}' for generic parameter '{genericParam}' must be a reference type (entity)",
+                location: location);
         }
 
         // Validate base type constraints
@@ -145,7 +161,10 @@ public partial class SemanticAnalyzer
             {
                 if (!IsAssignableFrom(baseType: baseType, derivedType: actualType))
                 {
-                    AddError(message: $"Type argument '{actualType.Name}' for generic parameter '{genericParam}' does not satisfy constraint '{baseType.Name}'", location: location);
+                    AddError(
+                        message:
+                        $"Type argument '{actualType.Name}' for generic parameter '{genericParam}' does not satisfy constraint '{baseType.Name}'",
+                        location: location);
                 }
             }
         }
@@ -180,7 +199,8 @@ public partial class SemanticAnalyzer
     /// <param name="funcSymbol">The generic function being called</param>
     /// <param name="arguments">The arguments passed to the function</param>
     /// <param name="genericBindings">Output dictionary of inferred type bindings</param>
-    private void InferGenericTypes(FunctionSymbol funcSymbol, List<Expression> arguments, Dictionary<string, TypeInfo> genericBindings)
+    private void InferGenericTypes(FunctionSymbol funcSymbol, List<Expression> arguments,
+        Dictionary<string, TypeInfo> genericBindings)
     {
         if (funcSymbol.GenericParameters == null || funcSymbol.GenericParameters.Count == 0)
         {
@@ -188,7 +208,9 @@ public partial class SemanticAnalyzer
         }
 
         // Match argument types with parameter types to infer generic arguments
-        for (int i = 0; i < Math.Min(val1: funcSymbol.Parameters.Count, val2: arguments.Count); i++)
+        for (int i = 0;
+             i < Math.Min(val1: funcSymbol.Parameters.Count, val2: arguments.Count);
+             i++)
         {
             Parameter param = funcSymbol.Parameters[index: i];
             Expression arg = arguments[index: i];
@@ -200,7 +222,9 @@ public partial class SemanticAnalyzer
             }
 
             // Try to match the parameter type pattern with the argument type
-            InferGenericTypeFromPattern(paramType: param.Type, argType: argType, genericBindings: genericBindings);
+            InferGenericTypeFromPattern(paramType: param.Type,
+                argType: argType,
+                genericBindings: genericBindings);
         }
     }
 
@@ -208,23 +232,28 @@ public partial class SemanticAnalyzer
     /// Recursively matches a parameter type pattern against an argument type
     /// to infer generic type parameter bindings.
     /// </summary>
-    private void InferGenericTypeFromPattern(TypeExpression paramType, TypeInfo argType, Dictionary<string, TypeInfo> genericBindings)
+    private void InferGenericTypeFromPattern(TypeExpression paramType, TypeInfo argType,
+        Dictionary<string, TypeInfo> genericBindings)
     {
         // If the parameter type is a generic parameter (e.g., T), bind it
         // We need to check if it's in the function's generic parameters list
         // For now, use a simple heuristic: single uppercase letter names are generic params
-        if (paramType.Name.Length == 1 && char.IsUpper(c: paramType.Name[index: 0]) && !genericBindings.ContainsKey(key: paramType.Name))
+        if (paramType.Name.Length == 1 && char.IsUpper(c: paramType.Name[index: 0]) &&
+            !genericBindings.ContainsKey(key: paramType.Name))
         {
             genericBindings[key: paramType.Name] = argType;
             return;
         }
 
         // If both have generic arguments, recursively match them
-        if (paramType.GenericArguments != null && argType.GenericArguments != null && paramType.GenericArguments.Count == argType.GenericArguments.Count)
+        if (paramType.GenericArguments != null && argType.GenericArguments != null &&
+            paramType.GenericArguments.Count == argType.GenericArguments.Count)
         {
             for (int i = 0; i < paramType.GenericArguments.Count; i++)
             {
-                InferGenericTypeFromPattern(paramType: paramType.GenericArguments[index: i], argType: argType.GenericArguments[index: i], genericBindings: genericBindings);
+                InferGenericTypeFromPattern(paramType: paramType.GenericArguments[index: i],
+                    argType: argType.GenericArguments[index: i],
+                    genericBindings: genericBindings);
             }
         }
     }
@@ -260,7 +289,10 @@ public partial class SemanticAnalyzer
     {
         if (_language == Language.Suflae)
         {
-            AddError(message: "Text16 literals (t16\"...\") are not supported in Suflae. " + "Suflae uses Text (UTF-8) and Bytes. Use regular string literals (\"...\") for Text " + "or bytes literals (b\"...\") for raw byte data.", location: node.Location);
+            AddError(message: "Text16 literals (t16\"...\") are not supported in Suflae. " +
+                              "Suflae uses Text (UTF-8) and Bytes. Use regular string literals (\"...\") for Text " +
+                              "or bytes literals (b\"...\") for raw byte data.",
+                location: node.Location);
             // Return Text as fallback type for error recovery
             return new TypeInfo(Name: "Text", IsReference: false);
         }
@@ -280,7 +312,12 @@ public partial class SemanticAnalyzer
     {
         if (_language == Language.RazorForge)
         {
-            AddError(message: "Bytes literals (b\"...\", br\"...\", bf\"...\", brf\"...\") are Suflae-only syntax. " + "In RazorForge, use t8\"...\" for Text<letter8> (UTF-8) byte strings, " + "or use a DynamicSlice for raw byte data.", location: node.Location);
+            AddError(
+                message:
+                "Bytes literals (b\"...\", br\"...\", bf\"...\", brf\"...\") are Suflae-only syntax. " +
+                "In RazorForge, use t8\"...\" for Text<letter8> (UTF-8) byte strings, " +
+                "or use a DynamicSlice for raw byte data.",
+                location: node.Location);
             // Return Text<letter8> as fallback type for error recovery
             return new TypeInfo(Name: "Text<letter8>", IsReference: false);
         }
@@ -314,8 +351,9 @@ public partial class SemanticAnalyzer
 
             // Untyped integer: RazorForge defaults to s64, Suflae defaults to Integer (arbitrary precision)
             TokenType.Integer => new TypeInfo(Name: _language == Language.Suflae
-                ? "Integer"
-                : "s64", IsReference: false),
+                    ? "Integer"
+                    : "s64",
+                IsReference: false),
 
             // Explicitly typed floating-point literals (same for both languages)
             TokenType.F16Literal => new TypeInfo(Name: "f16", IsReference: false),
@@ -328,26 +366,50 @@ public partial class SemanticAnalyzer
 
             // Untyped decimal: RazorForge defaults to f64, Suflae defaults to Decimal (arbitrary precision)
             TokenType.Decimal => new TypeInfo(Name: _language == Language.Suflae
-                ? "Decimal"
-                : "f64", IsReference: false),
+                    ? "Decimal"
+                    : "f64",
+                IsReference: false),
 
             // Text literals
-            TokenType.TextLiteral or TokenType.FormattedText or TokenType.RawText or TokenType.RawFormattedText => new TypeInfo(Name: _language == Language.Suflae
-                ? "Text"
-                : "Text<letter>", IsReference: false),
-            TokenType.Text8Literal or TokenType.Text8FormattedText or TokenType.Text8RawText or TokenType.Text8RawFormattedText => new TypeInfo(Name: _language == Language.Suflae
-                ? "Bytes"
-                : "Text<letter8>", IsReference: false),
-            TokenType.Text16Literal or TokenType.Text16FormattedText or TokenType.Text16RawText or TokenType.Text16RawFormattedText => new TypeInfo(Name: "Text<letter16>", IsReference: false),
+            TokenType.TextLiteral or TokenType.FormattedText or TokenType.RawText
+                or TokenType.RawFormattedText => new TypeInfo(Name: _language == Language.Suflae
+                        ? "Text"
+                        : "Text<letter>",
+                    IsReference: false),
+            TokenType.Text8Literal or TokenType.Text8FormattedText or TokenType.Text8RawText
+                or TokenType.Text8RawFormattedText => new TypeInfo(
+                    Name: _language == Language.Suflae
+                        ? "Bytes"
+                        : "Text<letter8>",
+                    IsReference: false),
+            TokenType.Text16Literal or TokenType.Text16FormattedText or TokenType.Text16RawText
+                or TokenType.Text16RawFormattedText => new TypeInfo(Name: "Text<letter16>",
+                    IsReference: false),
 
             // Suflae-only bytes literals
-            TokenType.BytesLiteral or TokenType.BytesRawLiteral or TokenType.BytesFormatted or TokenType.BytesRawFormatted => new TypeInfo(Name: "Bytes", IsReference: false),
+            TokenType.BytesLiteral or TokenType.BytesRawLiteral or TokenType.BytesFormatted
+                or TokenType.BytesRawFormatted => new TypeInfo(Name: "Bytes", IsReference: false),
 
             // Duration literals - all produce Duration type
-            TokenType.WeekLiteral or TokenType.DayLiteral or TokenType.HourLiteral or TokenType.MinuteLiteral or TokenType.SecondLiteral or TokenType.MillisecondLiteral or TokenType.MicrosecondLiteral or TokenType.NanosecondLiteral => new TypeInfo(Name: "Duration", IsReference: false),
+            TokenType.WeekLiteral or TokenType.DayLiteral or TokenType.HourLiteral
+                or TokenType.MinuteLiteral or TokenType.SecondLiteral
+                or TokenType.MillisecondLiteral or TokenType.MicrosecondLiteral
+                or TokenType.NanosecondLiteral => new TypeInfo(Name: "Duration",
+                    IsReference: false),
 
             // Memory size literals - all produce MemorySize type
-            TokenType.ByteLiteral or TokenType.KilobyteLiteral or TokenType.KibibyteLiteral or TokenType.KilobitLiteral or TokenType.KibibitLiteral or TokenType.MegabyteLiteral or TokenType.MebibyteLiteral or TokenType.MegabitLiteral or TokenType.MebibitLiteral or TokenType.GigabyteLiteral or TokenType.GibibyteLiteral or TokenType.GigabitLiteral or TokenType.GibibitLiteral or TokenType.TerabyteLiteral or TokenType.TebibyteLiteral or TokenType.TerabitLiteral or TokenType.TebibitLiteral or TokenType.PetabyteLiteral or TokenType.PebibyteLiteral or TokenType.PetabitLiteral or TokenType.PebibitLiteral => new TypeInfo(Name: "MemorySize", IsReference: false),
+            TokenType.ByteLiteral or TokenType.KilobyteLiteral or TokenType.KibibyteLiteral
+                or TokenType.KilobitLiteral or TokenType.KibibitLiteral
+                or TokenType.MegabyteLiteral or TokenType.MebibyteLiteral
+                or TokenType.MegabitLiteral or TokenType.MebibitLiteral
+                or TokenType.GigabyteLiteral or TokenType.GibibyteLiteral
+                or TokenType.GigabitLiteral or TokenType.GibibitLiteral
+                or TokenType.TerabyteLiteral or TokenType.TebibyteLiteral
+                or TokenType.TerabitLiteral or TokenType.TebibitLiteral
+                or TokenType.PetabyteLiteral or TokenType.PebibyteLiteral
+                or TokenType.PetabitLiteral
+                or TokenType.PebibitLiteral =>
+                new TypeInfo(Name: "MemorySize", IsReference: false),
 
             // Boolean and none literals (same for both languages)
             TokenType.True or TokenType.False => new TypeInfo(Name: "Bool", IsReference: false),
@@ -379,21 +441,26 @@ public partial class SemanticAnalyzer
 
         // TODO: Implement proper comparability rules
         // For now, allow comparison between same types and numeric types
-        return type1.Name == type2.Name || IsNumericType(type: type1) && IsNumericType(type: type2);
+        return type1.Name == type2.Name ||
+               IsNumericType(type: type1) && IsNumericType(type: type2);
     }
 
     private bool IsNumericType(TypeInfo type)
     {
         return type.Name switch
         {
-            "I8" or "I16" or "I32" or "I64" or "I128" or "Isys" or "U8" or "U16" or "U32" or "U64" or "U128" or "Usys" or "F16" or "F32" or "F64" or "F128" or "D32" or "D64" or "D128" or "Integer" or "Decimal" => true, // Suflae arbitrary precision types
+            "I8" or "I16" or "I32" or "I64" or "I128" or "Isys" or "U8" or "U16" or "U32" or "U64"
+                or "U128" or "Usys" or "F16" or "F32" or "F64" or "F128" or "D32" or "D64"
+                or "D128" or "Integer" or "Decimal" => true, // Suflae arbitrary precision types
             _ => false
         };
     }
 
     private void AddError(string message, SourceLocation location)
     {
-        _errors.Add(item: new SemanticError(Message: message, Location: location, FileName: _fileName));
+        _errors.Add(item: new SemanticError(Message: message,
+            Location: location,
+            FileName: _fileName));
     }
 
     private bool IsEntityType(TypeExpression type)
@@ -407,7 +474,8 @@ public partial class SemanticAnalyzer
         }
 
         // Fallback to naming convention patterns for common entity types
-        return type.Name.EndsWith(value: "Entity") || type.Name.EndsWith(value: "Service") || type.Name.EndsWith(value: "Controller");
+        return type.Name.EndsWith(value: "Entity") || type.Name.EndsWith(value: "Service") ||
+               type.Name.EndsWith(value: "Controller");
     }
 
     /// <summary>
@@ -515,7 +583,8 @@ public partial class SemanticAnalyzer
             "Text"
         };
 
-        return heapTypes.Contains(value: type.Name) || type.Name.StartsWith(value: "Retained<") || type.Name.StartsWith(value: "Shared<");
+        return heapTypes.Contains(value: type.Name) || type.Name.StartsWith(value: "Retained<") ||
+               type.Name.StartsWith(value: "Shared<");
     }
 
     /// <summary>
@@ -530,24 +599,31 @@ public partial class SemanticAnalyzer
         }
 
         // Fallback to naming conventions
-        return type.Name.EndsWith(value: "Entity") || type.Name.EndsWith(value: "Service") || type.Name.EndsWith(value: "Controller");
+        return type.Name.EndsWith(value: "Entity") || type.Name.EndsWith(value: "Service") ||
+               type.Name.EndsWith(value: "Controller");
     }
 
     /// <summary>
     /// Validates that a pattern is compatible with the matched expression type.
     /// Binds pattern variables to the appropriate scope.
     /// </summary>
-    private void ValidatePatternMatch(Pattern pattern, TypeInfo? expressionType, SourceLocation location)
+    private void ValidatePatternMatch(Pattern pattern, TypeInfo? expressionType,
+        SourceLocation location)
     {
         switch (pattern)
         {
             case LiteralPattern literalPattern:
                 // Literal patterns: check that literal type matches expression type
                 // Use the explicit LiteralType from the pattern to determine the type accurately
-                TypeInfo literalType = InferPatternLiteralType(value: literalPattern.Value, literalType: literalPattern.LiteralType);
-                if (expressionType != null && !AreTypesCompatible(left: literalType, right: expressionType))
+                TypeInfo literalType = InferPatternLiteralType(value: literalPattern.Value,
+                    literalType: literalPattern.LiteralType);
+                if (expressionType != null &&
+                    !AreTypesCompatible(left: literalType, right: expressionType))
                 {
-                    AddError(message: $"Pattern literal type '{literalType.Name}' is not compatible with expression type '{expressionType.Name}'", location: location);
+                    AddError(
+                        message:
+                        $"Pattern literal type '{literalType.Name}' is not compatible with expression type '{expressionType.Name}'",
+                        location: location);
                 }
 
                 break;
@@ -556,7 +632,9 @@ public partial class SemanticAnalyzer
                 // Identifier patterns: bind the matched value to a new variable
                 if (expressionType != null)
                 {
-                    var patternVar = new VariableSymbol(Name: identifierPattern.Name, Type: expressionType, IsMutable: false, // Pattern variables are immutable by default
+                    var patternVar = new VariableSymbol(Name: identifierPattern.Name,
+                        Type: expressionType,
+                        IsMutable: false, // Pattern variables are immutable by default
                         Visibility: VisibilityModifier.Private);
                     _symbolTable.TryDeclare(symbol: patternVar);
 
@@ -583,14 +661,19 @@ public partial class SemanticAnalyzer
                     // For type patterns, we check if expressionType can be narrowed to patternType
                     if (!IsTypeNarrowable(fromType: expressionType, toType: patternType))
                     {
-                        AddError(message: $"Type pattern '{patternType.Name}' cannot match expression of type '{expressionType.Name}'", location: location);
+                        AddError(
+                            message:
+                            $"Type pattern '{patternType.Name}' cannot match expression of type '{expressionType.Name}'",
+                            location: location);
                     }
 
                     // Bind variable if provided
                     if (typePattern.VariableName != null)
                     {
-                        var patternVar = new VariableSymbol(Name: typePattern.VariableName, Type: patternType, // Variable has the narrowed type
-                            IsMutable: false, Visibility: VisibilityModifier.Private);
+                        var patternVar = new VariableSymbol(Name: typePattern.VariableName,
+                            Type: patternType, // Variable has the narrowed type
+                            IsMutable: false,
+                            Visibility: VisibilityModifier.Private);
                         _symbolTable.TryDeclare(symbol: patternVar);
                     }
                 }
@@ -607,13 +690,17 @@ public partial class SemanticAnalyzer
                 var exprType = expressionPattern.Expression.Accept(visitor: this) as TypeInfo;
                 if (exprType != null && exprType.Name != "Bool" && exprType.Name != "bool")
                 {
-                    AddError(message: $"Expression pattern must be a boolean expression, got '{exprType.Name}'", location: location);
+                    AddError(
+                        message:
+                        $"Expression pattern must be a boolean expression, got '{exprType.Name}'",
+                        location: location);
                 }
 
                 break;
 
             default:
-                AddError(message: $"Unknown pattern type: {pattern.GetType().Name}", location: location);
+                AddError(message: $"Unknown pattern type: {pattern.GetType().Name}",
+                    location: location);
                 break;
         }
     }
@@ -684,7 +771,10 @@ public partial class SemanticAnalyzer
             "d128"
         };
 
-        return signedInts.Contains(value: type1) && signedInts.Contains(value: type2) || unsignedInts.Contains(value: type1) && unsignedInts.Contains(value: type2) || floats.Contains(value: type1) && floats.Contains(value: type2) || decimals.Contains(value: type1) && decimals.Contains(value: type2);
+        return signedInts.Contains(value: type1) && signedInts.Contains(value: type2) ||
+               unsignedInts.Contains(value: type1) && unsignedInts.Contains(value: type2) ||
+               floats.Contains(value: type1) && floats.Contains(value: type2) ||
+               decimals.Contains(value: type1) && decimals.Contains(value: type2);
     }
 
     /// <summary>
@@ -697,9 +787,9 @@ public partial class SemanticAnalyzer
         {
             // Resolve generic arguments
             var resolvedArgs = new List<TypeInfo>();
-            foreach (var arg in typeExpr.GenericArguments)
+            foreach (TypeExpression arg in typeExpr.GenericArguments)
             {
-                var resolved = ResolveTypeExpression(typeExpr: arg);
+                TypeInfo? resolved = ResolveTypeExpression(typeExpr: arg);
                 if (resolved != null)
                 {
                     resolvedArgs.Add(item: resolved);
@@ -710,16 +800,20 @@ public partial class SemanticAnalyzer
             string fullName = typeExpr.Name;
             if (resolvedArgs.Count > 0)
             {
-                string argNames = string.Join(separator: ", ", values: resolvedArgs.Select(selector: a => a.Name));
+                string argNames = string.Join(separator: ", ",
+                    values: resolvedArgs.Select(selector: a => a.Name));
                 fullName = $"{typeExpr.Name}<{argNames}>";
             }
 
             // Check for special pointer types (Snatched is a raw pointer)
-            bool isReference = typeExpr.Name == "Snatched" || typeExpr.Name == "List" || typeExpr.Name == "Array" || typeExpr.Name == "DynamicSlice";
+            bool isReference = typeExpr.Name == "Snatched" || typeExpr.Name == "List" ||
+                               typeExpr.Name == "Array" || typeExpr.Name == "DynamicSlice";
 
-            return new TypeInfo(Name: fullName, IsReference: isReference, GenericArguments: resolvedArgs.Count > 0
-                ? resolvedArgs
-                : null);
+            return new TypeInfo(Name: fullName,
+                IsReference: isReference,
+                GenericArguments: resolvedArgs.Count > 0
+                    ? resolvedArgs
+                    : null);
         }
 
         // Look up in symbol table
@@ -840,23 +934,32 @@ public partial class SemanticAnalyzer
     /// Validates a generic member access and determines the result type.
     /// Checks that the member exists on the object type and validates type arguments.
     /// </summary>
-    private TypeInfo? ValidateGenericMember(TypeInfo objectType, string memberName, List<TypeExpression> typeArguments, SourceLocation location)
+    private TypeInfo? ValidateGenericMember(TypeInfo objectType, string memberName,
+        List<TypeExpression> typeArguments, SourceLocation location)
     {
         // For collections, validate common generic members
         if (IsCollectionType(typeName: objectType.Name))
         {
-            return ValidateCollectionGenericMember(collectionType: objectType, memberName: memberName, typeArguments: typeArguments, location: location);
+            return ValidateCollectionGenericMember(collectionType: objectType,
+                memberName: memberName,
+                typeArguments: typeArguments,
+                location: location);
         }
 
         // For wrapper types (Shared<T>, Hijacked<T>, etc.), validate wrapper members
         if (IsWrapperType(typeName: objectType.Name))
         {
-            return ValidateWrapperGenericMember(wrapperType: objectType, memberName: memberName, typeArguments: typeArguments, location: location);
+            return ValidateWrapperGenericMember(wrapperType: objectType,
+                memberName: memberName,
+                typeArguments: typeArguments,
+                location: location);
         }
 
         // For custom types, check if member is declared
         // For now, return unknown type - proper implementation would query the type's members
-        AddError(message: $"Type '{objectType.Name}' does not have a generic member '{memberName}'", location: location);
+        AddError(
+            message: $"Type '{objectType.Name}' does not have a generic member '{memberName}'",
+            location: location);
 
         return null;
     }
@@ -864,7 +967,8 @@ public partial class SemanticAnalyzer
     /// <summary>
     /// Validates generic members on collection types (List, Dict, Set, etc.).
     /// </summary>
-    private TypeInfo? ValidateCollectionGenericMember(TypeInfo collectionType, string memberName, List<TypeExpression> typeArguments, SourceLocation location)
+    private TypeInfo? ValidateCollectionGenericMember(TypeInfo collectionType, string memberName,
+        List<TypeExpression> typeArguments, SourceLocation location)
     {
         // Common collection generic members
         switch (memberName)
@@ -874,7 +978,8 @@ public partial class SemanticAnalyzer
                 // Returns element type (first type parameter of collection)
                 if (typeArguments.Count != 0)
                 {
-                    AddError(message: $"'{memberName}' does not take type arguments", location: location);
+                    AddError(message: $"'{memberName}' does not take type arguments",
+                        location: location);
                 }
 
                 // Extract element type from collection (e.g., List<T> -> T)
@@ -886,14 +991,18 @@ public partial class SemanticAnalyzer
                 // Generic transformation methods
                 if (typeArguments.Count != 1)
                 {
-                    AddError(message: $"'{memberName}' requires exactly one type argument", location: location);
+                    AddError(message: $"'{memberName}' requires exactly one type argument",
+                        location: location);
                     return null;
                 }
 
                 return ResolveTypeExpression(typeExpr: typeArguments[index: 0]);
 
             default:
-                AddError(message: $"Collection type '{collectionType.Name}' does not have generic member '{memberName}'", location: location);
+                AddError(
+                    message:
+                    $"Collection type '{collectionType.Name}' does not have generic member '{memberName}'",
+                    location: location);
                 return null;
         }
     }
@@ -901,7 +1010,8 @@ public partial class SemanticAnalyzer
     /// <summary>
     /// Validates generic members on wrapper types (Retained&lt;T&gt;, Shared&lt;T, Policy&gt;, etc.).
     /// </summary>
-    private TypeInfo? ValidateWrapperGenericMember(TypeInfo wrapperType, string memberName, List<TypeExpression> typeArguments, SourceLocation location)
+    private TypeInfo? ValidateWrapperGenericMember(TypeInfo wrapperType, string memberName,
+        List<TypeExpression> typeArguments, SourceLocation location)
     {
         switch (memberName)
         {
@@ -910,13 +1020,17 @@ public partial class SemanticAnalyzer
                 // Returns the wrapped type
                 if (typeArguments.Count != 0)
                 {
-                    AddError(message: $"'{memberName}' does not take type arguments", location: location);
+                    AddError(message: $"'{memberName}' does not take type arguments",
+                        location: location);
                 }
 
                 return ExtractWrappedType(wrapperType: wrapperType);
 
             default:
-                AddError(message: $"Wrapper type '{wrapperType.Name}' does not have generic member '{memberName}'", location: location);
+                AddError(
+                    message:
+                    $"Wrapper type '{wrapperType.Name}' does not have generic member '{memberName}'",
+                    location: location);
                 return null;
         }
     }
@@ -934,7 +1048,8 @@ public partial class SemanticAnalyzer
             "Deque",
             "PriorityQueue"
         };
-        return collectionTypes.Contains(value: typeName) || collectionTypes.Any(predicate: ct => typeName.StartsWith(value: ct + "<"));
+        return collectionTypes.Contains(value: typeName) ||
+               collectionTypes.Any(predicate: ct => typeName.StartsWith(value: ct + "<"));
     }
 
     /// <summary>
@@ -950,7 +1065,8 @@ public partial class SemanticAnalyzer
             "Hijacked",
             "Snatched"
         };
-        return wrapperTypes.Contains(value: typeName) || wrapperTypes.Any(predicate: wt => typeName.StartsWith(value: wt + "<"));
+        return wrapperTypes.Contains(value: typeName) ||
+               wrapperTypes.Any(predicate: wt => typeName.StartsWith(value: wt + "<"));
     }
 
     /// <summary>
@@ -965,7 +1081,8 @@ public partial class SemanticAnalyzer
 
         if (startIdx > 0 && endIdx > startIdx)
         {
-            string elementTypeName = typeName.Substring(startIndex: startIdx + 1, length: endIdx - startIdx - 1);
+            string elementTypeName =
+                typeName.Substring(startIndex: startIdx + 1, length: endIdx - startIdx - 1);
             return new TypeInfo(Name: elementTypeName, IsReference: false);
         }
 
@@ -985,7 +1102,8 @@ public partial class SemanticAnalyzer
 
         if (startIdx > 0 && endIdx > startIdx)
         {
-            string wrappedTypeName = typeName.Substring(startIndex: startIdx + 1, length: endIdx - startIdx - 1);
+            string wrappedTypeName =
+                typeName.Substring(startIndex: startIdx + 1, length: endIdx - startIdx - 1);
             return new TypeInfo(Name: wrappedTypeName, IsReference: true);
         }
 

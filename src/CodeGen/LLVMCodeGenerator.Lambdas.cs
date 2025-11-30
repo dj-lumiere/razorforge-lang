@@ -60,7 +60,9 @@ public partial class LLVMCodeGenerator
         var lambdaBuilder = new StringBuilder();
         lambdaBuilder.AppendLine();
         lambdaBuilder.AppendLine(handler: $"; Lambda function {lambdaName}");
-        lambdaBuilder.AppendLine(handler: $"define private {returnType} @{lambdaName}({string.Join(separator: ", ", values: paramList)}) {{");
+        lambdaBuilder.AppendLine(
+            handler:
+            $"define private {returnType} @{lambdaName}({string.Join(separator: ", ", values: paramList)}) {{");
         lambdaBuilder.AppendLine(value: "entry:");
 
         // Save current state
@@ -133,10 +135,16 @@ public partial class LLVMCodeGenerator
         // In LLVM, a function reference is just @function_name
         // When used as a value, we need to cast it to the appropriate function pointer type
         string resultTemp = GetNextTemp();
-        _output.AppendLine(handler: $"  {resultTemp} = bitcast {returnType} ({paramTypeStr})* @{lambdaName} to ptr");
+        _output.AppendLine(
+            handler:
+            $"  {resultTemp} = bitcast {returnType} ({paramTypeStr})* @{lambdaName} to ptr");
 
         // Track the type
-        _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "ptr", IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: $"lambda<{string.Join(separator: ", ", values: paramTypes)}>->{returnType}");
+        _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "ptr",
+            IsUnsigned: false,
+            IsFloatingPoint: false,
+            RazorForgeType:
+            $"lambda<{string.Join(separator: ", ", values: paramTypes)}>->{returnType}");
 
         return resultTemp;
     }
@@ -160,12 +168,15 @@ public partial class LLVMCodeGenerator
         return body switch
         {
             LiteralExpression lit => InferLiteralType(lit: lit),
-            BinaryExpression bin => InferBinaryExpressionType(bin: bin, symbolTypes: tempSymbolTypes),
-            IdentifierExpression id => tempSymbolTypes.TryGetValue(key: id.Name, value: out string? t)
+            BinaryExpression bin => InferBinaryExpressionType(bin: bin,
+                symbolTypes: tempSymbolTypes),
+            IdentifierExpression id => tempSymbolTypes.TryGetValue(key: id.Name,
+                value: out string? t)
                 ? t
                 : "i32",
             CallExpression => "i32", // Default for function calls
-            ConditionalExpression cond => InferLambdaReturnType(body: cond.TrueExpression, parameters: parameters),
+            ConditionalExpression cond => InferLambdaReturnType(body: cond.TrueExpression,
+                parameters: parameters),
             _ => "i32" // Default to i32
         };
     }
@@ -183,7 +194,8 @@ public partial class LLVMCodeGenerator
             TokenType.S8Literal or TokenType.U8Literal => "i8",
             TokenType.S16Literal or TokenType.U16Literal => "i16",
             TokenType.S32Literal or TokenType.U32Literal => "i32",
-            TokenType.S64Literal or TokenType.U64Literal or TokenType.SyssintLiteral or TokenType.SysuintLiteral => "i64",
+            TokenType.S64Literal or TokenType.U64Literal or TokenType.SyssintLiteral
+                or TokenType.SysuintLiteral => "i64",
             TokenType.S128Literal or TokenType.U128Literal => "i128",
 
             // RazorForge unsuffixed integer -> i64
@@ -222,10 +234,13 @@ public partial class LLVMCodeGenerator
     /// <summary>
     /// Infers the result type of a binary expression.
     /// </summary>
-    private string InferBinaryExpressionType(BinaryExpression bin, Dictionary<string, string> symbolTypes)
+    private string InferBinaryExpressionType(BinaryExpression bin,
+        Dictionary<string, string> symbolTypes)
     {
         // Comparison operators always return bool
-        if (bin.Operator is BinaryOperator.Equal or BinaryOperator.NotEqual or BinaryOperator.Less or BinaryOperator.LessEqual or BinaryOperator.Greater or BinaryOperator.GreaterEqual or BinaryOperator.And or BinaryOperator.Or)
+        if (bin.Operator is BinaryOperator.Equal or BinaryOperator.NotEqual or BinaryOperator.Less
+            or BinaryOperator.LessEqual or BinaryOperator.Greater or BinaryOperator.GreaterEqual
+            or BinaryOperator.And or BinaryOperator.Or)
         {
             return "i1";
         }
@@ -237,7 +252,8 @@ public partial class LLVMCodeGenerator
             IdentifierExpression id => symbolTypes.TryGetValue(key: id.Name, value: out string? t)
                 ? t
                 : "i32",
-            BinaryExpression nested => InferBinaryExpressionType(bin: nested, symbolTypes: symbolTypes),
+            BinaryExpression nested => InferBinaryExpressionType(bin: nested,
+                symbolTypes: symbolTypes),
             _ => "i32"
         };
 
@@ -258,9 +274,12 @@ public partial class LLVMCodeGenerator
         // Perform the type conversion using LLVM cast instructions
         TypeInfo sourceTypeInfo = GetTypeInfo(expr: node.Expression);
 
-        string conversionOp = GetConversionInstruction(sourceType: sourceTypeInfo, targetType: targetTypeInfo);
+        string conversionOp =
+            GetConversionInstruction(sourceType: sourceTypeInfo, targetType: targetTypeInfo);
 
-        _output.AppendLine(handler: $"  {tempVar} = {conversionOp} {sourceTypeInfo.LLVMType} {sourceValue} to {targetTypeInfo.LLVMType}");
+        _output.AppendLine(
+            handler:
+            $"  {tempVar} = {conversionOp} {sourceTypeInfo.LLVMType} {sourceValue} to {targetTypeInfo.LLVMType}");
 
         return tempVar;
     }
@@ -286,7 +305,8 @@ public partial class LLVMCodeGenerator
         // Handle floating point to floating point conversions
         if (sourceType.IsFloatingPoint && targetType.IsFloatingPoint)
         {
-            return GetFloatingPointSize(llvmType: sourceType.LLVMType) > GetFloatingPointSize(llvmType: targetType.LLVMType)
+            return GetFloatingPointSize(llvmType: sourceType.LLVMType) >
+                   GetFloatingPointSize(llvmType: targetType.LLVMType)
                 ? "fptrunc"
                 : "fpext";
         }
@@ -313,7 +333,8 @@ public partial class LLVMCodeGenerator
             }
         }
 
-        throw new InvalidOperationException(message: $"Cannot convert from {sourceType.LLVMType} to {targetType.LLVMType}");
+        throw new InvalidOperationException(
+            message: $"Cannot convert from {sourceType.LLVMType} to {targetType.LLVMType}");
     }
 
     private int GetFloatingPointSize(string llvmType)

@@ -64,7 +64,8 @@ public partial class LLVMCodeGenerator
             }
 
             // Track RazorForge type from initializer if not already set
-            if (!_symbolRfTypes.ContainsKey(key: node.Name) && initValue != null && _tempTypes.TryGetValue(key: initValue, value: out TypeInfo? initTypeInfo))
+            if (!_symbolRfTypes.ContainsKey(key: node.Name) && initValue != null &&
+                _tempTypes.TryGetValue(key: initValue, value: out TypeInfo? initTypeInfo))
             {
                 _symbolRfTypes[key: node.Name] = initTypeInfo.RazorForgeType;
             }
@@ -125,9 +126,11 @@ public partial class LLVMCodeGenerator
             BinaryOperator.Add => "add",
             BinaryOperator.Subtract => "sub",
             BinaryOperator.Multiply => "mul",
-            BinaryOperator.Divide => GetIntegerDivisionOp(typeInfo: leftTypeInfo), // sdiv/udiv based on signed/unsigned
+            BinaryOperator.Divide => GetIntegerDivisionOp(
+                typeInfo: leftTypeInfo), // sdiv/udiv based on signed/unsigned
             BinaryOperator.TrueDivide => "fdiv", // / (true division) - floats only
-            BinaryOperator.Modulo => GetModuloOp(typeInfo: leftTypeInfo), // srem/urem for integers, frem for floats
+            BinaryOperator.Modulo => GetModuloOp(
+                typeInfo: leftTypeInfo), // srem/urem for integers, frem for floats
 
             // Overflow-handling variants (for now, use LLVM intrinsics will be added later)
             BinaryOperator.AddWrap => "add", // Wrapping is default behavior
@@ -180,32 +183,45 @@ public partial class LLVMCodeGenerator
                 case BinaryOperator.AddSaturate:
                 case BinaryOperator.SubtractSaturate:
                 case BinaryOperator.MultiplySaturate:
-                    return GenerateSaturatingArithmetic(op: node.Operator, left: left, right: right, result: result, typeInfo: leftTypeInfo, llvmType: operandType);
+                    return GenerateSaturatingArithmetic(op: node.Operator,
+                        left: left,
+                        right: right,
+                        result: result,
+                        typeInfo: leftTypeInfo,
+                        llvmType: operandType);
 
                 case BinaryOperator.AddChecked:
                 case BinaryOperator.SubtractChecked:
                 case BinaryOperator.MultiplyChecked:
-                    return GenerateCheckedArithmetic(op: node.Operator, left: left, right: right, result: result, typeInfo: leftTypeInfo, llvmType: operandType);
+                    return GenerateCheckedArithmetic(op: node.Operator,
+                        left: left,
+                        right: right,
+                        result: result,
+                        typeInfo: leftTypeInfo,
+                        llvmType: operandType);
 
                 case BinaryOperator.RightShift:
                     // Use ashr for signed, lshr for unsigned
                     string shiftOp = leftTypeInfo.IsUnsigned
                         ? "lshr"
                         : "ashr";
-                    _output.AppendLine(handler: $"  {result} = {shiftOp} {operandType} {left}, {right}");
+                    _output.AppendLine(
+                        handler: $"  {result} = {shiftOp} {operandType} {left}, {right}");
                     _tempTypes[key: result] = leftTypeInfo;
                     return result;
 
                 case BinaryOperator.LeftShiftChecked:
                     // TODO: Implement overflow-checked left shift (returns Maybe<T>)
                     // For now, generate regular shl with a comment
-                    _output.AppendLine(handler: $"  ; TODO: Checked left shift - should return Maybe<T>");
+                    _output.AppendLine(
+                        handler: $"  ; TODO: Checked left shift - should return Maybe<T>");
                     _output.AppendLine(handler: $"  {result} = shl {operandType} {left}, {right}");
                     _tempTypes[key: result] = leftTypeInfo;
                     return result;
 
                 default:
-                    throw new NotSupportedException(message: $"Operator {node.Operator} is not properly configured");
+                    throw new NotSupportedException(
+                        message: $"Operator {node.Operator} is not properly configured");
             }
         }
 
@@ -214,7 +230,8 @@ public partial class LLVMCodeGenerator
 
         // Handle type mismatch - truncate or extend as needed
         string rightOperand = right;
-        if (rightTypeInfo.LLVMType != operandType && !rightTypeInfo.IsFloatingPoint && !leftTypeInfo.IsFloatingPoint)
+        if (rightTypeInfo.LLVMType != operandType && !rightTypeInfo.IsFloatingPoint &&
+            !leftTypeInfo.IsFloatingPoint)
         {
             // Need to convert right operand to match left operand type
             int leftBits = GetIntegerBitWidth(llvmType: operandType);
@@ -224,7 +241,9 @@ public partial class LLVMCodeGenerator
             {
                 // Truncate right operand to match left
                 string truncTemp = GetNextTemp();
-                _output.AppendLine(handler: $"  {truncTemp} = trunc {rightTypeInfo.LLVMType} {right} to {operandType}");
+                _output.AppendLine(
+                    handler:
+                    $"  {truncTemp} = trunc {rightTypeInfo.LLVMType} {right} to {operandType}");
                 rightOperand = truncTemp;
             }
             else if (rightBits < leftBits)
@@ -234,7 +253,9 @@ public partial class LLVMCodeGenerator
                 string extOp = rightTypeInfo.IsUnsigned
                     ? "zext"
                     : "sext";
-                _output.AppendLine(handler: $"  {extTemp} = {extOp} {rightTypeInfo.LLVMType} {right} to {operandType}");
+                _output.AppendLine(
+                    handler:
+                    $"  {extTemp} = {extOp} {rightTypeInfo.LLVMType} {right} to {operandType}");
                 rightOperand = extTemp;
             }
         }
@@ -244,7 +265,10 @@ public partial class LLVMCodeGenerator
         {
             // Comparison operations return i1
             _output.AppendLine(handler: $"  {result} = {op} {operandType} {left}, {rightOperand}");
-            _tempTypes[key: result] = new TypeInfo(LLVMType: "i1", IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: "bool");
+            _tempTypes[key: result] = new TypeInfo(LLVMType: "i1",
+                IsUnsigned: false,
+                IsFloatingPoint: false,
+                RazorForgeType: "bool");
         }
         else
         {
@@ -259,7 +283,8 @@ public partial class LLVMCodeGenerator
     /// <summary>
     /// Generates LLVM IR for saturating arithmetic operations using LLVM intrinsics.
     /// </summary>
-    private string GenerateSaturatingArithmetic(BinaryOperator op, string left, string right, string result, TypeInfo typeInfo, string llvmType)
+    private string GenerateSaturatingArithmetic(BinaryOperator op, string left, string right,
+        string result, TypeInfo typeInfo, string llvmType)
     {
         string intrinsicName = op switch
         {
@@ -269,8 +294,13 @@ public partial class LLVMCodeGenerator
             BinaryOperator.SubtractSaturate => typeInfo.IsUnsigned
                 ? "llvm.usub.sat"
                 : "llvm.ssub.sat",
-            BinaryOperator.MultiplySaturate => GenerateSaturatingMultiply(left: left, right: right, result: result, typeInfo: typeInfo, llvmType: llvmType),
-            _ => throw new NotSupportedException(message: $"Saturating operation {op} not supported")
+            BinaryOperator.MultiplySaturate => GenerateSaturatingMultiply(left: left,
+                right: right,
+                result: result,
+                typeInfo: typeInfo,
+                llvmType: llvmType),
+            _ => throw new NotSupportedException(
+                message: $"Saturating operation {op} not supported")
         };
 
         // For multiply, the implementation is handled separately
@@ -280,7 +310,9 @@ public partial class LLVMCodeGenerator
         }
 
         // Generate intrinsic call for add/subtract
-        _output.AppendLine(handler: $"  {result} = call {llvmType} @{intrinsicName}.{llvmType}({llvmType} {left}, {llvmType} {right})");
+        _output.AppendLine(
+            handler:
+            $"  {result} = call {llvmType} @{intrinsicName}.{llvmType}({llvmType} {left}, {llvmType} {right})");
         _tempTypes[key: result] = typeInfo;
         return result;
     }
@@ -289,7 +321,8 @@ public partial class LLVMCodeGenerator
     /// Generates saturating multiply using manual overflow detection.
     /// LLVM doesn't provide a direct saturating multiply intrinsic, so we use overflow detection.
     /// </summary>
-    private string GenerateSaturatingMultiply(string left, string right, string result, TypeInfo typeInfo, string llvmType)
+    private string GenerateSaturatingMultiply(string left, string right, string result,
+        TypeInfo typeInfo, string llvmType)
     {
         string overflowTemp = GetNextTemp();
         string structTemp = GetNextTemp();
@@ -304,18 +337,25 @@ public partial class LLVMCodeGenerator
             : "llvm.smul.with.overflow";
 
         // Call overflow intrinsic
-        _output.AppendLine(handler: $"  {structTemp} = call {{{llvmType}, i1}} @{intrinsicName}.{llvmType}({llvmType} {left}, {llvmType} {right})");
-        _output.AppendLine(handler: $"  {valueTemp} = extractvalue {{{llvmType}, i1}} {structTemp}, 0");
-        _output.AppendLine(handler: $"  {didOverflowTemp} = extractvalue {{{llvmType}, i1}} {structTemp}, 1");
+        _output.AppendLine(
+            handler:
+            $"  {structTemp} = call {{{llvmType}, i1}} @{intrinsicName}.{llvmType}({llvmType} {left}, {llvmType} {right})");
+        _output.AppendLine(
+            handler: $"  {valueTemp} = extractvalue {{{llvmType}, i1}} {structTemp}, 0");
+        _output.AppendLine(
+            handler: $"  {didOverflowTemp} = extractvalue {{{llvmType}, i1}} {structTemp}, 1");
 
         // Get max/min values for saturation
-        (string maxValue, string minValue) = GetSaturationBounds(typeInfo: typeInfo, llvmType: llvmType);
+        (string maxValue, string minValue) =
+            GetSaturationBounds(typeInfo: typeInfo, llvmType: llvmType);
 
         // Determine saturation value based on sign of operands if overflow occurred
         if (typeInfo.IsUnsigned)
         {
             // For unsigned: saturate to max value on overflow
-            _output.AppendLine(handler: $"  {saturatedTemp} = select i1 {didOverflowTemp}, {llvmType} {maxValue}, {llvmType} {valueTemp}");
+            _output.AppendLine(
+                handler:
+                $"  {saturatedTemp} = select i1 {didOverflowTemp}, {llvmType} {maxValue}, {llvmType} {valueTemp}");
         }
         else
         {
@@ -328,15 +368,21 @@ public partial class LLVMCodeGenerator
 
             _output.AppendLine(handler: $"  {leftSignTemp} = icmp slt {llvmType} {left}, 0");
             _output.AppendLine(handler: $"  {rightSignTemp} = icmp slt {llvmType} {right}, 0");
-            _output.AppendLine(handler: $"  {sameSigns} = icmp eq i1 {leftSignTemp}, {rightSignTemp}");
+            _output.AppendLine(
+                handler: $"  {sameSigns} = icmp eq i1 {leftSignTemp}, {rightSignTemp}");
 
             // If same signs: both positive -> max, both negative -> max (negative * negative = positive)
             // If different signs: result should be min (negative)
-            _output.AppendLine(handler: $"  {satValue} = select i1 {sameSigns}, {llvmType} {maxValue}, {llvmType} {minValue}");
-            _output.AppendLine(handler: $"  {saturatedTemp} = select i1 {didOverflowTemp}, {llvmType} {satValue}, {llvmType} {valueTemp}");
+            _output.AppendLine(
+                handler:
+                $"  {satValue} = select i1 {sameSigns}, {llvmType} {maxValue}, {llvmType} {minValue}");
+            _output.AppendLine(
+                handler:
+                $"  {saturatedTemp} = select i1 {didOverflowTemp}, {llvmType} {satValue}, {llvmType} {valueTemp}");
         }
 
-        _output.AppendLine(handler: $"  {result} = add {llvmType} {saturatedTemp}, 0  ; final saturated result");
+        _output.AppendLine(
+            handler: $"  {result} = add {llvmType} {saturatedTemp}, 0  ; final saturated result");
         _tempTypes[key: result] = typeInfo;
         return result;
     }
@@ -344,7 +390,8 @@ public partial class LLVMCodeGenerator
     /// <summary>
     /// Generates LLVM IR for checked arithmetic operations that trap on overflow.
     /// </summary>
-    private string GenerateCheckedArithmetic(BinaryOperator op, string left, string right, string result, TypeInfo typeInfo, string llvmType)
+    private string GenerateCheckedArithmetic(BinaryOperator op, string left, string right,
+        string result, TypeInfo typeInfo, string llvmType)
     {
         string intrinsicName = op switch
         {
@@ -367,21 +414,29 @@ public partial class LLVMCodeGenerator
         string continueLabel = GetNextLabel();
 
         // Call overflow intrinsic which returns {result, overflow_flag}
-        _output.AppendLine(handler: $"  {structTemp} = call {{{llvmType}, i1}} @{intrinsicName}.{llvmType}({llvmType} {left}, {llvmType} {right})");
-        _output.AppendLine(handler: $"  {valueTemp} = extractvalue {{{llvmType}, i1}} {structTemp}, 0");
-        _output.AppendLine(handler: $"  {didOverflowTemp} = extractvalue {{{llvmType}, i1}} {structTemp}, 1");
+        _output.AppendLine(
+            handler:
+            $"  {structTemp} = call {{{llvmType}, i1}} @{intrinsicName}.{llvmType}({llvmType} {left}, {llvmType} {right})");
+        _output.AppendLine(
+            handler: $"  {valueTemp} = extractvalue {{{llvmType}, i1}} {structTemp}, 0");
+        _output.AppendLine(
+            handler: $"  {didOverflowTemp} = extractvalue {{{llvmType}, i1}} {structTemp}, 1");
 
         // Branch on overflow flag
-        _output.AppendLine(handler: $"  br i1 {didOverflowTemp}, label %{trapLabel}, label %{continueLabel}");
+        _output.AppendLine(
+            handler: $"  br i1 {didOverflowTemp}, label %{trapLabel}, label %{continueLabel}");
 
         // Trap block - call panic/abort on overflow
         _output.AppendLine(handler: $"{trapLabel}:");
-        _output.AppendLine(value: $"  call void @rf_crash(ptr getelementptr inbounds ([20 x i8], [20 x i8]* @.str_overflow, i32 0, i32 0))");
+        _output.AppendLine(
+            value:
+            $"  call void @rf_crash(ptr getelementptr inbounds ([20 x i8], [20 x i8]* @.str_overflow, i32 0, i32 0))");
         _output.AppendLine(value: $"  unreachable");
 
         // Continue block - normal execution
         _output.AppendLine(handler: $"{continueLabel}:");
-        _output.AppendLine(handler: $"  {result} = add {llvmType} {valueTemp}, 0  ; propagate result");
+        _output.AppendLine(
+            handler: $"  {result} = add {llvmType} {valueTemp}, 0  ; propagate result");
 
         _tempTypes[key: result] = typeInfo;
         return result;
@@ -390,7 +445,8 @@ public partial class LLVMCodeGenerator
     /// <summary>
     /// Gets the saturation bounds (max and min values) for a given type.
     /// </summary>
-    private (string maxValue, string minValue) GetSaturationBounds(TypeInfo typeInfo, string llvmType)
+    private (string maxValue, string minValue) GetSaturationBounds(TypeInfo typeInfo,
+        string llvmType)
     {
         if (typeInfo.IsUnsigned)
         {
@@ -417,7 +473,8 @@ public partial class LLVMCodeGenerator
                 16 => ("32767", "-32768"),
                 32 => ("2147483647", "-2147483648"),
                 64 => ("9223372036854775807", "-9223372036854775808"),
-                128 => ("170141183460469231731687303715884105727", "-170141183460469231731687303715884105728"),
+                128 => ("170141183460469231731687303715884105727",
+                    "-170141183460469231731687303715884105728"),
                 _ => ("0", "0")
             };
             return (maxValue, minValue);
@@ -447,7 +504,11 @@ public partial class LLVMCodeGenerator
             TokenType.True => "i1",
             TokenType.False => "i1",
             // Text/String types - all return pointer to i8 (C-style strings)
-            TokenType.TextLiteral or TokenType.Text8Literal or TokenType.Text16Literal or TokenType.FormattedText or TokenType.Text8FormattedText or TokenType.Text16FormattedText or TokenType.RawText or TokenType.Text8RawText or TokenType.Text16RawText or TokenType.RawFormattedText or TokenType.Text8RawFormattedText or TokenType.Text16RawFormattedText => "i8*",
+            TokenType.TextLiteral or TokenType.Text8Literal or TokenType.Text16Literal
+                or TokenType.FormattedText or TokenType.Text8FormattedText
+                or TokenType.Text16FormattedText or TokenType.RawText or TokenType.Text8RawText
+                or TokenType.Text16RawText or TokenType.RawFormattedText
+                or TokenType.Text8RawFormattedText or TokenType.Text16RawFormattedText => "i8*",
             _ => "i32" // Default fallback
         };
     }
@@ -462,7 +523,10 @@ public partial class LLVMCodeGenerator
             // When used in a return statement, the return type will be i8* (pointer)
             // so we return null constant
             string nextWord = GetNextTemp();
-            _tempTypes[key: nextWord] = new TypeInfo(LLVMType: "i8*", IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: "None");
+            _tempTypes[key: nextWord] = new TypeInfo(LLVMType: "i8*",
+                IsUnsigned: false,
+                IsFloatingPoint: false,
+                RazorForgeType: "None");
             // Return null as the None value - it will be used directly in inttoptr or ret
             return "null";
         }
@@ -486,7 +550,10 @@ public partial class LLVMCodeGenerator
         string rfType = _symbolRfTypes.TryGetValue(key: node.Name, value: out string? storedRfType)
             ? storedRfType
             : node.Name;
-        _tempTypes[key: temp] = new TypeInfo(LLVMType: type, IsUnsigned: type.StartsWith(value: "u"), IsFloatingPoint: type.StartsWith(value: "f") || type.StartsWith(value: "double"), RazorForgeType: rfType);
+        _tempTypes[key: temp] = new TypeInfo(LLVMType: type,
+            IsUnsigned: type.StartsWith(value: "u"),
+            IsFloatingPoint: type.StartsWith(value: "f") || type.StartsWith(value: "double"),
+            RazorForgeType: rfType);
         return temp;
     }
 
@@ -501,19 +568,25 @@ public partial class LLVMCodeGenerator
             string dangerfunctionName = identifierExpr.Name;
             if (IsNonGenericDangerZoneFunction(functionName: dangerfunctionName))
             {
-                return HandleNonGenericDangerZoneFunction(node: node, functionName: dangerfunctionName, resultTemp: result);
+                return HandleNonGenericDangerZoneFunction(node: node,
+                    functionName: dangerfunctionName,
+                    resultTemp: result);
             }
 
             // Check for non-generic CompilerService intrinsics (source location)
             if (IsSourceLocationIntrinsic(functionName: dangerfunctionName))
             {
-                return HandleSourceLocationIntrinsic(node: node, functionName: dangerfunctionName, resultTemp: result);
+                return HandleSourceLocationIntrinsic(node: node,
+                    functionName: dangerfunctionName,
+                    resultTemp: result);
             }
 
             // Check for error intrinsics (verify!, breach!, stop!)
             if (IsErrorIntrinsic(functionName: dangerfunctionName))
             {
-                return HandleErrorIntrinsic(node: node, functionName: dangerfunctionName, resultTemp: result);
+                return HandleErrorIntrinsic(node: node,
+                    functionName: dangerfunctionName,
+                    resultTemp: result);
             }
         }
 
@@ -528,13 +601,20 @@ public partial class LLVMCodeGenerator
 
             // Check if this is an external function call from imported module
             string externalFuncName = $"{objectNameEarly}.{memberExprEarly.PropertyName}";
-            if (TryHandleExternalFunctionCall(funcName: externalFuncName, arguments: node.Arguments, resultTemp: result, result: out string? externalResult))
+            if (TryHandleExternalFunctionCall(funcName: externalFuncName,
+                    arguments: node.Arguments,
+                    resultTemp: result,
+                    result: out string? externalResult))
             {
                 return externalResult!;
             }
 
             // Check if this is a call to an imported module function (including generic)
-            if (TryHandleImportedModuleFunctionCall(moduleName: objectNameEarly, functionName: memberExprEarly.PropertyName, arguments: node.Arguments, resultTemp: result, result: out string? importedResult))
+            if (TryHandleImportedModuleFunctionCall(moduleName: objectNameEarly,
+                    functionName: memberExprEarly.PropertyName,
+                    arguments: node.Arguments,
+                    resultTemp: result,
+                    result: out string? importedResult))
             {
                 return importedResult!;
             }
@@ -542,7 +622,9 @@ public partial class LLVMCodeGenerator
             // Special handling for Error type
             if (objectNameEarly == "Error")
             {
-                return HandleErrorCall(methodName: memberExprEarly.PropertyName, arguments: node.Arguments, resultTemp: result);
+                return HandleErrorCall(methodName: memberExprEarly.PropertyName,
+                    arguments: node.Arguments,
+                    resultTemp: result);
             }
         }
 
@@ -552,19 +634,25 @@ public partial class LLVMCodeGenerator
             string sanitizedNameEarly = SanitizeFunctionName(name: identifierEarly.Name);
             if (IsTypeConstructorCall(sanitizedName: sanitizedNameEarly))
             {
-                return HandleTypeConstructorCall(functionName: sanitizedNameEarly, arguments: node.Arguments, resultTemp: result);
+                return HandleTypeConstructorCall(functionName: sanitizedNameEarly,
+                    arguments: node.Arguments,
+                    resultTemp: result);
             }
 
             // Check for Crashable error type constructors (e.g., DivisionByZeroError())
             // These return a string pointer to the error message for use in safe variants
             if (IsCrashableErrorType(typeName: identifierEarly.Name))
             {
-                return HandleCrashableErrorConstructor(errorTypeName: identifierEarly.Name, resultTemp: result);
+                return HandleCrashableErrorConstructor(errorTypeName: identifierEarly.Name,
+                    resultTemp: result);
             }
 
             // Check for external function calls by identifier (e.g., rf_console_get_letters)
             // This handles direct calls to external C functions inside module function bodies
-            if (TryHandleExternalFunctionCall(funcName: identifierEarly.Name, arguments: node.Arguments, resultTemp: result, result: out string? externalResult))
+            if (TryHandleExternalFunctionCall(funcName: identifierEarly.Name,
+                    arguments: node.Arguments,
+                    resultTemp: result,
+                    result: out string? externalResult))
             {
                 return externalResult!;
             }
@@ -572,7 +660,9 @@ public partial class LLVMCodeGenerator
             // Check for record constructor calls like letter8(value: codepoint)
             if (IsRecordConstructorCall(typeName: identifierEarly.Name))
             {
-                return HandleRecordConstructorCall(typeName: identifierEarly.Name, arguments: node.Arguments, resultTemp: result);
+                return HandleRecordConstructorCall(typeName: identifierEarly.Name,
+                    arguments: node.Arguments,
+                    resultTemp: result);
             }
         }
 
@@ -603,7 +693,9 @@ public partial class LLVMCodeGenerator
             {
                 if (args.Count > 0)
                 {
-                    _output.AppendLine(handler: $"  {result} = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([4 x i8], [4 x i8]* @.str_int_fmt, i32 0, i32 0), {argList})");
+                    _output.AppendLine(
+                        handler:
+                        $"  {result} = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([4 x i8], [4 x i8]* @.str_int_fmt, i32 0, i32 0), {argList})");
                 }
 
                 return result;
@@ -619,7 +711,9 @@ public partial class LLVMCodeGenerator
             // Check if this is a danger zone function that should use specialized handling
             if (IsNonGenericDangerZoneFunction(functionName: functionName))
             {
-                return HandleNonGenericDangerZoneFunction(node: node, functionName: functionName, resultTemp: result);
+                return HandleNonGenericDangerZoneFunction(node: node,
+                    functionName: functionName,
+                    resultTemp: result);
             }
         }
         else if (node.Callee is MemberExpression memberExpr)
@@ -659,7 +753,10 @@ public partial class LLVMCodeGenerator
                 if (negated >= int.MinValue && negated <= int.MaxValue)
                 {
                     // Return as i32 literal
-                    _tempTypes[key: negated.ToString()] = new TypeInfo(LLVMType: "i32", IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: "s32");
+                    _tempTypes[key: negated.ToString()] = new TypeInfo(LLVMType: "i32",
+                        IsUnsigned: false,
+                        IsFloatingPoint: false,
+                        RazorForgeType: "s32");
                     return negated.ToString();
                 }
 
@@ -708,7 +805,10 @@ public partial class LLVMCodeGenerator
                 // Logical NOT: xor with 1 for i1 (bool)
                 string notResult = GetNextTemp();
                 _output.AppendLine(handler: $"  {notResult} = xor i1 {operand}, 1");
-                _tempTypes[key: notResult] = new TypeInfo(LLVMType: "i1", IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: "bool");
+                _tempTypes[key: notResult] = new TypeInfo(LLVMType: "i1",
+                    IsUnsigned: false,
+                    IsFloatingPoint: false,
+                    RazorForgeType: "bool");
                 return notResult;
 
             case UnaryOperator.BitwiseNot:
@@ -740,13 +840,15 @@ public partial class LLVMCodeGenerator
                 recordType = rfType;
             }
             // Also try from _symbolTypes (for LLVM types like %Point)
-            else if (_symbolTypes.TryGetValue(key: objectName, value: out string? llvmType) && llvmType.StartsWith(value: "%"))
+            else if (_symbolTypes.TryGetValue(key: objectName, value: out string? llvmType) &&
+                     llvmType.StartsWith(value: "%"))
             {
                 recordType = llvmType[1..]; // Remove % prefix
             }
 
             // If we have a record type, look up the field
-            if (recordType != null && _recordFields.TryGetValue(key: recordType, value: out List<(string Name, string Type)>? fields))
+            if (recordType != null && _recordFields.TryGetValue(key: recordType,
+                    value: out List<(string Name, string Type)>? fields))
             {
                 // Find the field index
                 int fieldIndex = -1;
@@ -766,9 +868,14 @@ public partial class LLVMCodeGenerator
                     // Generate getelementptr and load for field access
                     string result = GetNextTemp();
                     string fieldPtr = GetNextTemp();
-                    _output.AppendLine(handler: $"  {fieldPtr} = getelementptr inbounds %{recordType}, ptr %{objectName}, i32 0, i32 {fieldIndex}");
+                    _output.AppendLine(
+                        handler:
+                        $"  {fieldPtr} = getelementptr inbounds %{recordType}, ptr %{objectName}, i32 0, i32 {fieldIndex}");
                     _output.AppendLine(handler: $"  {result} = load {fieldType}, ptr {fieldPtr}");
-                    _tempTypes[key: result] = new TypeInfo(LLVMType: fieldType, IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: "");
+                    _tempTypes[key: result] = new TypeInfo(LLVMType: fieldType,
+                        IsUnsigned: false,
+                        IsFloatingPoint: false,
+                        RazorForgeType: "");
                     return result;
                 }
             }
@@ -850,7 +957,8 @@ public partial class LLVMCodeGenerator
                 string temp = GetNextTemp();
                 string operandValue = node.Operands[index: i]
                                           .Accept(visitor: this);
-                _output.AppendLine(handler: $"  {temp} = add i32 {operandValue}, 0  ; store for reuse");
+                _output.AppendLine(
+                    handler: $"  {temp} = add i32 {operandValue}, 0  ; store for reuse");
                 tempVars.Add(item: temp);
             }
         }
@@ -887,7 +995,8 @@ public partial class LLVMCodeGenerator
         for (int i = 1; i < compResults.Count; i++)
         {
             string temp = GetNextTemp();
-            _output.AppendLine(handler: $"  {temp} = and i1 {finalResult}, {compResults[index: i]}");
+            _output.AppendLine(
+                handler: $"  {temp} = and i1 {finalResult}, {compResults[index: i]}");
             finalResult = temp;
         }
 
@@ -923,7 +1032,9 @@ public partial class LLVMCodeGenerator
             // Maybe and Result have is_valid: bool as first field
             // Load the is_valid field (index 0)
             string isValidPtr = GetNextTemp();
-            _output.AppendLine(handler: $"  {isValidPtr} = getelementptr inbounds {{i1, i8*}}, {{i1, i8*}}* {left}, i32 0, i32 0");
+            _output.AppendLine(
+                handler:
+                $"  {isValidPtr} = getelementptr inbounds {{i1, i8*}}, {{i1, i8*}}* {left}, i32 0, i32 0");
             _output.AppendLine(handler: $"  {isValidTemp} = load i1, i1* {isValidPtr}");
         }
         else if (leftTypeName.StartsWith(value: "Lookup"))
@@ -931,7 +1042,9 @@ public partial class LLVMCodeGenerator
             // Lookup has state: DataState as first field where VALID = 0
             string statePtr = GetNextTemp();
             string stateVal = GetNextTemp();
-            _output.AppendLine(handler: $"  {statePtr} = getelementptr inbounds {{i32, i8*}}, {{i32, i8*}}* {left}, i32 0, i32 0");
+            _output.AppendLine(
+                handler:
+                $"  {statePtr} = getelementptr inbounds {{i32, i8*}}, {{i32, i8*}}* {left}, i32 0, i32 0");
             _output.AppendLine(handler: $"  {stateVal} = load i32, i32* {statePtr}");
             _output.AppendLine(handler: $"  {isValidTemp} = icmp eq i32 {stateVal}, 0");
         }
@@ -942,12 +1055,14 @@ public partial class LLVMCodeGenerator
         }
 
         // Branch based on validity
-        _output.AppendLine(handler: $"  br i1 {isValidTemp}, label %{validLabel}, label %{invalidLabel}");
+        _output.AppendLine(
+            handler: $"  br i1 {isValidTemp}, label %{validLabel}, label %{invalidLabel}");
 
         // Valid case - extract the value from the wrapper
         _output.AppendLine(handler: $"{validLabel}:");
         string validValue;
-        if (leftTypeName.StartsWith(value: "Maybe") || leftTypeName.StartsWith(value: "Result") || leftTypeName.StartsWith(value: "Lookup"))
+        if (leftTypeName.StartsWith(value: "Maybe") || leftTypeName.StartsWith(value: "Result") ||
+            leftTypeName.StartsWith(value: "Lookup"))
         {
             // Extract handle from wrapper (index 1)
             string handlePtr = GetNextTemp();
@@ -955,7 +1070,9 @@ public partial class LLVMCodeGenerator
             string structType = leftTypeName.StartsWith(value: "Lookup")
                 ? "{i32, i8*}"
                 : "{i1, i8*}";
-            _output.AppendLine(handler: $"  {handlePtr} = getelementptr inbounds {structType}, {structType}* {left}, i32 0, i32 1");
+            _output.AppendLine(
+                handler:
+                $"  {handlePtr} = getelementptr inbounds {structType}, {structType}* {left}, i32 0, i32 1");
             _output.AppendLine(handler: $"  {validValue} = load i8*, i8** {handlePtr}");
         }
         else
@@ -975,7 +1092,9 @@ public partial class LLVMCodeGenerator
         string result = GetNextTemp();
         TypeInfo rightTypeInfo = GetTypeInfo(expr: node.Right);
         string resultType = rightTypeInfo.LLVMType;
-        _output.AppendLine(handler: $"  {result} = phi {resultType} [{validValue}, %{validLabel}], [{invalidValue}, %{invalidLabel}]");
+        _output.AppendLine(
+            handler:
+            $"  {result} = phi {resultType} [{validValue}, %{validLabel}], [{invalidValue}, %{invalidLabel}]");
 
         _tempTypes[key: result] = rightTypeInfo;
         return result;
@@ -1057,11 +1176,18 @@ public partial class LLVMCodeGenerator
                 _stringConstants = new List<string>();
             }
 
-            _stringConstants.Add(item: $"{strConst} = private unnamed_addr constant [{len} x i8] c\"{strVal}\\00\", align 1");
+            _stringConstants.Add(
+                item:
+                $"{strConst} = private unnamed_addr constant [{len} x i8] c\"{strVal}\\00\", align 1");
             string temp = GetNextTemp();
-            _output.AppendLine(handler: $"  {temp} = getelementptr [{len} x i8], [{len} x i8]* {strConst}, i32 0, i32 0");
+            _output.AppendLine(
+                handler:
+                $"  {temp} = getelementptr [{len} x i8], [{len} x i8]* {strConst}, i32 0, i32 0");
             // Register the temp as a string pointer type
-            _tempTypes[key: temp] = new TypeInfo(LLVMType: "i8*", IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: "Text");
+            _tempTypes[key: temp] = new TypeInfo(LLVMType: "i8*",
+                IsUnsigned: false,
+                IsFloatingPoint: false,
+                RazorForgeType: "Text");
             return temp;
         }
 
@@ -1126,7 +1252,10 @@ public partial class LLVMCodeGenerator
         }
 
         // Store slice type information for later use
-        _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "ptr", IsUnsigned: false, IsFloatingPoint: false, RazorForgeType: node.SliceType);
+        _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "ptr",
+            IsUnsigned: false,
+            IsFloatingPoint: false,
+            RazorForgeType: node.SliceType);
         return resultTemp;
     }
 }

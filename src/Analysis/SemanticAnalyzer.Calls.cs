@@ -7,7 +7,7 @@ namespace Compilers.Shared.Analysis;
 /// </summary>
 public partial class SemanticAnalyzer
 {
-        /// <summary>
+    /// <summary>
     /// Analyze function calls with special handling for memory operation methods.
     ///
     /// This is where the magic happens for memory operations like obj.retain(), obj.share(), etc.
@@ -54,7 +54,8 @@ public partial class SemanticAnalyzer
                 {
                     if (node.Arguments.Count == 0)
                     {
-                        AddError(message: "verify!() requires at least one argument (condition)", location: node.Location);
+                        AddError(message: "verify!() requires at least one argument (condition)",
+                            location: node.Location);
                     }
                     else
                     {
@@ -87,26 +88,35 @@ public partial class SemanticAnalyzer
                 // Only allow these functions in danger mode
                 if (!_isInDangerMode)
                 {
-                    _errors.Add(item: new SemanticError(Message: $"Danger zone function '{functionName}!' can only be used inside danger blocks", Location: node.Location));
+                    _errors.Add(item: new SemanticError(
+                        Message:
+                        $"Danger zone function '{functionName}!' can only be used inside danger blocks",
+                        Location: node.Location));
                     return new TypeInfo(Name: "void", IsReference: false);
                 }
 
-                return ValidateNonGenericDangerZoneFunction(node: node, functionName: functionName);
+                return ValidateNonGenericDangerZoneFunction(node: node,
+                    functionName: functionName);
             }
         }
 
         // CRITICAL: Detect memory operation method calls (ending with '!')
         // These are the core operations of RazorForge's memory model
-        if (node.Callee is MemberExpression memberExpr && IsMemoryOperation(methodName: memberExpr.PropertyName))
+        if (node.Callee is MemberExpression memberExpr &&
+            IsMemoryOperation(methodName: memberExpr.PropertyName))
         {
             // Route through specialized memory operation handler
-            return HandleMemoryOperationCall(memberExpr: memberExpr, operationName: memberExpr.PropertyName, arguments: node.Arguments, location: node.Location);
+            return HandleMemoryOperationCall(memberExpr: memberExpr,
+                operationName: memberExpr.PropertyName,
+                arguments: node.Arguments,
+                location: node.Location);
         }
 
         // Handle namespaced function calls (e.g., Console.show_line())
         // When callee is a MemberExpression with an IdentifierExpression as object,
         // check if this is a namespaced function call before treating it as a method call
-        if (node.Callee is MemberExpression namespacedCall && namespacedCall.Object is IdentifierExpression namespaceId)
+        if (node.Callee is MemberExpression namespacedCall &&
+            namespacedCall.Object is IdentifierExpression namespaceId)
         {
             string qualifiedName = $"{namespaceId.Name}.{namespacedCall.PropertyName}";
             Symbol? funcSymbol = _symbolTable.Lookup(name: qualifiedName);
@@ -123,7 +133,8 @@ public partial class SemanticAnalyzer
                 {
                     return func.ReturnType;
                 }
-                else if (funcSymbol is FunctionOverloadSet overloadSet && overloadSet.Overloads.Count > 0)
+                else if (funcSymbol is FunctionOverloadSet overloadSet &&
+                         overloadSet.Overloads.Count > 0)
                 {
                     // TODO: Proper overload resolution based on argument types
                     // For now, return the first overload's return type
@@ -162,7 +173,8 @@ public partial class SemanticAnalyzer
         bool isContainerStorageMethod = false;
         if (node.Callee is MemberExpression memberCall)
         {
-            isContainerStorageMethod = memberCall.PropertyName is "push" or "append" or "insert" or "add" or "set" or "put" or "enqueue" or "push_front" or "push_back";
+            isContainerStorageMethod = memberCall.PropertyName is "push" or "append" or "insert"
+                or "add" or "set" or "put" or "enqueue" or "push_front" or "push_back";
         }
 
         // Track Hijacked tokens to detect duplicates
@@ -171,15 +183,23 @@ public partial class SemanticAnalyzer
         foreach (Expression arg in node.Arguments)
         {
             // Rule 1: Check for inline-only method calls being stored in containers
-            if (isContainerStorageMethod && IsInlineOnlyMethodCall(expr: arg, methodName: out string? methodName))
+            if (isContainerStorageMethod &&
+                IsInlineOnlyMethodCall(expr: arg, methodName: out string? methodName))
             {
-                AddError(message: $"Cannot store result of '.{methodName}()' in a container. " + $"Inline tokens (Viewed<T>, Hijacked<T>) cannot be stored. " + $"Extract the value first, or use ownership transfer with .consume().", location: node.Location);
+                AddError(message: $"Cannot store result of '.{methodName}()' in a container. " +
+                                  $"Inline tokens (Viewed<T>, Hijacked<T>) cannot be stored. " +
+                                  $"Extract the value first, or use ownership transfer with .consume().",
+                    location: node.Location);
             }
 
             // Rule 2: Check for scoped tokens being stored in containers
-            if (isContainerStorageMethod && arg is IdentifierExpression argIdent && IsScopedToken(variableName: argIdent.Name))
+            if (isContainerStorageMethod && arg is IdentifierExpression argIdent &&
+                IsScopedToken(variableName: argIdent.Name))
             {
-                AddError(message: $"Cannot store scoped token '{argIdent.Name}' in a container. " + $"Scoped tokens are bound to their scope and cannot escape. " + $"Extract the value first, or restructure to keep the token local.", location: node.Location);
+                AddError(message: $"Cannot store scoped token '{argIdent.Name}' in a container. " +
+                                  $"Scoped tokens are bound to their scope and cannot escape. " +
+                                  $"Extract the value first, or restructure to keep the token local.",
+                    location: node.Location);
             }
 
             // Rule 3: Check for duplicate Hijacked<T> tokens in same call
@@ -191,7 +211,11 @@ public partial class SemanticAnalyzer
                 {
                     if (!hijackedTokens.Add(item: tokenIdent.Name))
                     {
-                        AddError(message: $"Cannot pass the same Hijacked<T> token '{tokenIdent.Name}' twice in a single call. " + $"Hijacked<T> represents unique exclusive access and cannot be duplicated.", location: node.Location);
+                        AddError(
+                            message:
+                            $"Cannot pass the same Hijacked<T> token '{tokenIdent.Name}' twice in a single call. " +
+                            $"Hijacked<T> represents unique exclusive access and cannot be duplicated.",
+                            location: node.Location);
                     }
                 }
             }
