@@ -688,19 +688,6 @@ danger! {
 }
 ```
 
-#### MayhemStatement
-
-Ultimate unsafe operations (runtime code modification).
-
-```csharp
-public record MayhemStatement(
-    BlockStatement Body,
-    SourceLocation Location
-) : Statement(Location);
-```
-
-**Warning:** Should almost never be used. Enables runtime method replacement and code execution.
-
 ---
 
 ## Declaration Nodes

@@ -50,6 +50,7 @@ routine main() {
 ```
 
 **C ABI Compatibility:** The code generator automatically treats `main()` specially:
+
 - Generates `define i32 @main()` in LLVM IR (not `void`)
 - Adds implicit `ret i32 0` at the end
 - This ensures proper exit code handling on all platforms
@@ -145,7 +146,7 @@ List<Token> tokens = Tokenizer.Tokenize(sourceCode, language);
 - `ParseTypeExpression()` - Type references (including `List<T>`)
 - `ParseImportDeclaration()` - Import statements
 
-**Generic Parsing:** ✅ **IMPLEMENTED**
+**Generic Parsing:** ✅ **FULLY IMPLEMENTED**
 
 ```csharp
 // Lines 425-437: Parses entity Buffer<T>
@@ -155,6 +156,17 @@ private ClassDeclaration ParseClassDeclaration(VisibilityModifier visibility)
     List<string> genericParams = ParseGenericParameters(); // <T, U>
     // ...
 }
+
+// Lines 518-541: Namespace-qualified generics Console.show<T>
+// Lines 510-536: Generic methods on generic types List<T>.select<U>
+```
+
+**Advanced Generic Syntax Supported:**
+
+```razorforge
+routine Console.show<T>(value: T) { }           # Namespace.method<T>
+routine List<T>.select<U>(mapper: ...) { }      # Type<T>.method<U>
+let f: Routine<(T), U>                          # Tuple types for lambda params
 ```
 
 **Import Parsing:** ⚠️ **PARTIAL**
@@ -191,7 +203,8 @@ when value {
 
 **Context-Aware Parsing:**
 
-The parser uses `_inWhenClauseBody` flag to prevent `is` expression operator parsing inside when clause bodies. This allows `is TypeName` patterns without conflict with the `expr is Type` expression syntax.
+The parser uses `_inWhenClauseBody` flag to prevent `is` expression operator parsing inside when clause bodies. This
+allows `is TypeName` patterns without conflict with the `expr is Type` expression syntax.
 
 ```csharp
 // In ParseIsExpression():
@@ -246,6 +259,19 @@ GenericMethodCallExpression(
     MethodName: "read",
     TypeArguments: [TypeExpression("s32")],     // buffer.read<s32>!()
     Arguments: [offset],
+    // ...
+)
+
+// Tuple type (for Routine<(T), U> syntax)
+TypeExpression(
+    Name: "__Tuple",
+    GenericArguments: [TypeExpression("T")],    // (T) tuple
+    // ...
+)
+
+// Block expression (for if cond { expr } else { expr })
+BlockExpression(
+    Value: Expression,                          // The expression the block evaluates to
     // ...
 )
 ```
@@ -445,11 +471,15 @@ public string VisitGenericMethodCallExpression(
     - Generic type references: `List<s32>`
     - Generic method calls: `buffer.read<T>!()`
     - Multiple type parameters: `Dict<K, V>`
+    - Namespace-qualified generic methods: `Console.show<T>(value)`
+    - Generic methods on generic types: `List<T>.select<U>(mapper)`
+    - Tuple types for lambda parameters: `Routine<(T), U>`
 
 2. **AST Representation**
     - `TypeExpression.GenericArguments`
     - `GenericMethodCallExpression`
     - `GenericConstraint` definitions
+    - `BlockExpression` for block-style conditionals
 
 3. **Symbol Table**
     - `FunctionSymbol.GenericParameters`
@@ -499,12 +529,52 @@ public string VisitGenericMethodCallExpression(
 
 ---
 
-## Module/Import System Status
+## Module/Import System Design
 
-### ✅ Implemented (Working)
+### Design Decisions
+
+1. **Search Order**: `builtin/` → project root → external packages
+
+2. **What's Imported**: The entity/record and its public API (public routines, presets, etc.)
+
+3. **Access Style**: Unqualified access - use `List<s32>` directly after import
+    - **Name collisions**: Compiler error requiring alias to resolve
+
+4. **Selective Imports**: `import Collections/{List, Dict}` imports both symbols
+
+5. **Loading Strategy**: Eager loading - parse all transitive imports before semantic analysis
+
+6. **Transitive Visibility**: None - must explicitly import each dependency
+    - If `List.rf` imports `DynamicSlice`, users of `List` must explicitly `import memory/DynamicSlice`
+
+7. **Namespace Resolution**:
+    - If file declares `namespace Foo`, the import path is `Foo/TypeName`
+    - Folder structure is only the default when no `namespace` is declared
+    - Namespace declaration takes priority over physical file location
+    - Example: File at `builtin/Collections/List.rf` with `namespace Foo` → import as `Foo/List`
+
+### Import Syntax
+
+```razorforge
+# Basic import
+import Collections/List
+
+# Import with alias
+import Collections/List as L
+
+# Selective imports
+import Collections/{List, Dict}
+
+# Namespace declaration (in source file)
+namespace MyNamespace
+```
+
+### Implementation Status
+
+#### ✅ Implemented (Working)
 
 1. **Parser Support**
-    - Basic import paths: `import stdlib/memory`
+    - Basic import paths: `import Collections/List`
     - Nested paths with `/`: `import a/b/c/d`
     - Import aliases: `import std as S`
 
@@ -514,44 +584,42 @@ public string VisitGenericMethodCallExpression(
 3. **Token Support**
     - `Import`, `As`, `Slash` tokens
 
-### ⚠️ Partial
+#### ⚠️ Partial
 
 1. **Selective Imports** - AST defined but not parsed
    ```razorforge
-   import stdlib/collections { List, Dict }  # Not working yet
+   import Collections/{List, Dict}  # Not working yet
    ```
 
 2. **Path Resolution** - Parser accepts keywords in paths inconsistently
-   ```razorforge
-   import Collections/List        # Works
-   import Collections/entity/List # Fails ('entity' is keyword)
-   ```
 
-### ❌ Not Implemented
+#### ❌ Not Implemented
 
-1. **Module Resolution** (Line 523: "TODO: Module system")
-    - No file lookup
-    - No symbol table population from imports
-    - No transitive import handling
+1. **ModuleResolver** - Resolve import paths to file paths
+    - Search order: `builtin/` → project root → external packages
+    - Handle namespace declarations overriding folder paths
 
-2. **Namespace Management**
-    - No module scopes
-    - No qualified access (`std::vector` style)
+2. **ModuleCache** - Track loaded modules to avoid re-parsing
 
-3. **Using Declarations** (Line 545: "TODO: Handle type alias")
+3. **Symbol Table Population** - Add imported symbols to scope
+
+4. **Transitive Import Loading** - Eagerly load all dependencies
+
+5. **Namespace Declaration Parsing** - Parse `namespace` in source files
+
+6. **Collision Detection** - Error on duplicate symbol names
+
+7. **Circular Import Detection**
+
+8. **Using Declarations** (type aliases)
    ```razorforge
    using IntList = List<s32>  # Not working
    ```
 
-4. **Redefinition** (Line 533: "TODO: Handle method redefinition")
+9. **Redefinition**
    ```razorforge
    redefinition OldName as NewName  # Not working
    ```
-
-5. **Import Validation**
-    - No circular import detection
-    - No duplicate import warnings
-    - No unused import warnings
 
 ---
 
@@ -736,33 +804,68 @@ Source: import Collections/List
 └──────────────────────────────────┘
 ```
 
-### Import Processing Flow (Needed)
+### Import Processing Flow (Target Design)
 
 ```
 Source: import Collections/List
          │
          ▼
-┌────────────────────────────────┐
-│  MODULE RESOLVER (NEW)         │
-│                                │
-│  1. Resolve path:              │
-│     Collections/List →         │
-│     stdlib/Collections/List.rf │
-│                                │
-│  2. Check cache                │
-│  3. If not loaded, parse file  │
-│  4. Build module symbol table  │
-└─────────┬──────────────────────┘
+┌────────────────────────────────────────────┐
+│  MODULE RESOLVER                           │
+│  Analysis/ModuleResolver.cs                │
+│                                            │
+│  1. Search order:                          │
+│     builtin/ → project root → external     │
+│                                            │
+│  2. For each search path:                  │
+│     a. Check namespace registry first      │
+│        (if "Collections" declared in       │
+│         another file, use that location)   │
+│     b. Fall back to folder structure       │
+│        Collections/List → .../List.rf      │
+│                                            │
+│  3. Check ModuleCache - already loaded?    │
+│  4. If not loaded:                         │
+│     a. Parse the file                      │
+│     b. Check for `namespace` declaration   │
+│     c. Register namespace → file mapping   │
+│     d. Recursively load its imports        │
+│     e. Cache the module                    │
+└─────────┬──────────────────────────────────┘
           │
           ▼
-┌────────────────────────────────┐
-│  SEMANTIC ANALYZER             │
-│                                │
-│  1. Get module's symbols       │
-│  2. Add to current scope       │
-│  3. Handle conflicts           │
-│  4. Track dependencies         │
-└────────────────────────────────┘
+┌────────────────────────────────────────────┐
+│  SEMANTIC ANALYZER                         │
+│                                            │
+│  1. Get module's public symbols:           │
+│     - Public entities/records              │
+│     - Public routines                      │
+│     - Public presets                       │
+│                                            │
+│  2. Check for name collisions:             │
+│     - If collision → Compiler Error        │
+│     - User must use alias to resolve       │
+│                                            │
+│  3. Add symbols to current scope           │
+│     (unqualified access)                   │
+│                                            │
+│  4. If alias provided (import X as Y):     │
+│     - Register under alias name only       │
+└────────────────────────────────────────────┘
+```
+
+### Namespace Resolution Example
+
+```
+# File: builtin/Collections/List.rf
+namespace Collections    # Matches folder, import as Collections/List
+
+# File: builtin/internal/OldList.rf
+namespace Collections    # Override! Import as Collections/OldList, NOT internal/OldList
+
+# File: builtin/Text/Text.rf
+# (no namespace declaration)
+# Default: import as Text/Text (folder path)
 ```
 
 ---

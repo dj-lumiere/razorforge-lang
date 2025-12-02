@@ -51,7 +51,7 @@ RazorForge files are associated with C# syntax highlighting, which provides:
 - **Memory Operations**: `hijacking`, `share`, `retain`, etc. (highlighted in red)
 - **Slice Operations**: `size()`, `address()`, `unsafe_ptr!()` (highlighted in cyan)
 - **Danger Zone**: `read_as!`, `write_as!`, `volatile_read!` (highlighted with red background)
-- **Types**: `DynamicSlice`, `TemporarySlice`, `s32`, `uaddr`, etc.
+- **Types**: `DynamicSlice`, `s32`, `uaddr`, etc.
 - **Comments**: `#` single line, `###` documentation blocks
 
 ## Live Templates Reference
@@ -61,7 +61,6 @@ Type these abbreviations and press Tab to expand:
 ### Memory Management
 
 - `heap` → `var buffer = DynamicSlice(64)`
-- `stack` → `var buffer = TemporarySlice(64)`
 - `slicewrite` → `buffer.write<s32>!(0, 42)`
 - `sliceread` → `let value = buffer.read<s32>!(0)`
 
@@ -83,8 +82,8 @@ Type these abbreviations and press Tab to expand:
 
 ### Imports
 
-- `importmem` → Import DynamicSlice and TemporarySlice
-- `importconsole` → Import show
+- `import memory` → Import DynamicSlice
+- `import console` → Import show
 
 ## Color Scheme Details
 
