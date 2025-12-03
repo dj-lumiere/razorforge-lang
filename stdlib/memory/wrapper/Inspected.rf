@@ -1,19 +1,19 @@
-# RazorForge Observed<T> - Thread-safe read lock token
+# RazorForge Inspected<T> - Thread-safe read lock token
 #
-# Observed<T> is created ONLY by the `observing` syntax on Shared<T, MultiReadLock>.
+# Inspected<T> is created ONLY by the `inspecting` syntax on Shared<T, MultiReadLock>.
 # It provides thread-safe read-only access with automatic lock acquisition/release.
 #
 # Syntax:
 #   let shared = data.share(policy: MultiReadLock)
-#   observing shared as obs {
+#   inspecting shared as obs {
 #       show(obs.value)  # Read-only access, lock held
-#       let copy = obs   # OK - Observed is copyable
+#       let copy = obs   # OK - Inspected is copyable
 #   } # Lock automatically released
 #
 # Properties:
-# - Created by compiler via `observing` syntax on Shared<T, MultiReadLock>
+# - Created by compiler via `inspecting` syntax on Shared<T, MultiReadLock>
 # - Scope-bound: cannot be stored, returned, or escape
-# - Copyable: multiple Observed<T> handles can coexist within scope
+# - Copyable: multiple Inspected<T> handles can coexist within scope
 # - Read-only: cannot mutate through this handle
 # - Thread-safe: holds RwLock read lock
 # - Multiple threads can hold read locks simultaneously
@@ -21,17 +21,17 @@
 # - Temporary: source is invalidated during scope, restored on exit
 #
 # Downgrading:
-# - Can create Observed<T> from within seizing block (downgrade write to read)
+# - Can create Inspected<T> from within seizing block (downgrade write to read)
 #
 # This type is a marker for the type system - the compiler handles lock operations.
 
-record Observed<T> {
+record Inspected<T> {
     private address: uaddr
     private lock_guard: uaddr
 }
 
 # NOTE: No constructors, no manual methods - all operations handled by compiler
-# The observing syntax acquires the RwLock read lock and creates this token
+# The inspecting syntax acquires the RwLock read lock and creates this token
 # The lock is automatically released when the scope exits
 # Multiple threads can hold read locks simultaneously (RwLock semantics)
 #

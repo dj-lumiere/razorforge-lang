@@ -1,0 +1,257 @@
+# RazorForge FixedBitList<N> - Fixed-capacity bit list
+# Resident type with fixed capacity N bits at compile time
+# O(1) push/pop at end, O(1) random access
+# No heap allocation - bits stored inline, packed into bytes
+#
+# Usage:
+#   let flags: FixedBitList<64> = FixedBitList()
+#   flags.push!(true)
+#   flags.push!(false)
+#   let first = flags[0]
+#   if flags.is_full() { }
+
+import errors/IndexOutOfBoundsError
+import core/Integral
+import core/BackIndex
+
+# Fixed-capacity bit list with reference semantics
+# N bits stored inline, packed into bytes by compiler
+resident FixedBitList<N> {
+    private count: uaddr    # Current number of bits (0 to N)
+    # Bits stored inline by compiler - approximately (N + 7) / 8 bytes
+}
+
+# ============================================================================
+# Constructors
+# ============================================================================
+
+routine FixedBitList<N>.__create__() -> FixedBitList<N> {
+    return FixedBitList<N>(count: 0uaddr)
+}
+
+# ============================================================================
+# Core Operations
+# ============================================================================
+
+routine FixedBitList<N>.count(me: FixedBitList<N>) -> uaddr {
+    return me.count
+}
+
+routine FixedBitList<N>.capacity(me: FixedBitList<N>) -> uaddr {
+    return N
+}
+
+routine FixedBitList<N>.is_empty(me: FixedBitList<N>) -> bool {
+    return me.count == 0uaddr
+}
+
+routine FixedBitList<N>.is_full(me: FixedBitList<N>) -> bool {
+    return me.count == N
+}
+
+routine FixedBitList<N>.remaining(me: FixedBitList<N>) -> uaddr {
+    return N - me.count
+}
+
+routine FixedBitList<N>.push!(me: FixedBitList<N>, value: bool) {
+    # Append bit to end - O(1)
+    # Throws if full
+    if me.count >= N {
+        throw IndexOutOfBoundsError(index: me.count, count: N)
+    }
+    me.set_bit(me.count, value)
+    me.count = me.count + 1uaddr
+}
+
+routine FixedBitList<N>.pop!(me: FixedBitList<N>) -> bool {
+    # Remove and return last bit - O(1)
+    if me.is_empty() {
+        absent
+    }
+    me.count = me.count - 1uaddr
+    return me.get_bit(me.count)
+}
+
+routine FixedBitList<N>.clear(me: FixedBitList<N>) {
+    me.count = 0uaddr
+}
+
+# ============================================================================
+# Internal bit access
+# ============================================================================
+
+routine FixedBitList<N>.get_bit(me: FixedBitList<N>, index: uaddr) -> bool {
+    # Direct bit access (internal, no bounds check)
+    let byte_idx = index / 8uaddr
+    let bit_idx = index % 8uaddr
+    let byte_val = me[byte_idx]  # Access inline byte storage
+    return (byte_val >> bit_idx) & 1u8 == 1u8
+}
+
+routine FixedBitList<N>.set_bit(me: FixedBitList<N>, index: uaddr, value: bool) {
+    # Direct bit set (internal, no bounds check)
+    let byte_idx = index / 8uaddr
+    let bit_idx = index % 8uaddr
+    let mask = 1u8 << bit_idx
+    if value {
+        me[byte_idx] = me[byte_idx] | mask
+    } else {
+        me[byte_idx] = me[byte_idx] & (not mask)
+    }
+}
+
+# ============================================================================
+# Indexing with Integral (forward index)
+# ============================================================================
+
+routine FixedBitList<N>.__getitem__!<I>(me: FixedBitList<N>, index: I) -> bool
+    where I follows Integral {
+    let idx = index.to_uaddr()
+    if idx >= me.count {
+        throw IndexOutOfBoundsError(index: idx, count: me.count)
+    }
+    return me.get_bit(idx)
+}
+
+routine FixedBitList<N>.__setitem__!<I>(me: FixedBitList<N>, index: I, value: bool)
+    where I follows Integral {
+    let idx = index.to_uaddr()
+    if idx >= me.count {
+        throw IndexOutOfBoundsError(index: idx, count: me.count)
+    }
+    me.set_bit(idx, value)
+}
+
+# ============================================================================
+# Indexing with BackIndex (backward index using ^)
+# ============================================================================
+
+routine FixedBitList<N>.__getitem__!<I>(me: FixedBitList<N>, index: BackIndex<I>) -> bool
+    where I follows Integral {
+    let idx = index.resolve(me.count)
+    return me.get_bit(idx)
+}
+
+routine FixedBitList<N>.__setitem__!<I>(me: FixedBitList<N>, index: BackIndex<I>, value: bool)
+    where I follows Integral {
+    let idx = index.resolve(me.count)
+    me.set_bit(idx, value)
+}
+
+# ============================================================================
+# Legacy get/set methods
+# ============================================================================
+
+routine FixedBitList<N>.get!<I>(me: FixedBitList<N>, index: I) -> bool
+    where I follows Integral {
+    return me.__getitem__!(index)
+}
+
+routine FixedBitList<N>.set!<I>(me: FixedBitList<N>, index: I, value: bool)
+    where I follows Integral {
+    me.__setitem__!(index, value)
+}
+
+# ============================================================================
+# Utility Operations
+# ============================================================================
+
+routine FixedBitList<N>.first!(me: FixedBitList<N>) -> bool {
+    if me.is_empty() {
+        absent
+    }
+    return me.get_bit(0uaddr)
+}
+
+routine FixedBitList<N>.last!(me: FixedBitList<N>) -> bool {
+    if me.is_empty() {
+        absent
+    }
+    return me.get_bit(me.count - 1uaddr)
+}
+
+routine FixedBitList<N>.count_ones(me: FixedBitList<N>) -> uaddr {
+    var result = 0uaddr
+    var i = 0uaddr
+    while i < me.count {
+        if me.get_bit(i) {
+            result = result + 1uaddr
+        }
+        i = i + 1uaddr
+    }
+    return result
+}
+
+routine FixedBitList<N>.count_zeros(me: FixedBitList<N>) -> uaddr {
+    return me.count - me.count_ones()
+}
+
+routine FixedBitList<N>.all_true(me: FixedBitList<N>) -> bool {
+    return me.count_ones() == me.count
+}
+
+routine FixedBitList<N>.all_false(me: FixedBitList<N>) -> bool {
+    return me.count_ones() == 0uaddr
+}
+
+routine FixedBitList<N>.any_true(me: FixedBitList<N>) -> bool {
+    return me.count_ones() > 0uaddr
+}
+
+routine FixedBitList<N>.any_false(me: FixedBitList<N>) -> bool {
+    return me.count_zeros() > 0uaddr
+}
+
+routine FixedBitList<N>.fill(me: FixedBitList<N>, value: bool) {
+    # Fill to capacity with value
+    var i = 0uaddr
+    while i < N {
+        me.set_bit(i, value)
+        i = i + 1uaddr
+    }
+    me.count = N
+}
+
+routine FixedBitList<N>.flip!<I>(me: FixedBitList<N>, index: I)
+    where I follows Integral {
+    let idx = index.to_uaddr()
+    if idx >= me.count {
+        throw IndexOutOfBoundsError(index: idx, count: me.count)
+    }
+    me.set_bit(idx, not me.get_bit(idx))
+}
+
+routine FixedBitList<N>.flip_all(me: FixedBitList<N>) {
+    var i = 0uaddr
+    while i < me.count {
+        me.set_bit(i, not me.get_bit(i))
+        i = i + 1uaddr
+    }
+}
+
+# ============================================================================
+# Iteration Support
+# ============================================================================
+
+routine FixedBitList<N>.iter(me: FixedBitList<N>) -> FixedBitListIterator<N> {
+    return FixedBitListIterator<N>(list: me, index: 0uaddr)
+}
+
+record FixedBitListIterator<N> {
+    list: FixedBitList<N>
+    index: uaddr
+}
+
+routine FixedBitListIterator<N>.next(me: FixedBitListIterator<N>) -> bool? {
+    if me.index >= me.list.count() {
+        return None
+    }
+    let value = me.list[me.index]
+    me.index = me.index + 1uaddr
+    return value
+}
+
+# ============================================================================
+# Comparison Operations
+# Note: __eq__ and __ne__ are auto-generated using memcmp
+# ============================================================================

@@ -200,22 +200,6 @@ public partial class SuflaeParser
         return new ContinueStatement(Location: location);
     }
 
-    private Statement ParseDangerStatement()
-    {
-        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
-        Consume(type: TokenType.Colon, errorMessage: "Expected ':' after 'danger'");
-        var body = (BlockStatement)ParseIndentedBlock();
-        return new DangerStatement(Body: body, Location: location);
-    }
-
-    private Statement ParseMayhemStatement()
-    {
-        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
-        Consume(type: TokenType.Colon, errorMessage: "Expected ':' after 'mayhem'");
-        var body = (BlockStatement)ParseIndentedBlock();
-        return new MayhemStatement(Body: body, Location: location);
-    }
-
     private Statement ParseIndentedBlock()
     {
         SourceLocation location = GetLocation();

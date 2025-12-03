@@ -111,6 +111,8 @@ public partial class RazorForgeParser
                 Location: expr.Location);
         }
 
+        // TODO: 10 downto 1/10 down to 0 by 2
+
         return expr;
     }
 
@@ -481,7 +483,7 @@ public partial class RazorForgeParser
                     List<(string Name, Expression Value)> fields = ParseStructLiteralFields();
                     Consume(type: TokenType.RightBrace,
                         errorMessage: "Expected '}' after struct literal fields");
-                    expr = new StructLiteralExpression(TypeName: typeName,
+                    expr = new ConstructorExpression(TypeName: typeName,
                         TypeArguments: typeArgs,
                         Fields: fields,
                         Location: expr.Location);
@@ -503,7 +505,7 @@ public partial class RazorForgeParser
                 List<(string Name, Expression Value)> fields = ParseStructLiteralFields();
                 Consume(type: TokenType.RightBrace,
                     errorMessage: "Expected '}' after struct literal fields");
-                expr = new StructLiteralExpression(TypeName: identExpr2.Name,
+                expr = new ConstructorExpression(TypeName: identExpr2.Name,
                     TypeArguments: null,
                     Fields: fields,
                     Location: expr.Location);
@@ -572,67 +574,87 @@ public partial class RazorForgeParser
                 string member = ConsumeMethodName(errorMessage: "Expected member name after '.'");
 
                 // Check for generic method call with type parameters
-                if (Match(type: TokenType.Less))
+                // Only parse as generics if the next token after '<' looks like a type
+                // to avoid confusing comparison operators with generics (e.g., me.current < me.step)
+                if (Check(type: TokenType.Less))
                 {
-                    var typeArgs = new List<TypeExpression>();
-                    do
+                    // Lookahead to check if this is likely a generic or a comparison
+                    int savedPos = Position;
+                    Advance(); // consume '<'
+
+                    bool isLikelyGeneric = Check(type: TokenType.TypeIdentifier) ||
+                                           Check(type: TokenType.Identifier) &&
+                                           char.IsUpper(c: CurrentToken.Text[index: 0]) ||
+                                           Check(type: TokenType.Identifier) &&
+                                           IsPrimitiveTypeName(name: CurrentToken.Text);
+
+                    Position = savedPos; // restore position
+
+                    if (isLikelyGeneric)
                     {
-                        typeArgs.Add(item: ParseType());
-                    } while (Match(type: TokenType.Comma));
+                        Advance(); // consume '<' again
+                        var typeArgs = new List<TypeExpression>();
+                        do
+                        {
+                            typeArgs.Add(item: ParseType());
+                        } while (Match(type: TokenType.Comma));
 
-                    Consume(type: TokenType.Greater,
-                        errorMessage: "Expected '>' after generic type arguments");
+                        Consume(type: TokenType.Greater,
+                            errorMessage: "Expected '>' after generic type arguments");
 
-                    // Check for method call with !
-                    bool isMemoryOperation = Match(type: TokenType.Bang);
+                        // Check for method call with !
+                        bool isGenericMemOp = Match(type: TokenType.Bang);
 
-                    if (Match(type: TokenType.LeftParen))
-                    {
-                        // Use ParseArgumentList to support named arguments (name: value)
-                        List<Expression> args = ParseArgumentList();
+                        if (Match(type: TokenType.LeftParen))
+                        {
+                            // Use ParseArgumentList to support named arguments (name: value)
+                            List<Expression> genericArgs = ParseArgumentList();
 
-                        Consume(type: TokenType.RightParen,
-                            errorMessage: "Expected ')' after arguments");
+                            Consume(type: TokenType.RightParen,
+                                errorMessage: "Expected ')' after arguments");
 
-                        expr = new GenericMethodCallExpression(Object: expr,
-                            MethodName: member,
-                            TypeArguments: typeArgs,
-                            Arguments: args,
-                            IsMemoryOperation: isMemoryOperation,
-                            Location: expr.Location);
+                            expr = new GenericMethodCallExpression(Object: expr,
+                                MethodName: member,
+                                TypeArguments: typeArgs,
+                                Arguments: genericArgs,
+                                IsMemoryOperation: isGenericMemOp,
+                                Location: expr.Location);
+                        }
+                        else
+                        {
+                            expr = new GenericMemberExpression(Object: expr,
+                                MemberName: member,
+                                TypeArguments: typeArgs,
+                                Location: expr.Location);
+                        }
+
+                        continue; // continue the while loop to check for more postfix ops
                     }
-                    else
-                    {
-                        expr = new GenericMemberExpression(Object: expr,
-                            MemberName: member,
-                            TypeArguments: typeArgs,
-                            Location: expr.Location);
-                    }
+                    // Not a generic, fall through to regular member access below
+                }
+
+                // Regular member access (no generic type args, or < was a comparison operator)
+                // Check for memory operation with !
+                bool isMemoryOperation = Match(type: TokenType.Bang);
+
+                if (isMemoryOperation && Match(type: TokenType.LeftParen))
+                {
+                    // Use ParseArgumentList to support named arguments (name: value)
+                    List<Expression> args = ParseArgumentList();
+
+                    Consume(type: TokenType.RightParen,
+                        errorMessage: "Expected ')' after arguments");
+
+                    expr = new MemoryOperationExpression(Object: expr,
+                        OperationName: member,
+                        Arguments: args,
+                        Location: expr.Location);
                 }
                 else
                 {
-                    // Check for memory operation with !
-                    bool isMemoryOperation = Match(type: TokenType.Bang);
-
-                    if (isMemoryOperation && Match(type: TokenType.LeftParen))
-                    {
-                        // Use ParseArgumentList to support named arguments (name: value)
-                        List<Expression> args = ParseArgumentList();
-
-                        Consume(type: TokenType.RightParen,
-                            errorMessage: "Expected ')' after arguments");
-
-                        expr = new MemoryOperationExpression(Object: expr,
-                            OperationName: member,
-                            Arguments: args,
-                            Location: expr.Location);
-                    }
-                    else
-                    {
-                        expr = new MemberExpression(Object: expr,
-                            PropertyName: member,
-                            Location: expr.Location);
-                    }
+                    expr = new MemberExpression(Object: expr,
+                        PropertyName: member,
+                        Location: expr.Location);
                 }
             }
             else

@@ -1,0 +1,13 @@
+# Minimal test for variant generation
+
+routine with_fail() -> s32 {
+    throw IntegerOverflowError()
+}
+
+routine with_absent() -> s32 {
+    absent
+}
+
+routine safe_func() -> s32 {
+    return 42
+}

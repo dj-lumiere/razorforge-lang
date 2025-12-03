@@ -18,15 +18,29 @@ preset S32_ONE: s32 = 1_s32
 
 # Failable constructor from Text - called as s32!(text)
 # Compiler automatically generates try_s32.__create__(text) -> Maybe<s32>
-routine s32.__create__!(from_text: Text<Letterlikes>) -> s32 {
+routine s32.__create__!(from_text: Text<LetterType>) -> s32 {
     danger! {
         return @parse_s32(from_text)
     }
 }
 
+# From s8 - always fits, no check needed
+routine s32.__create__!(from: s8) -> s32 {
+    danger! {
+        return @intrinsic.sext<i8, i32>(from)
+    }
+}
+
+# From s16 - always fits, no check needed
+routine s32.__create__!(from: s16) -> s32 {
+    danger! {
+        return @intrinsic.sext<i16, i32>(from)
+    }
+}
+
 # From s64 - crashes if value out of s32 range
 routine s32.__create__!(from: s64) -> s32 {
-    if not (S32_MIN <= from <= S32_MAX) {
+    unless s64(S32_MIN) <= from <= s64(S32_MAX) {
         throw IntegerOverflowError(f"Cannot convert {from} to s32: value out of range [{S32_MIN}, {S32_MAX}]")
     }
     danger! {
@@ -36,7 +50,7 @@ routine s32.__create__!(from: s64) -> s32 {
 
 # From s128 - crashes if value out of s32 range
 routine s32.__create__!(from: s128) -> s32 {
-    if not (S32_MIN <= from <= S32_MAX) {
+    unless s128(S32_MIN) <= from <= s128(S32_MAX) {
         throw IntegerOverflowError(f"Cannot convert {from} to s32: value out of range [{S32_MIN}, {S32_MAX}]")
     }
     danger! {
@@ -60,7 +74,7 @@ routine s32.__create__!(from: u16) -> s32 {
 
 # From u32 - crashes if value > S32_MAX (bit 31 set)
 routine s32.__create__!(from: u32) -> s32 {
-    if from > 2147483647_u32 {
+    unless from <= u32(S32_MAX) {
         throw IntegerOverflowError(f"Cannot convert {from} to s32: value out of range [{S32_MIN}, {S32_MAX}]")
     }
     danger! {
@@ -70,7 +84,7 @@ routine s32.__create__!(from: u32) -> s32 {
 
 # From u64 - crashes if value > S32_MAX
 routine s32.__create__!(from: u64) -> s32 {
-    if from > 2147483647_u64 {
+    unless from <= u64(S32_MAX) {
         throw IntegerOverflowError(f"Cannot convert {from} to s32: value out of range [{S32_MIN}, {S32_MAX}]")
     }
     danger! {
@@ -80,12 +94,38 @@ routine s32.__create__!(from: u64) -> s32 {
 
 # From u128 - crashes if value > S32_MAX
 routine s32.__create__!(from: u128) -> s32 {
-    if from > 2147483647_u128 {
+    unless from <= u128(S32_MAX) {
         throw IntegerOverflowError(f"Cannot convert {from} to s32: value out of range [{S32_MIN}, {S32_MAX}]")
     }
     danger! {
         return @intrinsic.trunc<i128, i32>(from)
     }
+}
+
+# From floating point - truncates
+routine s32.__create__(from: f32) -> s32 {
+    danger! {
+        return @intrinsic.fptosi<float, i32>(from)
+    }
+}
+
+routine s32.__create__(from: f64) -> s32 {
+    danger! {
+        return @intrinsic.fptosi<double, i32>(from)
+    }
+}
+
+# From decimal - truncates
+routine s32.__create__(from: d32) -> s32 {
+    return from.to_s32()
+}
+
+routine s32.__create__(from: d64) -> s32 {
+    return from.to_s32()
+}
+
+routine s32.__create__(from: d128) -> s32 {
+    return from.to_s32()
 }
 
 # ============================================================================
@@ -373,7 +413,7 @@ routine s32.__ashr__(bits: u32) -> s32 {
     }
 }
 
-# Logical left shift (<<<) - same as << but explicit
+# Logical left shift (<<<) - removes sign
 routine s32.__lshl__(bits: u32) -> s32 {
     danger! {
         return @intrinsic.shl<i32>(me, bits)

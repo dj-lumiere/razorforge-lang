@@ -1,0 +1,65 @@
+# RazorForge BackIndex - Backward indexing from end
+#
+# Created by the ^ prefix operator on any Integral type.
+# ^1 means last element, ^2 means second-to-last, etc.
+#
+# Usage:
+#   list[^1]     # last element
+#   list[^2]     # second-to-last
+#   text[^1]     # last character
+
+import core/Integral
+
+record BackIndex<I: Integral> {
+    offset: I
+}
+
+# Constructor from any Integral type
+routine BackIndex<I: Integral>(offset: I) -> BackIndex<I> {
+    return BackIndex<I>(offset: offset)
+}
+
+# Resolve BackIndex to actual index given collection length
+routine BackIndex<I: Integral>.resolve(me: BackIndex<I>, length: uaddr) -> uaddr {
+    let offset_uaddr = me.offset.to_uaddr()
+    if offset_uaddr > length {
+        crash("BackIndex out of bounds: ^" + offset_uaddr.to_text() + " for length " + length.to_text())
+    }
+    return length - offset_uaddr
+}
+
+# Get the offset value
+routine BackIndex<I: Integral>.get_offset(me: BackIndex<I>) -> I {
+    return me.offset
+}
+
+# Convert offset to uaddr
+routine BackIndex<I: Integral>.offset_uaddr(me: BackIndex<I>) -> uaddr {
+    return me.offset.to_uaddr()
+}
+
+# Comparison operations
+routine BackIndex<I: Integral>.__eq__(me: BackIndex<I>, other: BackIndex<I>) -> bool {
+    return me.offset.to_uaddr() == other.offset.to_uaddr()
+}
+
+routine BackIndex<I: Integral>.__ne__(me: BackIndex<I>, other: BackIndex<I>) -> bool {
+    return me.offset.to_uaddr() != other.offset.to_uaddr()
+}
+
+routine BackIndex<I: Integral>.__lt__(me: BackIndex<I>, other: BackIndex<I>) -> bool {
+    # ^2 < ^1 because ^2 is further from end
+    return me.offset.to_uaddr() > other.offset.to_uaddr()
+}
+
+routine BackIndex<I: Integral>.__le__(me: BackIndex<I>, other: BackIndex<I>) -> bool {
+    return me.offset.to_uaddr() >= other.offset.to_uaddr()
+}
+
+routine BackIndex<I: Integral>.__gt__(me: BackIndex<I>, other: BackIndex<I>) -> bool {
+    return me.offset.to_uaddr() < other.offset.to_uaddr()
+}
+
+routine BackIndex<I: Integral>.__ge__(me: BackIndex<I>, other: BackIndex<I>) -> bool {
+    return me.offset.to_uaddr() <= other.offset.to_uaddr()
+}

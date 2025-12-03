@@ -93,7 +93,7 @@ routine unsafe_memory_copy(src: Snatched<f64>, dest: Snatched<f64>, count: s64) 
 }
 
 # Atomic operations for concurrent programming (use Shared<T> instead)
-# Note: For thread-safe counters, use Shared<s64, Mutex> with seizing/observing
+# Note: For thread-safe counters, use Shared<s64, Mutex> with seizing/inspecting
 record AtomicCounter {
     value: Shared<s64, Mutex>
 }

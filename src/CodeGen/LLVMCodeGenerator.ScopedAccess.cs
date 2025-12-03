@@ -4,7 +4,7 @@ namespace Compilers.Shared.CodeGen;
 
 /// <summary>
 /// Partial class containing scoped access statement code generation.
-/// Handles viewing, hijacking, observing, and seizing statements for memory model compliance.
+/// Handles viewing, hijacking, inspecting, and seizing statements for memory model compliance.
 /// </summary>
 public partial class LLVMCodeGenerator
 {
@@ -42,13 +42,13 @@ public partial class LLVMCodeGenerator
 
         // The handle is just an alias - no alloca needed, just use the same pointer
         // For stack-allocated values, we need to load the address
-        if (sourcePtr.StartsWith(value: "%") && !sourcePtr.StartsWith(value: "%t"))
+        if (sourcePtr.StartsWith(value: '%') && !sourcePtr.StartsWith(value: "%t"))
         {
             // Source is a named variable - the handle points to same location
             _output.AppendLine(
                 handler: $"  ; viewing {node.Source} as {node.Handle} - read-only alias");
             _output.AppendLine(
-                handler: $"  {handleName} = bitcast {sourceType}* {sourcePtr} to {sourceType}*");
+                handler: $"  {handleName} = bitcast ptr {sourcePtr} to ptr");
         }
         else
         {
@@ -57,7 +57,7 @@ public partial class LLVMCodeGenerator
                 handler: $"  ; viewing expression as {node.Handle} - read-only access");
             _output.AppendLine(handler: $"  {handleName} = alloca {sourceType}");
             _output.AppendLine(
-                handler: $"  store {sourceType} {sourcePtr}, {sourceType}* {handleName}");
+                handler: $"  store {sourceType} {sourcePtr}, ptr {handleName}");
         }
 
         // Execute the body with the handle available
@@ -109,7 +109,7 @@ public partial class LLVMCodeGenerator
             _output.AppendLine(
                 handler: $"  ; hijacking {node.Source} as {node.Handle} - exclusive access");
             _output.AppendLine(
-                handler: $"  {handleName} = bitcast {sourceType}* {sourcePtr} to {sourceType}*");
+                handler: $"  {handleName} = bitcast ptr {sourcePtr} to ptr");
         }
         else
         {
@@ -118,7 +118,7 @@ public partial class LLVMCodeGenerator
                 handler: $"  ; hijacking expression as {node.Handle} - exclusive access");
             _output.AppendLine(handler: $"  {handleName} = alloca {sourceType}");
             _output.AppendLine(
-                handler: $"  store {sourceType} {sourcePtr}, {sourceType}* {handleName}");
+                handler: $"  store {sourceType} {sourcePtr}, ptr {handleName}");
         }
 
         // Execute the body with the handle available (exclusive read/write access)
@@ -131,12 +131,12 @@ public partial class LLVMCodeGenerator
     }
 
     /// <summary>
-    /// Generates LLVM IR for an observing statement (thread-safe scoped read access).
+    /// Generates LLVM IR for an inspecting statement (thread-safe scoped read access).
     ///
     /// For multi-threaded code with Shared&lt;T, MultiReadLock&gt;, this acquires a read lock.
     /// Multiple observers can coexist (RwLock semantics).
     ///
-    /// Syntax: observing shared as handle { body }
+    /// Syntax: inspecting shared as handle { body }
     ///
     /// Generated IR:
     /// 1. Call runtime to acquire read lock on Shared
@@ -152,7 +152,7 @@ public partial class LLVMCodeGenerator
         string handleName = $"%{node.Handle}";
 
         _output.AppendLine(
-            handler: $"  ; observing {node.Source} as {node.Handle} - acquiring read lock");
+            handler: $"  ; inspecting {node.Source} as {node.Handle} - acquiring read lock");
 
         // Call runtime to acquire read lock
         // The runtime function returns a pointer to the inner data
@@ -170,7 +170,7 @@ public partial class LLVMCodeGenerator
         // Release the read lock
         _output.AppendLine(
             handler: $"  call void @razorforge_rwlock_read_unlock(ptr {sourcePtr})");
-        _output.AppendLine(handler: $"  ; end observing {node.Handle} - read lock released");
+        _output.AppendLine(handler: $"  ; end inspecting {node.Handle} - read lock released");
 
         return "";
     }

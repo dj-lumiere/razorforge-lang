@@ -15,7 +15,7 @@
 # - Copyable: multiple Viewed<T> handles can coexist
 # - Read-only: cannot mutate through this handle
 # - Temporary: source is invalidated during scope, restored on exit
-# - Single-threaded: for multi-threaded use, see Observed<T>
+# - Single-threaded: for multi-threaded use, see Inspected<T>
 #
 # This type is a marker for the type system - the compiler handles all operations.
 

@@ -159,8 +159,11 @@ public abstract class BaseTokenizer
     /// <param name="text">The text content of the token</param>
     protected void AddToken(TokenType type, string text)
     {
-        Tokens.Add(item: new Token(Type: type, Text: text, Line: TokenStartLine,
-            Column: TokenStartColumn, Position: TokenStart));
+        Tokens.Add(item: new Token(Type: type,
+            Text: text,
+            Line: TokenStartLine,
+            Column: TokenStartColumn,
+            Position: TokenStart));
     }
 
     #endregion
@@ -670,8 +673,9 @@ public abstract class BaseTokenizer
         }
 
         AddToken(type: char.IsUpper(c: text[index: 0])
-            ? TokenType.TypeIdentifier
-            : TokenType.Identifier, text: text);
+                ? TokenType.TypeIdentifier
+                : TokenType.Identifier,
+            text: text);
     }
 
     #endregion
@@ -907,7 +911,9 @@ public abstract class BaseTokenizer
         // text32 is the default, so all other prefixes use 32-bit
 
         // Scan the string literal with the determined properties and specific token type
-        ScanStringLiteralWithType(isRaw: isRaw, isFormatted: isFormatted, tokenType: tokenType,
+        ScanStringLiteralWithType(isRaw: isRaw,
+            isFormatted: isFormatted,
+            tokenType: tokenType,
             bitWidth: bitWidth);
         return true;
     }
@@ -927,7 +933,9 @@ public abstract class BaseTokenizer
             _ => TokenType.TextLiteral
         };
 
-        ScanStringLiteralWithType(isRaw: isRaw, isFormatted: isFormatted, tokenType: tokenType,
+        ScanStringLiteralWithType(isRaw: isRaw,
+            isFormatted: isFormatted,
+            tokenType: tokenType,
             bitWidth: 32); // Default 32-bit for regular text
     }
 

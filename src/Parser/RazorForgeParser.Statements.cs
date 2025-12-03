@@ -404,18 +404,6 @@ public partial class RazorForgeParser
         return new DangerStatement(Body: body, Location: location);
     }
 
-    private MayhemStatement ParseMayhemStatement()
-    {
-        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
-
-        // Expect 'mayhem!'
-        Consume(type: TokenType.Bang, errorMessage: "Expected '!' after 'mayhem'");
-
-        BlockStatement body = ParseBlockStatement();
-
-        return new MayhemStatement(Body: body, Location: location);
-    }
-
     private ViewingStatement ParseViewingStatement()
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
@@ -458,14 +446,14 @@ public partial class RazorForgeParser
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
 
-        // Parse source expression: observing <expr> from <handle>
+        // Parse source expression: inspecting <expr> from <handle>
         string handle = ConsumeIdentifier(errorMessage: "Expected handle name");
 
-        Consume(type: TokenType.From, errorMessage: "Expected 'from' after observing handle");
+        Consume(type: TokenType.From, errorMessage: "Expected 'from' after inspecting handle");
 
         Expression source = ParseExpression();
 
-        Consume(type: TokenType.Colon, errorMessage: "Expected ':' after observing source");
+        Consume(type: TokenType.Colon, errorMessage: "Expected ':' after inspecting source");
 
         BlockStatement body = ParseBlockStatement();
 

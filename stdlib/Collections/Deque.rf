@@ -1,0 +1,358 @@
+# RazorForge Deque<T> - Double-ended queue (growable ring buffer)
+# Entity type with heap allocation
+# O(1) push/pop at both ends, O(1) random access
+#
+# Usage:
+#   let queue = Deque<Task>()
+#   queue.push_back(task1)
+#   queue.push_front(task2)
+#   let front = queue.pop_front!()
+#   let back = queue.pop_back!()
+
+import memory/DynamicSlice
+import memory/MemorySize
+import errors/IndexOutOfBoundsError
+import core/Integral
+import core/BackIndex
+
+entity Deque<T> {
+    private data: DynamicSlice    # Circular buffer
+    private start: uaddr          # Index of first element
+    private count: uaddr          # Number of elements
+    private capacity: uaddr       # Total allocated slots
+}
+
+# ============================================================================
+# Constructors
+# ============================================================================
+
+routine Deque<T>.__create__() -> Deque<T> {
+    return Deque<T>(
+        data: DynamicSlice(0b),
+        start: 0uaddr,
+        count: 0uaddr,
+        capacity: 0uaddr
+    )
+}
+
+routine Deque<T>.__create__(capacity: uaddr) -> Deque<T> {
+    let byte_size = capacity * sizeof<T>()
+    return Deque<T>(
+        data: DynamicSlice(MemorySize(byte_size)),
+        start: 0uaddr,
+        count: 0uaddr,
+        capacity: capacity
+    )
+}
+
+# ============================================================================
+# Internal Helpers
+# ============================================================================
+
+routine Deque<T>.wrap_index(me: Deque<T>, index: uaddr) -> uaddr {
+    # Wrap index around the circular buffer
+    if me.capacity == 0uaddr {
+        return 0uaddr
+    }
+    return index % me.capacity
+}
+
+routine Deque<T>.physical_index(me: Deque<T>, logical_index: uaddr) -> uaddr {
+    # Convert logical index (0 = front) to physical index in buffer
+    return me.wrap_index(me.start + logical_index)
+}
+
+routine Deque<T>.read_at(me: Deque<T>, physical_idx: uaddr) -> T {
+    let byte_offset = physical_idx * sizeof<T>()
+    return me.data.read<T>(byte_offset)
+}
+
+routine Deque<T>.write_at(me: Deque<T>, physical_idx: uaddr, value: T) {
+    let byte_offset = physical_idx * sizeof<T>()
+    me.data.write<T>(byte_offset, value)
+}
+
+# ============================================================================
+# Core Operations
+# ============================================================================
+
+routine Deque<T>.count(me: Deque<T>) -> uaddr {
+    return me.count
+}
+
+routine Deque<T>.capacity(me: Deque<T>) -> uaddr {
+    return me.capacity
+}
+
+routine Deque<T>.is_empty(me: Deque<T>) -> bool {
+    return me.count == 0uaddr
+}
+
+routine Deque<T>.push_back(me: Deque<T>, value: T) {
+    # Add element to back - O(1) amortized
+    if me.count >= me.capacity {
+        me.grow()
+    }
+    let idx = me.physical_index(me.count)
+    me.write_at(idx, value)
+    me.count = me.count + 1uaddr
+}
+
+routine Deque<T>.push_front(me: Deque<T>, value: T) {
+    # Add element to front - O(1) amortized
+    if me.count >= me.capacity {
+        me.grow()
+    }
+    # Decrement start (with wrap)
+    if me.start == 0uaddr {
+        me.start = me.capacity - 1uaddr
+    } else {
+        me.start = me.start - 1uaddr
+    }
+    me.write_at(me.start, value)
+    me.count = me.count + 1uaddr
+}
+
+routine Deque<T>.pop_back!(me: Deque<T>) -> T {
+    # Remove and return back element - O(1)
+    if me.is_empty() {
+        absent
+    }
+    me.count = me.count - 1uaddr
+    let idx = me.physical_index(me.count)
+    return me.read_at(idx)
+}
+
+routine Deque<T>.pop_front!(me: Deque<T>) -> T {
+    # Remove and return front element - O(1)
+    if me.is_empty() {
+        absent
+    }
+    let value = me.read_at(me.start)
+    me.start = me.wrap_index(me.start + 1uaddr)
+    me.count = me.count - 1uaddr
+    return value
+}
+
+routine Deque<T>.front!(me: Deque<T>) -> T {
+    # Peek at front element without removing
+    if me.is_empty() {
+        absent
+    }
+    return me.read_at(me.start)
+}
+
+routine Deque<T>.back!(me: Deque<T>) -> T {
+    # Peek at back element without removing
+    if me.is_empty() {
+        absent
+    }
+    let idx = me.physical_index(me.count - 1uaddr)
+    return me.read_at(idx)
+}
+
+routine Deque<T>.clear(me: Deque<T>) {
+    me.start = 0uaddr
+    me.count = 0uaddr
+}
+
+# ============================================================================
+# Growth
+# ============================================================================
+
+routine Deque<T>.grow(me: Deque<T>) {
+    let new_capacity = if me.capacity == 0uaddr {
+        4uaddr
+    } else {
+        me.capacity * 2uaddr
+    }
+    me.reserve(new_capacity)
+}
+
+routine Deque<T>.reserve(me: Deque<T>, new_capacity: uaddr) {
+    if new_capacity <= me.capacity {
+        return
+    }
+
+    let new_byte_size = new_capacity * sizeof<T>()
+    let new_data = DynamicSlice(MemorySize(new_byte_size))
+
+    # Copy elements in logical order (unwrap the ring)
+    var i = 0uaddr
+    while i < me.count {
+        let old_idx = me.physical_index(i)
+        let value = me.read_at(old_idx)
+        let new_byte_offset = i * sizeof<T>()
+        new_data.write<T>(new_byte_offset, value)
+        i = i + 1uaddr
+    }
+
+    me.data = new_data
+    me.start = 0uaddr
+    me.capacity = new_capacity
+}
+
+# ============================================================================
+# Indexing with Integral (forward index)
+# ============================================================================
+
+routine Deque<T>.__getitem__!<I>(me: Deque<T>, index: I) -> T
+    where I follows Integral {
+    let idx = index.to_uaddr()
+    if idx >= me.count {
+        throw IndexOutOfBoundsError(index: idx, count: me.count)
+    }
+    let physical_idx = me.physical_index(idx)
+    return me.read_at(physical_idx)
+}
+
+routine Deque<T>.__setitem__!<I>(me: Deque<T>, index: I, value: T)
+    where I follows Integral {
+    let idx = index.to_uaddr()
+    if idx >= me.count {
+        throw IndexOutOfBoundsError(index: idx, count: me.count)
+    }
+    let physical_idx = me.physical_index(idx)
+    me.write_at(physical_idx, value)
+}
+
+# ============================================================================
+# Indexing with BackIndex (backward index using ^)
+# ============================================================================
+
+routine Deque<T>.__getitem__!<I>(me: Deque<T>, index: BackIndex<I>) -> T
+    where I follows Integral {
+    let idx = index.resolve(me.count)
+    let physical_idx = me.physical_index(idx)
+    return me.read_at(physical_idx)
+}
+
+routine Deque<T>.__setitem__!<I>(me: Deque<T>, index: BackIndex<I>, value: T)
+    where I follows Integral {
+    let idx = index.resolve(me.count)
+    let physical_idx = me.physical_index(idx)
+    me.write_at(physical_idx, value)
+}
+
+# ============================================================================
+# Legacy get/set methods
+# ============================================================================
+
+routine Deque<T>.get!<I>(me: Deque<T>, index: I) -> T
+    where I follows Integral {
+    return me.__getitem__!(index)
+}
+
+routine Deque<T>.set!<I>(me: Deque<T>, index: I, value: T)
+    where I follows Integral {
+    me.__setitem__!(index, value)
+}
+
+# ============================================================================
+# Rotation
+# ============================================================================
+
+routine Deque<T>.rotate_left(me: Deque<T>, n: uaddr) {
+    # Rotate elements left by n positions
+    # Front elements move to back
+    if me.count == 0uaddr {
+        return
+    }
+    let shift = n % me.count
+    me.start = me.wrap_index(me.start + shift)
+}
+
+routine Deque<T>.rotate_right(me: Deque<T>, n: uaddr) {
+    # Rotate elements right by n positions
+    # Back elements move to front
+    if me.count == 0uaddr {
+        return
+    }
+    let shift = n % me.count
+    if shift > me.start {
+        me.start = me.capacity - (shift - me.start)
+    } else {
+        me.start = me.start - shift
+    }
+}
+
+# ============================================================================
+# Iteration Support
+# ============================================================================
+
+routine Deque<T>.iter(me: Deque<T>) -> DequeIterator<T> {
+    return DequeIterator<T>(deque: me, index: 0uaddr)
+}
+
+record DequeIterator<T> {
+    deque: Deque<T>
+    index: uaddr
+}
+
+routine DequeIterator<T>.next(me: DequeIterator<T>) -> T? {
+    if me.index >= me.deque.count() {
+        return None
+    }
+    let value = me.deque[me.index]
+    me.index = me.index + 1uaddr
+    return value
+}
+
+# ============================================================================
+# Utility Operations
+# ============================================================================
+
+routine Deque<T>.first!(me: Deque<T>) -> T {
+    return me.front!()
+}
+
+routine Deque<T>.last!(me: Deque<T>) -> T {
+    return me.back!()
+}
+
+routine Deque<T>.first_or_default(me: Deque<T>, default_value: T) -> T {
+    if me.is_empty() {
+        return default_value
+    }
+    return me.front!()
+}
+
+routine Deque<T>.last_or_default(me: Deque<T>, default_value: T) -> T {
+    if me.is_empty() {
+        return default_value
+    }
+    return me.back!()
+}
+
+routine Deque<T>.contains(me: Deque<T>, value: T) -> bool {
+    var i = 0uaddr
+    while i < me.count {
+        if me[i] == value {
+            return true
+        }
+        i = i + 1uaddr
+    }
+    return false
+}
+
+# ============================================================================
+# Comparison Operations
+# ============================================================================
+
+routine Deque<T>.__eq__(me: Deque<T>, other: Deque<T>) -> bool {
+    if me.count != other.count {
+        return false
+    }
+    var i = 0uaddr
+    while i < me.count {
+        if me[i] != other[i] {
+            return false
+        }
+        i = i + 1uaddr
+    }
+    return true
+}
+
+routine Deque<T>.__ne__(me: Deque<T>, other: Deque<T>) -> bool {
+    return not (me == other)
+}

@@ -1,4 +1,17 @@
 ﻿record Result<T> {
-    private is_valid: bool
+    private state: DataState
     private handle: DataHandle
+
+    # Query
+    routine is_valid() -> bool
+    routine is_error() -> bool
+    routine state() -> DataState
+
+    # Coalescing (?? operator)
+    routine __unwrap__(default: T) -> T
+    routine __unwrap__(or_else: Routine<(T), U>) -> T
+
+    # Access
+    routine Result<T>.__create__(value: Maybe<T>, none_error: Crashable)
+    routine Result<T>.__create__(value: Lookup<T>, none_error: Crashable)
 }

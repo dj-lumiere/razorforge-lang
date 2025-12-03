@@ -17,7 +17,8 @@ typedef uint32_t rf_u32;
 typedef uintptr_t rf_uaddr;
 
 // StackFrame record - matches RazorForge layout (5 x u32 = 20 bytes)
-typedef struct {
+typedef struct
+{
     rf_u32 file_id;
     rf_u32 routine_id;
     rf_u32 type_id;
@@ -28,18 +29,21 @@ typedef struct {
 // StackTrace record - 10 frames + depth (10 x 20 + 4 = 204 bytes)
 #define RF_STACK_TRACE_MAX_FRAMES 10
 
-typedef struct {
+typedef struct
+{
     rf_StackFrame frames[RF_STACK_TRACE_MAX_FRAMES];
     rf_u32 depth;
 } rf_StackTrace;
 
 // MessageHandle record - 1 x uaddr = 8 bytes on 64-bit
-typedef struct {
+typedef struct
+{
     rf_uaddr ptr;
 } rf_MessageHandle;
 
 // Error record - matches RazorForge layout
-typedef struct {
+typedef struct
+{
     rf_MessageHandle message_handle;
     rf_StackTrace stack_trace;
     rf_u32 file_id;
@@ -57,9 +61,9 @@ typedef struct {
 
 // Thread-local storage for the runtime call stack
 #ifdef _WIN32
-    #define RF_THREAD_LOCAL __declspec(thread)
+#define RF_THREAD_LOCAL __declspec(thread)
 #else
-    #define RF_THREAD_LOCAL __thread
+#define RF_THREAD_LOCAL __thread
 #endif
 
 static RF_THREAD_LOCAL rf_StackFrame rf_runtime_stack[RF_RUNTIME_STACK_MAX];
@@ -185,7 +189,7 @@ static const char* get_type_name(rf_u32 type_id)
 {
     if (type_id == 0)
     {
-        return NULL;  // Free function, no type
+        return NULL; // Free function, no type
     }
     if (rf_type_table && type_id < rf_type_table_count)
     {

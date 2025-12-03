@@ -161,7 +161,7 @@ public record FunctionDeclaration(
 /// <item>Constructors: defined as special routine methods</item>
 /// </list>
 /// </remarks>
-public record ClassDeclaration(
+public record EntityDeclaration(
     string Name,
     List<string>? GenericParameters,
     TypeExpression? BaseClass, // from Animal
@@ -174,7 +174,7 @@ public record ClassDeclaration(
 {
     public override T Accept<T>(IAstVisitor<T> visitor)
     {
-        return visitor.VisitClassDeclaration(node: this);
+        return visitor.VisitEntityDeclaration(node: this);
     }
 }
 
@@ -197,7 +197,7 @@ public record ClassDeclaration(
 /// <item>Copy constructors: automatic with-expressions support</item>
 /// </list>
 /// </remarks>
-public record StructDeclaration(
+public record RecordDeclaration(
     string Name,
     List<string>? GenericParameters,
     List<Declaration> Members,
@@ -208,29 +208,29 @@ public record StructDeclaration(
 {
     public override T Accept<T>(IAstVisitor<T> visitor)
     {
-        return visitor.VisitStructDeclaration(node: this);
+        return visitor.VisitRecordDeclaration(node: this);
     }
 }
 
 /// <summary>
-/// Option (menu/enum) declaration that defines discriminated unions of named constants.
+/// Choice declaration that defines discriminated unions of named constants.
 /// Represents enumeration types with optional associated values.
 /// </summary>
-/// <param name="Name">Enum identifier name</param>
-/// <param name="Variants">List of enum variant definitions with optional values</param>
-/// <param name="Methods">List of methods that can be called on enum values</param>
+/// <param name="Name">Choice identifier name</param>
+/// <param name="Variants">List of choice variant definitions with optional values</param>
+/// <param name="Methods">List of methods that can be called on choice values</param>
 /// <param name="Visibility">Access control modifier</param>
 /// <param name="Location">Source location information</param>
 /// <remarks>
-/// Menu/Option declarations support:
+/// Choice declarations support:
 /// <list type="bullet">
-/// <item>Simple enums: option Status { Ok, Error, Pending }</item>
-/// <item>Explicit values: option HttpCode { Ok = 200, NotFound = 404 }</item>
-/// <item>Methods: enums can have associated behavior</item>
+/// <item>Simple enums: choice Status { Ok, Error, Pending }</item>
+/// <item>Explicit values: choice HttpCode { Ok = 200, NotFound = 404 }</item>
+/// <item>Methods: choices can have associated behavior</item>
 /// <item>Pattern matching: used with when statements</item>
 /// </list>
 /// </remarks>
-public record MenuDeclaration(
+public record ChoiceDeclaration(
     string Name,
     List<EnumVariant> Variants,
     List<FunctionDeclaration> Methods,
@@ -239,7 +239,7 @@ public record MenuDeclaration(
 {
     public override T Accept<T>(IAstVisitor<T> visitor)
     {
-        return visitor.VisitMenuDeclaration(node: this);
+        return visitor.VisitChoiceDeclaration(node: this);
     }
 }
 
@@ -250,14 +250,12 @@ public record MenuDeclaration(
 /// <remarks>
 /// RazorForge provides three variant kinds with different safety/performance tradeoffs:
 /// <list type="bullet">
-/// <item>Chimera: Default tagged union - requires danger! block access, tracks active case</item>
 /// <item>Variant: All fields must be records (value types) - safe, no danger! needed</item>
 /// <item>Mutant: Raw memory union - requires danger! block, no safety guarantees</item>
 /// </list>
 /// </remarks>
 public enum VariantKind
 {
-    Chimera, // Default tagged union - requires danger! block
     Variant, // All fields must be records (value types)
     Mutant // Raw memory union - requires danger! block
 }
@@ -301,7 +299,7 @@ public record VariantDeclaration(
 }
 
 /// <summary>
-/// Feature (trait/interface) declaration that defines behavioral contracts.
+/// Protocol (trait/interface) declaration that defines behavioral contracts.
 /// Specifies method signatures that implementing types must provide.
 /// </summary>
 /// <param name="Name">Trait identifier name</param>
@@ -310,42 +308,38 @@ public record VariantDeclaration(
 /// <param name="Visibility">Access control modifier</param>
 /// <param name="Location">Source location information</param>
 /// <remarks>
-/// Feature/Trait declarations enable polymorphism and code reuse:
+/// Protocol declarations enable polymorphism and code reuse:
 /// <list type="bullet">
-/// <item>Interface contracts: feature Drawable { routine draw() }</item>
-/// <item>Generic traits: feature Comparable[T] { routine compare(other: T) -> s32 }</item>
-/// <item>Multiple implementation: types can implement multiple features</item>
-/// <item>Default methods: traits can provide default implementations</item>
+/// <item>Interface contracts: protocol Drawable { routine draw() }</item>
+/// <item>Generic traits: protocol Comparable[T] { routine compare(other: T) -> s32 }</item>
+/// <item>Multiple implementation: types can implement multiple protocols</item>
+/// <item>Default methods: protocols can provide default implementations</item>
 /// <item>Trait bounds: generic constraints (where T: Comparable)</item>
 /// </list>
 /// </remarks>
-public record FeatureDeclaration(
+public record ProtocolDeclaration(
     string Name,
     List<string>? GenericParameters,
     List<FunctionSignature> Methods,
     VisibilityModifier Visibility,
     SourceLocation Location,
     List<GenericConstraintDeclaration>? GenericConstraints = null,
-    List<FieldRequirement>? RequiredFields = null)
-    : Declaration(Location: Location)
+    List<FieldRequirement>? RequiredFields = null) : Declaration(Location: Location)
 {
     public override T Accept<T>(IAstVisitor<T> visitor)
     {
-        return visitor.VisitFeatureDeclaration(node: this);
+        return visitor.VisitProtocolDeclaration(node: this);
     }
 }
 
 /// <summary>
-/// Represents a required field in a feature/protocol declaration.
-/// Types implementing the feature must have this field.
+/// Represents a required field in a protocol declaration.
+/// Types implementing the protocol must have this field.
 /// </summary>
 /// <param name="Name">The field name</param>
 /// <param name="Type">The required field type</param>
 /// <param name="Location">Source location</param>
-public record FieldRequirement(
-    string Name,
-    TypeExpression Type,
-    SourceLocation Location);
+public record FieldRequirement(string Name, TypeExpression Type, SourceLocation Location);
 
 /// <summary>
 /// Implementation block that provides method implementations for types.
@@ -396,9 +390,8 @@ public record ImplementationDeclaration(
 /// <item>Import resolution: other files import this namespace by path</item>
 /// </list>
 /// </remarks>
-public record NamespaceDeclaration(
-    string Path,
-    SourceLocation Location) : Declaration(Location: Location)
+public record NamespaceDeclaration(string Path, SourceLocation Location)
+    : Declaration(Location: Location)
 {
     public override T Accept<T>(IAstVisitor<T> visitor)
     {
@@ -532,28 +525,15 @@ public record FunctionSignature(
 /// </remarks>
 public enum VisibilityModifier
 {
-    // Suflae descriptive visibility
-    /// <summary>Only accessible within the declaring entity (Suflae: onlyme)</summary>
-    OnlyMe,
-
-    /// <summary>Accessible within the declaring entity and its subclasses (Suflae: onlyfamily)</summary>
-    OnlyFamily,
-
-    /// <summary>Accessible within the same module/package (Suflae: onlyhere)</summary>
-    OnlyHere,
-
-    /// <summary>Accessible from anywhere (Suflae: everywhere)</summary>
-    Everywhere,
-
     // RazorForge traditional visibility
     /// <summary>Only accessible within the declaring entity (RazorForge: private)</summary>
     Private,
 
     /// <summary>Accessible within the declaring entity and its subclasses (RazorForge: protected)</summary>
-    Protected,
+    PublicFamily,
 
     /// <summary>Accessible within the same module/assembly (RazorForge: internal)</summary>
-    Internal,
+    PublicModule,
 
     /// <summary>Accessible from anywhere (RazorForge: public)</summary>
     Public,
@@ -588,7 +568,7 @@ public record RedefinitionDeclaration(string OldName, string NewName, SourceLoca
 {
     public override T Accept<T>(IAstVisitor<T> visitor)
     {
-        return visitor.VisitRedefinitionDeclaration(node: this);
+        return visitor.VisitDefineDeclaration(node: this);
     }
 }
 
@@ -614,6 +594,35 @@ public record UsingDeclaration(TypeExpression Type, string Alias, SourceLocation
     public override T Accept<T>(IAstVisitor<T> visitor)
     {
         return visitor.VisitUsingDeclaration(node: this);
+    }
+}
+
+/// <summary>
+/// Preset declaration that defines a compile-time constant value.
+/// Similar to const in other languages but with RazorForge naming convention.
+/// </summary>
+/// <param name="Name">Constant identifier name</param>
+/// <param name="Type">Type of the constant value</param>
+/// <param name="Value">Constant expression that must be evaluable at compile time</param>
+/// <param name="Location">Source location information</param>
+/// <remarks>
+/// Preset declarations provide compile-time constants:
+/// <list type="bullet">
+/// <item>Simple constants: preset PI: f64 = 3.14159</item>
+/// <item>Integer constants: preset MAX_SIZE: u32 = 1024u32</item>
+/// <item>Pointer constants: preset cnullptr: uaddr = 0uaddr</item>
+/// <item>Must be evaluable at compile time</item>
+/// </list>
+/// </remarks>
+public record PresetDeclaration(
+    string Name,
+    TypeExpression Type,
+    Expression Value,
+    SourceLocation Location) : Declaration(Location: Location)
+{
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitPresetDeclaration(node: this);
     }
 }
 
@@ -661,8 +670,13 @@ public record RoutineDeclaration : FunctionDeclaration
 {
     public RoutineDeclaration(string Name, List<Parameter> Parameters, TypeExpression? ReturnType,
         Statement Body, VisibilityModifier Visibility, List<string> Attributes,
-        SourceLocation Location) : base(Name: Name, Parameters: Parameters, ReturnType: ReturnType,
-        Body: Body, Visibility: Visibility, Attributes: Attributes, Location: Location)
+        SourceLocation Location) : base(Name: Name,
+        Parameters: Parameters,
+        ReturnType: ReturnType,
+        Body: Body,
+        Visibility: Visibility,
+        Attributes: Attributes,
+        Location: Location)
     {
     }
 

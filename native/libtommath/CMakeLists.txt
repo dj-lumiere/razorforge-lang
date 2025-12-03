@@ -18,8 +18,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/bn_mp_init.c" OR
     # LibTomMath sources detected
     message(STATUS "Found LibTomMath sources")
 
-    # Collect all bn_*.c files (the main library sources)
-    file(GLOB LIBTOMMATH_SOURCES "bn_*.c" "mp_*.c")
+    # Collect all source files (bn_*.c, mp_*.c, s_mp_*.c are the main library sources)
+    file(GLOB LIBTOMMATH_SOURCES "bn_*.c" "mp_*.c" "s_mp_*.c")
 
     # Also include tommath.c if it exists (single-file build)
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tommath.c")

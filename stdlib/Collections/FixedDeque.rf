@@ -1,0 +1,347 @@
+# RazorForge FixedDeque<T, N> - Fixed-capacity double-ended queue
+# Resident type with fixed capacity N at compile time
+# O(1) push/pop at both ends, O(1) random access
+# No heap allocation - storage is inline, uses ring buffer
+#
+# Usage:
+#   let buffer: FixedDeque<s32, 16> = FixedDeque()
+#   buffer.push_back!(42)
+#   buffer.push_front!(13)
+#   let first = buffer[0]       # 13
+#   let last = buffer[^1]       # 42
+#   buffer.rotate_left(1)
+
+import errors/IndexOutOfBoundsError
+import core/Integral
+import core/BackIndex
+
+# Fixed-capacity deque with reference semantics
+# N elements of T stored inline by compiler, ring buffer structure
+resident FixedDeque<T, N> {
+    private start: uaddr      # Index of first element
+    private count: uaddr      # Current number of elements (0 to N)
+    # N elements of T stored inline by compiler
+}
+
+# ============================================================================
+# Constructors
+# ============================================================================
+
+routine FixedDeque<T, N>.__create__() -> FixedDeque<T, N> {
+    return FixedDeque<T, N>(start: 0uaddr, count: 0uaddr)
+}
+
+# ============================================================================
+# Core Operations
+# ============================================================================
+
+routine FixedDeque<T, N>.count(me: FixedDeque<T, N>) -> uaddr {
+    return me.count
+}
+
+routine FixedDeque<T, N>.capacity(me: FixedDeque<T, N>) -> uaddr {
+    return N
+}
+
+routine FixedDeque<T, N>.is_empty(me: FixedDeque<T, N>) -> bool {
+    return me.count == 0uaddr
+}
+
+routine FixedDeque<T, N>.is_full(me: FixedDeque<T, N>) -> bool {
+    return me.count == N
+}
+
+routine FixedDeque<T, N>.remaining(me: FixedDeque<T, N>) -> uaddr {
+    return N - me.count
+}
+
+routine FixedDeque<T, N>.clear(me: FixedDeque<T, N>) {
+    me.start = 0uaddr
+    me.count = 0uaddr
+}
+
+# ============================================================================
+# Internal index wrapping
+# ============================================================================
+
+routine FixedDeque<T, N>.wrap_index(index: uaddr) -> uaddr {
+    # Wrap index to stay within capacity
+    return index % N
+}
+
+routine FixedDeque<T, N>.physical_index(me: FixedDeque<T, N>, logical: uaddr) -> uaddr {
+    # Convert logical index to physical storage index
+    return FixedDeque<T, N>.wrap_index(me.start + logical)
+}
+
+# ============================================================================
+# Push Operations
+# ============================================================================
+
+routine FixedDeque<T, N>.push_back!(me: FixedDeque<T, N>, value: T) {
+    # Append element to end - O(1)
+    if me.is_full() {
+        throw IndexOutOfBoundsError(index: me.count, count: N)
+    }
+    let idx = me.physical_index(me.count)
+    me[idx] = value
+    me.count = me.count + 1uaddr
+}
+
+routine FixedDeque<T, N>.push_front!(me: FixedDeque<T, N>, value: T) {
+    # Prepend element to front - O(1)
+    if me.is_full() {
+        throw IndexOutOfBoundsError(index: me.count, count: N)
+    }
+    # Move start back (with wrap)
+    if me.start == 0uaddr {
+        me.start = N - 1uaddr
+    } else {
+        me.start = me.start - 1uaddr
+    }
+    me[me.start] = value
+    me.count = me.count + 1uaddr
+}
+
+# ============================================================================
+# Pop Operations
+# ============================================================================
+
+routine FixedDeque<T, N>.pop_back!(me: FixedDeque<T, N>) -> T {
+    # Remove and return last element - O(1)
+    if me.is_empty() {
+        absent
+    }
+    me.count = me.count - 1uaddr
+    let idx = me.physical_index(me.count)
+    return me[idx]
+}
+
+routine FixedDeque<T, N>.pop_front!(me: FixedDeque<T, N>) -> T {
+    # Remove and return first element - O(1)
+    if me.is_empty() {
+        absent
+    }
+    let value = me[me.start]
+    me.start = FixedDeque<T, N>.wrap_index(me.start + 1uaddr)
+    me.count = me.count - 1uaddr
+    return value
+}
+
+# ============================================================================
+# Indexing with Integral (forward index)
+# ============================================================================
+
+routine FixedDeque<T, N>.__getitem__!<I>(me: FixedDeque<T, N>, index: I) -> T
+    where I follows Integral {
+    let idx = index.to_uaddr()
+    if idx >= me.count {
+        throw IndexOutOfBoundsError(index: idx, count: me.count)
+    }
+    let physical = me.physical_index(idx)
+    return me[physical]
+}
+
+routine FixedDeque<T, N>.__setitem__!<I>(me: FixedDeque<T, N>, index: I, value: T)
+    where I follows Integral {
+    let idx = index.to_uaddr()
+    if idx >= me.count {
+        throw IndexOutOfBoundsError(index: idx, count: me.count)
+    }
+    let physical = me.physical_index(idx)
+    me[physical] = value
+}
+
+# ============================================================================
+# Indexing with BackIndex (backward index using ^)
+# ============================================================================
+
+routine FixedDeque<T, N>.__getitem__!<I>(me: FixedDeque<T, N>, index: BackIndex<I>) -> T
+    where I follows Integral {
+    let idx = index.resolve(me.count)
+    let physical = me.physical_index(idx)
+    return me[physical]
+}
+
+routine FixedDeque<T, N>.__setitem__!<I>(me: FixedDeque<T, N>, index: BackIndex<I>, value: T)
+    where I follows Integral {
+    let idx = index.resolve(me.count)
+    let physical = me.physical_index(idx)
+    me[physical] = value
+}
+
+# ============================================================================
+# Legacy get/set methods
+# ============================================================================
+
+routine FixedDeque<T, N>.get!<I>(me: FixedDeque<T, N>, index: I) -> T
+    where I follows Integral {
+    return me.__getitem__!(index)
+}
+
+routine FixedDeque<T, N>.set!<I>(me: FixedDeque<T, N>, index: I, value: T)
+    where I follows Integral {
+    me.__setitem__!(index, value)
+}
+
+# ============================================================================
+# Front/Back Access
+# ============================================================================
+
+routine FixedDeque<T, N>.front!(me: FixedDeque<T, N>) -> T {
+    if me.is_empty() {
+        absent
+    }
+    return me[me.start]
+}
+
+routine FixedDeque<T, N>.back!(me: FixedDeque<T, N>) -> T {
+    if me.is_empty() {
+        absent
+    }
+    let idx = me.physical_index(me.count - 1uaddr)
+    return me[idx]
+}
+
+routine FixedDeque<T, N>.front_or_default(me: FixedDeque<T, N>, default_value: T) -> T {
+    if me.is_empty() {
+        return default_value
+    }
+    return me[me.start]
+}
+
+routine FixedDeque<T, N>.back_or_default(me: FixedDeque<T, N>, default_value: T) -> T {
+    if me.is_empty() {
+        return default_value
+    }
+    let idx = me.physical_index(me.count - 1uaddr)
+    return me[idx]
+}
+
+# ============================================================================
+# Rotation Operations - O(1)
+# ============================================================================
+
+routine FixedDeque<T, N>.rotate_left(me: FixedDeque<T, N>, n: uaddr) {
+    # Rotate elements left by n positions
+    # First element moves toward end
+    if me.count == 0uaddr {
+        return
+    }
+    let shift = n % me.count
+    me.start = FixedDeque<T, N>.wrap_index(me.start + shift)
+}
+
+routine FixedDeque<T, N>.rotate_right(me: FixedDeque<T, N>, n: uaddr) {
+    # Rotate elements right by n positions
+    # Last element moves toward front
+    if me.count == 0uaddr {
+        return
+    }
+    let shift = n % me.count
+    if shift <= me.start {
+        me.start = me.start - shift
+    } else {
+        me.start = N - (shift - me.start)
+    }
+}
+
+# ============================================================================
+# Utility Operations
+# ============================================================================
+
+routine FixedDeque<T, N>.contains(me: FixedDeque<T, N>, value: T) -> bool {
+    var i = 0uaddr
+    while i < me.count {
+        let physical = me.physical_index(i)
+        if me[physical] == value {
+            return true
+        }
+        i = i + 1uaddr
+    }
+    return false
+}
+
+routine FixedDeque<T, N>.index_of!(me: FixedDeque<T, N>, value: T) -> uaddr {
+    var i = 0uaddr
+    while i < me.count {
+        let physical = me.physical_index(i)
+        if me[physical] == value {
+            return i
+        }
+        i = i + 1uaddr
+    }
+    absent
+}
+
+routine FixedDeque<T, N>.swap!<I, J>(me: FixedDeque<T, N>, i: I, j: J)
+    where I follows Integral
+    where J follows Integral {
+    let idx_i = i.to_uaddr()
+    let idx_j = j.to_uaddr()
+    if idx_i >= me.count or idx_j >= me.count {
+        throw IndexOutOfBoundsError(index: if idx_i >= me.count { idx_i } else { idx_j }, count: me.count)
+    }
+    let phys_i = me.physical_index(idx_i)
+    let phys_j = me.physical_index(idx_j)
+    let temp = me[phys_i]
+    me[phys_i] = me[phys_j]
+    me[phys_j] = temp
+}
+
+routine FixedDeque<T, N>.reverse(me: FixedDeque<T, N>) {
+    if me.count <= 1uaddr {
+        return
+    }
+    var left = 0uaddr
+    var right = me.count - 1uaddr
+    while left < right {
+        me.swap!(left, right)
+        left = left + 1uaddr
+        right = right - 1uaddr
+    }
+}
+
+# ============================================================================
+# Iteration Support
+# ============================================================================
+
+routine FixedDeque<T, N>.iter(me: FixedDeque<T, N>) -> FixedDequeIterator<T, N> {
+    return FixedDequeIterator<T, N>(deque: me, index: 0uaddr)
+}
+
+record FixedDequeIterator<T, N> {
+    deque: FixedDeque<T, N>
+    index: uaddr
+}
+
+routine FixedDequeIterator<T, N>.next(me: FixedDequeIterator<T, N>) -> T? {
+    if me.index >= me.deque.count() {
+        return None
+    }
+    let value = me.deque[me.index]
+    me.index = me.index + 1uaddr
+    return value
+}
+
+# ============================================================================
+# Comparison Operations
+# ============================================================================
+
+routine FixedDeque<T, N>.__eq__(me: FixedDeque<T, N>, other: FixedDeque<T, N>) -> bool {
+    if me.count != other.count {
+        return false
+    }
+    var i = 0uaddr
+    while i < me.count {
+        if me[i] != other[i] {
+            return false
+        }
+        i = i + 1uaddr
+    }
+    return true
+}
+
+routine FixedDeque<T, N>.__ne__(me: FixedDeque<T, N>, other: FixedDeque<T, N>) -> bool {
+    return not (me == other)
+}

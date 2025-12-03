@@ -68,7 +68,7 @@ public partial class SemanticAnalyzer
         }
 
         // CRITICAL: Prevent mutation through read-only wrapper types
-        // Viewed<T> and Observed<T> provide read-only access - cannot mutate through them
+        // Viewed<T> and Inspected<T> provide read-only access - cannot mutate through them
         if (node.Target is MemberExpression memberTarget)
         {
             var objectType = memberTarget.Object.Accept(visitor: this) as TypeInfo;
@@ -77,14 +77,14 @@ public partial class SemanticAnalyzer
                 AddError(
                     message:
                     $"Cannot mutate field through read-only wrapper '{objectType.Name}'. " +
-                    $"Read-only wrappers (Viewed<T>, Observed<T>) do not allow mutation. " +
+                    $"Read-only wrappers (Viewed<T>, Inspected<T>) do not allow mutation. " +
                     $"Use hijacking or seizing for mutable access.",
                     location: node.Location);
             }
         }
 
         // CRITICAL: Prevent scoped tokens from escaping their scope
-        // Scoped tokens (Viewed, Hijacked, Seized, Observed) cannot be assigned to variables
+        // Scoped tokens (Viewed, Hijacked, Seized, Inspected) cannot be assigned to variables
         if (node.Value is IdentifierExpression valIdent &&
             IsScopedToken(variableName: valIdent.Name))
         {
@@ -166,7 +166,7 @@ public partial class SemanticAnalyzer
 
             // CRITICAL: Prevent scoped tokens from escaping via return
             // Only usurping functions can return Hijacked<T> tokens
-            // Viewed, Seized, Observed tokens can NEVER escape (even from usurping functions)
+            // Viewed, Seized, Inspected tokens can NEVER escape (even from usurping functions)
             if (node.Value is IdentifierExpression returnId &&
                 IsScopedToken(variableName: returnId.Name))
             {
@@ -184,7 +184,7 @@ public partial class SemanticAnalyzer
                         $"Cannot return scoped token '{returnId.Name}' of type {tokenType}. " +
                         $"Scoped tokens are bound to their declaring scope and cannot escape. " +
                         $"Only usurping functions can return Hijacked<T> tokens. " +
-                        $"Viewed, Seized, and Observed tokens can never escape.",
+                        $"Viewed, Seized, and Inspected tokens can never escape.",
                         location: node.Location);
                 }
             }
@@ -200,9 +200,9 @@ public partial class SemanticAnalyzer
     /// <returns>Null</returns>
     public object? VisitIfStatement(IfStatement node)
     {
-        // Check condition is boolean
+        // Check condition is boolean (accept both Bool and bool for compatibility)
         var conditionType = node.Condition.Accept(visitor: this) as TypeInfo;
-        if (conditionType != null && conditionType.Name != "Bool")
+        if (conditionType != null && conditionType.Name != "Bool" && conditionType.Name != "bool")
         {
             AddError(message: $"If condition must be boolean, got {conditionType.Name}",
                 location: node.Location);
@@ -220,9 +220,9 @@ public partial class SemanticAnalyzer
     /// <returns>Null</returns>
     public object? VisitWhileStatement(WhileStatement node)
     {
-        // Check condition is boolean
+        // Check condition is boolean (accept both Bool and bool for compatibility)
         var conditionType = node.Condition.Accept(visitor: this) as TypeInfo;
-        if (conditionType != null && conditionType.Name != "Bool")
+        if (conditionType != null && conditionType.Name != "Bool" && conditionType.Name != "bool")
         {
             AddError(message: $"While condition must be boolean, got {conditionType.Name}",
                 location: node.Location);
@@ -442,6 +442,17 @@ public partial class SemanticAnalyzer
     public object? VisitAbsentStatement(AbsentStatement node)
     {
         // No expression to visit for absent
+        return null;
+    }
+
+    /// <summary>
+    /// Visits a pass statement (empty placeholder).
+    /// </summary>
+    /// <param name="node">Pass statement node</param>
+    /// <returns>Null</returns>
+    public object? VisitPassStatement(PassStatement node)
+    {
+        // Pass is a no-op placeholder
         return null;
     }
 }

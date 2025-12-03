@@ -58,9 +58,6 @@ public partial class SemanticAnalyzer : IAstVisitor<object?>
     /// <summary>Tracks whether we're currently inside a danger block</summary>
     private bool _isInDangerMode = false;
 
-    /// <summary>Tracks whether we're currently inside a mayhem block</summary>
-    private bool _isInMayhemMode = false;
-
     /// <summary>Tracks whether we're currently inside a 'when' expression condition</summary>
     private bool _isInWhenCondition = false;
 
@@ -70,7 +67,7 @@ public partial class SemanticAnalyzer : IAstVisitor<object?>
     /// <summary>
     /// Tracks scoped token variables that cannot escape their scope.
     /// Maps token variable name to the scope depth where it was created.
-    /// These tokens (Viewed, Hijacked, Seized, Observed) cannot be:
+    /// These tokens (Viewed, Hijacked, Seized, Inspected) cannot be:
     /// - Assigned to variables outside the scoped statement
     /// - Returned from non-usurping functions
     /// - Passed to functions (unless consumed immediately)
@@ -89,10 +86,23 @@ public partial class SemanticAnalyzer : IAstVisitor<object?>
     /// - viewing x as v { ... } - x is invalidated (cannot read or write)
     /// - hijacking x as h { ... } - x is invalidated (cannot read or write)
     /// - seizing shared_x as s { ... } - shared_x is invalidated (lock held)
-    /// - observing shared_x as o { ... } - shared_x is invalidated (lock held)
+    /// - inspecting shared_x as o { ... } - shared_x is invalidated (lock held)
     /// </summary>
     private readonly Dictionary<string, (int scopeDepth, string accessType)> _invalidatedSources =
         new();
+
+    /// <summary>
+    /// Tracks modules whose symbols have already been registered to prevent duplicate registration.
+    /// This is needed because transitive dependencies may be imported multiple times through different paths.
+    /// </summary>
+    private readonly HashSet<string> _processedModules = new();
+
+    /// <summary>
+    /// Cache of type field declarations for member access resolution.
+    /// Maps type name to a dictionary of field name -> field type info.
+    /// Used by VisitMemberExpression to look up field types.
+    /// </summary>
+    private readonly Dictionary<string, Dictionary<string, TypeInfo>> _typeFieldCache = new();
 
     /// <summary>
     /// Gets the symbol table containing all resolved symbols.
@@ -152,21 +162,12 @@ public partial class SemanticAnalyzer : IAstVisitor<object?>
 
     /// <summary>
     /// Initialize built-in types for the RazorForge language.
-    /// Registers standard library types like DynamicSlice and TemporarySlice.
+    /// Registers primitive types only - stdlib types are loaded via imports.
     /// </summary>
     private void InitializeBuiltInTypes()
     {
-        // Register DynamicSlice record type
-        var heapSliceType = new TypeInfo(Name: "DynamicSlice", IsReference: false);
-        var heapSliceSymbol =
-            new StructSymbol(Name: "DynamicSlice", Visibility: VisibilityModifier.Public);
-        _symbolTable.TryDeclare(symbol: heapSliceSymbol);
-
-        // Register TemporarySlice record type
-        var stackSliceType = new TypeInfo(Name: "TemporarySlice", IsReference: false);
-        var stackSliceSymbol =
-            new StructSymbol(Name: "TemporarySlice", Visibility: VisibilityModifier.Public);
-        _symbolTable.TryDeclare(symbol: stackSliceSymbol);
+        // Note: DynamicSlice and TemporarySlice are now loaded from stdlib imports
+        // They are no longer registered as built-in types to avoid conflicts.
 
         // Register primitive types
         RegisterPrimitiveType(typeName: "uaddr");
@@ -203,11 +204,33 @@ public partial class SemanticAnalyzer : IAstVisitor<object?>
     /// </summary>
     private void RegisterPrimitiveType(string typeName)
     {
-        var typeInfo = new TypeInfo(Name: typeName, IsReference: false);
+        var typeInfo = PrimitiveTypes.GetTypeInfo(typeName);
         var typeSymbol = new TypeSymbol(Name: typeName,
             TypeInfo: typeInfo,
             Visibility: VisibilityModifier.Public);
         _symbolTable.TryDeclare(symbol: typeSymbol);
+    }
+
+    /// <summary>
+    /// Sets the ResolvedType on an expression node and returns the type.
+    /// This should be called at the end of each expression visitor to ensure
+    /// type information flows through to code generation.
+    /// </summary>
+    /// <param name="expr">The expression node to set the type on</param>
+    /// <param name="type">The resolved type (may be null)</param>
+    /// <returns>The type that was set</returns>
+    protected TypeInfo? SetResolvedType(Expression expr, TypeInfo? type)
+    {
+        expr.ResolvedType = type;
+        return type;
+    }
+
+    /// <summary>
+    /// Creates a TypeInfo for a primitive type with proper protocol information.
+    /// </summary>
+    protected TypeInfo GetPrimitiveTypeInfo(string typeName)
+    {
+        return PrimitiveTypes.GetTypeInfo(typeName);
     }
 
     /// <summary>
@@ -251,14 +274,18 @@ public partial class SemanticAnalyzer : IAstVisitor<object?>
     private void LoadPrelude()
     {
         // Common prelude modules for both languages
+        // NOTE: Complex modules like Text, List, Range are NOT loaded by default
+        // because the code generator doesn't yet handle all their constructs.
+        // Users must explicitly import them when needed.
         var preludeModules = new List<string>
         {
+            // Memory types (simple records)
+            "memory/DynamicSlice",
+            "memory/MemorySize",
+            // Error handling (simple types)
             "ErrorHandling/Maybe",
             "errors/Crashable",
-            "errors/common",
-            "errors/DivisionByZeroError",
-            "errors/IntegerOverflowError",
-            "errors/IndexOutOfBoundsError"
+            "errors/common"
         };
 
         // Suflae-specific prelude: auto-import Integer, Decimal, Console, and Collections

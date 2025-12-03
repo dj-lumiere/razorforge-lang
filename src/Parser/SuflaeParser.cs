@@ -24,6 +24,15 @@ public partial class SuflaeParser : BaseParser
         _fileName = fileName;
     }
 
+    protected SourceLocation GetLocation(Token token)
+    {
+        return new SourceLocation(
+            FileName: _fileName ?? "",
+            Line: token.Line,
+            Column: token.Column,
+            Position: token.Position);
+    }
+
     public override Compilers.Shared.AST.Program Parse()
     {
         var declarations = new List<IAstNode>();
@@ -123,11 +132,6 @@ public partial class SuflaeParser : BaseParser
         if (Match(type: TokenType.Choice))
         {
             return ParseChoiceDeclaration(visibility: visibility); // choice in Suflae
-        }
-
-        if (Match(type: TokenType.Chimera))
-        {
-            return ParseVariantDeclaration(visibility: visibility, kind: VariantKind.Chimera);
         }
 
         if (Match(type: TokenType.Variant))
@@ -241,17 +245,6 @@ public partial class SuflaeParser : BaseParser
         if (Match(type: TokenType.Continue))
         {
             return ParseContinueStatement();
-        }
-
-        // Danger and mayhem blocks
-        if (Match(type: TokenType.Danger))
-        {
-            return ParseDangerStatement();
-        }
-
-        if (Match(type: TokenType.Mayhem))
-        {
-            return ParseMayhemStatement();
         }
 
         // Variable declarations (can appear in statement context)

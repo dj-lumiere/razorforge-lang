@@ -36,3 +36,5 @@ playground/
 wiki/
 internal-wiki/
 nul
+
+/native/.cache/

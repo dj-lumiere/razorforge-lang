@@ -1,0 +1,14 @@
+# Test external generic functions with calling conventions
+
+# External C function with generic constraint
+external("C") routine generic_alloc<T>(size: u64) -> pointer where T: record
+
+# External function without calling convention (defaults to C)
+external routine generic_free<T>(ptr: pointer) -> void where T: record
+
+# External C function with multiple constraints
+external("C") routine generic_compare<T>(a: T, b: T) -> s32 where T follows Comparable
+
+routine main() -> s32 {
+    return 0
+}

@@ -3,7 +3,7 @@ using Compilers.Shared.AST;
 namespace Compilers.Shared.Analysis;
 
 /// <summary>
-/// Partial class containing scoped access statement visitors (viewing, hijacking, observing, seizing).
+/// Partial class containing scoped access statement visitors (viewing, hijacking, inspecting, seizing).
 /// </summary>
 public partial class SemanticAnalyzer
 {
@@ -139,9 +139,9 @@ public partial class SemanticAnalyzer
     }
 
     /// <summary>
-    /// Visits an observing statement node (thread-safe scoped read access).
-    /// Syntax: observing &lt;handle&gt; from &lt;source&gt;: { ... }
-    /// Creates a temporary Observed&lt;T&gt; handle with shared read lock.
+    /// Visits an inspecting statement node (thread-safe scoped read access).
+    /// Syntax: inspecting &lt;handle&gt; from &lt;source&gt;: { ... }
+    /// Creates a temporary Inspected&lt;T&gt; handle with shared read lock.
     /// IMPORTANT: Only works with Shared&lt;T, MultiReadLock&gt;, not Shared&lt;T, Mutex&gt;.
     /// </summary>
     public object? VisitObservingStatement(ObservingStatement node)
@@ -162,11 +162,11 @@ public partial class SemanticAnalyzer
             MemoryObject? sourceObj = _memoryAnalyzer.GetObject(name: sourceId.Name);
             if (sourceObj != null)
             {
-                // COMPILE-TIME CHECK: observing requires MultiReadLock policy
+                // COMPILE-TIME CHECK: inspecting requires MultiReadLock policy
                 if (sourceObj.Wrapper == WrapperType.Shared &&
                     sourceObj.Policy != LockingPolicy.MultiReadLock)
                 {
-                    AddError(message: $"observing requires Shared<T, MultiReadLock>. " +
+                    AddError(message: $"inspecting requires Shared<T, MultiReadLock>. " +
                                       $"Object '{sourceId.Name}' has policy {sourceObj.Policy}. " +
                                       $"Use seizing for exclusive access, or create with MultiReadLock policy.",
                         location: node.Location);
@@ -175,16 +175,16 @@ public partial class SemanticAnalyzer
             }
         }
 
-        // Create a new scope for the observing block
+        // Create a new scope for the inspecting block
         _symbolTable.EnterScope();
         _memoryAnalyzer.EnterScope();
         _scopeDepth++;
 
         try
         {
-            // Create an Observed<T> type for the handle (not Witnessed<T>)
+            // Create an Inspected<T> type for the handle (not Witnessed<T>)
             var observedType =
-                new TypeInfo(Name: $"Observed<{sourceType.Name}>", IsReference: true);
+                new TypeInfo(Name: $"Inspected<{sourceType.Name}>", IsReference: true);
 
             // Declare the handle variable in the scope
             var handleSymbol = new VariableSymbol(Name: node.Handle,
@@ -205,7 +205,7 @@ public partial class SemanticAnalyzer
             // The source Shared<T, MultiReadLock> must have its read lock acquired
             if (node.Source is IdentifierExpression sourceIdent)
             {
-                InvalidateSource(sourceName: sourceIdent.Name, accessType: "observing");
+                InvalidateSource(sourceName: sourceIdent.Name, accessType: "inspecting");
             }
 
             // Visit the body with the handle available

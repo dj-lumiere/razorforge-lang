@@ -130,7 +130,7 @@ public record ReturnStatement(Expression? Value, SourceLocation Location)
 }
 
 /// <summary>
-/// Statement that fails the current function with an error, returning it via Result<T>.
+/// Statement that fails the current function with an error, returning it via Result&lt;T>.
 /// Used in RazorForge and Suflae for recoverable errors that should be handled by the caller.
 /// </summary>
 /// <param name="Error">Expression that evaluates to a Crashable error type</param>
@@ -145,7 +145,7 @@ public record ReturnStatement(Expression? Value, SourceLocation Location)
 ///     return a / b
 /// }
 /// </code>
-/// Compiler generates safe variants: try_divide() -> s32?, check_divide() -> Result<s32>
+/// Compiler generates safe variants: try_divide() -> s32?, check_divide() -> Result&lt;s32>
 /// </remarks>
 public record ThrowStatement(Expression Error, SourceLocation Location)
     : Statement(Location: Location)
@@ -158,7 +158,7 @@ public record ThrowStatement(Expression Error, SourceLocation Location)
 }
 
 /// <summary>
-/// Statement indicating that a value is not found/absent, triggering Lookup<T> generation.
+/// Statement indicating that a value is not found/absent, triggering Lookup&lt;T> generation.
 /// Used when a search operation finds no matching value (distinct from an error condition).
 /// </summary>
 /// <param name="Location">Source location information</param>
@@ -175,7 +175,7 @@ public record ThrowStatement(Expression Error, SourceLocation Location)
 ///     return database.get(id)
 /// }
 /// </code>
-/// Compiler generates: try_get_user() -> User?, find_get_user() -> Lookup<User>
+/// Compiler generates: try_get_user() -> User?, find_get_user() -> Lookup&lt;User>
 /// Pattern matching: is Crashable e / is None / else user
 /// </remarks>
 public record AbsentStatement(SourceLocation Location) : Statement(Location: Location)
@@ -184,6 +184,28 @@ public record AbsentStatement(SourceLocation Location) : Statement(Location: Loc
     public override T Accept<T>(IAstVisitor<T> visitor)
     {
         return visitor.VisitAbsentStatement(node: this);
+    }
+}
+
+/// <summary>
+/// Pass statement that acts as an empty placeholder in records, protocols, or other bodies.
+/// Used when a body is syntactically required but no operations are needed.
+/// </summary>
+/// <param name="Location">Source location information</param>
+/// <remarks>
+/// The pass statement serves as a no-op placeholder:
+/// <list type="bullet">
+/// <item>Empty record bodies: record Empty { pass }</item>
+/// <item>Empty protocol bodies: protocol Marker { pass }</item>
+/// <item>Placeholder for future implementation</item>
+/// </list>
+/// </remarks>
+public record PassStatement(SourceLocation Location) : Statement(Location: Location)
+{
+    /// <summary>Accepts a visitor for AST traversal and transformation</summary>
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitPassStatement(node: this);
     }
 }
 
@@ -202,10 +224,10 @@ public record AbsentStatement(SourceLocation Location) : Statement(Location: Loc
 /// <remarks>
 /// Supports both simple and complex branching:
 /// <list type="bullet">
-/// <item>Simple if: if (x > 0) print("positive")</item>
-/// <item>If-else: if (x > 0) print("positive") else print("not positive")</item>
-/// <item>Nested conditions: if (x > 0) if (x < 10) print("single digit")</item>
-/// <item>Block statements: if (condition) { multiple; statements; }</item>
+/// <item>Simple if: if (x > 0) show("positive")</item>
+/// <item>If-else: if (x > 0) show("positive") else show("not positive")</item>
+/// <item>Nested conditions: if (x > 0) if (x &lt; 10) show("single digit")</item>
+/// <item>Block statements: if (condition) { multiple \n statements }</item>
 /// </list>
 /// </remarks>
 public record IfStatement(
@@ -512,24 +534,6 @@ public record DangerStatement(BlockStatement Body, SourceLocation Location)
 }
 
 /// <summary>
-/// Represents a mayhem block statement for ultimate unsafe operations.
-/// Mayhem blocks enable the most dangerous features like runtime method replacement and code execution.
-/// </summary>
-/// <remarks>
-/// A mayhem block provides access to the Reality Bender's Metamorph module
-/// which can modify program structure at runtime. Should almost never be used.
-/// </remarks>
-public record MayhemStatement(BlockStatement Body, SourceLocation Location)
-    : Statement(Location: Location)
-{
-    /// <summary>Accepts a visitor for AST traversal and transformation</summary>
-    public override T Accept<T>(IAstVisitor<T> visitor)
-    {
-        return visitor.VisitMayhemStatement(node: this);
-    }
-}
-
-/// <summary>
 /// Represents a viewing block statement for scoped read-only access.
 /// Syntax: viewing &lt;expression&gt; as &lt;handle&gt; { &lt;body&gt; }
 /// </summary>
@@ -592,19 +596,19 @@ public record HijackingStatement(
 }
 
 /// <summary>
-/// Represents an observing block statement for thread-safe scoped read access.
-/// Syntax: observing &lt;handle&gt; from &lt;expression&gt;: { &lt;body&gt; }
+/// Represents an inspecting block statement for thread-safe scoped read access.
+/// Syntax: inspecting &lt;handle&gt; from &lt;expression&gt;: { &lt;body&gt; }
 /// </summary>
-/// <param name="Source">The Shared expression to observe (will be temporarily stolen)</param>
-/// <param name="Handle">The variable name for the thread-safe read handle (Observed&lt;T&gt;)</param>
+/// <param name="Source">The Shared expression to inspect (will be temporarily stolen)</param>
+/// <param name="Handle">The variable name for the thread-safe read handle (Inspected&lt;T&gt;)</param>
 /// <param name="Body">The block statement to execute with read access</param>
 /// <param name="Location">Source location information</param>
 /// <remarks>
-/// Observing semantics (for Shared with MultiReadLock policy):
+/// Inspecting semantics (for Shared with MultiReadLock policy):
 /// <list type="bullet">
 /// <item>Source becomes deadref during scope (temporarily stolen)</item>
-/// <item>Handle acquires read lock on Shared&lt;T, MultiReadLock&gt;, producing Observed&lt;T&gt;</item>
-/// <item>Multiple observing handles can coexist</item>
+/// <item>Handle acquires read lock on Shared&lt;T, MultiReadLock&gt;, producing Inspected&lt;T&gt;</item>
+/// <item>Multiple inspecting handles can coexist</item>
 /// <item>Source is automatically restored when scope exits</item>
 /// <item>Blocks seizing attempts until released</item>
 /// </list>
@@ -635,7 +639,7 @@ public record ObservingStatement(
 /// <list type="bullet">
 /// <item>Source becomes deadref during scope (temporarily stolen)</item>
 /// <item>Handle acquires exclusive lock on Shared&lt;T, Policy&gt;, producing Seized&lt;T&gt;</item>
-/// <item>Blocks all other access (observing and seizing) until released</item>
+/// <item>Blocks all other access (inspecting and seizing) until released</item>
 /// <item>Handle is NOT copyable - unique access only</item>
 /// <item>Source is automatically restored when scope exits</item>
 /// </list>

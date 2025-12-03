@@ -136,9 +136,11 @@ public partial class LLVMCodeGenerator
 
             // C FFI types - Pointer types (architecture-dependent)
             "csptr" => _targetPlatform.GetPointerSizedIntType(),
-            "cuptr" => _targetPlatform.GetPointerSizedIntType(),
-            "cvoid" => _targetPlatform.GetPointerSizedIntType(),
+            "cuptr" or "cvoid" => _targetPlatform.GetPointerSizedIntType(),
             "cbool" => "i1",
+
+            // C string type (null-terminated char pointer)
+            "cstr" => "i8*",
 
             _ => "ptr" // Default to pointer for unknown types (including cptr<T>)
         };
@@ -238,7 +240,7 @@ public partial class LLVMCodeGenerator
                 // Get size of type in bytes using LLVM's getelementptr trick
                 int size = GetTypeSize(typeName: typeName);
                 _output.AppendLine(handler: $"  {resultTemp} = add i64 0, {size}");
-                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i64",
+                _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: "i64",
                     IsUnsigned: true,
                     IsFloatingPoint: false,
                     RazorForgeType: "uaddr");
@@ -248,7 +250,7 @@ public partial class LLVMCodeGenerator
                 // Get alignment of type
                 int alignment = GetAlignment(typeName: typeName);
                 _output.AppendLine(handler: $"  {resultTemp} = add i64 0, {alignment}");
-                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i64",
+                _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: "i64",
                     IsUnsigned: true,
                     IsFloatingPoint: false,
                     RazorForgeType: "uaddr");
@@ -261,7 +263,7 @@ public partial class LLVMCodeGenerator
                 _output.AppendLine(
                     handler:
                     $"  {resultTemp} = getelementptr [{typeNameStr.Length + 1} x i8], [{typeNameStr.Length + 1} x i8]* {strConstName}, i32 0, i32 0");
-                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i8*",
+                _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: "i8*",
                     IsUnsigned: false,
                     IsFloatingPoint: false,
                     RazorForgeType: "Text<letter8>");
@@ -271,7 +273,7 @@ public partial class LLVMCodeGenerator
                 // Get number of fields in a struct/record type
                 int fieldCount = GetFieldCount(typeName: typeName);
                 _output.AppendLine(handler: $"  {resultTemp} = add i64 0, {fieldCount}");
-                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i64",
+                _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: "i64",
                     IsUnsigned: true,
                     IsFloatingPoint: false,
                     RazorForgeType: "uaddr");
@@ -394,7 +396,7 @@ public partial class LLVMCodeGenerator
             case "get_line_number":
                 int line = node.Location.Line;
                 _output.AppendLine(handler: $"  {resultTemp} = add i64 0, {line}");
-                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i64",
+                _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: "i64",
                     IsUnsigned: false,
                     IsFloatingPoint: false,
                     RazorForgeType: "s64");
@@ -403,7 +405,7 @@ public partial class LLVMCodeGenerator
             case "get_column_number":
                 int column = node.Location.Column;
                 _output.AppendLine(handler: $"  {resultTemp} = add i64 0, {column}");
-                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i64",
+                _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: "i64",
                     IsUnsigned: false,
                     IsFloatingPoint: false,
                     RazorForgeType: "s64");
@@ -416,7 +418,7 @@ public partial class LLVMCodeGenerator
                 _output.AppendLine(
                     handler:
                     $"  {resultTemp} = getelementptr [{fileName.Length + 1} x i8], [{fileName.Length + 1} x i8]* {fileNameConst}, i32 0, i32 0");
-                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i8*",
+                _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: "i8*",
                     IsUnsigned: false,
                     IsFloatingPoint: false,
                     RazorForgeType: "Text<letter8>");
@@ -429,7 +431,7 @@ public partial class LLVMCodeGenerator
                 _output.AppendLine(
                     handler:
                     $"  {resultTemp} = getelementptr [{callerName.Length + 1} x i8], [{callerName.Length + 1} x i8]* {callerConst}, i32 0, i32 0");
-                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i8*",
+                _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: "i8*",
                     IsUnsigned: false,
                     IsFloatingPoint: false,
                     RazorForgeType: "Text<letter8>");
@@ -444,7 +446,7 @@ public partial class LLVMCodeGenerator
                 _output.AppendLine(
                     handler:
                     $"  {resultTemp} = getelementptr [{moduleName.Length + 1} x i8], [{moduleName.Length + 1} x i8]* {moduleConst}, i32 0, i32 0");
-                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i8*",
+                _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: "i8*",
                     IsUnsigned: false,
                     IsFloatingPoint: false,
                     RazorForgeType: "Text<letter8>");
@@ -588,5 +590,48 @@ public partial class LLVMCodeGenerator
 
         // Use stack trace infrastructure to throw
         _stackTraceCodeGen?.EmitThrow(errorTypePtr: typePtr, messagePtr: messagePtr);
+    }
+
+    /// <summary>
+    /// Visits a preset declaration (compile-time constant).
+    /// Generates a global constant in LLVM IR.
+    /// </summary>
+    public string VisitPresetDeclaration(PresetDeclaration node)
+    {
+        string sanitizedName = SanitizeFunctionName(name: node.Name);
+        string llvmType = MapRazorForgeTypeToLLVM(razorForgeType: node.Type.Name);
+
+        // Track the preset type so it can be loaded correctly later
+        _symbolTypes[key: node.Name] = llvmType;
+        _symbolRfTypes[key: node.Name] = node.Type.Name;
+        _globalConstants.Add(item: node.Name); // Mark as global constant
+
+        // Determine the appropriate zero/null value for the type
+        string zeroValue = llvmType.EndsWith(value: "*") || llvmType == "ptr" ? "null" : "0";
+
+        // Evaluate the value expression for the constant
+        // For simple literals, we can emit them directly
+        if (node.Value is LiteralExpression literal)
+        {
+            string value = literal.Value?.ToString() ?? zeroValue;
+            // Handle null pointer case
+            if (value == "0" && (llvmType.EndsWith(value: "*") || llvmType == "ptr"))
+            {
+                value = "null";
+            }
+            _output.AppendLine(
+                handler: $"@{sanitizedName} = constant {llvmType} {value}");
+        }
+        else
+        {
+            // For more complex expressions, we need to evaluate at compile time
+            // For now, emit a placeholder
+            _output.AppendLine(
+                handler: $"; TODO: Evaluate preset {node.Name} at compile time");
+            _output.AppendLine(
+                handler: $"@{sanitizedName} = constant {llvmType} {zeroValue}");
+        }
+
+        return "";
     }
 }

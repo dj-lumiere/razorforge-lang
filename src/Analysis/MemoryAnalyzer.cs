@@ -127,7 +127,8 @@ public class MemoryAnalyzer
         {
             // Suflae does not have danger blocks - it uses automatic memory management
             // and doesn't expose unsafe operations to the programmer
-            AddError(message: "Danger blocks are not allowed in Suflae", location: location,
+            AddError(message: "Danger blocks are not allowed in Suflae",
+                location: location,
                 type: MemoryError.MemoryErrorType.DangerBlockViolation);
             return;
         }
@@ -190,8 +191,12 @@ public class MemoryAnalyzer
         WrapperType wrapper = _language == Language.Suflae
             ? WrapperType.Shared
             : WrapperType.Owned;
-        var obj = new MemoryObject(Name: name, BaseType: type, Wrapper: wrapper,
-            State: ObjectState.Valid, ReferenceCount: 1, Location: location);
+        var obj = new MemoryObject(Name: name,
+            BaseType: type,
+            Wrapper: wrapper,
+            State: ObjectState.Valid,
+            ReferenceCount: 1,
+            Location: location);
 
         Dictionary<string, MemoryObject> currentScope = _scopes.Peek();
         currentScope[key: name] = obj;
@@ -230,7 +235,8 @@ public class MemoryAnalyzer
         MemoryObject? sourceObj = GetObject(name: source);
         if (sourceObj == null)
         {
-            AddError(message: $"Source object '{source}' not found", location: location,
+            AddError(message: $"Source object '{source}' not found",
+                location: location,
                 type: MemoryError.MemoryErrorType.UseAfterInvalidation);
             return;
         }
@@ -238,7 +244,8 @@ public class MemoryAnalyzer
         if (sourceObj.State != ObjectState.Valid)
         {
             AddError(message: $"Cannot assign from invalidated object '{source}'",
-                location: location, type: MemoryError.MemoryErrorType.UseAfterInvalidation);
+                location: location,
+                type: MemoryError.MemoryErrorType.UseAfterInvalidation);
             return;
         }
 
@@ -282,7 +289,8 @@ public class MemoryAnalyzer
         MemoryObject? obj = GetObject(name: objectName);
         if (obj == null)
         {
-            AddError(message: $"Object '{objectName}' not found", location: location,
+            AddError(message: $"Object '{objectName}' not found",
+                location: location,
                 type: MemoryError.MemoryErrorType.UseAfterInvalidation);
             return null;
         }
@@ -293,7 +301,8 @@ public class MemoryAnalyzer
             AddError(
                 message:
                 $"Cannot perform {operation} on invalidated object '{objectName}' (invalidated by: {obj.InvalidatedBy})",
-                location: location, type: MemoryError.MemoryErrorType.UseAfterInvalidation);
+                location: location,
+                type: MemoryError.MemoryErrorType.UseAfterInvalidation);
             return null;
         }
 
@@ -301,20 +310,21 @@ public class MemoryAnalyzer
         return operation switch
         {
             MemoryOperation.Retain => HandleRetain(obj: obj, location: location),
-            MemoryOperation.Share => HandleShare(obj: obj, location: location,
+            MemoryOperation.Share => HandleShare(obj: obj,
+                location: location,
                 policy: policy ?? LockingPolicy.Mutex),
             MemoryOperation.Track => HandleTrack(obj: obj, location: location, policy: policy),
             MemoryOperation.Snatch => HandleSnatch(obj: obj, location: location),
             MemoryOperation.Recover => HandleRecover(obj: obj, location: location),
-            // Fallible lock operations handled via seizing/observing statements
+            // Fallible lock operations handled via seizing/inspecting statements
             MemoryOperation.TrySeize or MemoryOperation.CheckSeize => throw
                 new NotImplementedException(
                     message:
                     "try_seize/check_seize should be handled via seizing statement syntax"),
-            MemoryOperation.TryObserve or MemoryOperation.CheckObserve => throw
+            MemoryOperation.TryInsepct or MemoryOperation.CheckInspect => throw
                 new NotImplementedException(
                     message:
-                    "try_observe/check_observe should be handled via observing statement syntax"),
+                    "try_inspect/check_inspect should be handled via inspecting statement syntax"),
             _ => throw new ArgumentException(message: $"Unknown memory operation: {operation}")
         };
     }
@@ -329,7 +339,8 @@ public class MemoryAnalyzer
     {
         if (!obj.CanTransformTo(target: WrapperType.Hijacked, inDangerBlock: _inDangerBlock))
         {
-            AddError(message: $"Cannot hijack object of type {obj.Wrapper}", location: location,
+            AddError(message: $"Cannot hijack object of type {obj.Wrapper}",
+                location: location,
                 type: MemoryError.MemoryErrorType.InvalidTransformation);
             return null;
         }
@@ -353,7 +364,8 @@ public class MemoryAnalyzer
     {
         if (!obj.CanTransformTo(target: WrapperType.Retained, inDangerBlock: _inDangerBlock))
         {
-            AddError(message: $"Cannot retain object of type {obj.Wrapper}", location: location,
+            AddError(message: $"Cannot retain object of type {obj.Wrapper}",
+                location: location,
                 type: MemoryError.MemoryErrorType.InvalidTransformation);
             return null;
         }
@@ -406,7 +418,8 @@ public class MemoryAnalyzer
         }
 
         AddError(message: $"Can only track Retained or Shared objects, not {obj.Wrapper}",
-            location: location, type: MemoryError.MemoryErrorType.InvalidTransformation);
+            location: location,
+            type: MemoryError.MemoryErrorType.InvalidTransformation);
         return null;
     }
 
@@ -422,7 +435,8 @@ public class MemoryAnalyzer
     {
         if (!obj.CanTransformTo(target: WrapperType.Shared, inDangerBlock: _inDangerBlock))
         {
-            AddError(message: $"Cannot share object of type {obj.Wrapper}", location: location,
+            AddError(message: $"Cannot share object of type {obj.Wrapper}",
+                location: location,
                 type: MemoryError.MemoryErrorType.InvalidTransformation);
             return null;
         }
@@ -435,7 +449,8 @@ public class MemoryAnalyzer
                 AddError(
                     message:
                     $"Cannot change locking policy from {obj.Policy} to {policy} on existing Shared object",
-                    location: location, type: MemoryError.MemoryErrorType.InvalidTransformation);
+                    location: location,
+                    type: MemoryError.MemoryErrorType.InvalidTransformation);
                 return null;
             }
 
@@ -465,7 +480,8 @@ public class MemoryAnalyzer
     {
         if (!_inDangerBlock)
         {
-            AddError(message: "snatch!() can only be used in danger! blocks", location: location,
+            AddError(message: "snatch!() can only be used in danger! blocks",
+                location: location,
                 type: MemoryError.MemoryErrorType.DangerBlockViolation);
             return null;
         }
@@ -491,7 +507,8 @@ public class MemoryAnalyzer
         if (obj.Wrapper != WrapperType.Retained && obj.Wrapper != WrapperType.Shared)
         {
             AddError(message: $"Can only release Retained or Shared objects, not {obj.Wrapper}",
-                location: location, type: MemoryError.MemoryErrorType.InvalidTransformation);
+                location: location,
+                type: MemoryError.MemoryErrorType.InvalidTransformation);
             return null;
         }
 
@@ -499,7 +516,8 @@ public class MemoryAnalyzer
         {
             AddError(
                 message: $"Cannot release object with RC={obj.ReferenceCount} (would drop to 0)",
-                location: location, type: MemoryError.MemoryErrorType.ReferenceCountError);
+                location: location,
+                type: MemoryError.MemoryErrorType.ReferenceCountError);
             return null;
         }
 
@@ -522,7 +540,8 @@ public class MemoryAnalyzer
         if (obj.Wrapper != WrapperType.Tracked)
         {
             AddError(message: $"Can only recover Tracked objects, not {obj.Wrapper}",
-                location: location, type: MemoryError.MemoryErrorType.InvalidTransformation);
+                location: location,
+                type: MemoryError.MemoryErrorType.InvalidTransformation);
             return null;
         }
 
@@ -552,13 +571,15 @@ public class MemoryAnalyzer
         if (obj.Wrapper != WrapperType.Snatched)
         {
             AddError(message: $"Can only reveal Snatched objects, not {obj.Wrapper}",
-                location: location, type: MemoryError.MemoryErrorType.InvalidTransformation);
+                location: location,
+                type: MemoryError.MemoryErrorType.InvalidTransformation);
             return null;
         }
 
         if (!_inDangerBlock)
         {
-            AddError(message: "reveal!() can only be used in danger! blocks", location: location,
+            AddError(message: "reveal!() can only be used in danger! blocks",
+                location: location,
                 type: MemoryError.MemoryErrorType.DangerBlockViolation);
             return null;
         }
@@ -578,13 +599,15 @@ public class MemoryAnalyzer
         if (obj.Wrapper != WrapperType.Snatched)
         {
             AddError(message: $"Can only own Snatched objects, not {obj.Wrapper}",
-                location: location, type: MemoryError.MemoryErrorType.InvalidTransformation);
+                location: location,
+                type: MemoryError.MemoryErrorType.InvalidTransformation);
             return null;
         }
 
         if (!_inDangerBlock)
         {
-            AddError(message: "own!() can only be used in danger! blocks", location: location,
+            AddError(message: "own!() can only be used in danger! blocks",
+                location: location,
                 type: MemoryError.MemoryErrorType.DangerBlockViolation);
             return null;
         }
@@ -615,7 +638,8 @@ public class MemoryAnalyzer
         MemoryObject? obj = GetObject(name: objectName);
         if (obj == null)
         {
-            AddError(message: $"Object '{objectName}' not found", location: location,
+            AddError(message: $"Object '{objectName}' not found",
+                location: location,
                 type: MemoryError.MemoryErrorType.UseAfterInvalidation);
             return;
         }
@@ -623,7 +647,8 @@ public class MemoryAnalyzer
         if (obj.State != ObjectState.Valid)
         {
             AddError(message: $"Cannot move invalidated object '{objectName}' into container",
-                location: location, type: MemoryError.MemoryErrorType.ContainerMoveError);
+                location: location,
+                type: MemoryError.MemoryErrorType.ContainerMoveError);
             return;
         }
 
@@ -631,7 +656,8 @@ public class MemoryAnalyzer
         if (_language == Language.RazorForge)
         {
             // RazorForge: move semantics - invalidate source after moving to container
-            InvalidateObject(name: objectName, reason: $"moved into container '{containerName}'",
+            InvalidateObject(name: objectName,
+                reason: $"moved into container '{containerName}'",
                 location: location);
         }
         else if (_language == Language.Suflae)
@@ -662,7 +688,8 @@ public class MemoryAnalyzer
         // Check if return type is Hijacked<T> without usurping declaration
         if (IsHijackedType(type: returnType) && !_inUsurpingFunction)
         {
-            AddError(message: "Only usurping functions can return Hijacked<T>", location: location,
+            AddError(message: "Only usurping functions can return Hijacked<T>",
+                location: location,
                 type: MemoryError.MemoryErrorType.UsurpingViolation);
         }
     }
@@ -802,33 +829,41 @@ public class MemoryAnalyzer
             errors.Add(item: new MemoryError(
                 Message:
                 $"Cannot perform {operation} on invalidated object '{memoryObject.Name}' (invalidated by: {memoryObject.InvalidatedBy})",
-                Location: location, Type: MemoryError.MemoryErrorType.UseAfterInvalidation));
+                Location: location,
+                Type: MemoryError.MemoryErrorType.UseAfterInvalidation));
             return new MemoryOperationResult(IsSuccess: false,
-                NewWrapperType: memoryObject.Wrapper, Errors: errors);
+                NewWrapperType: memoryObject.Wrapper,
+                Errors: errors);
         }
 
         // Validate specific operations
         WrapperType newWrapperType = operation switch
         {
-            MemoryOperation.Retain => ValidateRetain(obj: memoryObject, location: location,
+            MemoryOperation.Retain => ValidateRetain(obj: memoryObject,
+                location: location,
                 errors: errors),
-            MemoryOperation.Share => ValidateShare(obj: memoryObject, location: location,
+            MemoryOperation.Share => ValidateShare(obj: memoryObject,
+                location: location,
                 errors: errors),
-            MemoryOperation.Track => ValidateTrack(obj: memoryObject, location: location,
+            MemoryOperation.Track => ValidateTrack(obj: memoryObject,
+                location: location,
                 errors: errors),
-            MemoryOperation.Snatch => ValidateSnatch(obj: memoryObject, location: location,
+            MemoryOperation.Snatch => ValidateSnatch(obj: memoryObject,
+                location: location,
                 errors: errors),
-            MemoryOperation.Recover => ValidateRecover(obj: memoryObject, location: location,
+            MemoryOperation.Recover => ValidateRecover(obj: memoryObject,
+                location: location,
                 errors: errors),
-            // Fallible lock operations handled via seizing/observing statements
-            MemoryOperation.TrySeize or MemoryOperation.CheckSeize or MemoryOperation.TryObserve
-                or MemoryOperation.CheckObserve =>
+            // Fallible lock operations handled via seizing/inspecting statements
+            MemoryOperation.TrySeize or MemoryOperation.CheckSeize or MemoryOperation.TryInsepct
+                or MemoryOperation.CheckInspect =>
                 WrapperType.Owned, // Placeholder - shouldn't reach here
             _ => WrapperType.Owned
         };
 
         return new MemoryOperationResult(IsSuccess: errors.Count == 0,
-            NewWrapperType: newWrapperType, Errors: errors);
+            NewWrapperType: newWrapperType,
+            Errors: errors);
     }
 
     // Validation helper methods
@@ -838,7 +873,8 @@ public class MemoryAnalyzer
         if (!obj.CanTransformTo(target: WrapperType.Hijacked, inDangerBlock: _inDangerBlock))
         {
             errors.Add(item: new MemoryError(
-                Message: $"Cannot hijack object of type {obj.Wrapper}", Location: location,
+                Message: $"Cannot hijack object of type {obj.Wrapper}",
+                Location: location,
                 Type: MemoryError.MemoryErrorType.InvalidTransformation));
             return obj.Wrapper;
         }
@@ -852,7 +888,8 @@ public class MemoryAnalyzer
         if (!obj.CanTransformTo(target: WrapperType.Retained, inDangerBlock: _inDangerBlock))
         {
             errors.Add(item: new MemoryError(
-                Message: $"Cannot retain object of type {obj.Wrapper}", Location: location,
+                Message: $"Cannot retain object of type {obj.Wrapper}",
+                Location: location,
                 Type: MemoryError.MemoryErrorType.InvalidTransformation));
             return obj.Wrapper;
         }
@@ -867,7 +904,8 @@ public class MemoryAnalyzer
         {
             errors.Add(item: new MemoryError(
                 Message: $"Can only track Retained or Shared objects, not {obj.Wrapper}",
-                Location: location, Type: MemoryError.MemoryErrorType.InvalidTransformation));
+                Location: location,
+                Type: MemoryError.MemoryErrorType.InvalidTransformation));
             return obj.Wrapper;
         }
 
@@ -880,7 +918,8 @@ public class MemoryAnalyzer
         if (!obj.CanTransformTo(target: WrapperType.Shared, inDangerBlock: _inDangerBlock))
         {
             errors.Add(item: new MemoryError(Message: $"Cannot share object of type {obj.Wrapper}",
-                Location: location, Type: MemoryError.MemoryErrorType.InvalidTransformation));
+                Location: location,
+                Type: MemoryError.MemoryErrorType.InvalidTransformation));
             return obj.Wrapper;
         }
 
@@ -893,7 +932,8 @@ public class MemoryAnalyzer
         if (!_inDangerBlock)
         {
             errors.Add(item: new MemoryError(
-                Message: "snatch!() can only be used in danger! blocks", Location: location,
+                Message: "snatch!() can only be used in danger! blocks",
+                Location: location,
                 Type: MemoryError.MemoryErrorType.DangerBlockViolation));
             return obj.Wrapper;
         }
@@ -908,7 +948,8 @@ public class MemoryAnalyzer
         {
             errors.Add(item: new MemoryError(
                 Message: $"Can only release Retained or Shared objects, not {obj.Wrapper}",
-                Location: location, Type: MemoryError.MemoryErrorType.InvalidTransformation));
+                Location: location,
+                Type: MemoryError.MemoryErrorType.InvalidTransformation));
             return obj.Wrapper;
         }
 
@@ -916,7 +957,8 @@ public class MemoryAnalyzer
         {
             errors.Add(item: new MemoryError(
                 Message: $"Cannot release object with RC={obj.ReferenceCount} (would drop to 0)",
-                Location: location, Type: MemoryError.MemoryErrorType.ReferenceCountError));
+                Location: location,
+                Type: MemoryError.MemoryErrorType.ReferenceCountError));
             return obj.Wrapper;
         }
 
@@ -930,7 +972,8 @@ public class MemoryAnalyzer
         {
             errors.Add(item: new MemoryError(
                 Message: $"Can only recover Tracked objects, not {obj.Wrapper}",
-                Location: location, Type: MemoryError.MemoryErrorType.InvalidTransformation));
+                Location: location,
+                Type: MemoryError.MemoryErrorType.InvalidTransformation));
             return obj.Wrapper;
         }
 
@@ -947,14 +990,16 @@ public class MemoryAnalyzer
         {
             errors.Add(item: new MemoryError(
                 Message: $"Can only reveal Snatched objects, not {obj.Wrapper}",
-                Location: location, Type: MemoryError.MemoryErrorType.InvalidTransformation));
+                Location: location,
+                Type: MemoryError.MemoryErrorType.InvalidTransformation));
             return obj.Wrapper;
         }
 
         if (!_inDangerBlock)
         {
             errors.Add(item: new MemoryError(
-                Message: "reveal!() can only be used in danger! blocks", Location: location,
+                Message: "reveal!() can only be used in danger! blocks",
+                Location: location,
                 Type: MemoryError.MemoryErrorType.DangerBlockViolation));
             return obj.Wrapper;
         }
@@ -968,7 +1013,8 @@ public class MemoryAnalyzer
         if (obj.Wrapper != WrapperType.Snatched)
         {
             errors.Add(item: new MemoryError(
-                Message: $"Can only own Snatched objects, not {obj.Wrapper}", Location: location,
+                Message: $"Can only own Snatched objects, not {obj.Wrapper}",
+                Location: location,
                 Type: MemoryError.MemoryErrorType.InvalidTransformation));
             return obj.Wrapper;
         }
@@ -976,7 +1022,8 @@ public class MemoryAnalyzer
         if (!_inDangerBlock)
         {
             errors.Add(item: new MemoryError(Message: "own!() can only be used in danger! blocks",
-                Location: location, Type: MemoryError.MemoryErrorType.DangerBlockViolation));
+                Location: location,
+                Type: MemoryError.MemoryErrorType.DangerBlockViolation));
             return obj.Wrapper;
         }
 

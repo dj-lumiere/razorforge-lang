@@ -67,8 +67,7 @@ public class DocumentManager
     /// <param name="languageId">Language identifier (should be 'razorforge')</param>
     /// <param name="version">Initial version number from the client</param>
     /// <param name="text">Initial content of the document</param>
-    public void OpenDocument(string uri, string languageId, int version,
-        string text)
+    public void OpenDocument(string uri, string languageId, int version, string text)
     {
         _logger.LogInformation(message: $"Opening document: {uri}");
 
@@ -81,7 +80,8 @@ public class DocumentManager
             LastModified = DateTime.UtcNow
         };
 
-        _documents.AddOrUpdate(key: uri, addValue: document,
+        _documents.AddOrUpdate(key: uri,
+            addValue: document,
             updateValueFactory: (_, _) => document);
 
         // Trigger initial analysis
@@ -118,7 +118,8 @@ public class DocumentManager
             Version = version, Text = newText, LastModified = DateTime.UtcNow
         };
 
-        _documents.AddOrUpdate(key: uri, addValue: updatedDocument,
+        _documents.AddOrUpdate(key: uri,
+            addValue: updatedDocument,
             updateValueFactory: (_, _) => updatedDocument);
 
         // Trigger re-analysis
@@ -197,7 +198,8 @@ public class DocumentManager
                 CompilationResult = result, LastAnalyzed = DateTime.UtcNow
             };
 
-            _documents.AddOrUpdate(key: document.Uri, addValue: updatedDocument,
+            _documents.AddOrUpdate(key: document.Uri,
+                addValue: updatedDocument,
                 updateValueFactory: (_, _) => updatedDocument);
 
             _logger.LogDebug(
@@ -242,10 +244,10 @@ public class DocumentManager
             {
                 // Incremental change
                 string[] lines = text.Split(separator: '\n');
-                int startLine = (int)change.Range.Start.Line;
-                int startChar = (int)change.Range.Start.Character;
-                int endLine = (int)change.Range.End.Line;
-                int endChar = (int)change.Range.End.Character;
+                int startLine = change.Range.Start.Line;
+                int startChar = change.Range.Start.Character;
+                int endLine = change.Range.End.Line;
+                int endChar = change.Range.End.Character;
 
                 // Build new text with the change applied
                 var newLines = new List<string>();
@@ -436,7 +438,10 @@ public record Symbol
     /// Source location where the symbol is defined or declared.
     /// Used for navigation features and position-based symbol lookups.
     /// </summary>
-    public SourceLocation Location { get; init; } = new(Line: 0, Column: 0, Position: 0);
+    public SourceLocation Location { get; init; } = new(FileName: "",
+        Line: 0,
+        Column: 0,
+        Position: 0);
 
     /// <summary>
     /// Classification of the symbol type (function, variable, class, etc.).

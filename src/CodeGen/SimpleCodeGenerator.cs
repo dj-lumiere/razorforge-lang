@@ -42,10 +42,25 @@ public class SimpleCodeGenerator : IAstVisitor<string>
     private readonly Dictionary<string, FunctionDeclaration> _genericFunctionTemplates = new();
 
     /// <summary>Tracks instantiated generic functions to avoid duplicates</summary>
-    private readonly HashSet<string> _instantiatedGenerics = new();
+    private readonly HashSet<string> _instantiatedGenerics = [];
 
     /// <summary>Current type substitutions for generic function body generation</summary>
     private Dictionary<string, string>? _currentTypeSubstitutions;
+
+    /// <summary>Loaded modules from semantic analysis for import expansion</summary>
+    private IReadOnlyDictionary<string, ModuleResolver.ModuleInfo>? _loadedModules;
+
+    /// <summary>Tracks already expanded modules to avoid duplicates</summary>
+    private readonly HashSet<string> _expandedModules = [];
+
+    /// <summary>
+    /// Sets or gets the loaded modules for import expansion.
+    /// </summary>
+    public IReadOnlyDictionary<string, ModuleResolver.ModuleInfo>? LoadedModules
+    {
+        get => _loadedModules;
+        set => _loadedModules = value;
+    }
 
     /// <summary>
     /// Initializes a new simple code generator for the specified language and mode.
@@ -170,8 +185,8 @@ public class SimpleCodeGenerator : IAstVisitor<string>
         string visStr = node.Visibility != VisibilityModifier.Private
             ? $"{node.Visibility.ToString().ToLower()} "
             : "";
-        string paramStr = string.Join(separator: ", ", values: node.Parameters.Select(
-            selector: p =>
+        string paramStr = string.Join(separator: ", ",
+            values: node.Parameters.Select(selector: p =>
             {
                 string typeName = p.Type?.Name ?? "auto";
                 // Apply type substitution if available
@@ -184,7 +199,7 @@ public class SimpleCodeGenerator : IAstVisitor<string>
                 return $"{p.Name}: {typeName}";
             }));
 
-        string returnStr = node.ReturnType?.Name ?? "void";
+        string returnStr = node.ReturnType?.Name ?? "Blank";
         // Apply type substitution to return type
         if (typeSubstitutions != null &&
             typeSubstitutions.TryGetValue(key: returnStr, value: out string? concreteReturn))
@@ -250,13 +265,14 @@ public class SimpleCodeGenerator : IAstVisitor<string>
         }
 
         // Generate the instantiated function code
-        GenerateFunctionCode(node: template, typeSubstitutions: substitutions,
+        GenerateFunctionCode(node: template,
+            typeSubstitutions: substitutions,
             mangledName: mangledName);
 
         return mangledName;
     }
 
-    public string VisitClassDeclaration(ClassDeclaration node)
+    public string VisitEntityDeclaration(EntityDeclaration node)
     {
         string visStr = node.Visibility != VisibilityModifier.Private
             ? $"{node.Visibility.ToString().ToLower()} "
@@ -281,7 +297,7 @@ public class SimpleCodeGenerator : IAstVisitor<string>
         return "";
     }
 
-    public string VisitStructDeclaration(StructDeclaration node)
+    public string VisitRecordDeclaration(RecordDeclaration node)
     {
         WriteLine(text: $"record {node.Name}");
         WriteLine(text: "{");
@@ -291,9 +307,9 @@ public class SimpleCodeGenerator : IAstVisitor<string>
         return "";
     }
 
-    public string VisitMenuDeclaration(MenuDeclaration node)
+    public string VisitChoiceDeclaration(ChoiceDeclaration node)
     {
-        WriteLine(text: $"enum {node.Name}");
+        WriteLine(text: $"choice {node.Name}");
         WriteLine(text: "{");
         WriteLine(text: "  ; enum variants would go here");
         WriteLine(text: "}");
@@ -311,9 +327,9 @@ public class SimpleCodeGenerator : IAstVisitor<string>
         return "";
     }
 
-    public string VisitFeatureDeclaration(FeatureDeclaration node)
+    public string VisitProtocolDeclaration(ProtocolDeclaration node)
     {
-        WriteLine(text: $"feature {node.Name}");
+        WriteLine(text: $"protocol {node.Name}");
         WriteLine(text: "{");
         Indent();
 
@@ -340,7 +356,44 @@ public class SimpleCodeGenerator : IAstVisitor<string>
 
     public string VisitImportDeclaration(ImportDeclaration node)
     {
-        WriteLine(text: "import statement");
+        string modulePath = node.ModulePath;
+
+        // Check if we've already expanded this module
+        if (_expandedModules.Contains(item: modulePath))
+        {
+            WriteLine(text: $"; (already included: {modulePath})");
+            return "";
+        }
+
+        // Mark as expanded to prevent infinite recursion
+        _expandedModules.Add(item: modulePath);
+
+        // Try to find the module in loaded modules
+        if (_loadedModules != null && _loadedModules.TryGetValue(key: modulePath, value: out ModuleResolver.ModuleInfo? moduleInfo))
+        {
+            WriteLine(text: $"; ============================================================================");
+            WriteLine(text: $"; BEGIN IMPORT: {modulePath}");
+            WriteLine(text: $"; Source: {moduleInfo.FilePath}");
+            WriteLine(text: $"; ============================================================================");
+            WriteLine();
+
+            // Visit all declarations from the imported module
+            foreach (IAstNode declaration in moduleInfo.Ast.Declarations)
+            {
+                declaration.Accept(visitor: this);
+            }
+
+            WriteLine(text: $"; ============================================================================");
+            WriteLine(text: $"; END IMPORT: {modulePath}");
+            WriteLine(text: $"; ============================================================================");
+            WriteLine();
+        }
+        else
+        {
+            // Module not found in loaded modules - just output the import statement
+            WriteLine(text: $"import {modulePath}  ; (module not loaded)");
+        }
+
         return "";
     }
 
@@ -350,7 +403,7 @@ public class SimpleCodeGenerator : IAstVisitor<string>
         return "";
     }
 
-    public string VisitRedefinitionDeclaration(RedefinitionDeclaration node)
+    public string VisitDefineDeclaration(RedefinitionDeclaration node)
     {
         WriteLine(text: $"redefine {node.OldName} as {node.NewName}");
         return "";
@@ -464,8 +517,8 @@ public class SimpleCodeGenerator : IAstVisitor<string>
                 string bodyStr = exprStmt.Expression.Accept(visitor: this);
                 WriteLine(text: $"{patternStr} => {bodyStr}");
             }
-            else if (clause.Body is BlockStatement blockStmt && blockStmt.Statements.Count == 1
-                     && blockStmt.Statements[0] is ExpressionStatement singleExpr)
+            else if (clause.Body is BlockStatement blockStmt && blockStmt.Statements.Count == 1 &&
+                     blockStmt.Statements[index: 0] is ExpressionStatement singleExpr)
             {
                 string bodyStr = singleExpr.Expression.Accept(visitor: this);
                 WriteLine(text: $"{patternStr} => {bodyStr}");
@@ -508,18 +561,14 @@ public class SimpleCodeGenerator : IAstVisitor<string>
     /// <summary>
     /// Formats a literal value for pattern output.
     /// </summary>
-    private string FormatLiteralValue(object value)
+    private string FormatLiteralValue(object value, string? typeName = null)
     {
         return value switch
         {
             bool b => b.ToString().ToLower(),
-            int i => i.ToString(),
-            long l => l.ToString() + "L",
-            float f => f.ToString() + "f",
-            double d => d.ToString(),
             string s => $"\"{s}\"",
             null => "null",
-            _ => value.ToString() ?? "?"
+            _ => FormatNumericLiteral(value: value, suffix: typeName)
         };
     }
 
@@ -558,41 +607,71 @@ public class SimpleCodeGenerator : IAstVisitor<string>
         return "";
     }
 
+    public string VisitPassStatement(PassStatement node)
+    {
+        WriteLine(text: "pass");
+        return "";
+    }
+
+    public string VisitPresetDeclaration(PresetDeclaration node)
+    {
+        string typeStr = node.Type.Accept(visitor: this);
+        string valueStr = node.Value.Accept(visitor: this);
+        WriteLine(text: $"preset {node.Name}: {typeStr} = {valueStr}");
+        return "";
+    }
+
     // Expressions
 
     public string VisitLiteralExpression(LiteralExpression node)
     {
+        // Get the type suffix from ResolvedType if available
+        string? suffix = node.ResolvedType?.Name;
+
         return node.Value switch
         {
-            bool b => b.ToString()
-                       .ToLower(),
-            int i => i.ToString(),
-            long l => l.ToString() + "L",
-            float f => f.ToString() + "f",
-            double d => d.ToString(),
+            bool b => b.ToString().ToLower(),
             string s => $"\"{s}\"",
             null => "null",
-            _ => node.Value?.ToString() ?? "unknown"
+            _ => FormatNumericLiteral(value: node.Value, suffix: suffix)
         };
+    }
+
+    /// <summary>
+    /// Formats a numeric literal with the appropriate RazorForge type suffix.
+    /// </summary>
+    private string FormatNumericLiteral(object value, string? suffix)
+    {
+        string valueStr = value switch
+        {
+            float f => f.ToString(provider: System.Globalization.CultureInfo.InvariantCulture),
+            double d => d.ToString(provider: System.Globalization.CultureInfo.InvariantCulture),
+            decimal dec => dec.ToString(provider: System.Globalization.CultureInfo.InvariantCulture),
+            _ => value.ToString() ?? "0"
+        };
+
+        return string.IsNullOrEmpty(value: suffix) ? valueStr : $"{valueStr}_{suffix}";
     }
 
     public string VisitListLiteralExpression(ListLiteralExpression node)
     {
-        var elements = node.Elements.Select(e => e.Accept(visitor: this));
-        return $"[{string.Join(", ", elements)}]";
+        IEnumerable<string> elements =
+            node.Elements.Select(selector: e => e.Accept(visitor: this));
+        return $"[{string.Join(separator: ", ", values: elements)}]";
     }
 
     public string VisitSetLiteralExpression(SetLiteralExpression node)
     {
-        var elements = node.Elements.Select(e => e.Accept(visitor: this));
-        return $"{{{string.Join(", ", elements)}}}";
+        IEnumerable<string> elements =
+            node.Elements.Select(selector: e => e.Accept(visitor: this));
+        return $"{{{string.Join(separator: ", ", values: elements)}}}";
     }
 
     public string VisitDictLiteralExpression(DictLiteralExpression node)
     {
-        var pairs = node.Pairs.Select(p =>
+        IEnumerable<string> pairs = node.Pairs.Select(selector: p =>
             $"{p.Key.Accept(visitor: this)}: {p.Value.Accept(visitor: this)}");
-        return $"{{{string.Join(", ", pairs)}}}";
+        return $"{{{string.Join(separator: ", ", values: pairs)}}}";
     }
 
     public string VisitIdentifierExpression(IdentifierExpression node)
@@ -604,23 +683,7 @@ public class SimpleCodeGenerator : IAstVisitor<string>
     {
         string left = node.Left.Accept(visitor: this);
         string right = node.Right.Accept(visitor: this);
-        string op = node.Operator switch
-        {
-            BinaryOperator.Add => "+",
-            BinaryOperator.Subtract => "-",
-            BinaryOperator.Multiply => "*",
-            BinaryOperator.Divide => "/",
-            BinaryOperator.Modulo => "%",
-            BinaryOperator.Equal => "==",
-            BinaryOperator.NotEqual => "!=",
-            BinaryOperator.Less => "<",
-            BinaryOperator.LessEqual => "<=",
-            BinaryOperator.Greater => ">",
-            BinaryOperator.GreaterEqual => ">=",
-            BinaryOperator.And => "&&",
-            BinaryOperator.Or => "||",
-            _ => "?"
-        };
+        string op = OperatorToString(op: node.Operator);
 
         return $"({left} {op} {right})";
     }
@@ -631,7 +694,8 @@ public class SimpleCodeGenerator : IAstVisitor<string>
         string op = node.Operator switch
         {
             UnaryOperator.Minus => "-",
-            UnaryOperator.Not => "!",
+            UnaryOperator.Not => "not",
+            UnaryOperator.BitwiseNot => "~",
             _ => "?"
         };
 
@@ -677,7 +741,9 @@ public class SimpleCodeGenerator : IAstVisitor<string>
     {
         string start = node.Start.Accept(visitor: this);
         string end = node.End.Accept(visitor: this);
-        string rangeOp = node.IsDescending ? "downto" : "to";
+        string rangeOp = node.IsDescending
+            ? "downto"
+            : "to";
 
         if (node.Step != null)
         {
@@ -698,7 +764,7 @@ public class SimpleCodeGenerator : IAstVisitor<string>
         }
 
         var result = new StringBuilder();
-        result.Append(value: "(");
+        result.Append(value: '(');
 
         for (int i = 0; i < node.Operators.Count; i++)
         {
@@ -709,14 +775,14 @@ public class SimpleCodeGenerator : IAstVisitor<string>
 
             result.Append(value: node.Operands[index: i]
                                      .Accept(visitor: this));
-            result.Append(value: " ");
+            result.Append(value: ' ');
             result.Append(value: OperatorToString(op: node.Operators[index: i]));
-            result.Append(value: " ");
+            result.Append(value: ' ');
             result.Append(value: node.Operands[index: i + 1]
                                      .Accept(visitor: this));
         }
 
-        result.Append(value: ")");
+        result.Append(value: ')');
         return result.ToString();
     }
 
@@ -724,21 +790,76 @@ public class SimpleCodeGenerator : IAstVisitor<string>
     {
         return op switch
         {
+            // Arithmetic - standard operations
+            BinaryOperator.Add => "+",
+            BinaryOperator.Subtract => "-",
+            BinaryOperator.Multiply => "*",
+            BinaryOperator.TrueDivide => "/",
+            BinaryOperator.FloorDivide => "//",
+            BinaryOperator.Modulo => "%",
+            BinaryOperator.Power => "**",
+
+            // Arithmetic with overflow handling - Wrap
+            BinaryOperator.AddWrap => "+%",
+            BinaryOperator.SubtractWrap => "-%",
+            BinaryOperator.MultiplyWrap => "*%",
+            BinaryOperator.PowerWrap => "**%",
+
+            // Arithmetic with overflow handling - Saturate
+            BinaryOperator.AddSaturate => "+^",
+            BinaryOperator.SubtractSaturate => "-^",
+            BinaryOperator.MultiplySaturate => "*^",
+            BinaryOperator.PowerSaturate => "**^",
+
+            // Arithmetic with overflow handling - Checked
+            BinaryOperator.AddChecked => "+?",
+            BinaryOperator.SubtractChecked => "-?",
+            BinaryOperator.MultiplyChecked => "*?",
+            BinaryOperator.FloorDivideChecked => "//?",
+            BinaryOperator.ModuloChecked => "%?",
+            BinaryOperator.PowerChecked => "**?",
+
+            // Comparison - equality and relational
+            BinaryOperator.Equal => "==",
+            BinaryOperator.NotEqual => "!=",
+            BinaryOperator.Identical => "===",
+            BinaryOperator.NotIdentical => "!==",
             BinaryOperator.Less => "<",
             BinaryOperator.LessEqual => "<=",
             BinaryOperator.Greater => ">",
             BinaryOperator.GreaterEqual => ">=",
-            BinaryOperator.Equal => "==",
-            BinaryOperator.NotEqual => "!=",
+
+            // Comparison - membership and type
             BinaryOperator.In => "in",
-            BinaryOperator.NotIn => "not in",
+            BinaryOperator.NotIn => "notin",
             BinaryOperator.Is => "is",
-            BinaryOperator.IsNot => "is not",
+            BinaryOperator.IsNot => "isnot",
             BinaryOperator.From => "from",
-            BinaryOperator.NotFrom => "not from",
+            BinaryOperator.NotFrom => "notfrom",
             BinaryOperator.Follows => "follows",
-            BinaryOperator.NotFollows => "not follows",
-            _ => "=="
+            BinaryOperator.NotFollows => "notfollows",
+
+            // Logical
+            BinaryOperator.And => "and",
+            BinaryOperator.Or => "or",
+
+            // Bitwise
+            BinaryOperator.BitwiseAnd => "&",
+            BinaryOperator.BitwiseOr => "|",
+            BinaryOperator.BitwiseXor => "^",
+            BinaryOperator.ArithmeticLeftShift => "<<",
+            BinaryOperator.ArithmeticLeftShiftChecked => "<<?",
+            BinaryOperator.ArithmeticRightShift => ">>",
+            BinaryOperator.LogicalLeftShift => "<<<",
+            BinaryOperator.LogicalRightShift => ">>>",
+
+            // Assignment
+            BinaryOperator.Assign => "=",
+
+            // None coalescing
+            BinaryOperator.NoneCoalesce => "??",
+
+            _ => "?"
         };
     }
 
@@ -779,28 +900,23 @@ public class SimpleCodeGenerator : IAstVisitor<string>
     public string VisitGenericMethodCallExpression(GenericMethodCallExpression node)
     {
         // Check if this is a user-defined generic function that needs instantiation
-        if (node.Object is IdentifierExpression funcIdentifier)
+        if (node.Object is IdentifierExpression funcIdentifier &&
+            _genericFunctionTemplates.ContainsKey(key: funcIdentifier.Name))
         {
-            string baseFunctionName = funcIdentifier.Name;
+            // Get the concrete type arguments
+            var typeArgList = node.TypeArguments
+                                  .Select(selector: t => t.Name)
+                                  .ToList();
 
-            // Check if we have a template for this function
-            if (_genericFunctionTemplates.ContainsKey(key: baseFunctionName))
-            {
-                // Get the concrete type arguments
-                var typeArgList = node.TypeArguments
-                                      .Select(selector: t => t.Name)
-                                      .ToList();
+            // Instantiate the generic function (generates code if not already done)
+            string mangledName = InstantiateGenericFunction(functionName: funcIdentifier.Name,
+                typeArguments: typeArgList);
 
-                // Instantiate the generic function (generates code if not already done)
-                string mangledName = InstantiateGenericFunction(functionName: baseFunctionName,
-                    typeArguments: typeArgList);
+            // Generate call to the instantiated function
+            string args = string.Join(separator: ", ",
+                values: node.Arguments.Select(selector: a => a.Accept(visitor: this)));
 
-                // Generate call to the instantiated function
-                string args = string.Join(separator: ", ",
-                    values: node.Arguments.Select(selector: a => a.Accept(visitor: this)));
-
-                return $"{mangledName}({args})";
-            }
+            return $"{mangledName}({args})";
         }
 
         // Default: output as generic method call syntax
@@ -858,15 +974,6 @@ public class SimpleCodeGenerator : IAstVisitor<string>
         return "";
     }
 
-    public string VisitMayhemStatement(MayhemStatement node)
-    {
-        WriteLine(text: "mayhem! {");
-        _indentLevel++;
-        node.Body.Accept(visitor: this);
-        _indentLevel--;
-        WriteLine(text: "}");
-        return "";
-    }
 
     public string VisitExternalDeclaration(ExternalDeclaration node)
     {
@@ -876,9 +983,9 @@ public class SimpleCodeGenerator : IAstVisitor<string>
 
         if (node.GenericParameters != null && node.GenericParameters.Count > 0)
         {
-            sb.Append(value: "<");
+            sb.Append(value: '<');
             sb.Append(value: string.Join(separator: ", ", values: node.GenericParameters));
-            sb.Append(value: ">");
+            sb.Append(value: '>');
         }
 
         sb.Append(value: "!(");
@@ -907,7 +1014,7 @@ public class SimpleCodeGenerator : IAstVisitor<string>
     /// </summary>
     public string VisitViewingStatement(ViewingStatement node)
     {
-        _output.AppendLine(handler: $"{GetIndent()}/* viewing {node.Source} as {node.Handle} */");
+        _output.AppendLine(handler: $"{GetIndent()}viewing {node.Source} as {node.Handle}");
         _output.AppendLine(handler: $"{GetIndent()}{{");
         _indentLevel++;
 
@@ -953,13 +1060,13 @@ public class SimpleCodeGenerator : IAstVisitor<string>
     }
 
     /// <summary>
-    /// Generates C code for an observing statement (thread-safe read access).
+    /// Generates C code for an inspecting statement (thread-safe read access).
     /// Acquires a read lock on the shared object.
     /// </summary>
     public string VisitObservingStatement(ObservingStatement node)
     {
         _output.AppendLine(
-            handler: $"{GetIndent()}/* observing {node.Source} as {node.Handle} */");
+            handler: $"{GetIndent()}/* inspecting {node.Source} as {node.Handle} */");
         _output.AppendLine(handler: $"{GetIndent()}{{");
         _indentLevel++;
 
@@ -978,7 +1085,7 @@ public class SimpleCodeGenerator : IAstVisitor<string>
         _output.AppendLine(handler: $"{GetIndent()}razorforge_rwlock_read_unlock({sourceExpr});");
 
         _indentLevel--;
-        _output.AppendLine(handler: $"{GetIndent()}}} /* end observing {node.Handle} */");
+        _output.AppendLine(handler: $"{GetIndent()}}} /* end inspecting {node.Handle} */");
 
         return "";
     }
@@ -1022,9 +1129,9 @@ public class SimpleCodeGenerator : IAstVisitor<string>
     }
 
     /// <summary>
-    /// Generates code for a struct literal expression (Type { field: value, ... }).
+    /// Generates code for a constructor expression (Type(field: value, ...)).
     /// </summary>
-    public string VisitStructLiteralExpression(StructLiteralExpression node)
+    public string VisitConstructorExpression(ConstructorExpression node)
     {
         string typeName = node.TypeName;
         if (node.TypeArguments != null && node.TypeArguments.Count > 0)
@@ -1033,8 +1140,8 @@ public class SimpleCodeGenerator : IAstVisitor<string>
                 values: node.TypeArguments.Select(selector: t => t.Name)) + ">";
         }
 
-        var fieldStrs = node.Fields.Select(selector: f =>
+        IEnumerable<string> fieldStrs = node.Fields.Select(selector: f =>
             $"{f.Name}: {f.Value.Accept(visitor: this)}");
-        return $"{typeName} {{ {string.Join(separator: ", ", values: fieldStrs)} }}";
+        return $"{typeName}({string.Join(separator: ", ", values: fieldStrs)})";
     }
 }

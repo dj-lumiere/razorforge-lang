@@ -1,0 +1,178 @@
+# RazorForge ValueBitList<N> - Fixed-size inline bit array with value semantics
+# Record type - N bits stored inline, immutable, copied on assignment
+#
+# Usage:
+#   let flags: ValueBitList<8> = ValueBitList()
+#   let bit0 = flags[0]        # Read bit
+#   let copy = flags           # Full copy (value semantics)
+#
+#   # To "modify", use with statement:
+#   let toggled = flags with { [0]: true }
+
+import errors/IndexOutOfBoundsError
+import core/Integral
+import core/BackIndex
+
+# Fixed-size bit array with value semantics
+# Compiler lays out ceil(N/8) bytes inline to store N bits
+record ValueBitList<N> {
+    # N bits stored inline by compiler - no explicit fields needed
+}
+
+# ============================================================================
+# Indexing with Integral (forward index) - read only
+# ============================================================================
+
+routine ValueBitList<N>.__getitem__!<I>(me: ValueBitList<N>, index: I) -> bool
+    where I follows Integral {
+    let idx = index.to_uaddr()
+    if idx >= N {
+        throw IndexOutOfBoundsError(index: idx, count: N)
+    }
+    return me[idx]
+}
+
+# ============================================================================
+# Indexing with BackIndex (backward index using ^) - read only
+# ============================================================================
+
+routine ValueBitList<N>.__getitem__!<I>(me: ValueBitList<N>, index: BackIndex<I>) -> bool
+    where I follows Integral {
+    let idx = index.resolve(N)
+    return me[idx]
+}
+
+# ============================================================================
+# Legacy get method
+# ============================================================================
+
+routine ValueBitList<N>.get!<I>(me: ValueBitList<N>, index: I) -> bool
+    where I follows Integral {
+    return me.__getitem__!(index)
+}
+
+# ============================================================================
+# Query Operations
+# ============================================================================
+
+routine ValueBitList<N>.count(me: ValueBitList<N>) -> uaddr {
+    return N
+}
+
+routine ValueBitList<N>.is_empty(me: ValueBitList<N>) -> bool {
+    return N == 0uaddr
+}
+
+routine ValueBitList<N>.count_ones(me: ValueBitList<N>) -> uaddr {
+    var count = 0uaddr
+    var i = 0uaddr
+    while i < N {
+        if me[i] {
+            count = count + 1uaddr
+        }
+        i = i + 1uaddr
+    }
+    return count
+}
+
+routine ValueBitList<N>.count_zeros(me: ValueBitList<N>) -> uaddr {
+    return N - me.count_ones()
+}
+
+routine ValueBitList<N>.any(me: ValueBitList<N>) -> bool {
+    var i = 0uaddr
+    while i < N {
+        if me[i] {
+            return true
+        }
+        i = i + 1uaddr
+    }
+    return false
+}
+
+routine ValueBitList<N>.all(me: ValueBitList<N>) -> bool {
+    var i = 0uaddr
+    while i < N {
+        if not me[i] {
+            return false
+        }
+        i = i + 1uaddr
+    }
+    return true
+}
+
+routine ValueBitList<N>.none(me: ValueBitList<N>) -> bool {
+    return not me.any()
+}
+
+# ============================================================================
+# Iteration Support
+# ============================================================================
+
+routine ValueBitList<N>.iter(me: ValueBitList<N>) -> ValueBitListIterator<N> {
+    return ValueBitListIterator<N>(list: me, index: 0uaddr)
+}
+
+record ValueBitListIterator<N> {
+    list: ValueBitList<N>
+    index: uaddr
+}
+
+routine ValueBitListIterator<N>.next(me: ValueBitListIterator<N>) -> bool? {
+    if me.index >= N {
+        return None
+    }
+    let value = me.list[me.index]
+    me.index = me.index + 1uaddr
+    return value
+}
+
+# Comparison (==, !=) is auto-generated using memcmp for records
+
+# ============================================================================
+# Bitwise Operations (return new ValueBitList)
+# ============================================================================
+
+routine ValueBitList<N>.__and__(me: ValueBitList<N>, other: ValueBitList<N>) -> ValueBitList<N> {
+    # Bitwise AND - compiler handles creating new record with AND'd bits
+    var i = 0uaddr
+    var result = me
+    while i < N {
+        result = result with { [i]: me[i] and other[i] }
+        i = i + 1uaddr
+    }
+    return result
+}
+
+routine ValueBitList<N>.__or__(me: ValueBitList<N>, other: ValueBitList<N>) -> ValueBitList<N> {
+    # Bitwise OR
+    var i = 0uaddr
+    var result = me
+    while i < N {
+        result = result with { [i]: me[i] or other[i] }
+        i = i + 1uaddr
+    }
+    return result
+}
+
+routine ValueBitList<N>.__xor__(me: ValueBitList<N>, other: ValueBitList<N>) -> ValueBitList<N> {
+    # Bitwise XOR
+    var i = 0uaddr
+    var result = me
+    while i < N {
+        result = result with { [i]: me[i] xor other[i] }
+        i = i + 1uaddr
+    }
+    return result
+}
+
+routine ValueBitList<N>.__not__(me: ValueBitList<N>) -> ValueBitList<N> {
+    # Bitwise NOT - flip all bits
+    var i = 0uaddr
+    var result = me
+    while i < N {
+        result = result with { [i]: not me[i] }
+        i = i + 1uaddr
+    }
+    return result
+}

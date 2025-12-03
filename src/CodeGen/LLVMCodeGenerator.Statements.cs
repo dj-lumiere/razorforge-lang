@@ -84,7 +84,7 @@ public partial class LLVMCodeGenerator
         if (node.Value != null)
         {
             string value = node.Value.Accept(visitor: this);
-            TypeInfo valueTypeInfo = GetValueTypeInfo(value: value);
+            LLVMTypeInfo valueTypeInfo = GetValueTypeInfo(value: value);
 
             // If the value type doesn't match the function return type, we need to cast
             if (valueTypeInfo.LLVMType != _currentFunctionReturnType)
@@ -110,7 +110,7 @@ public partial class LLVMCodeGenerator
     }
 
     // Generate appropriate cast instruction
-    private void GenerateCastInstruction(string result, string value, TypeInfo fromType,
+    private void GenerateCastInstruction(string result, string value, LLVMTypeInfo fromType,
         string toType)
     {
         bool fromIsPointer = fromType.LLVMType.EndsWith(value: "*");

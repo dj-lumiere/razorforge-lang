@@ -102,7 +102,7 @@ public partial class SuflaeParser
             Location: location);
     }
 
-    private ClassDeclaration ParseClassDeclaration(
+    private EntityDeclaration ParseClassDeclaration(
         VisibilityModifier visibility = VisibilityModifier.Private)
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
@@ -149,7 +149,7 @@ public partial class SuflaeParser
             }
         }
 
-        return new ClassDeclaration(Name: name,
+        return new EntityDeclaration(Name: name,
             GenericParameters: null,
             BaseClass: baseClass,
             Interfaces: interfaces,
@@ -158,7 +158,7 @@ public partial class SuflaeParser
             Location: location);
     }
 
-    private StructDeclaration ParseStructDeclaration(
+    private RecordDeclaration ParseStructDeclaration(
         VisibilityModifier visibility = VisibilityModifier.Private)
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
@@ -201,14 +201,14 @@ public partial class SuflaeParser
             }
         }
 
-        return new StructDeclaration(Name: name,
+        return new RecordDeclaration(Name: name,
             GenericParameters: null,
             Members: members,
             Visibility: visibility,
             Location: location);
     }
 
-    private MenuDeclaration ParseChoiceDeclaration(
+    private ChoiceDeclaration ParseChoiceDeclaration(
         VisibilityModifier visibility = VisibilityModifier.Private)
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
@@ -278,7 +278,7 @@ public partial class SuflaeParser
             }
         }
 
-        return new MenuDeclaration(Name: name,
+        return new ChoiceDeclaration(Name: name,
             Variants: variants,
             Methods: methods,
             Visibility: visibility,
@@ -287,7 +287,7 @@ public partial class SuflaeParser
 
     private VariantDeclaration ParseVariantDeclaration(
         VisibilityModifier visibility = VisibilityModifier.Private,
-        VariantKind kind = VariantKind.Chimera)
+        VariantKind kind = VariantKind.Variant)
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
 
@@ -386,7 +386,7 @@ public partial class SuflaeParser
             Location: location);
     }
 
-    private FeatureDeclaration ParseFeatureDeclaration(
+    private ProtocolDeclaration ParseFeatureDeclaration(
         VisibilityModifier visibility = VisibilityModifier.Private)
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
@@ -463,7 +463,7 @@ public partial class SuflaeParser
             }
         }
 
-        return new FeatureDeclaration(Name: name,
+        return new ProtocolDeclaration(Name: name,
             GenericParameters: null,
             Methods: methods,
             Visibility: visibility,
@@ -552,7 +552,7 @@ public partial class SuflaeParser
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
 
         string modulePath = "";
-        string? alias = (string?)null;
+        string? alias = null;
         var specificImports = (List<string>?)null;
 
         // Parse module path - could be multiple identifiers separated by slashes
@@ -624,8 +624,8 @@ public partial class SuflaeParser
 
                 return modifier switch
                 {
-                    "family" => VisibilityModifier.Protected,
-                    "module" => VisibilityModifier.Internal,
+                    "family" => VisibilityModifier.PublicFamily,
+                    "module" => VisibilityModifier.PublicModule,
                     _ => throw new ParseException(
                         message: $"Unknown visibility modifier: {modifier}")
                 };
@@ -636,12 +636,12 @@ public partial class SuflaeParser
 
         if (Match(type: TokenType.PublicFamily))
         {
-            return VisibilityModifier.Protected;
+            return VisibilityModifier.PublicFamily;
         }
 
         if (Match(type: TokenType.PublicModule))
         {
-            return VisibilityModifier.Internal;
+            return VisibilityModifier.PublicModule;
         }
 
         if (Match(type: TokenType.Private))

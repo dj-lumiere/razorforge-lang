@@ -1,5 +1,6 @@
 using Compilers.Shared.Analysis;
 using Compilers.Shared.AST;
+using Compilers.Shared.Errors;
 
 namespace Compilers.Shared.CodeGen;
 
@@ -13,6 +14,7 @@ public partial class LLVMCodeGenerator
     /// <returns>A string representing the generated LLVM IR code for the program.</returns>
     public string VisitProgram(AST.Program node)
     {
+        _currentLocation = node.Location;
         foreach (IAstNode decl in node.Declarations)
         {
             decl.Accept(visitor: this);
@@ -37,20 +39,22 @@ public partial class LLVMCodeGenerator
     /// <returns>A string representation of the generated LLVM IR code for the function.</returns>
     public string VisitFunctionDeclaration(FunctionDeclaration node)
     {
+        _currentLocation = node.Location;
         // Check if this is a generic function (has type parameters)
-        if (node.GenericParameters != null && node.GenericParameters.Count > 0)
+        if (node.GenericParameters is not { Count: > 0 })
         {
-            // Store the template for later instantiation - don't generate code yet
-            string templateKey = node.Name;
-            _genericFunctionTemplates[key: templateKey] = node;
-            _output.AppendLine(
-                handler:
-                $"; Generic function template: {node.Name}<{string.Join(separator: ", ", values: node.GenericParameters)}>");
-            return "";
+            return GenerateFunctionCode(node: node, typeSubstitutions: null);
         }
 
+        // Store the template for later instantiation - don't generate code yet
+        string templateKey = node.Name;
+        _genericFunctionTemplates[key: templateKey] = node;
+        _output.AppendLine(
+            handler:
+            $"; Generic function template: {node.Name}<{string.Join(separator: ", ", values: node.GenericParameters)}>");
+        return "";
+
         // Non-generic function - generate code normally
-        return GenerateFunctionCode(node: node, typeSubstitutions: null);
     }
 
     /// <summary>
@@ -63,6 +67,7 @@ public partial class LLVMCodeGenerator
     private string GenerateFunctionCode(FunctionDeclaration node,
         Dictionary<string, string>? typeSubstitutions, string? mangledName = null)
     {
+        _currentLocation = node.Location;
         string functionName = mangledName ?? SanitizeFunctionName(name: node.Name);
 
         // Special case: main() must return i32 for C ABI compatibility, even if declared as Blank
@@ -70,7 +75,7 @@ public partial class LLVMCodeGenerator
 
         string returnType = node.ReturnType != null
             ?
-            MapTypeWithSubstitution(typeName: node.ReturnType.Name,
+            MapTypeWithSubstitution(typeName: GetFullTypeName(type: node.ReturnType),
                 substitutions: typeSubstitutions)
             : isMain
                 ? "i32"
@@ -91,13 +96,24 @@ public partial class LLVMCodeGenerator
         {
             foreach (Parameter param in node.Parameters)
             {
-                string paramType = param.Type != null
-                    ? MapTypeWithSubstitution(typeName: param.Type.Name,
-                        substitutions: typeSubstitutions)
-                    : "i32";
+                if (param.Type == null)
+                {
+                    throw CodeGenError.TypeResolutionFailed(
+                        typeName: param.Name,
+                        context: "function parameter must have a type annotation",
+                        file: _currentFileName,
+                        line: param.Location.Line,
+                        column: param.Location.Column,
+                        position: param.Location.Position);
+                }
+                string paramType = MapTypeWithSubstitution(typeName: GetFullTypeName(type: param.Type),
+                    substitutions: typeSubstitutions);
                 parameters.Add(item: $"{paramType} %{param.Name}");
                 _symbolTypes[key: param.Name] = paramType;
                 _functionParameters.Add(item: param.Name); // Mark as parameter
+
+                // Also track the RazorForge type for method lookup
+                _symbolRfTypes[key: param.Name] = GetFullTypeName(type: param.Type);
             }
         }
 
@@ -149,13 +165,14 @@ public partial class LLVMCodeGenerator
             // Emit stack frame pop before return
             _stackTraceCodeGen?.EmitPopFrame();
 
-            if (returnType == "void")
+            switch (returnType)
             {
-                _output.AppendLine(value: "  ret void");
-            }
-            else if (returnType == "i32")
-            {
-                _output.AppendLine(value: "  ret i32 0");
+                case "void":
+                    _output.AppendLine(value: "  ret void");
+                    break;
+                case "i32":
+                    _output.AppendLine(value: "  ret i32 0");
+                    break;
             }
         }
 
@@ -200,7 +217,7 @@ public partial class LLVMCodeGenerator
 
         // Check if already instantiated
         var typeInfos = typeArguments.Select(selector: t =>
-                                          new Compilers.Shared.Analysis.TypeInfo(Name: t,
+                                          new TypeInfo(Name: t,
                                               IsReference: false))
                                      .ToList();
         string mangledName = MonomorphizeFunctionName(baseName: functionName, typeArgs: typeInfos);
@@ -232,7 +249,7 @@ public partial class LLVMCodeGenerator
     /// - map&lt;K,V&gt; with K=text,V=s32 -> map_text_s32
     /// - container&lt;Array&lt;s32&gt;&gt; -> container_Array_s32
     /// </remarks>
-    private string MonomorphizeFunctionName(string baseName, List<Analysis.TypeInfo> typeArgs)
+    private string MonomorphizeFunctionName(string baseName, List<TypeInfo> typeArgs)
     {
         if (typeArgs == null || typeArgs.Count == 0)
         {
@@ -254,15 +271,15 @@ public partial class LLVMCodeGenerator
     /// <param name="functionName">The base function name</param>
     /// <param name="typeArgs">Type arguments to check</param>
     /// <returns>True if this instantiation already exists, false otherwise</returns>
-    private bool IsAlreadyInstantiated(string functionName, List<Analysis.TypeInfo> typeArgs)
+    private bool IsAlreadyInstantiated(string functionName, List<TypeInfo> typeArgs)
     {
         if (!_genericInstantiations.TryGetValue(key: functionName,
-                value: out List<List<Analysis.TypeInfo>>? existingInstantiations))
+                value: out List<List<TypeInfo>>? existingInstantiations))
         {
             return false;
         }
 
-        foreach (List<Analysis.TypeInfo> existing in existingInstantiations)
+        foreach (List<TypeInfo> existing in existingInstantiations)
         {
             if (existing.Count != typeArgs.Count)
             {
@@ -293,11 +310,11 @@ public partial class LLVMCodeGenerator
     /// </summary>
     /// <param name="functionName">The base function name</param>
     /// <param name="typeArgs">Type arguments for this instantiation</param>
-    private void TrackInstantiation(string functionName, List<Analysis.TypeInfo> typeArgs)
+    private void TrackInstantiation(string functionName, List<TypeInfo> typeArgs)
     {
         if (!_genericInstantiations.ContainsKey(key: functionName))
         {
-            _genericInstantiations[key: functionName] = new List<List<Analysis.TypeInfo>>();
+            _genericInstantiations[key: functionName] = new List<List<TypeInfo>>();
         }
 
         _genericInstantiations[key: functionName]
@@ -336,7 +353,7 @@ public partial class LLVMCodeGenerator
             // Generate the mangled name
             var typeInfos = typeArguments
                            .Select(selector: t =>
-                                new Analysis.TypeInfo(Name: t, IsReference: false))
+                                new TypeInfo(Name: t, IsReference: false))
                            .ToList();
             string mangledName =
                 MonomorphizeFunctionName(baseName: functionName, typeArgs: typeInfos);
@@ -397,9 +414,17 @@ public partial class LLVMCodeGenerator
                 var paramTypes = new List<string>();
                 foreach (Parameter param in funcSymbol.Parameters)
                 {
-                    string paramType = param.Type != null
-                        ? MapTypeToLLVM(rfType: param.Type.Name)
-                        : "i8*";
+                    if (param.Type == null)
+                    {
+                        throw CodeGenError.TypeResolutionFailed(
+                            typeName: param.Name,
+                            context: "external function parameter must have a type annotation",
+                            file: _currentFileName,
+                            line: _currentLocation.Line,
+                            column: _currentLocation.Column,
+                            position: _currentLocation.Position);
+                    }
+                    string paramType = MapTypeToLLVM(rfType: param.Type.Name);
                     paramTypes.Add(item: paramType);
                 }
 
@@ -424,12 +449,48 @@ public partial class LLVMCodeGenerator
 
         _output.AppendLine();
         _output.AppendLine(value: "; ============================================");
+        _output.AppendLine(value: "; Imported module types");
+        _output.AppendLine(value: "; ============================================");
+
+        // First pass: Process all struct/record declarations and presets to register them
+        // This ensures record constructors and constants are available before processing functions
+        foreach (KeyValuePair<string, ModuleResolver.ModuleInfo> moduleEntry in _loadedModules)
+        {
+            ModuleResolver.ModuleInfo moduleInfo = moduleEntry.Value;
+
+            foreach (IAstNode declaration in moduleInfo.Ast.Declarations)
+            {
+                // Process struct declarations to register record types
+                if (declaration is RecordDeclaration structDecl)
+                {
+                    structDecl.Accept(visitor: this);
+                }
+                // Process class declarations to register entity types
+                else if (declaration is EntityDeclaration classDecl)
+                {
+                    classDecl.Accept(visitor: this);
+                }
+                // Process preset declarations (compile-time constants)
+                else if (declaration is PresetDeclaration presetDecl)
+                {
+                    presetDecl.Accept(visitor: this);
+                }
+            }
+        }
+
+        // Generate any pending generic type instantiations that were queued during struct processing
+        // This is needed because record types may reference generic types like Text<letter32>
+        GeneratePendingTypeInstantiations();
+
+        _output.AppendLine();
+        _output.AppendLine(value: "; ============================================");
         _output.AppendLine(value: "; Imported module functions");
         _output.AppendLine(value: "; ============================================");
 
         // Track which functions we've already generated to avoid duplicates
         var generatedFunctions = new HashSet<string>();
 
+        // Second pass: Process all function declarations
         foreach (KeyValuePair<string, ModuleResolver.ModuleInfo> moduleEntry in _loadedModules)
         {
             string moduleName = moduleEntry.Key;

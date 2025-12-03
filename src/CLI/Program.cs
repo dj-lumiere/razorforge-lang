@@ -28,7 +28,8 @@ internal class Program
         if (!isCommand)
         {
             // Old behavior: just a file path, compile it
-            CompileFile(sourceFile: args[0], executeAfter: false,
+            CompileFile(sourceFile: args[0],
+                executeAfter: false,
                 programArgs: Array.Empty<string>());
         }
         else if (command == "lsp")
@@ -54,19 +55,25 @@ internal class Program
             switch (command)
             {
                 case "compile":
-                    CompileFile(sourceFile: sourceFile, executeAfter: false,
-                        programArgs: programArgs, noMain: false);
+                    CompileFile(sourceFile: sourceFile,
+                        executeAfter: false,
+                        programArgs: programArgs,
+                        noMain: false);
                     break;
                 case "run":
                 case "compileandrun":
-                    CompileFile(sourceFile: sourceFile, executeAfter: true,
-                        programArgs: programArgs, noMain: false);
+                    CompileFile(sourceFile: sourceFile,
+                        executeAfter: true,
+                        programArgs: programArgs,
+                        noMain: false);
                     break;
                 case "check":
                     // Check mode: parse and analyze only, no executable generation required
                     // Useful for libraries, modules, or files without main()
-                    CompileFile(sourceFile: sourceFile, executeAfter: false,
-                        programArgs: programArgs, noMain: true);
+                    CompileFile(sourceFile: sourceFile,
+                        executeAfter: false,
+                        programArgs: programArgs,
+                        noMain: true);
                     break;
                 default:
                     PrintUsage();
@@ -89,7 +96,8 @@ internal class Program
             value:
             "  RazorForge compileandrun <source-file> [args...]  - Compile and run file with optional arguments");
         Console.WriteLine(
-            value: "  RazorForge check <source-file>                    - Check file (no main required)");
+            value:
+            "  RazorForge check <source-file>                    - Check file (no main required)");
         Console.WriteLine(
             value: "  RazorForge lsp                                    - Start language server");
         Console.WriteLine();
@@ -99,7 +107,8 @@ internal class Program
             value: "  [args...]:     Optional arguments to pass to the compiled program");
     }
 
-    private static void CompileFile(string sourceFile, bool executeAfter, string[] programArgs, bool noMain = false)
+    private static void CompileFile(string sourceFile, bool executeAfter, string[] programArgs,
+        bool noMain = false)
     {
         if (!File.Exists(path: sourceFile))
         {
@@ -139,7 +148,7 @@ internal class Program
             // Parse the code
             Console.WriteLine(value: "=== PARSING ===");
             BaseParser parser = language == Language.Suflae
-                ? (BaseParser)new SuflaeParser(tokens: tokens, fileName: sourceFile)
+                ? new SuflaeParser(tokens: tokens, fileName: sourceFile)
                 : new RazorForgeParser(tokens: tokens, fileName: sourceFile);
             Shared.AST.Program ast = parser.Parse();
             Console.WriteLine(
@@ -147,8 +156,14 @@ internal class Program
 
             // Semantic analysis
             Console.WriteLine(value: "=== SEMANTIC ANALYSIS ===");
+            var projectRoot = FindProjectRoot(startPath: sourceFile);
+            var searchPaths = new List<string>();
+            if (projectRoot != null)
+            {
+                searchPaths.Add(Path.Combine(projectRoot, "stdlib"));
+            }
             var analyzer =
-                new SemanticAnalyzer(language: language, mode: mode, fileName: sourceFile);
+                new SemanticAnalyzer(language: language, mode: mode, searchPaths: searchPaths, fileName: sourceFile);
             List<SemanticError> semanticErrors = analyzer.Analyze(program: ast);
 
             if (semanticErrors.Count > 0)
@@ -211,8 +226,9 @@ internal class Program
             // Code generation
             Console.WriteLine(value: "=== CODE GENERATION ===");
 
-            // Generate readable output
+            // Generate readable output with flattened imports
             var simpleCodeGen = new SimpleCodeGenerator(language: language, mode: mode);
+            simpleCodeGen.LoadedModules = analyzer.LoadedModules;
             simpleCodeGen.Generate(program: ast);
             string outputFile = Path.ChangeExtension(path: sourceFile, extension: ".out");
             File.WriteAllText(path: outputFile, contents: simpleCodeGen.GetGeneratedCode());
@@ -221,6 +237,8 @@ internal class Program
             // Generate LLVM IR
             var llvmCodeGen = new LLVMCodeGenerator(language: language, mode: mode);
             llvmCodeGen.SourceFileName = sourceFile;
+            llvmCodeGen.SemanticSymbolTable = analyzer.SymbolTable;
+            llvmCodeGen.LoadedModules = analyzer.LoadedModules;
             llvmCodeGen.Generate(program: ast);
             string llvmFile = Path.ChangeExtension(path: sourceFile, extension: ".ll");
             File.WriteAllText(path: llvmFile, contents: llvmCodeGen.GetGeneratedCode());
@@ -230,7 +248,8 @@ internal class Program
             if (noMain)
             {
                 Console.WriteLine();
-                Console.WriteLine(value: "✅ Check successful! (no-main mode, executable not generated)");
+                Console.WriteLine(
+                    value: "✅ Check successful! (no-main mode, executable not generated)");
             }
             else
             {
@@ -256,7 +275,8 @@ internal class Program
                     Console.WriteLine(
                         value: "Note: LLVM tools not available. Skipping executable generation.");
                     Console.WriteLine(
-                        value: "To generate executables, install LLVM and ensure 'clang' is in PATH.");
+                        value:
+                        "To generate executables, install LLVM and ensure 'clang' is in PATH.");
 
                     if (executeAfter)
                     {
@@ -271,11 +291,7 @@ internal class Program
         }
         catch (Exception ex)
         {
-            Console.WriteLine(value: $"❌ Compilation failed: {ex.Message}");
-            if (ex.InnerException != null)
-            {
-                Console.WriteLine(value: $"   Inner: {ex.InnerException.Message}");
-            }
+            Console.WriteLine(value: $"❌ Compilation failed: {ex}");
         }
     }
 
@@ -285,18 +301,38 @@ internal class Program
         {
             string executablePath = Path.ChangeExtension(path: llvmFile, extension: ".exe");
 
-            // Find the RazorForge runtime C source files
+            // Find the RazorForge runtime library
             string? projectRoot = FindProjectRoot(startPath: llvmFile);
-            string runtimeSources = "";
+            string runtimeLinkFlags = "";
             if (projectRoot != null)
             {
-                string runtimeDir = Path.Combine(path1: projectRoot, path2: "native", path3: "runtime");
-                string memoryC = Path.Combine(path1: runtimeDir, path2: "memory.c");
-                string stacktraceC = Path.Combine(path1: runtimeDir, path2: "stacktrace.c");
+                // Look for pre-built runtime library
+                string runtimeLibDir = Path.Combine(projectRoot,
+                    "native",
+                    "build",
+                    "lib",
+                    "Release");
+                string runtimeLib =
+                    Path.Combine(path1: runtimeLibDir, path2: "razorforge_runtime.lib");
 
-                if (File.Exists(path: memoryC) && File.Exists(path: stacktraceC))
+                if (File.Exists(path: runtimeLib))
                 {
-                    runtimeSources = $"\"{memoryC}\" \"{stacktraceC}\"";
+                    runtimeLinkFlags = $"-L\"{runtimeLibDir}\" -lrazorforge_runtime";
+                }
+                else
+                {
+                    // Fallback: try Debug build
+                    runtimeLibDir = Path.Combine(projectRoot,
+                        "native",
+                        "build",
+                        "lib",
+                        "Debug");
+                    runtimeLib = Path.Combine(path1: runtimeLibDir,
+                        path2: "razorforge_runtime.lib");
+                    if (File.Exists(path: runtimeLib))
+                    {
+                        runtimeLinkFlags = $"-L\"{runtimeLibDir}\" -lrazorforge_runtime";
+                    }
                 }
             }
 
@@ -310,7 +346,8 @@ internal class Program
             var clangProcess = new System.Diagnostics.ProcessStartInfo
             {
                 FileName = "clang",
-                Arguments = $"\"{llvmFile}\" {runtimeSources} -o \"{executablePath}\" {linkerFlags}",
+                Arguments =
+                    $"\"{llvmFile}\" -o \"{executablePath}\" {runtimeLinkFlags} {linkerFlags}",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,

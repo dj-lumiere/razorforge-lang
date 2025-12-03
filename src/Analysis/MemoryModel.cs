@@ -10,7 +10,7 @@ namespace Compilers.Shared.Analysis;
 /// <list type="bullet">
 /// <item>Group 1 (Red): Exclusive borrowing - Viewed&lt;T&gt;, Hijacked&lt;T&gt;</item>
 /// <item>Group 2 (Green/Brown): Single-threaded RC - Retained&lt;T&gt;, Tracked&lt;Retained&lt;T&gt;&gt;</item>
-/// <item>Group 3 (Blue/Purple): Multi-threaded RC - Shared&lt;T, Policy&gt;, Tracked&lt;Shared&lt;T, Policy&gt;&gt;, Observed&lt;T&gt;, Seized&lt;T&gt;</item>
+/// <item>Group 3 (Blue/Purple): Multi-threaded RC - Shared&lt;T, Policy&gt;, Tracked&lt;Shared&lt;T, Policy&gt;&gt;, Inspected&lt;T&gt;, Seized&lt;T&gt;</item>
 /// <item>Unsafe (Black): Forcibly taken - Snatched&lt;T&gt; (danger! blocks only)</item>
 /// </list>
 ///
@@ -47,13 +47,13 @@ public enum WrapperType
     Viewed,
 
     /// <summary>
-    /// Thread-safe scoped read-only access (Observed&lt;T&gt;). Created by 'observing' statement.
+    /// Thread-safe scoped read-only access (Inspected&lt;T&gt;). Created by 'inspecting' statement.
     /// Acquires read lock on Shared&lt;T, MultiReadLock&gt; for duration of scope.
     /// Copyable within scope, multiple readers can coexist.
     /// Mutations through this handle are compile errors.
     /// Read lock automatically released when scope exits.
     /// </summary>
-    Observed,
+    Inspected,
 
     /// <summary>
     /// Thread-safe scoped exclusive access (Seized&lt;T&gt;). Created by 'seizing' statement.
@@ -126,10 +126,10 @@ public enum MemoryGroup
 
     /// <summary>
     /// Group 3: Multi-threaded reference counting (Blue/Purple 🔵🟣).
-    /// Contains: Shared, Observed, Seized. Thread-safe shared ownership.
+    /// Contains: Shared, Inspected, Seized. Thread-safe shared ownership.
     /// Note: Tracked can also belong to this group when tracking Shared&lt;T, Policy&gt;.
     /// Uses Arc (atomic reference counting) similar to Arc&lt;Mutex&lt;T&gt;&gt; or Arc&lt;RwLock&lt;T&gt;&gt; in Rust.
-    /// Types: Shared&lt;T, Policy&gt;, Tracked&lt;Shared&lt;T, Policy&gt;&gt;, Observed&lt;T&gt;, Seized&lt;T&gt;
+    /// Types: Shared&lt;T, Policy&gt;, Tracked&lt;Shared&lt;T, Policy&gt;&gt;, Inspected&lt;T&gt;, Seized&lt;T&gt;
     /// </summary>
     MultiThreaded = 3,
 
@@ -152,7 +152,7 @@ public enum LockingPolicy
     /// Pure mutex (Arc&lt;Mutex&lt;T&gt;&gt;) - exclusive access only.
     /// Performance: ~15-30ns for lock acquisition.
     /// Allows: seizing only (exclusive write access)
-    /// Disallows: observing (compile error)
+    /// Disallows: inspecting (compile error)
     /// Use case: Write-heavy workloads
     /// </summary>
     Mutex,
@@ -160,7 +160,7 @@ public enum LockingPolicy
     /// <summary>
     /// Reader-writer lock (Arc&lt;RwLock&lt;T&gt;&gt;) - supports concurrent reads.
     /// Performance: ~10-20ns for read lock, ~20-35ns for write lock.
-    /// Allows: both seizing (exclusive write) and observing (shared read)
+    /// Allows: both seizing (exclusive write) and inspecting (shared read)
     /// Use case: Read-heavy workloads with occasional writes
     /// </summary>
     MultiReadLock
@@ -248,7 +248,7 @@ public record MemoryObject(
             : MemoryGroup.MultiThreaded,
 
         // Group 3: Multi-threaded reference counting and scoped locks
-        WrapperType.Shared or WrapperType.Observed or WrapperType.Seized => MemoryGroup
+        WrapperType.Shared or WrapperType.Inspected or WrapperType.Seized => MemoryGroup
            .MultiThreaded,
 
         // Unsafe: Danger zone
@@ -267,7 +267,7 @@ public record MemoryObject(
         return Wrapper switch
         {
             WrapperType.Viewed => true, // viewing X as v { } - read-only
-            WrapperType.Observed => true, // observing X as o { } - read-only lock
+            WrapperType.Inspected => true, // inspecting X as o { } - read-only lock
             _ => false // All others allow mutation
         };
     }
@@ -358,7 +358,7 @@ public record MemoryObject(
             WrapperType.Tracked => MemoryGroup.SingleThreaded,
 
             // Group 3: Multi-threaded RC and scoped locks
-            WrapperType.Shared or WrapperType.Observed or WrapperType.Seized => MemoryGroup
+            WrapperType.Shared or WrapperType.Inspected or WrapperType.Seized => MemoryGroup
                .MultiThreaded,
 
             // Unsafe zone
@@ -406,7 +406,7 @@ public enum MemoryOperation
     /// Creates observer reference that doesn't prevent object destruction.
     /// Weak references don't contribute to reference count (RC = 0).
     /// Can be used with both Retained (single-threaded) and Shared (multi-threaded).
-    /// Use case: Breaking cycles, observing without ownership responsibility.
+    /// Use case: Breaking cycles, inspecting without ownership responsibility.
     /// </summary>
     Track,
 
@@ -458,22 +458,22 @@ public enum MemoryOperation
     CheckSeize,
 
     /// <summary>
-    /// try_observe() - Attempt to acquire read lock (returns Maybe&lt;Observed&lt;T&gt;&gt;).
+    /// try_inspect() - Attempt to acquire read lock (returns Maybe&lt;Inspected&lt;T&gt;&gt;).
     /// Non-blocking fallible lock acquisition for Shared&lt;T, MultiReadLock&gt;.
     /// Returns None on ANY failure (timeout, poison, etc.).
     /// Must be used immediately in 'when' expression - token cannot be stored.
     /// Use case: Timeout-based read lock acquisition without panic.
     /// </summary>
-    TryObserve,
+    TryInsepct,
 
     /// <summary>
-    /// check_observe() - Attempt to acquire read lock (returns Result&lt;Observed&lt;T&gt;, LockError&gt;).
+    /// check_inspect() - Attempt to acquire read lock (returns Result&lt;Inspected&lt;T&gt;, LockError&gt;).
     /// Non-blocking fallible lock acquisition with error discrimination.
     /// Returns specific error type (Timeout, Poisoned, etc.).
     /// Must be used immediately in 'when' expression - token cannot be stored.
     /// Use case: When you need to distinguish between different read lock failure modes.
     /// </summary>
-    CheckObserve
+    CheckInspect
 }
 
 /// <summary>
@@ -598,7 +598,7 @@ public enum FunctionType
     /// <summary>
     /// Regular function - cannot return scoped statement tokens.
     /// Most functions fall into this category and cannot return Hijacked&lt;T&gt;,
-    /// Viewed&lt;T&gt;, Observed&lt;T&gt;, or Seized&lt;T&gt; since these are scoped tokens.
+    /// Viewed&lt;T&gt;, Inspected&lt;T&gt;, or Seized&lt;T&gt; since these are scoped tokens.
     /// Can return Owned, Retained, Tracked, Shared objects.
     /// Example: routine process_data(data: Node) → Node
     /// </summary>

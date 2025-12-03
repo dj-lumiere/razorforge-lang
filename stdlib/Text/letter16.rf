@@ -1,82 +1,68 @@
-# RazorForge letter16 (16-bit Unicode character) implementation
-# Basic Multilingual Plane Unicode support for text processing
+# RazorForge letter16 - UTF-16 code unit
+#
+# Represents a single 16-bit unit in UTF-16 encoded text.
+# In UTF-16, characters are encoded as 1-2 code units:
+# - BMP characters (U+0000 to U+FFFF): 1 code unit
+# - Supplementary characters (U+10000+): 2 code units (surrogate pair)
+#
+# Note: Windows "wide strings" (wchar_t*) are technically UCS-2, not UTF-16.
+# UCS-2 doesn't support surrogate pairs, so characters outside BMP are
+# represented as two separate (invalid) characters.
+#
+# For character-level operations, use letter32 (Unicode codepoint).
+# letter16 is primarily for Windows API interop via cwstr.
+#
+# For legacy 16-bit encodings, use List<u16> instead.
 
-record letter16 {
+import Text/LetterType
+import core/Integral
+
+record letter16 follows LetterType {
     private value: u16
 }
 
-# Unicode constants for BMP
-preset LETTER16_NULL: letter16 = letter16(codepoint: 0x0000)
-preset LETTER16_MAX_BMP: letter16 = letter16(codepoint: 0xFFFF)
-preset LETTER16_REPLACEMENT_CHAR: letter16 = letter16(codepoint: 0xFFFD)
-preset LETTER16_SPACE: letter16 = letter16(codepoint: 0x20)
-preset LETTER16_NEWLINE: letter16 = letter16(codepoint: 0x0A)
-preset LETTER16_TAB: letter16 = letter16(codepoint: 0x09)
+# UTF-16 constants
+preset LETTER16_NULL: letter16 = letter16(value: 0x0000)
+preset LETTER16_SPACE: letter16 = letter16(value: 0x0020)
+preset LETTER16_NEWLINE: letter16 = letter16(value: 0x000A)
+preset LETTER16_TAB: letter16 = letter16(value: 0x0009)
+preset LETTER16_REPLACEMENT: letter16 = letter16(value: 0xFFFD)
 
-# UTF-16 surrogate constants
-preset LETTER16_HIGH_SURROGATE_START: letter16 = letter16(codepoint: 0xD800)
-preset LETTER16_HIGH_SURROGATE_END: letter16 = letter16(codepoint: 0xDBFF)
-preset LETTER16_LOW_SURROGATE_START: letter16 = letter16(codepoint: 0xDC00)
-preset LETTER16_LOW_SURROGATE_END: letter16 = letter16(codepoint: 0xDFFF)
+# Surrogate range constants
+preset LETTER16_HIGH_SURROGATE_START: u16 = 0xD800
+preset LETTER16_HIGH_SURROGATE_END: u16 = 0xDBFF
+preset LETTER16_LOW_SURROGATE_START: u16 = 0xDC00
+preset LETTER16_LOW_SURROGATE_END: u16 = 0xDFFF
 
-# Core character properties
-routine letter16.codepoint(me: letter16) -> u16 {
-    return me.value
+# ============================================================================
+# LetterType trait implementation
+# ============================================================================
+
+routine letter16.codepoint(me: letter16) -> u32 {
+    return u32(me.value)
 }
 
-routine letter16(codepoint: u16) -> letter16 {
-    return letter16 { value: codepoint }
+routine letter16.is_valid(me: letter16) -> bool {
+    # Valid if not a surrogate (surrogates are only valid in pairs)
+    return not me.is_surrogate()
 }
 
 routine letter16.is_ascii(me: letter16) -> bool {
-    return me.codepoint() <= 127
+    return me.value <= 0x007F
 }
 
-routine letter16.is_bmp(me: letter16) -> bool {
-    return true  # All letter16 are in BMP by definition
-}
-
-# UTF-16 surrogate handling
-routine letter16.is_surrogate(me: letter16) -> bool {
-    let cp = me.codepoint()
-    return cp >= 0xD800 and cp <= 0xDFFF
-}
-
-routine letter16.is_high_surrogate(me: letter16) -> bool {
-    let cp = me.codepoint()
-    return cp >= 0xD800 and cp <= 0xDBFF
-}
-
-routine letter16.is_low_surrogate(me: letter16) -> bool {
-    let cp = me.codepoint()
-    return cp >= 0xDC00 and cp <= 0xDFFF
-}
-
-routine letter16.combine_surrogates(high: letter16, low: letter16) -> letter32 {
-    when (high.is_high_surrogate() and low.is_low_surrogate()) {
-        true => {
-            let high_bits = (high.codepoint() - 0xD800) as u32
-            let low_bits = (low.codepoint() - 0xDC00) as u32
-            let combined = ((high_bits << 10) | low_bits) + 0x10000
-            return letter32(codepoint: combined)
-        },
-        false => return letter32(codepoint: 0xFFFD)  # Replacement character
-    }
-}
-
-# Character classification (Basic Multilingual Plane)
 routine letter16.is_alphabetic(me: letter16) -> bool {
-    let cp = me.codepoint()
-    return (cp >= 0x41 and cp <= 0x5A) or      # A-Z
-           (cp >= 0x61 and cp <= 0x7A) or      # a-z
-           (cp >= 0xC0 and cp <= 0xFF) or      # Latin Extended
-           (cp >= 0x100 and cp <= 0x17F) or    # Latin Extended-A
-           (cp >= 0x180 and cp <= 0x24F)       # Latin Extended-B (partial)
+    let v = me.value
+    return (0x0041u16 <= v <= 0x005Au16) or    # A-Z
+           (0x0061u16 <= v <= 0x007Au16) or    # a-z
+           (0x00C0u16 <= v <= 0x00FFu16) or    # Latin Extended
+           (0x0100u16 <= v <= 0x017Fu16) or    # Latin Extended-A
+           (0x0180u16 <= v <= 0x024Fu16)       # Latin Extended-B
 }
 
 routine letter16.is_numeric(me: letter16) -> bool {
-    let cp = me.codepoint()
-    return cp >= 0x30 and cp <= 0x39  # 0-9 (ASCII digits)
+    let v = me.value
+    return 0x0030u16 <= v <= 0x0039u16  # 0-9
 }
 
 routine letter16.is_alphanumeric(me: letter16) -> bool {
@@ -84,105 +70,139 @@ routine letter16.is_alphanumeric(me: letter16) -> bool {
 }
 
 routine letter16.is_uppercase(me: letter16) -> bool {
-    let cp = me.codepoint()
-    return cp >= 0x41 and cp <= 0x5A  # A-Z (ASCII only, simplified)
+    let v = me.value
+    return 0x0041u16 <= v <= 0x005Au16  # A-Z (ASCII only)
 }
 
 routine letter16.is_lowercase(me: letter16) -> bool {
-    let cp = me.codepoint()
-    return cp >= 0x61 and cp <= 0x7A  # a-z (ASCII only, simplified)
+    let v = me.value
+    return 0x0061u16 <= v <= 0x007Au16  # a-z (ASCII only)
 }
 
 routine letter16.is_whitespace(me: letter16) -> bool {
-    let cp = me.codepoint()
-    return cp == 0x20 or      # Space
-           cp == 0x09 or      # Tab
-           cp == 0x0A or      # Line feed
-           cp == 0x0D or      # Carriage return
-           cp == 0x0C or      # Form feed
-           cp == 0xA0 or      # Non-breaking space
-           cp == 0x2000 or    # En quad
-           cp == 0x2001 or    # Em quad
-           cp == 0x2002 or    # En space
-           cp == 0x2003       # Em space (partial Unicode whitespace)
+    let v = me.value
+    return v == 0x0020 or    # Space
+           v == 0x0009 or    # Tab
+           v == 0x000A or    # Line feed
+           v == 0x000D or    # Carriage return
+           v == 0x000C or    # Form feed
+           v == 0x00A0 or    # Non-breaking space
+           v == 0x2000 or    # En quad
+           v == 0x2001 or    # Em quad
+           v == 0x2002 or    # En space
+           v == 0x2003       # Em space
 }
 
 routine letter16.is_control(me: letter16) -> bool {
-    let cp = me.codepoint()
-    return (cp <= 0x1F) or (cp >= 0x7F and cp <= 0x9F)
+    let v = me.value
+    return (v <= 0x001Fu16) or (0x007Fu16 <= v <= 0x009Fu16)
 }
 
-# Case conversions (ASCII only, simplified)
 routine letter16.to_uppercase(me: letter16) -> letter16 {
-    when (me.is_lowercase()) {
-        true => return letter16(codepoint: me.codepoint() - 32),
-        false => return me
+    if me.is_lowercase() {
+        return letter16(value: me.value - 32u16)
     }
+    return me
 }
 
 routine letter16.to_lowercase(me: letter16) -> letter16 {
-    when (me.is_uppercase()) {
-        true => return letter16(codepoint: me.codepoint() + 32),
-        false => return me
+    if me.is_uppercase() {
+        return letter16(value: me.value + 32u16)
     }
+    return me
 }
 
+# ============================================================================
+# UTF-16 surrogate handling
+# ============================================================================
+
+routine letter16.is_surrogate(me: letter16) -> bool {
+    let v = me.value
+    return LETTER16_HIGH_SURROGATE_START <= v <= LETTER16_LOW_SURROGATE_END
+}
+
+routine letter16.is_high_surrogate(me: letter16) -> bool {
+    let v = me.value
+    return LETTER16_HIGH_SURROGATE_START <= v <= LETTER16_HIGH_SURROGATE_END
+}
+
+routine letter16.is_low_surrogate(me: letter16) -> bool {
+    let v = me.value
+    return LETTER16_LOW_SURROGATE_START <= v <= LETTER16_LOW_SURROGATE_END
+}
+
+# Combine a surrogate pair into a full Unicode codepoint
+routine letter16.combine_surrogates(high: letter16, low: letter16) -> letter32 {
+    if high.is_high_surrogate() and low.is_low_surrogate() {
+        let high_bits = u32(high.value - LETTER16_HIGH_SURROGATE_START)
+        let low_bits = u32(low.value - LETTER16_LOW_SURROGATE_START)
+        let combined = ((high_bits << 10u32) | low_bits) + 0x10000u32
+        return letter32(codepoint: combined)
+    }
+    # Invalid surrogate pair - return replacement character
+    return letter32(codepoint: 0xFFFDu32)
+}
+
+# ============================================================================
+# BMP detection
+# ============================================================================
+
+routine letter16.is_bmp(me: letter16) -> bool {
+    # All letter16 values are in BMP by definition (0x0000-0xFFFF)
+    # But surrogates are not valid standalone BMP characters
+    return not me.is_surrogate()
+}
+
+# ============================================================================
 # Comparison operations
-routine letter16.eq(me: letter16, other: letter16) -> bool {
-    return me.codepoint() == other.codepoint()
+# ============================================================================
+
+routine letter16.__eq__(me: letter16, other: letter16) -> bool {
+    return me.value == other.value
 }
 
-routine letter16.ne(me: letter16, other: letter16) -> bool {
-    return me.codepoint() != other.codepoint()
+routine letter16.__ne__(me: letter16, other: letter16) -> bool {
+    return me.value != other.value
 }
 
-routine letter16.lt(me: letter16, other: letter16) -> bool {
-    return me.codepoint() < other.codepoint()
+routine letter16.__lt__(me: letter16, other: letter16) -> bool {
+    return me.value < other.value
 }
 
-routine letter16.le(me: letter16, other: letter16) -> bool {
-    return me.codepoint() <= other.codepoint()
+routine letter16.__le__(me: letter16, other: letter16) -> bool {
+    return me.value <= other.value
 }
 
-routine letter16.gt(me: letter16, other: letter16) -> bool {
-    return me.codepoint() > other.codepoint()
+routine letter16.__gt__(me: letter16, other: letter16) -> bool {
+    return me.value > other.value
 }
 
-routine letter16.ge(me: letter16, other: letter16) -> bool {
-    return me.codepoint() >= other.codepoint()
+routine letter16.__ge__(me: letter16, other: letter16) -> bool {
+    return me.value >= other.value
 }
 
+# ============================================================================
 # Type conversions
-routine letter32(from_letter16: letter16) -> letter32 {
-    # Extend to full Unicode letter32
-    return letter32(codepoint: from_letter16.codepoint() as u32)
+# ============================================================================
+
+routine letter16.to_u16(me: letter16) -> u16 {
+    return me.value
 }
 
-routine letter8(from_letter16: letter16) -> letter8 {
-    # Truncate to ASCII (may lose information)
-    return letter8(codepoint: from_letter16.codepoint() as u8)
+routine letter16.to_letter8(me: letter16) -> letter8 {
+    # Only valid for ASCII range - truncates
+    return letter8(codepoint: u8(me.value & 0x00FFu16))
 }
 
-routine u16(from_letter16: letter16) -> u16 {
-    return from_letter16.codepoint()
+routine letter16.to_letter32(me: letter16) -> letter32 {
+    # Only valid for non-surrogate BMP characters
+    return letter32(codepoint: u32(me.value))
 }
 
-routine s16(from_letter16: letter16) -> s16 {
-    return from_letter16.codepoint() as s16
-}
+# ============================================================================
+# Utility methods
+# ============================================================================
 
-# Text conversion
-routine Text16(from_letter16: letter16) -> Text16 {
-    # Convert single BMP character to Text16 string
-    return ""  # Placeholder - would create single-char UTF-16 string
-}
-
-routine letter16(from_text16: Text16) -> letter16 {
-    # Extract first character from Text16 string
-    return LETTER16_NULL  # Placeholder - would extract first UTF-16 char
-}
-
-# Utility routines
 routine letter16.is_digit(me: letter16) -> bool {
     return me.is_numeric()
 }
@@ -192,10 +212,10 @@ routine letter16.is_letter(me: letter16) -> bool {
 }
 
 routine letter16.digit_value(me: letter16) -> s16 {
-    when (me.is_numeric()) {
-        true => return (me.codepoint() - 0x30) as s16,
-        false => return -1
+    if me.is_numeric() {
+        return s16(me.value - 0x0030u16)
     }
+    return -1s16
 }
 
 routine letter16.is_printable(me: letter16) -> bool {
@@ -203,16 +223,24 @@ routine letter16.is_printable(me: letter16) -> bool {
 }
 
 routine letter16.is_cjk(me: letter16) -> bool {
-    # Basic CJK Unified Ideographs detection (simplified)
-    let cp = me.codepoint()
-    return (cp >= 0x4E00 and cp <= 0x9FFF) or    # CJK Unified Ideographs
-           (cp >= 0x3400 and cp <= 0x4DBF)       # CJK Extension A
+    let v = me.value
+    return (0x4E00u16 <= v <= 0x9FFFu16) or    # CJK Unified Ideographs
+           (0x3400u16 <= v <= 0x4DBFu16)       # CJK Extension A
 }
 
 routine letter16.is_latin(me: letter16) -> bool {
-    let cp = me.codepoint()
-    return (cp >= 0x0000 and cp <= 0x007F) or    # Basic Latin
-           (cp >= 0x0080 and cp <= 0x00FF) or    # Latin-1 Supplement
-           (cp >= 0x0100 and cp <= 0x017F) or    # Latin Extended-A
-           (cp >= 0x0180 and cp <= 0x024F)       # Latin Extended-B
+    let v = me.value
+    return (0x0000u16 <= v <= 0x007Fu16) or    # Basic Latin
+           (0x0080u16 <= v <= 0x00FFu16) or    # Latin-1 Supplement
+           (0x0100u16 <= v <= 0x017Fu16) or    # Latin Extended-A
+           (0x0180u16 <= v <= 0x024Fu16)       # Latin Extended-B
+}
+
+# ============================================================================
+# Codepoint offset
+# ============================================================================
+
+routine letter16.offset!<I: Integral>(me: letter16, delta: I) -> letter16 {
+    let new_value = saddr(me.value) + delta.to_saddr()
+    return letter16(value: u16(new_value))
 }

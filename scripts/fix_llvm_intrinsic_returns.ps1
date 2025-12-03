@@ -6,7 +6,8 @@ param(
     [switch]$DryRun = $false
 )
 
-if (-not (Test-Path $Path)) {
+if (-not (Test-Path $Path))
+{
     Write-Host "Error: Path not found: $Path" -ForegroundColor Red
     exit 1
 }
@@ -18,7 +19,8 @@ $totalReplacements = 0
 
 Write-Host "Found $totalFiles .rf files to process`n" -ForegroundColor Cyan
 
-foreach ($file in $rfFiles) {
+foreach ($file in $rfFiles)
+{
     $content = Get-Content $file.FullName -Raw
     $originalContent = $content
 
@@ -30,15 +32,17 @@ foreach ($file in $rfFiles) {
 
     $newContent = $content -creplace $pattern, $replacement
 
-    if ($newContent -ne $content) {
+    if ($newContent -ne $content)
+    {
         $count = ([regex]::Matches($content, $pattern)).Count
         $filesChanged++
         $totalReplacements += $count
 
-        Write-Host "  $($file.Name): " -NoNewline -ForegroundColor Yellow
+        Write-Host "  $( $file.Name ): " -NoNewline -ForegroundColor Yellow
         Write-Host "$count changes" -ForegroundColor Green
 
-        if (-not $DryRun) {
+        if (-not $DryRun)
+        {
             $newContent | Set-Content $file.FullName -NoNewline
         }
     }
@@ -50,10 +54,13 @@ Write-Host "  Files processed: $totalFiles" -ForegroundColor White
 Write-Host "  Files changed: $filesChanged" -ForegroundColor Yellow
 Write-Host "  Total replacements: $totalReplacements" -ForegroundColor Green
 
-if ($DryRun) {
+if ($DryRun)
+{
     Write-Host "`n! DRY RUN - No changes applied" -ForegroundColor Yellow
     Write-Host "  Run without -DryRun to apply changes" -ForegroundColor DarkGray
-} else {
+}
+else
+{
     Write-Host "`n✓ Changes applied" -ForegroundColor Green
 }
 

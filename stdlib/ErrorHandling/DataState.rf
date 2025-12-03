@@ -1,0 +1,5 @@
+choice DataState {
+    VALID,
+    ABSENT,
+    ERROR
+}

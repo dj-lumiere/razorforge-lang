@@ -48,7 +48,7 @@ public interface IAstNode
 /// <item>Code generation: enables source maps and debugging info</item>
 /// </list>
 /// </remarks>
-public record SourceLocation(int Line, int Column, int Position);
+public record SourceLocation(string FileName, int Line, int Column, int Position);
 
 /// <summary>
 /// Abstract base implementation for all AST nodes in the compiler.
@@ -137,7 +137,7 @@ public interface IAstVisitor<T>
     /// <returns>Result of visiting the binary expression</returns>
     T VisitBinaryExpression(BinaryExpression node);
 
-    /// <summary>Visits a unary expression node (operations like -x, !condition)</summary>
+    /// <summary>Visits a unary expression node (operations like -x, not condition)</summary>
     /// <param name="node">The unary expression to visit</param>
     /// <returns>Result of visiting the unary expression</returns>
     T VisitUnaryExpression(UnaryExpression node);
@@ -152,10 +152,10 @@ public interface IAstVisitor<T>
     /// <returns>Result of visiting the named argument expression</returns>
     T VisitNamedArgumentExpression(NamedArgumentExpression node);
 
-    /// <summary>Visits a struct literal expression node (Type { field: value } syntax)</summary>
-    /// <param name="node">The struct literal expression to visit</param>
-    /// <returns>Result of visiting the struct literal expression</returns>
-    T VisitStructLiteralExpression(StructLiteralExpression node);
+    /// <summary>Visits a constructor expression node (Type(field: value) syntax)</summary>
+    /// <param name="node">The constructor expression to visit</param>
+    /// <returns>Result of visiting the constructor expression</returns>
+    T VisitConstructorExpression(ConstructorExpression node);
 
     /// <summary>Visits a member expression node (property/field access like obj.field)</summary>
     /// <param name="node">The member expression to visit</param>
@@ -306,11 +306,6 @@ public interface IAstVisitor<T>
     /// <returns>Result of visiting the danger statement</returns>
     T VisitDangerStatement(DangerStatement node);
 
-    /// <summary>Visits a mayhem statement node (ultimate unsafe block for runtime modifications)</summary>
-    /// <param name="node">The mayhem statement to visit</param>
-    /// <returns>Result of visiting the mayhem statement</returns>
-    T VisitMayhemStatement(MayhemStatement node);
-
     /// <summary>Visits a viewing statement node (scoped read-only access)</summary>
     /// <param name="node">The viewing statement to visit</param>
     /// <returns>Result of visiting the viewing statement</returns>
@@ -321,9 +316,9 @@ public interface IAstVisitor<T>
     /// <returns>Result of visiting the hijacking statement</returns>
     T VisitHijackingStatement(HijackingStatement node);
 
-    /// <summary>Visits an observing statement node (thread-safe scoped read access)</summary>
-    /// <param name="node">The observing statement to visit</param>
-    /// <returns>Result of visiting the observing statement</returns>
+    /// <summary>Visits an inspecting statement node (thread-safe scoped read access)</summary>
+    /// <param name="node">The inspecting statement to visit</param>
+    /// <returns>Result of visiting the inspecting statement</returns>
     T VisitObservingStatement(ObservingStatement node);
 
     /// <summary>Visits a seizing statement node (thread-safe scoped exclusive access)</summary>
@@ -346,17 +341,17 @@ public interface IAstVisitor<T>
     /// <summary>Visits a class declaration node (entity/class definitions)</summary>
     /// <param name="node">The class declaration to visit</param>
     /// <returns>Result of visiting the class declaration</returns>
-    T VisitClassDeclaration(ClassDeclaration node);
+    T VisitEntityDeclaration(EntityDeclaration node);
 
     /// <summary>Visits a struct declaration node (record/struct definitions)</summary>
     /// <param name="node">The struct declaration to visit</param>
     /// <returns>Result of visiting the struct declaration</returns>
-    T VisitStructDeclaration(StructDeclaration node);
+    T VisitRecordDeclaration(RecordDeclaration node);
 
     /// <summary>Visits a menu declaration node (option/enum definitions)</summary>
     /// <param name="node">The menu declaration to visit</param>
     /// <returns>Result of visiting the menu declaration</returns>
-    T VisitMenuDeclaration(MenuDeclaration node);
+    T VisitChoiceDeclaration(ChoiceDeclaration node);
 
     /// <summary>Visits a variant declaration node (tagged union/algebraic data type definitions)</summary>
     /// <param name="node">The variant declaration to visit</param>
@@ -366,7 +361,7 @@ public interface IAstVisitor<T>
     /// <summary>Visits a feature declaration node (trait/interface definitions)</summary>
     /// <param name="node">The feature declaration to visit</param>
     /// <returns>Result of visiting the feature declaration</returns>
-    T VisitFeatureDeclaration(FeatureDeclaration node);
+    T VisitProtocolDeclaration(ProtocolDeclaration node);
 
     /// <summary>Visits an implementation declaration node (trait/inherent implementations)</summary>
     /// <param name="node">The implementation declaration to visit</param>
@@ -383,10 +378,10 @@ public interface IAstVisitor<T>
     /// <returns>Result of visiting the namespace declaration</returns>
     T VisitNamespaceDeclaration(NamespaceDeclaration node);
 
-    /// <summary>Visits a redefinition declaration node (symbol aliasing)</summary>
+    /// <summary>Visits a redefinition declaration node (symbol aliasing, define A as B)</summary>
     /// <param name="node">The redefinition declaration to visit</param>
     /// <returns>Result of visiting the redefinition declaration</returns>
-    T VisitRedefinitionDeclaration(RedefinitionDeclaration node);
+    T VisitDefineDeclaration(RedefinitionDeclaration node);
 
     /// <summary>Visits a using declaration node (type aliasing)</summary>
     /// <param name="node">The using declaration to visit</param>
@@ -397,6 +392,16 @@ public interface IAstVisitor<T>
     /// <param name="node">The external declaration to visit</param>
     /// <returns>Result of visiting the external declaration</returns>
     T VisitExternalDeclaration(ExternalDeclaration node);
+
+    /// <summary>Visits a preset declaration node (compile-time constants)</summary>
+    /// <param name="node">The preset declaration to visit</param>
+    /// <returns>Result of visiting the preset declaration</returns>
+    T VisitPresetDeclaration(PresetDeclaration node);
+
+    /// <summary>Visits a pass statement node (empty placeholder statement)</summary>
+    /// <param name="node">The pass statement to visit</param>
+    /// <returns>Result of visiting the pass statement</returns>
+    T VisitPassStatement(PassStatement node);
 
     // Program visitor method - handle the root program node
 

@@ -323,8 +323,11 @@ public enum TokenType
     /// <summary>Static modifier keyword</summary>
     TypeWise,
 
-    /// <summary>Self reference keyword</summary>
+    /// <summary>Self reference keyword (me)</summary>
     Self,
+
+    /// <summary>Self type keyword (MyType) - the type of 'me' in protocols and methods</summary>
+    SelfType,
 
     /// <summary>Super/parent reference keyword</summary>
     Super,
@@ -412,9 +415,6 @@ public enum TokenType
 
     /// <summary>Danger mode keyword for unsafe operations</summary>
     Danger,
-
-    /// <summary>Mayhem mode keyword for ultimate unsafe operations (method replacement, code execution)</summary>
-    Mayhem,
 
     /// <summary>With clause keyword for context</summary>
     With,
@@ -753,8 +753,8 @@ public enum TokenType
     /// <summary>Thread-safe exclusive lock keyword for Shared (seizing ts as ts { })</summary>
     Seizing,
 
-    /// <summary>Thread-safe shared read lock keyword for Shared with MultiReadLock policy (observing ts as tw { })</summary>
-    Observing,
+    /// <summary>Thread-safe shared read lock keyword for Shared with MultiReadLock policy (inspecting ts as tw { })</summary>
+    Inspecting,
 
     /// <summary>End of file marker token</summary>
     Eof,

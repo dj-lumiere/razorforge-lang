@@ -42,6 +42,7 @@ public class SuflaeTokenizer : BaseTokenizer
         [key: "global"] = TokenType.Global,
         [key: "external"] = TokenType.External,
         [key: "me"] = TokenType.Self,
+        [key: "MyType"] = TokenType.SelfType,
         [key: "parent"] = TokenType.Super,
         [key: "if"] = TokenType.If,
         [key: "elseif"] = TokenType.Elseif,
@@ -136,7 +137,10 @@ public class SuflaeTokenizer : BaseTokenizer
             AddToken(type: TokenType.Dedent, text: "");
         }
 
-        Tokens.Add(item: new Token(Type: TokenType.Eof, Text: "", Line: Line, Column: Column,
+        Tokens.Add(item: new Token(Type: TokenType.Eof,
+            Text: "",
+            Line: Line,
+            Column: Column,
             Position: Position));
         return Tokens;
     }
@@ -289,6 +293,7 @@ public class SuflaeTokenizer : BaseTokenizer
                 {
                     AddToken(type: TokenType.At);
                 }
+
                 break;
 
             // Numbers

@@ -24,20 +24,24 @@ public class CrashMessageResolver
     /// </summary>
     public void Initialize()
     {
-        if (_initialized) return;
-        _initialized = true;
-
-        string errorsPath = Path.Combine(_stdlibPath, "errors");
-        if (!Directory.Exists(errorsPath))
+        if (_initialized)
         {
             return;
         }
 
-        foreach (string file in Directory.GetFiles(errorsPath, "*.rf"))
+        _initialized = true;
+
+        string errorsPath = Path.Combine(path1: _stdlibPath, path2: "errors");
+        if (!Directory.Exists(path: errorsPath))
+        {
+            return;
+        }
+
+        foreach (string file in Directory.GetFiles(path: errorsPath, searchPattern: "*.rf"))
         {
             try
             {
-                ParseErrorFile(file);
+                ParseErrorFile(filePath: file);
             }
             catch
             {
@@ -53,7 +57,9 @@ public class CrashMessageResolver
     public string? GetStaticMessage(string errorTypeName)
     {
         Initialize();
-        return _staticMessages.TryGetValue(errorTypeName, out var message) ? message : null;
+        return _staticMessages.TryGetValue(key: errorTypeName, value: out string? message)
+            ? message
+            : null;
     }
 
     /// <summary>
@@ -62,7 +68,7 @@ public class CrashMessageResolver
     public bool HasDynamicMessage(string errorTypeName)
     {
         Initialize();
-        return _dynamicMessageTypes.Contains(errorTypeName);
+        return _dynamicMessageTypes.Contains(item: errorTypeName);
     }
 
     /// <summary>
@@ -71,59 +77,68 @@ public class CrashMessageResolver
     public bool IsKnownErrorType(string errorTypeName)
     {
         Initialize();
-        return _staticMessages.ContainsKey(errorTypeName) || _dynamicMessageTypes.Contains(errorTypeName);
+        return _staticMessages.ContainsKey(key: errorTypeName) ||
+               _dynamicMessageTypes.Contains(item: errorTypeName);
     }
 
     private void ParseErrorFile(string filePath)
     {
-        string content = File.ReadAllText(filePath);
+        string content = File.ReadAllText(path: filePath);
 
         // Find record definitions that follow Crashable
         // Match: record TypeName follows Crashable {
-        var recordStartPattern = new Regex(@"record\s+(\w+)\s+follows\s+Crashable\s*\{");
+        var recordStartPattern = new Regex(pattern: @"record\s+(\w+)\s+follows\s+Crashable\s*\{");
 
-        foreach (Match recordMatch in recordStartPattern.Matches(content))
+        foreach (Match recordMatch in recordStartPattern.Matches(input: content))
         {
-            string typeName = recordMatch.Groups[1].Value;
+            string typeName = recordMatch.Groups[groupnum: 1].Value;
             int braceStart = recordMatch.Index + recordMatch.Length - 1;
 
             // Find matching closing brace for the record
-            string recordBody = ExtractBracedContent(content, braceStart);
-            if (recordBody == null) continue;
+            string recordBody = ExtractBracedContent(content: content, braceStart: braceStart);
+            if (recordBody == null)
+            {
+                continue;
+            }
 
             // Find crash_message routine - allow for optional 'me' parameter
             // Patterns: crash_message() or crash_message(me) or crash_message(me, ...)
             var crashMsgPattern = new Regex(
-                @"routine\s+crash_message\s*\([^)]*\)\s*->\s*Text<\w+>\s*\{",
-                RegexOptions.Singleline);
+                pattern: @"routine\s+crash_message\s*\([^)]*\)\s*->\s*Text<\w+>\s*\{",
+                options: RegexOptions.Singleline);
 
-            var crashMsgMatch = crashMsgPattern.Match(recordBody);
+            Match crashMsgMatch = crashMsgPattern.Match(input: recordBody);
             if (crashMsgMatch.Success)
             {
                 int methodBraceStart = crashMsgMatch.Index + crashMsgMatch.Length - 1;
-                string methodBody = ExtractBracedContent(recordBody, methodBraceStart);
-                if (methodBody == null) continue;
+                string methodBody =
+                    ExtractBracedContent(content: recordBody, braceStart: methodBraceStart);
+                if (methodBody == null)
+                {
+                    continue;
+                }
 
                 methodBody = methodBody.Trim();
 
                 // Check if it's a simple return of a string literal
-                var simpleReturnPattern = new Regex(@"^\s*return\s+""([^""]+)""\s*$");
-                var simpleMatch = simpleReturnPattern.Match(methodBody);
+                var simpleReturnPattern = new Regex(pattern: @"^\s*return\s+""([^""]+)""\s*$");
+                Match simpleMatch = simpleReturnPattern.Match(input: methodBody);
 
                 if (simpleMatch.Success)
                 {
                     // Static message - just a string literal
-                    _staticMessages[typeName] = simpleMatch.Groups[1].Value;
+                    _staticMessages[key: typeName] = simpleMatch.Groups[groupnum: 1].Value;
                 }
-                else if (methodBody.Contains("me.") || methodBody.Contains("f\"") || methodBody.Contains("{"))
+                else if (methodBody.Contains(value: "me.") || methodBody.Contains(value: "f\"") ||
+                         methodBody.Contains(value: "{"))
                 {
                     // Dynamic message - uses fields or interpolation
-                    _dynamicMessageTypes.Add(typeName);
+                    _dynamicMessageTypes.Add(item: typeName);
                 }
                 else
                 {
                     // Unknown pattern - treat as dynamic
-                    _dynamicMessageTypes.Add(typeName);
+                    _dynamicMessageTypes.Add(item: typeName);
                 }
             }
         }
@@ -134,23 +149,35 @@ public class CrashMessageResolver
     /// </summary>
     private static string? ExtractBracedContent(string content, int braceStart)
     {
-        if (braceStart >= content.Length || content[braceStart] != '{')
+        if (braceStart >= content.Length || content[index: braceStart] != '{')
+        {
             return null;
+        }
 
         int depth = 1;
         int i = braceStart + 1;
 
         while (i < content.Length && depth > 0)
         {
-            char c = content[i];
-            if (c == '{') depth++;
-            else if (c == '}') depth--;
+            char c = content[index: i];
+            if (c == '{')
+            {
+                depth++;
+            }
+            else if (c == '}')
+            {
+                depth--;
+            }
+
             i++;
         }
 
-        if (depth != 0) return null;
+        if (depth != 0)
+        {
+            return null;
+        }
 
         // Return content between braces (excluding the braces themselves)
-        return content.Substring(braceStart + 1, i - braceStart - 2);
+        return content.Substring(startIndex: braceStart + 1, length: i - braceStart - 2);
     }
 }

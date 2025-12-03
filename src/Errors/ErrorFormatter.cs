@@ -51,7 +51,7 @@ public class ErrorFormatter
         }
 
         // Related locations
-        foreach (var (label, span) in error.RelatedLocations)
+        foreach ((string label, SourceSpan span) in error.RelatedLocations)
         {
             sb.AppendLine();
             sb.Append(value: $"  {label}: ");
@@ -87,16 +87,17 @@ public class ErrorFormatter
         {
             string colorCode = error.Severity switch
             {
-                DiagnosticSeverity.Hint => "\u001b[36m",     // Cyan
+                DiagnosticSeverity.Hint => "\u001b[36m", // Cyan
                 DiagnosticSeverity.Warning => "\u001b[33m", // Yellow
-                DiagnosticSeverity.Error => "\u001b[31m",   // Red
-                DiagnosticSeverity.Fatal => "\u001b[91m",   // Bright red
+                DiagnosticSeverity.Error => "\u001b[31m", // Red
+                DiagnosticSeverity.Fatal => "\u001b[91m", // Bright red
                 _ => "\u001b[31m"
             };
             string reset = "\u001b[0m";
             string bold = "\u001b[1m";
 
-            return $"{colorCode}{bold}[{error.Code}] {severityStr}{reset}: {bold}{error.ErrorMessage}{reset}";
+            return
+                $"{colorCode}{bold}[{error.Code}] {severityStr}{reset}: {bold}{error.ErrorMessage}{reset}";
         }
 
         return $"[{error.Code}] {severityStr}: {error.ErrorMessage}";
@@ -111,16 +112,22 @@ public class ErrorFormatter
         int endLine = Math.Min(val1: lines.Length, val2: span.EndLine + ContextLines);
 
         // Calculate gutter width (for line numbers)
-        int gutterWidth = endLine.ToString().Length;
+        int gutterWidth = endLine.ToString()
+                                 .Length;
 
         sb.AppendLine(value: $"   {new string(c: ' ', count: gutterWidth)}|");
 
         for (int i = startLine; i <= endLine; i++)
         {
-            if (i - 1 >= lines.Length) break;
+            if (i - 1 >= lines.Length)
+            {
+                break;
+            }
 
-            string line = lines[i - 1].TrimEnd(trimChar: '\r');
-            string lineNum = i.ToString().PadLeft(totalWidth: gutterWidth);
+            string line = lines[i - 1]
+               .TrimEnd(trimChar: '\r');
+            string lineNum = i.ToString()
+                              .PadLeft(totalWidth: gutterWidth);
 
             // Check if this is an error line
             bool isErrorLine = i >= span.StartLine && i <= span.EndLine;
@@ -130,12 +137,16 @@ public class ErrorFormatter
                 sb.AppendLine(value: $" {lineNum} | {line}");
 
                 // Add caret indicator
-                int caretStart = (i == span.StartLine) ? span.StartColumn - 1 : 0;
-                int caretEnd = (i == span.EndLine) ? span.EndColumn - 1 : line.Length;
+                int caretStart = i == span.StartLine
+                    ? span.StartColumn - 1
+                    : 0;
+                int caretEnd = i == span.EndLine
+                    ? span.EndColumn - 1
+                    : line.Length;
                 caretEnd = Math.Max(val1: caretEnd, val2: caretStart + 1);
 
-                string padding = new string(c: ' ', count: caretStart);
-                string carets = new string(c: '^', count: Math.Max(val1: 1, val2: caretEnd - caretStart));
+                string padding = new(c: ' ', count: caretStart);
+                string carets = new(c: '^', count: Math.Max(val1: 1, val2: caretEnd - caretStart));
 
                 string caretLine = $"   {new string(c: ' ', count: gutterWidth)}| {padding}";
                 if (UseColors)
@@ -162,6 +173,7 @@ public class ErrorFormatter
         {
             return $"\u001b[36mhint\u001b[0m: {hint}";
         }
+
         return $"hint: {hint}";
     }
 
@@ -171,11 +183,10 @@ public class ErrorFormatter
     public string FormatAll(IEnumerable<CompilerError> errors, string? sourceText = null)
     {
         var sb = new StringBuilder();
-        List<CompilerError> sortedErrors = errors
-            .OrderBy(keySelector: e => e.Span.File ?? "")
-            .ThenBy(keySelector: e => e.Span.StartLine)
-            .ThenBy(keySelector: e => e.Span.StartColumn)
-            .ToList();
+        var sortedErrors = errors.OrderBy(keySelector: e => e.Span.File ?? "")
+                                 .ThenBy(keySelector: e => e.Span.StartLine)
+                                 .ThenBy(keySelector: e => e.Span.StartColumn)
+                                 .ToList();
 
         foreach (CompilerError error in sortedErrors)
         {
@@ -183,8 +194,10 @@ public class ErrorFormatter
         }
 
         // Summary
-        int errorCount = sortedErrors.Count(predicate: e => e.Severity == DiagnosticSeverity.Error || e.Severity == DiagnosticSeverity.Fatal);
-        int warningCount = sortedErrors.Count(predicate: e => e.Severity == DiagnosticSeverity.Warning);
+        int errorCount = sortedErrors.Count(predicate: e =>
+            e.Severity == DiagnosticSeverity.Error || e.Severity == DiagnosticSeverity.Fatal);
+        int warningCount =
+            sortedErrors.Count(predicate: e => e.Severity == DiagnosticSeverity.Warning);
 
         if (errorCount > 0 || warningCount > 0)
         {
@@ -195,9 +208,14 @@ public class ErrorFormatter
                 {
                     sb.Append(value: $"\u001b[31m{errorCount} error(s)\u001b[0m");
                 }
+
                 if (warningCount > 0)
                 {
-                    if (errorCount > 0) sb.Append(value: ", ");
+                    if (errorCount > 0)
+                    {
+                        sb.Append(value: ", ");
+                    }
+
                     sb.Append(value: $"\u001b[33m{warningCount} warning(s)\u001b[0m");
                 }
             }
@@ -207,12 +225,18 @@ public class ErrorFormatter
                 {
                     sb.Append(value: $"{errorCount} error(s)");
                 }
+
                 if (warningCount > 0)
                 {
-                    if (errorCount > 0) sb.Append(value: ", ");
+                    if (errorCount > 0)
+                    {
+                        sb.Append(value: ", ");
+                    }
+
                     sb.Append(value: $"{warningCount} warning(s)");
                 }
             }
+
             sb.AppendLine();
         }
 

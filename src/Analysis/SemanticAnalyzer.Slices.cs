@@ -28,6 +28,11 @@ public partial class SemanticAnalyzer
                 // Implicit conversion from any integer type to uaddr for slice sizes
                 // This handles cases like DynamicSlice(64) where 64 might be typed as s32, s64, etc.
             }
+            else if (sizeType.Name == "MemorySize")
+            {
+                // MemorySize is a special type that represents byte counts
+                // It can be implicitly converted to uaddr for memory allocation
+            }
             else
             {
                 AddError(
@@ -39,8 +44,9 @@ public partial class SemanticAnalyzer
 
         // Return appropriate slice type
         string sliceTypeName = node.SliceType;
-        return new TypeInfo(Name: sliceTypeName,
+        var resultType = new TypeInfo(Name: sliceTypeName,
             IsReference: false); // Slice types are value types (structs)
+        return SetResolvedType(node, resultType);
     }
 
     /// <summary>
@@ -58,7 +64,33 @@ public partial class SemanticAnalyzer
             // Handle built-in danger zone operations
             if (IsDangerZoneFunction(functionName: functionName))
             {
-                return ValidateDangerZoneFunction(node: node, functionName: functionName);
+                var dangerResult = ValidateDangerZoneFunction(node: node, functionName: functionName) as TypeInfo;
+                return SetResolvedType(node, dangerResult);
+            }
+
+            // Check if this is a constructor call (Type<T>(args))
+            // Look up the identifier to see if it's a type
+            Symbol? symbol = _symbolTable.Lookup(name: functionName);
+
+            // Unwrap TypeWithConstructors
+            if (symbol is TypeWithConstructors typeWithCtors)
+            {
+                symbol = typeWithCtors.TypeSymbol;
+            }
+
+            // If it's a type (struct, class, variant), this is a constructor call
+            if (symbol is StructSymbol or ClassSymbol or VariantSymbol)
+            {
+                // Type check all arguments
+                foreach (Expression arg in node.Arguments)
+                {
+                    arg.Accept(visitor: this);
+                }
+
+                // Return the type being constructed
+                bool isReference = symbol is ClassSymbol;
+                var resultType = new TypeInfo(Name: functionName, IsReference: isReference);
+                return SetResolvedType(node, resultType);
             }
         }
 
@@ -67,17 +99,19 @@ public partial class SemanticAnalyzer
         if (objectType == null)
         {
             AddError(message: "Cannot call method on null object", location: node.Location);
-            return null;
+            return SetResolvedType(node, null);
         }
 
         // Check if this is a slice operation
         if (objectType.Name == "DynamicSlice" || objectType.Name == "TemporarySlice")
         {
-            return ValidateSliceGenericMethod(node: node, sliceType: objectType);
+            var sliceResult = ValidateSliceGenericMethod(node: node, sliceType: objectType) as TypeInfo;
+            return SetResolvedType(node, sliceResult);
         }
 
         // Handle other generic method calls
-        return ValidateGenericMethodCall(node: node, objectType: objectType);
+        var genericResult = ValidateGenericMethodCall(node: node, objectType: objectType) as TypeInfo;
+        return SetResolvedType(node, genericResult);
     }
 
     /// <summary>
@@ -91,7 +125,7 @@ public partial class SemanticAnalyzer
         if (objectType == null)
         {
             AddError(message: "Cannot access member on null object", location: node.Location);
-            return null;
+            return SetResolvedType(node, null);
         }
 
         // Validate type arguments are well-formed
@@ -111,7 +145,8 @@ public partial class SemanticAnalyzer
             typeArguments: node.TypeArguments,
             location: node.Location);
 
-        return memberType ?? new TypeInfo(Name: "unknown", IsReference: false);
+        var resultType = memberType ?? new TypeInfo(Name: "unknown", IsReference: false);
+        return SetResolvedType(node, resultType);
     }
 
     /// <summary>
@@ -126,27 +161,28 @@ public partial class SemanticAnalyzer
         {
             AddError(message: "Cannot perform memory operation on null object",
                 location: node.Location);
-            return null;
+            return SetResolvedType(node, null);
         }
 
         // Check if this is a slice operation
         if (objectType.Name == "DynamicSlice" || objectType.Name == "TemporarySlice")
         {
-            return ValidateSliceMemoryOperation(node: node, sliceType: objectType);
+            var sliceResult = ValidateSliceMemoryOperation(node: node, sliceType: objectType) as TypeInfo;
+            return SetResolvedType(node, sliceResult);
         }
 
         // Handle other memory operations through memory analyzer
         MemoryOperation? memOp = GetMemoryOperation(operationName: node.OperationName);
         if (memOp == null)
         {
-            return objectType;
+            return SetResolvedType(node, objectType);
         }
 
         MemoryObject? memoryObject =
             _memoryAnalyzer.GetMemoryObject(name: node.Object.ToString() ?? "");
         if (memoryObject == null)
         {
-            return objectType;
+            return SetResolvedType(node, objectType);
         }
 
         MemoryOperationResult result = _memoryAnalyzer.ValidateMemoryOperation(
@@ -155,8 +191,9 @@ public partial class SemanticAnalyzer
             location: node.Location);
         if (result.IsSuccess)
         {
-            return CreateWrapperTypeInfo(baseType: memoryObject.BaseType,
+            var successType = CreateWrapperTypeInfo(baseType: memoryObject.BaseType,
                 wrapper: result.NewWrapperType);
+            return SetResolvedType(node, successType);
         }
 
         foreach (MemoryError error in result.Errors)
@@ -164,8 +201,9 @@ public partial class SemanticAnalyzer
             AddError(message: error.Message, location: error.Location);
         }
 
-        return CreateWrapperTypeInfo(baseType: memoryObject.BaseType,
+        var resultType = CreateWrapperTypeInfo(baseType: memoryObject.BaseType,
             wrapper: result.NewWrapperType);
+        return SetResolvedType(node, resultType);
     }
     private object? ValidateSliceGenericMethod(GenericMethodCallExpression node,
         TypeInfo sliceType)

@@ -37,60 +37,56 @@ public enum Language
 }
 
 /// <summary>
-/// Language modes provide fine-grained control over safety vs performance tradeoffs
-/// within each language. These modes affect compiler behavior, optimization levels,
-/// and available language features.
+/// Language modes provide fine-grained control over compilation targets and available features
+/// within each language. These modes affect compiler behavior, available libraries,
+/// and runtime requirements.
 ///
-/// RazorForge modes control the strictness of memory safety enforcement:
+/// RazorForge modes:
 /// <list type="bullet">
-/// <item>Normal mode provides safe memory management with full safety guarantees</item>
-/// <item>Danger mode allows unsafe operations for systems programming and performance</item>
+/// <item>Normal mode: Full standard library with OS integration</item>
+/// <item>Freestanding mode: No OS dependencies, for embedded/kernel development</item>
 /// </list>
 ///
-/// Suflae modes control the balance between convenience and performance:
-/// <list type="bullet">
-/// <item>Sweet mode optimizes for developer productivity and rapid iteration</item>
-/// <item>Bitter mode enables lower-level optimizations for performance-critical code</item>
-/// </list>
+/// Note: danger! blocks are a block-level construct within RazorForge code, not a separate
+/// language mode. They allow unsafe operations within a scoped region while the rest of the
+/// code maintains full safety guarantees.
 /// </summary>
 public enum LanguageMode
 {
     // === RazorForge Modes ===
 
     /// <summary>
-    /// RazorForge Normal Mode: Safe memory management for systems programming.
+    /// RazorForge Normal Mode: Full-featured systems programming with OS integration.
     ///
     /// Features:
     /// <list type="bullet">
     /// <item>Full memory safety enforcement with deadref protection</item>
     /// <item>All 6 wrapper types available with group separation rules</item>
     /// <item>Memory operations validated at compile time</item>
-    /// <item>No danger! blocks allowed (unsafe operations forbidden)</item>
-    /// <item>Usurping functions controlled and validated</item>
+    /// <item>danger! blocks available for scoped unsafe operations</item>
+    /// <item>Full standard library with OS-dependent features</item>
     /// <item>Zero-cost abstractions with compile-time guarantees</item>
     /// </list>
     ///
-    /// Use cases: Production systems code, embedded applications, safety-critical software
+    /// Use cases: Production systems code, applications, libraries
     /// </summary>
     Normal,
 
     /// <summary>
-    /// RazorForge Danger Mode: Raw embedded programming with great power.
+    /// RazorForge Freestanding Mode: Embedded and kernel development without OS dependencies.
     ///
     /// Features:
     /// <list type="bullet">
-    /// <item>All Normal mode features plus unsafe operations</item>
-    /// <item>danger! blocks enable memory safety rule violations</item>
-    /// <item>snatch!(), reveal!(), own!() operations available</item>
-    /// <item>Mixed memory group operations allowed in danger blocks</item>
-    /// <item>Direct memory manipulation and low-level access</item>
-    /// <item>"With great power comes great responsibility" philosophy</item>
+    /// <item>No standard library dependencies on OS</item>
+    /// <item>No heap allocation by default</item>
+    /// <item>Minimal runtime requirements</item>
+    /// <item>Custom entry points (no main() requirement)</item>
+    /// <item>danger! blocks for hardware access</item>
     /// </list>
     ///
-    /// Use cases: Embedded systems, device drivers, performance optimization,
-    /// interfacing with C code, memory-mapped I/O
+    /// Use cases: Embedded systems, bootloaders, kernel development, bare-metal programming
     /// </summary>
-    Danger,
+    Freestanding,
 
     // === Suflae Modes ===
 

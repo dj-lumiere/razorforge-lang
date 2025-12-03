@@ -102,5 +102,5 @@ routine Shared<T, Policy>.weak_count(me: Shared<T, Policy>) -> s32 {
     }
 }
 
-# Access to data is done through observing/seizing scoped blocks
+# Access to data is done through inspecting/seizing scoped blocks
 # which handle lock acquisition and release automatically

@@ -8,7 +8,7 @@ $mdFiles = Get-ChildItem -Path $wikiDir -Filter "*.md" | Sort-Object Name
 
 # Create/clear output file
 "# RazorForge Wiki - Merged Documentation`n" | Out-File -FilePath $outputFile -Encoding UTF8
-"Generated on: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')`n" | Out-File -FilePath $outputFile -Append -Encoding UTF8
+"Generated on: $( Get-Date -Format 'yyyy-MM-dd HH:mm:ss' )`n" | Out-File -FilePath $outputFile -Append -Encoding UTF8
 "---`n" | Out-File -FilePath $outputFile -Append -Encoding UTF8
 
 # Counter for progress
@@ -17,14 +17,15 @@ $total = $mdFiles.Count
 
 Write-Host "Merging $total markdown files from wiki directory..." -ForegroundColor Green
 
-foreach ($file in $mdFiles) {
+foreach ($file in $mdFiles)
+{
     $count++
-    Write-Host "[$count/$total] Processing: $($file.Name)" -ForegroundColor Cyan
+    Write-Host "[$count/$total] Processing: $( $file.Name )" -ForegroundColor Cyan
 
     # Add file separator with filename as heading
     "`n`n" | Out-File -FilePath $outputFile -Append -Encoding UTF8 -NoNewline
     "# ==========================================`n" | Out-File -FilePath $outputFile -Append -Encoding UTF8
-    "# FILE: $($file.Name)`n" | Out-File -FilePath $outputFile -Append -Encoding UTF8
+    "# FILE: $( $file.Name )`n" | Out-File -FilePath $outputFile -Append -Encoding UTF8
     "# ==========================================`n`n" | Out-File -FilePath $outputFile -Append -Encoding UTF8
 
     # Read and append file content

@@ -1,7 +1,7 @@
 record IndeterminateResultError follows Crashable {
     # No fields needed, as this error only has one cause (0**0)
 
-    routine crash_message() -> Text {
+    routine crash_message() -> Text<letter32> {
         return "Indeterminate form encountered: 0 ** 0 is undefined for integer arithmetic."
     }
 }

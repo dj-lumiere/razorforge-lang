@@ -1,0 +1,401 @@
+# RazorForge d64 (decimal64 floating point) native type implementation
+# IEEE 754-2008 decimal floating point with 16 significant digits
+# Uses Intel DFP library via external C functions
+
+# Core d64 type definition - stored as 64-bit value in BID encoding
+record d64 {
+    private value: u64
+}
+
+# Constants for d64
+preset D64_ZERO: d64 = 0.0_d64
+preset D64_ONE: d64 = 1.0_d64
+
+# ============================================================================
+# External C Functions (from decimal_functions.c)
+# ============================================================================
+
+external routine d64_add(a: u64, b: u64) -> u64
+external routine d64_sub(a: u64, b: u64) -> u64
+external routine d64_mul(a: u64, b: u64) -> u64
+external routine d64_div(a: u64, b: u64) -> u64
+external routine d64_cmp(a: u64, b: u64) -> s32
+external routine d64_from_string(str: cstr) -> u64
+external routine d64_to_string(val: u64) -> cstr
+external routine d64_from_i32(val: s32) -> u64
+external routine d64_from_u32(val: u32) -> u64
+external routine d64_from_i64(val: s64) -> u64
+external routine d64_from_u64(val: u64) -> u64
+external routine rf_d64_sqrt(x: u64) -> u64
+external routine rf_d64_abs(x: u64) -> u64
+external routine rf_d64_ceil(x: u64) -> u64
+external routine rf_d64_floor(x: u64) -> u64
+external routine rf_d64_round(x: u64) -> u64
+external routine rf_d64_trunc(x: u64) -> u64
+external routine rf_d64_to_f32(x: u64) -> f32
+external routine rf_d64_to_f64(x: u64) -> f64
+external routine rf_d64_to_d32(x: u64) -> u32
+external routine rf_f32_to_d64(x: f32) -> u64
+external routine rf_f64_to_d64(x: f64) -> u64
+external routine d64_to_i32(val: u64) -> s32
+external routine d64_to_i64(val: u64) -> s64
+
+# ============================================================================
+# Constructors
+# ============================================================================
+
+routine d64.__create__!(from_text: Text<LetterType>) -> d64 {
+    danger! {
+        let cstr_val = from_text.to_cstr()
+        let bits = d64_from_string(cstr_val)
+        return @intrinsic.bitcast<u64, d64>(bits)
+    }
+}
+
+routine d64.__create__(from: f32) -> d64 {
+    danger! {
+        let bits = rf_f32_to_d64(from)
+        return @intrinsic.bitcast<u64, d64>(bits)
+    }
+}
+
+routine d64.__create__(from: f64) -> d64 {
+    danger! {
+        let bits = rf_f64_to_d64(from)
+        return @intrinsic.bitcast<u64, d64>(bits)
+    }
+}
+
+routine d64.__create__(from: d32) -> d64 {
+    return from.to_d64()
+}
+
+routine d64.__create__(from: s8) -> d64 {
+    danger! {
+        let bits = d64_from_i32(from.to_s32())
+        return @intrinsic.bitcast<u64, d64>(bits)
+    }
+}
+
+routine d64.__create__(from: u8) -> d64 {
+    danger! {
+        let bits = d64_from_u32(from.to_u32())
+        return @intrinsic.bitcast<u64, d64>(bits)
+    }
+}
+
+routine d64.__create__(from: s16) -> d64 {
+    danger! {
+        let bits = d64_from_i32(from.to_s32())
+        return @intrinsic.bitcast<u64, d64>(bits)
+    }
+}
+
+routine d64.__create__(from: u16) -> d64 {
+    danger! {
+        let bits = d64_from_u32(from.to_u32())
+        return @intrinsic.bitcast<u64, d64>(bits)
+    }
+}
+
+routine d64.__create__(from: s32) -> d64 {
+    danger! {
+        let bits = d64_from_i32(from)
+        return @intrinsic.bitcast<u64, d64>(bits)
+    }
+}
+
+routine d64.__create__(from: u32) -> d64 {
+    danger! {
+        let bits = d64_from_u32(from)
+        return @intrinsic.bitcast<u64, d64>(bits)
+    }
+}
+
+routine d64.__create__(from: s64) -> d64 {
+    danger! {
+        let bits = d64_from_i64(from)
+        return @intrinsic.bitcast<u64, d64>(bits)
+    }
+}
+
+routine d64.__create__(from: u64) -> d64 {
+    danger! {
+        let bits = d64_from_u64(from)
+        return @intrinsic.bitcast<u64, d64>(bits)
+    }
+}
+
+# ============================================================================
+# Arithmetic Operations
+# ============================================================================
+
+routine d64.__add__(me: d64, other: d64) -> d64 {
+    danger! {
+        let a_bits = @intrinsic.bitcast<d64, u64>(me)
+        let b_bits = @intrinsic.bitcast<d64, u64>(other)
+        let result = d64_add(a_bits, b_bits)
+        return @intrinsic.bitcast<u64, d64>(result)
+    }
+}
+
+routine d64.__sub__(me: d64, other: d64) -> d64 {
+    danger! {
+        let a_bits = @intrinsic.bitcast<d64, u64>(me)
+        let b_bits = @intrinsic.bitcast<d64, u64>(other)
+        let result = d64_sub(a_bits, b_bits)
+        return @intrinsic.bitcast<u64, d64>(result)
+    }
+}
+
+routine d64.__mul__(me: d64, other: d64) -> d64 {
+    danger! {
+        let a_bits = @intrinsic.bitcast<d64, u64>(me)
+        let b_bits = @intrinsic.bitcast<d64, u64>(other)
+        let result = d64_mul(a_bits, b_bits)
+        return @intrinsic.bitcast<u64, d64>(result)
+    }
+}
+
+routine d64.__truediv__(me: d64, other: d64) -> d64 {
+    danger! {
+        let a_bits = @intrinsic.bitcast<d64, u64>(me)
+        let b_bits = @intrinsic.bitcast<d64, u64>(other)
+        let result = d64_div(a_bits, b_bits)
+        return @intrinsic.bitcast<u64, d64>(result)
+    }
+}
+
+routine d64.__neg__(me: d64) -> d64 {
+    return D64_ZERO - me
+}
+
+# ============================================================================
+# Comparison Operations
+# ============================================================================
+
+routine d64.__lt__(me: d64, other: d64) -> bool {
+    danger! {
+        let a_bits = @intrinsic.bitcast<d64, u64>(me)
+        let b_bits = @intrinsic.bitcast<d64, u64>(other)
+        return d64_cmp(a_bits, b_bits) < 0
+    }
+}
+
+routine d64.__le__(me: d64, other: d64) -> bool {
+    danger! {
+        let a_bits = @intrinsic.bitcast<d64, u64>(me)
+        let b_bits = @intrinsic.bitcast<d64, u64>(other)
+        return d64_cmp(a_bits, b_bits) <= 0
+    }
+}
+
+routine d64.__gt__(me: d64, other: d64) -> bool {
+    danger! {
+        let a_bits = @intrinsic.bitcast<d64, u64>(me)
+        let b_bits = @intrinsic.bitcast<d64, u64>(other)
+        return d64_cmp(a_bits, b_bits) > 0
+    }
+}
+
+routine d64.__ge__(me: d64, other: d64) -> bool {
+    danger! {
+        let a_bits = @intrinsic.bitcast<d64, u64>(me)
+        let b_bits = @intrinsic.bitcast<d64, u64>(other)
+        return d64_cmp(a_bits, b_bits) >= 0
+    }
+}
+
+routine d64.__eq__(me: d64, other: d64) -> bool {
+    danger! {
+        let a_bits = @intrinsic.bitcast<d64, u64>(me)
+        let b_bits = @intrinsic.bitcast<d64, u64>(other)
+        return d64_cmp(a_bits, b_bits) == 0
+    }
+}
+
+routine d64.__ne__(me: d64, other: d64) -> bool {
+    danger! {
+        let a_bits = @intrinsic.bitcast<d64, u64>(me)
+        let b_bits = @intrinsic.bitcast<d64, u64>(other)
+        return d64_cmp(a_bits, b_bits) != 0
+    }
+}
+
+# ============================================================================
+# Math Operations
+# ============================================================================
+
+routine d64.sqrt(me: d64) -> d64 {
+    danger! {
+        let bits = @intrinsic.bitcast<d64, u64>(me)
+        let result = rf_d64_sqrt(bits)
+        return @intrinsic.bitcast<u64, d64>(result)
+    }
+}
+
+routine d64.abs(me: d64) -> d64 {
+    danger! {
+        let bits = @intrinsic.bitcast<d64, u64>(me)
+        let result = rf_d64_abs(bits)
+        return @intrinsic.bitcast<u64, d64>(result)
+    }
+}
+
+routine d64.ceil(me: d64) -> d64 {
+    danger! {
+        let bits = @intrinsic.bitcast<d64, u64>(me)
+        let result = rf_d64_ceil(bits)
+        return @intrinsic.bitcast<u64, d64>(result)
+    }
+}
+
+routine d64.floor(me: d64) -> d64 {
+    danger! {
+        let bits = @intrinsic.bitcast<d64, u64>(me)
+        let result = rf_d64_floor(bits)
+        return @intrinsic.bitcast<u64, d64>(result)
+    }
+}
+
+routine d64.round(me: d64) -> d64 {
+    danger! {
+        let bits = @intrinsic.bitcast<d64, u64>(me)
+        let result = rf_d64_round(bits)
+        return @intrinsic.bitcast<u64, d64>(result)
+    }
+}
+
+routine d64.trunc(me: d64) -> d64 {
+    danger! {
+        let bits = @intrinsic.bitcast<d64, u64>(me)
+        let result = rf_d64_trunc(bits)
+        return @intrinsic.bitcast<u64, d64>(result)
+    }
+}
+
+# ============================================================================
+# Utility Methods
+# ============================================================================
+
+routine d64.min(me: d64, other: d64) -> d64 {
+    return if me <= other { me } else { other }
+}
+
+routine d64.max(me: d64, other: d64) -> d64 {
+    return if me >= other { me } else { other }
+}
+
+routine d64.clamp(me: d64, min_val: d64, max_val: d64) -> d64 {
+    return me.min(max_val).max(min_val)
+}
+
+routine d64.is_positive(me: d64) -> bool {
+    return me > D64_ZERO
+}
+
+routine d64.is_negative(me: d64) -> bool {
+    return me < D64_ZERO
+}
+
+routine d64.is_zero(me: d64) -> bool {
+    return me == D64_ZERO
+}
+
+routine d64.signum(me: d64) -> d64 {
+    when {
+        me > D64_ZERO => D64_ONE,
+        me < D64_ZERO => -D64_ONE,
+        _ => D64_ZERO
+    }
+}
+
+# ============================================================================
+# Type Conversions
+# ============================================================================
+
+routine d64.to_f32(me: d64) -> f32 {
+    danger! {
+        let bits = @intrinsic.bitcast<d64, u64>(me)
+        return rf_d64_to_f32(bits)
+    }
+}
+
+routine d64.to_f64(me: d64) -> f64 {
+    danger! {
+        let bits = @intrinsic.bitcast<d64, u64>(me)
+        return rf_d64_to_f64(bits)
+    }
+}
+
+routine d64.to_d32(me: d64) -> d32 {
+    danger! {
+        let bits = @intrinsic.bitcast<d64, u64>(me)
+        let result = rf_d64_to_d32(bits)
+        return @intrinsic.bitcast<u32, d32>(result)
+    }
+}
+
+routine d64.to_s8(me: d64) -> s8 {
+    return me.to_s32().to_s8()
+}
+
+routine d64.to_u8(me: d64) -> u8 {
+    return me.to_u32().to_u8()
+}
+
+routine d64.to_s16(me: d64) -> s16 {
+    return me.to_s32().to_s16()
+}
+
+routine d64.to_u16(me: d64) -> u16 {
+    return me.to_u32().to_u16()
+}
+
+routine d64.to_s32(me: d64) -> s32 {
+    danger! {
+        let bits = @intrinsic.bitcast<d64, u64>(me)
+        return d64_to_i32(bits)
+    }
+}
+
+routine d64.to_u32(me: d64) -> u32 {
+    return me.to_s64().to_u32()
+}
+
+routine d64.to_s64(me: d64) -> s64 {
+    danger! {
+        let bits = @intrinsic.bitcast<d64, u64>(me)
+        return d64_to_i64(bits)
+    }
+}
+
+routine d64.to_u64(me: d64) -> u64 {
+    return me.to_s64().to_u64()
+}
+
+# Reinterpret bits as u64 (type punning)
+routine d64.to_bits(me: d64) -> u64 {
+    danger! {
+        return @intrinsic.bitcast<d64, u64>(me)
+    }
+}
+
+# Create d64 from u64 bits (type punning)
+routine d64.from_bits(bits: u64) -> d64 {
+    danger! {
+        return @intrinsic.bitcast<u64, d64>(bits)
+    }
+}
+
+# ============================================================================
+# String Conversion
+# ============================================================================
+
+routine d64.to_text(me: d64) -> Text {
+    danger! {
+        let bits = @intrinsic.bitcast<d64, u64>(me)
+        let cstr_result = d64_to_string(bits)
+        return Text.from_cstr(cstr_result)
+    }
+}

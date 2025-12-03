@@ -1,0 +1,430 @@
+# RazorForge FixedDict<K, V, N> - Fixed-capacity hash map with robin hood hashing
+# Resident type with fixed capacity N at compile time
+# O(1) average insert, delete, lookup
+# No heap allocation - uses open addressing with robin hood probing
+#
+# Usage:
+#   let cache: FixedDict<Text, s32, 64> = FixedDict()
+#   cache.insert("key1", 100)
+#   cache["key2"] = 200
+#   let val = cache["key1"]
+#   if cache.contains_key("key3") { }
+
+import errors/IndexOutOfBoundsError
+import core/Integral
+import Collections/List
+
+# Slot states for robin hood hashing
+preset FDICT_SLOT_EMPTY: u8 = 0u8
+preset FDICT_SLOT_OCCUPIED: u8 = 1u8
+preset FDICT_SLOT_TOMBSTONE: u8 = 2u8
+
+# Key-value entry for iteration
+record FixedDictEntry<K, V> {
+    key: K
+    value: V
+}
+
+# Fixed-capacity hash map with reference semantics
+# Uses robin hood open addressing for cache-friendly probing
+resident FixedDict<K, V, N> {
+    private count: uaddr           # Current number of entries
+    private tombstones: uaddr      # Number of tombstones
+    # N slots of (K key, V value, u8 state, uaddr probe_distance) stored inline
+}
+
+# ============================================================================
+# Constructors
+# ============================================================================
+
+routine FixedDict<K, V, N>.__create__() -> FixedDict<K, V, N> {
+    let dict = FixedDict<K, V, N>(count: 0uaddr, tombstones: 0uaddr)
+    var i = 0uaddr
+    while i < N {
+        dict.set_state(i, FDICT_SLOT_EMPTY)
+        i = i + 1uaddr
+    }
+    return dict
+}
+
+# ============================================================================
+# Internal Slot Access
+# ============================================================================
+
+routine FixedDict<K, V, N>.get_key(me: FixedDict<K, V, N>, slot: uaddr) -> K {
+    return me[slot * 4uaddr]
+}
+
+routine FixedDict<K, V, N>.set_key(me: FixedDict<K, V, N>, slot: uaddr, key: K) {
+    me[slot * 4uaddr] = key
+}
+
+routine FixedDict<K, V, N>.get_value(me: FixedDict<K, V, N>, slot: uaddr) -> V {
+    return me[slot * 4uaddr + 1uaddr]
+}
+
+routine FixedDict<K, V, N>.set_value(me: FixedDict<K, V, N>, slot: uaddr, value: V) {
+    me[slot * 4uaddr + 1uaddr] = value
+}
+
+routine FixedDict<K, V, N>.get_state(me: FixedDict<K, V, N>, slot: uaddr) -> u8 {
+    return me[slot * 4uaddr + 2uaddr]
+}
+
+routine FixedDict<K, V, N>.set_state(me: FixedDict<K, V, N>, slot: uaddr, state: u8) {
+    me[slot * 4uaddr + 2uaddr] = state
+}
+
+routine FixedDict<K, V, N>.get_probe_dist(me: FixedDict<K, V, N>, slot: uaddr) -> uaddr {
+    return me[slot * 4uaddr + 3uaddr]
+}
+
+routine FixedDict<K, V, N>.set_probe_dist(me: FixedDict<K, V, N>, slot: uaddr, dist: uaddr) {
+    me[slot * 4uaddr + 3uaddr] = dist
+}
+
+routine FixedDict<K, V, N>.hash_index(me: FixedDict<K, V, N>, key: K) -> uaddr {
+    let hash = key.__hash__()
+    return hash % N
+}
+
+routine FixedDict<K, V, N>.next_slot(slot: uaddr) -> uaddr {
+    return (slot + 1uaddr) % N
+}
+
+# ============================================================================
+# Core Operations
+# ============================================================================
+
+routine FixedDict<K, V, N>.count(me: FixedDict<K, V, N>) -> uaddr {
+    return me.count
+}
+
+routine FixedDict<K, V, N>.capacity(me: FixedDict<K, V, N>) -> uaddr {
+    return N
+}
+
+routine FixedDict<K, V, N>.is_empty(me: FixedDict<K, V, N>) -> bool {
+    return me.count == 0uaddr
+}
+
+routine FixedDict<K, V, N>.is_full(me: FixedDict<K, V, N>) -> bool {
+    return me.count == N
+}
+
+routine FixedDict<K, V, N>.remaining(me: FixedDict<K, V, N>) -> uaddr {
+    return N - me.count
+}
+
+routine FixedDict<K, V, N>.clear(me: FixedDict<K, V, N>) {
+    var i = 0uaddr
+    while i < N {
+        me.set_state(i, FDICT_SLOT_EMPTY)
+        i = i + 1uaddr
+    }
+    me.count = 0uaddr
+    me.tombstones = 0uaddr
+}
+
+routine FixedDict<K, V, N>.contains_key(me: FixedDict<K, V, N>, key: K) -> bool {
+    var slot = me.hash_index(key)
+    var probe_dist = 0uaddr
+
+    loop {
+        let state = me.get_state(slot)
+
+        if state == FDICT_SLOT_EMPTY {
+            return false
+        }
+
+        if state == FDICT_SLOT_OCCUPIED {
+            if probe_dist > me.get_probe_dist(slot) {
+                return false
+            }
+
+            if me.get_key(slot) == key {
+                return true
+            }
+        }
+
+        slot = FixedDict<K, V, N>.next_slot(slot)
+        probe_dist = probe_dist + 1uaddr
+
+        if probe_dist >= N {
+            return false
+        }
+    }
+}
+
+routine FixedDict<K, V, N>.find_slot(me: FixedDict<K, V, N>, key: K) -> uaddr? {
+    # Returns slot index if key found, None otherwise
+    var slot = me.hash_index(key)
+    var probe_dist = 0uaddr
+
+    loop {
+        let state = me.get_state(slot)
+
+        if state == FDICT_SLOT_EMPTY {
+            return None
+        }
+
+        if state == FDICT_SLOT_OCCUPIED {
+            if probe_dist > me.get_probe_dist(slot) {
+                return None
+            }
+
+            if me.get_key(slot) == key {
+                return slot
+            }
+        }
+
+        slot = FixedDict<K, V, N>.next_slot(slot)
+        probe_dist = probe_dist + 1uaddr
+
+        if probe_dist >= N {
+            return None
+        }
+    }
+}
+
+routine FixedDict<K, V, N>.insert!(me: FixedDict<K, V, N>, key: K, value: V) -> bool {
+    # Returns true if inserted new, false if updated existing
+    # Throws if full and key doesn't exist
+
+    # First check if key exists and update
+    let existing_slot = me.find_slot(key)
+    if existing_slot is Some {
+        me.set_value(existing_slot!, value)
+        return false
+    }
+
+    if me.count >= N {
+        throw IndexOutOfBoundsError(index: me.count, count: N)
+    }
+
+    var slot = me.hash_index(key)
+    var probe_dist = 0uaddr
+    var inserting_key = key
+    var inserting_value = value
+    var inserting_dist = probe_dist
+
+    loop {
+        let state = me.get_state(slot)
+
+        if state == FDICT_SLOT_EMPTY or state == FDICT_SLOT_TOMBSTONE {
+            me.set_key(slot, inserting_key)
+            me.set_value(slot, inserting_value)
+            me.set_state(slot, FDICT_SLOT_OCCUPIED)
+            me.set_probe_dist(slot, inserting_dist)
+            me.count = me.count + 1uaddr
+            if state == FDICT_SLOT_TOMBSTONE {
+                me.tombstones = me.tombstones - 1uaddr
+            }
+            return true
+        }
+
+        if state == FDICT_SLOT_OCCUPIED {
+            # Robin hood: steal from rich
+            let existing_dist = me.get_probe_dist(slot)
+            if inserting_dist > existing_dist {
+                let temp_key = me.get_key(slot)
+                let temp_value = me.get_value(slot)
+                let temp_dist = existing_dist
+
+                me.set_key(slot, inserting_key)
+                me.set_value(slot, inserting_value)
+                me.set_probe_dist(slot, inserting_dist)
+
+                inserting_key = temp_key
+                inserting_value = temp_value
+                inserting_dist = temp_dist
+            }
+        }
+
+        slot = FixedDict<K, V, N>.next_slot(slot)
+        inserting_dist = inserting_dist + 1uaddr
+
+        if inserting_dist >= N {
+            throw IndexOutOfBoundsError(index: me.count, count: N)
+        }
+    }
+}
+
+routine FixedDict<K, V, N>.remove(me: FixedDict<K, V, N>, key: K) -> bool {
+    var slot = me.hash_index(key)
+    var probe_dist = 0uaddr
+
+    loop {
+        let state = me.get_state(slot)
+
+        if state == FDICT_SLOT_EMPTY {
+            return false
+        }
+
+        if state == FDICT_SLOT_OCCUPIED {
+            if probe_dist > me.get_probe_dist(slot) {
+                return false
+            }
+
+            if me.get_key(slot) == key {
+                me.backward_shift_delete(slot)
+                me.count = me.count - 1uaddr
+                return true
+            }
+        }
+
+        slot = FixedDict<K, V, N>.next_slot(slot)
+        probe_dist = probe_dist + 1uaddr
+
+        if probe_dist >= N {
+            return false
+        }
+    }
+}
+
+routine FixedDict<K, V, N>.backward_shift_delete(me: FixedDict<K, V, N>, slot: uaddr) {
+    var current = slot
+    var next = FixedDict<K, V, N>.next_slot(current)
+
+    loop {
+        let state = me.get_state(next)
+
+        if state != FDICT_SLOT_OCCUPIED or me.get_probe_dist(next) == 0uaddr {
+            me.set_state(current, FDICT_SLOT_EMPTY)
+            return
+        }
+
+        me.set_key(current, me.get_key(next))
+        me.set_value(current, me.get_value(next))
+        me.set_state(current, FDICT_SLOT_OCCUPIED)
+        me.set_probe_dist(current, me.get_probe_dist(next) - 1uaddr)
+
+        current = next
+        next = FixedDict<K, V, N>.next_slot(next)
+    }
+}
+
+routine FixedDict<K, V, N>.get!(me: FixedDict<K, V, N>, key: K) -> V {
+    let slot = me.find_slot(key)
+    if slot is None {
+        absent
+    }
+    return me.get_value(slot!)
+}
+
+routine FixedDict<K, V, N>.get_or_default(me: FixedDict<K, V, N>, key: K, default_value: V) -> V {
+    let slot = me.find_slot(key)
+    if slot is None {
+        return default_value
+    }
+    return me.get_value(slot!)
+}
+
+# ============================================================================
+# Indexing
+# ============================================================================
+
+routine FixedDict<K, V, N>.__getitem__!(me: FixedDict<K, V, N>, key: K) -> V {
+    return me.get!(key)
+}
+
+routine FixedDict<K, V, N>.__setitem__!(me: FixedDict<K, V, N>, key: K, value: V) {
+    me.insert!(key, value)
+}
+
+# ============================================================================
+# Keys/Values/Entries
+# ============================================================================
+
+routine FixedDict<K, V, N>.keys(me: FixedDict<K, V, N>) -> List<K> {
+    let result = List<K>(me.count)
+    var i = 0uaddr
+    while i < N {
+        if me.get_state(i) == FDICT_SLOT_OCCUPIED {
+            result.push(me.get_key(i))
+        }
+        i = i + 1uaddr
+    }
+    return result
+}
+
+routine FixedDict<K, V, N>.values(me: FixedDict<K, V, N>) -> List<V> {
+    let result = List<V>(me.count)
+    var i = 0uaddr
+    while i < N {
+        if me.get_state(i) == FDICT_SLOT_OCCUPIED {
+            result.push(me.get_value(i))
+        }
+        i = i + 1uaddr
+    }
+    return result
+}
+
+routine FixedDict<K, V, N>.entries(me: FixedDict<K, V, N>) -> List<FixedDictEntry<K, V>> {
+    let result = List<FixedDictEntry<K, V>>(me.count)
+    var i = 0uaddr
+    while i < N {
+        if me.get_state(i) == FDICT_SLOT_OCCUPIED {
+            result.push(FixedDictEntry<K, V>(key: me.get_key(i), value: me.get_value(i)))
+        }
+        i = i + 1uaddr
+    }
+    return result
+}
+
+# ============================================================================
+# Iteration
+# ============================================================================
+
+routine FixedDict<K, V, N>.iter(me: FixedDict<K, V, N>) -> FixedDictIterator<K, V, N> {
+    return FixedDictIterator<K, V, N>(dict: me, slot: 0uaddr)
+}
+
+record FixedDictIterator<K, V, N> {
+    dict: FixedDict<K, V, N>
+    slot: uaddr
+}
+
+routine FixedDictIterator<K, V, N>.next(me: FixedDictIterator<K, V, N>) -> FixedDictEntry<K, V>? {
+    while me.slot < N {
+        if me.dict.get_state(me.slot) == FDICT_SLOT_OCCUPIED {
+            let entry = FixedDictEntry<K, V>(
+                key: me.dict.get_key(me.slot),
+                value: me.dict.get_value(me.slot)
+            )
+            me.slot = me.slot + 1uaddr
+            return entry
+        }
+        me.slot = me.slot + 1uaddr
+    }
+    return None
+}
+
+# ============================================================================
+# Comparison
+# ============================================================================
+
+routine FixedDict<K, V, N>.__eq__(me: FixedDict<K, V, N>, other: FixedDict<K, V, N>) -> bool {
+    if me.count != other.count {
+        return false
+    }
+
+    var i = 0uaddr
+    while i < N {
+        if me.get_state(i) == FDICT_SLOT_OCCUPIED {
+            let key = me.get_key(i)
+            if not other.contains_key(key) {
+                return false
+            }
+            if me.get_value(i) != other.get!(key) {
+                return false
+            }
+        }
+        i = i + 1uaddr
+    }
+    return true
+}
+
+routine FixedDict<K, V, N>.__ne__(me: FixedDict<K, V, N>, other: FixedDict<K, V, N>) -> bool {
+    return not (me == other)
+}

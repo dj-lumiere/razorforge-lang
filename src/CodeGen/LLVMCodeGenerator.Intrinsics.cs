@@ -1,4 +1,5 @@
 using Compilers.Shared.AST;
+using Compilers.Shared.Errors;
 
 namespace Compilers.Shared.CodeGen;
 
@@ -13,9 +14,17 @@ public partial class LLVMCodeGenerator
     private string EmitMemoryIntrinsic(IntrinsicCallExpression node, string resultTemp)
     {
         string intrinsicName = node.IntrinsicName;
-        string llvmType = node.TypeArguments.Count > 0
-            ? MapRazorForgeTypeToLLVM(razorForgeType: node.TypeArguments[index: 0])
-            : "i64";
+        if (node.TypeArguments.Count == 0)
+        {
+            throw CodeGenError.TypeResolutionFailed(
+                typeName: intrinsicName,
+                context: "memory intrinsic requires a type argument",
+                file: _currentFileName,
+                line: node.Location.Line,
+                column: node.Location.Column,
+                position: node.Location.Position);
+        }
+        string llvmType = MapRazorForgeTypeToLLVM(razorForgeType: node.TypeArguments[index: 0]);
 
         switch (intrinsicName)
         {
@@ -26,7 +35,7 @@ public partial class LLVMCodeGenerator
                 string ptrTemp = GetNextTemp();
                 _output.AppendLine(handler: $"  {ptrTemp} = inttoptr i64 {addrTemp} to ptr");
                 _output.AppendLine(handler: $"  {resultTemp} = load {llvmType}, ptr {ptrTemp}");
-                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: llvmType,
+                _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: llvmType,
                     IsUnsigned: false,
                     IsFloatingPoint: llvmType.Contains(value: "float") ||
                                      llvmType.Contains(value: "double"),
@@ -54,7 +63,7 @@ public partial class LLVMCodeGenerator
                 _output.AppendLine(handler: $"  {ptrTemp} = inttoptr i64 {addrTemp} to ptr");
                 _output.AppendLine(
                     handler: $"  {resultTemp} = load volatile {llvmType}, ptr {ptrTemp}");
-                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: llvmType,
+                _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: llvmType,
                     IsUnsigned: false,
                     IsFloatingPoint: llvmType.Contains(value: "float") ||
                                      llvmType.Contains(value: "double"),
@@ -91,7 +100,7 @@ public partial class LLVMCodeGenerator
 
                 // Load as destination type
                 _output.AppendLine(handler: $"  {resultTemp} = load {toType}, ptr {srcPtr}");
-                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: toType,
+                _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: toType,
                     IsUnsigned: false,
                     IsFloatingPoint: toType.Contains(value: "float") ||
                                      toType.Contains(value: "double"),
@@ -118,9 +127,17 @@ public partial class LLVMCodeGenerator
     private string EmitArithmeticIntrinsic(IntrinsicCallExpression node, string resultTemp)
     {
         string intrinsicName = node.IntrinsicName;
-        string llvmType = node.TypeArguments.Count > 0
-            ? MapRazorForgeTypeToLLVM(razorForgeType: node.TypeArguments[index: 0])
-            : "i32";
+        if (node.TypeArguments.Count == 0)
+        {
+            throw CodeGenError.TypeResolutionFailed(
+                typeName: intrinsicName,
+                context: "arithmetic intrinsic requires a type argument",
+                file: _currentFileName,
+                line: node.Location.Line,
+                column: node.Location.Column,
+                position: node.Location.Position);
+        }
+        string llvmType = MapRazorForgeTypeToLLVM(razorForgeType: node.TypeArguments[index: 0]);
 
         // Determine if type is unsigned or signed
         bool isUnsigned = node.TypeArguments.Count > 0 && node.TypeArguments[index: 0]
@@ -142,7 +159,7 @@ public partial class LLVMCodeGenerator
                 _output.AppendLine(handler: $"  {resultTemp} = sub {llvmType} 0, {valueTemp}");
             }
 
-            _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: llvmType,
+            _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: llvmType,
                 IsUnsigned: isUnsigned,
                 IsFloatingPoint: isFloat,
                 RazorForgeType: node.TypeArguments[index: 0]);
@@ -155,16 +172,15 @@ public partial class LLVMCodeGenerator
         string rightTemp = node.Arguments[index: 1]
                                .Accept(visitor: this);
 
-        // Basic arithmetic (trapping on overflow for integers, IEEE for floats)
-        // For integers, we use overflow intrinsics and trap if overflow occurs
-        if (intrinsicName == "add")
+        switch (intrinsicName)
         {
-            if (isFloat)
-            {
+            // Basic arithmetic (trapping on overflow for integers, IEEE for floats)
+            // For integers, we use overflow intrinsics and trap if overflow occurs
+            case "add" when isFloat:
                 _output.AppendLine(
                     handler: $"  {resultTemp} = fadd {llvmType} {leftTemp}, {rightTemp}");
-            }
-            else
+                break;
+            case "add":
             {
                 // Use overflow intrinsic and trap on overflow
                 string llvmFunc = isUnsigned
@@ -190,16 +206,13 @@ public partial class LLVMCodeGenerator
                 _output.AppendLine(value: $"  call void @llvm.trap()");
                 _output.AppendLine(value: $"  unreachable");
                 _output.AppendLine(handler: $"{contLabel}:");
+                break;
             }
-        }
-        else if (intrinsicName == "sub")
-        {
-            if (isFloat)
-            {
+            case "sub" when isFloat:
                 _output.AppendLine(
                     handler: $"  {resultTemp} = fsub {llvmType} {leftTemp}, {rightTemp}");
-            }
-            else
+                break;
+            case "sub":
             {
                 string llvmFunc = isUnsigned
                     ? $"@llvm.usub.with.overflow.{llvmType}"
@@ -223,16 +236,13 @@ public partial class LLVMCodeGenerator
                 _output.AppendLine(value: $"  call void @llvm.trap()");
                 _output.AppendLine(value: $"  unreachable");
                 _output.AppendLine(handler: $"{contLabel}:");
+                break;
             }
-        }
-        else if (intrinsicName == "mul")
-        {
-            if (isFloat)
-            {
+            case "mul" when isFloat:
                 _output.AppendLine(
                     handler: $"  {resultTemp} = fmul {llvmType} {leftTemp}, {rightTemp}");
-            }
-            else
+                break;
+            case "mul":
             {
                 string llvmFunc = isUnsigned
                     ? $"@llvm.umul.with.overflow.{llvmType}"
@@ -256,128 +266,126 @@ public partial class LLVMCodeGenerator
                 _output.AppendLine(value: $"  call void @llvm.trap()");
                 _output.AppendLine(value: $"  unreachable");
                 _output.AppendLine(handler: $"{contLabel}:");
+                break;
             }
-        }
-        else if (intrinsicName == "sdiv")
-        {
-            _output.AppendLine(
-                handler: $"  {resultTemp} = sdiv {llvmType} {leftTemp}, {rightTemp}");
-        }
-        else if (intrinsicName == "udiv")
-        {
-            _output.AppendLine(
-                handler: $"  {resultTemp} = udiv {llvmType} {leftTemp}, {rightTemp}");
-        }
-        else if (intrinsicName == "srem")
-        {
-            _output.AppendLine(
-                handler: $"  {resultTemp} = srem {llvmType} {leftTemp}, {rightTemp}");
-        }
-        else if (intrinsicName == "urem")
-        {
-            _output.AppendLine(
-                handler: $"  {resultTemp} = urem {llvmType} {leftTemp}, {rightTemp}");
-        }
-        // Wrapping arithmetic (no overflow checks - uses LLVM's default wrapping behavior)
-        else if (intrinsicName == "add.wrapping")
-        {
-            _output.AppendLine(
-                handler:
-                $"  {resultTemp} = {(isFloat ? "fadd" : "add")} {llvmType} {leftTemp}, {rightTemp}");
-        }
-        else if (intrinsicName == "sub.wrapping")
-        {
-            _output.AppendLine(
-                handler:
-                $"  {resultTemp} = {(isFloat ? "fsub" : "sub")} {llvmType} {leftTemp}, {rightTemp}");
-        }
-        else if (intrinsicName == "mul.wrapping")
-        {
-            _output.AppendLine(
-                handler:
-                $"  {resultTemp} = {(isFloat ? "fmul" : "mul")} {llvmType} {leftTemp}, {rightTemp}");
-        }
-        else if (intrinsicName == "div.wrapping")
-        {
-            string divOp = isFloat ? "fdiv" : isUnsigned ? "udiv" : "sdiv";
-            _output.AppendLine(
-                handler: $"  {resultTemp} = {divOp} {llvmType} {leftTemp}, {rightTemp}");
-        }
-        else if (intrinsicName == "rem.wrapping")
-        {
-            string remOp = isFloat ? "frem" : isUnsigned ? "urem" : "srem";
-            _output.AppendLine(
-                handler: $"  {resultTemp} = {remOp} {llvmType} {leftTemp}, {rightTemp}");
-        }
-        // Overflow-checking arithmetic
-        else if (intrinsicName == "add.overflow" || intrinsicName == "sub.overflow" ||
-                 intrinsicName == "mul.overflow")
-        {
-            string op = intrinsicName.Split(separator: '.')[0]; // "add", "sub", or "mul"
-            string llvmFunc = isUnsigned
-                ? $"@llvm.u{op}.with.overflow.{llvmType}"
-                : $"@llvm.s{op}.with.overflow.{llvmType}";
+            case "sdiv":
+                _output.AppendLine(
+                    handler: $"  {resultTemp} = sdiv {llvmType} {leftTemp}, {rightTemp}");
+                break;
+            case "udiv":
+                _output.AppendLine(
+                    handler: $"  {resultTemp} = udiv {llvmType} {leftTemp}, {rightTemp}");
+                break;
+            case "srem":
+                _output.AppendLine(
+                    handler: $"  {resultTemp} = srem {llvmType} {leftTemp}, {rightTemp}");
+                break;
+            case "urem":
+                _output.AppendLine(
+                    handler: $"  {resultTemp} = urem {llvmType} {leftTemp}, {rightTemp}");
+                break;
+            // Wrapping arithmetic (no overflow checks - uses LLVM's default wrapping behavior)
+            case "add.wrapping":
+                _output.AppendLine(
+                    handler:
+                    $"  {resultTemp} = {(isFloat ? "fadd" : "add")} {llvmType} {leftTemp}, {rightTemp}");
+                break;
+            case "sub.wrapping":
+                _output.AppendLine(
+                    handler:
+                    $"  {resultTemp} = {(isFloat ? "fsub" : "sub")} {llvmType} {leftTemp}, {rightTemp}");
+                break;
+            case "mul.wrapping":
+                _output.AppendLine(
+                    handler:
+                    $"  {resultTemp} = {(isFloat ? "fmul" : "mul")} {llvmType} {leftTemp}, {rightTemp}");
+                break;
+            case "div.wrapping":
+            {
+                string divOp = isFloat ? "fdiv" : isUnsigned ? "udiv" : "sdiv";
+                _output.AppendLine(
+                    handler: $"  {resultTemp} = {divOp} {llvmType} {leftTemp}, {rightTemp}");
+                break;
+            }
+            case "rem.wrapping":
+            {
+                string remOp = isFloat ? "frem" : isUnsigned ? "urem" : "srem";
+                _output.AppendLine(
+                    handler: $"  {resultTemp} = {remOp} {llvmType} {leftTemp}, {rightTemp}");
+                break;
+            }
+            // Overflow-checking arithmetic
+            case "add.overflow":
+            case "sub.overflow":
+            case "mul.overflow":
+            {
+                string op = intrinsicName.Split(separator: '.')[0]; // "add", "sub", or "mul"
+                string llvmFunc = isUnsigned
+                    ? $"@llvm.u{op}.with.overflow.{llvmType}"
+                    : $"@llvm.s{op}.with.overflow.{llvmType}";
 
-            string structTemp = GetNextTemp();
-            _output.AppendLine(
-                handler:
-                $"  {structTemp} = call {{ {llvmType}, i1 }} {llvmFunc}({llvmType} {leftTemp}, {llvmType} {rightTemp})");
+                string structTemp = GetNextTemp();
+                _output.AppendLine(
+                    handler:
+                    $"  {structTemp} = call {{ {llvmType}, i1 }} {llvmFunc}({llvmType} {leftTemp}, {llvmType} {rightTemp})");
 
-            string valueTemp = GetNextTemp();
-            string overflowTemp = GetNextTemp();
-            _output.AppendLine(
-                handler: $"  {valueTemp} = extractvalue {{ {llvmType}, i1 }} {structTemp}, 0");
-            _output.AppendLine(
-                handler: $"  {overflowTemp} = extractvalue {{ {llvmType}, i1 }} {structTemp}, 1");
+                string valueTemp = GetNextTemp();
+                string overflowTemp = GetNextTemp();
+                _output.AppendLine(
+                    handler: $"  {valueTemp} = extractvalue {{ {llvmType}, i1 }} {structTemp}, 0");
+                _output.AppendLine(
+                    handler: $"  {overflowTemp} = extractvalue {{ {llvmType}, i1 }} {structTemp}, 1");
 
-            // For now, just return the value (tuple support would need more work)
-            _tempTypes[key: valueTemp] = new TypeInfo(LLVMType: llvmType,
-                IsUnsigned: isUnsigned,
-                IsFloatingPoint: isFloat,
-                RazorForgeType: node.TypeArguments[index: 0]);
-            return valueTemp;
-        }
-        // Saturating arithmetic
-        else if (intrinsicName == "add.saturating")
-        {
-            string llvmFunc = isUnsigned
-                ? $"@llvm.uadd.sat.{llvmType}"
-                : $"@llvm.sadd.sat.{llvmType}";
-            _output.AppendLine(
-                handler:
-                $"  {resultTemp} = call {llvmType} {llvmFunc}({llvmType} {leftTemp}, {llvmType} {rightTemp})");
-        }
-        else if (intrinsicName == "sub.saturating")
-        {
-            string llvmFunc = isUnsigned
-                ? $"@llvm.usub.sat.{llvmType}"
-                : $"@llvm.ssub.sat.{llvmType}";
-            _output.AppendLine(
-                handler:
-                $"  {resultTemp} = call {llvmType} {llvmFunc}({llvmType} {leftTemp}, {llvmType} {rightTemp})");
-        }
-        else if (intrinsicName == "mul.saturating")
-        {
-            // LLVM doesn't have direct saturating multiply, so we use overflow detection
-            // For now, use a placeholder that traps on overflow (TODO: implement proper saturation)
-            string llvmFunc = isUnsigned
-                ? $"@llvm.umul.with.overflow.{llvmType}"
-                : $"@llvm.smul.with.overflow.{llvmType}";
-            string structTemp = GetNextTemp();
-            _output.AppendLine(
-                handler:
-                $"  {structTemp} = call {{ {llvmType}, i1 }} {llvmFunc}({llvmType} {leftTemp}, {llvmType} {rightTemp})");
-            _output.AppendLine(
-                handler: $"  {resultTemp} = extractvalue {{ {llvmType}, i1 }} {structTemp}, 0");
-            // TODO: Check overflow flag and saturate to MAX/MIN
-        }
-        else
-        {
-            throw new NotImplementedException(
-                message: $"Arithmetic intrinsic {intrinsicName} not implemented");
+                // For now, just return the value (tuple support would need more work)
+                _tempTypes[key: valueTemp] = new LLVMTypeInfo(LLVMType: llvmType,
+                    IsUnsigned: isUnsigned,
+                    IsFloatingPoint: isFloat,
+                    RazorForgeType: node.TypeArguments[index: 0]);
+                return valueTemp;
+            }
+            // Saturating arithmetic
+            case "add.saturating":
+            {
+                string llvmFunc = isUnsigned
+                    ? $"@llvm.uadd.sat.{llvmType}"
+                    : $"@llvm.sadd.sat.{llvmType}";
+                _output.AppendLine(
+                    handler:
+                    $"  {resultTemp} = call {llvmType} {llvmFunc}({llvmType} {leftTemp}, {llvmType} {rightTemp})");
+                break;
+            }
+            case "sub.saturating":
+            {
+                string llvmFunc = isUnsigned
+                    ? $"@llvm.usub.sat.{llvmType}"
+                    : $"@llvm.ssub.sat.{llvmType}";
+                _output.AppendLine(
+                    handler:
+                    $"  {resultTemp} = call {llvmType} {llvmFunc}({llvmType} {leftTemp}, {llvmType} {rightTemp})");
+                break;
+            }
+            case "mul.saturating":
+            {
+                // LLVM doesn't have direct saturating multiply, so we use overflow detection
+                // For now, use a placeholder that traps on overflow (TODO: implement proper saturation)
+                string llvmFunc = isUnsigned
+                    ? $"@llvm.umul.with.overflow.{llvmType}"
+                    : $"@llvm.smul.with.overflow.{llvmType}";
+                string structTemp = GetNextTemp();
+                _output.AppendLine(
+                    handler:
+                    $"  {structTemp} = call {{ {llvmType}, i1 }} {llvmFunc}({llvmType} {leftTemp}, {llvmType} {rightTemp})");
+                _output.AppendLine(
+                    handler: $"  {resultTemp} = extractvalue {{ {llvmType}, i1 }} {structTemp}, 0");
+                // TODO: Check overflow flag and saturate to MAX/MIN
+                break;
+            }
+            default:
+                throw new NotImplementedException(
+                    message: $"Arithmetic intrinsic {intrinsicName} not implemented");
         }
 
-        _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: llvmType,
+        _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: llvmType,
             IsUnsigned: isUnsigned,
             IsFloatingPoint: isFloat,
             RazorForgeType: node.TypeArguments[index: 0]);
@@ -387,9 +395,17 @@ public partial class LLVMCodeGenerator
     private string EmitComparisonIntrinsic(IntrinsicCallExpression node, string resultTemp)
     {
         string intrinsicName = node.IntrinsicName;
-        string llvmType = node.TypeArguments.Count > 0
-            ? MapRazorForgeTypeToLLVM(razorForgeType: node.TypeArguments[index: 0])
-            : "i32";
+        if (node.TypeArguments.Count == 0)
+        {
+            throw CodeGenError.TypeResolutionFailed(
+                typeName: intrinsicName,
+                context: "comparison intrinsic requires a type argument",
+                file: _currentFileName,
+                line: node.Location.Line,
+                column: node.Location.Column,
+                position: node.Location.Position);
+        }
+        string llvmType = MapRazorForgeTypeToLLVM(razorForgeType: node.TypeArguments[index: 0]);
 
         string leftTemp = node.Arguments[index: 0]
                               .Accept(visitor: this);
@@ -413,7 +429,7 @@ public partial class LLVMCodeGenerator
                 handler: $"  {resultTemp} = fcmp {predicate} {llvmType} {leftTemp}, {rightTemp}");
         }
 
-        _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i1",
+        _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: "i1",
             IsUnsigned: false,
             IsFloatingPoint: false,
             RazorForgeType: "bool");
@@ -423,9 +439,17 @@ public partial class LLVMCodeGenerator
     private string EmitBitwiseIntrinsic(IntrinsicCallExpression node, string resultTemp)
     {
         string intrinsicName = node.IntrinsicName;
-        string llvmType = node.TypeArguments.Count > 0
-            ? MapRazorForgeTypeToLLVM(razorForgeType: node.TypeArguments[index: 0])
-            : "i32";
+        if (node.TypeArguments.Count == 0)
+        {
+            throw CodeGenError.TypeResolutionFailed(
+                typeName: intrinsicName,
+                context: "bitwise intrinsic requires a type argument",
+                file: _currentFileName,
+                line: node.Location.Line,
+                column: node.Location.Column,
+                position: node.Location.Position);
+        }
+        string llvmType = MapRazorForgeTypeToLLVM(razorForgeType: node.TypeArguments[index: 0]);
 
         if (intrinsicName == "not")
         {
@@ -457,7 +481,7 @@ public partial class LLVMCodeGenerator
                 message: $"Bitwise intrinsic {intrinsicName} not implemented");
         }
 
-        _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: llvmType,
+        _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: llvmType,
             IsUnsigned: false,
             IsFloatingPoint: false,
             RazorForgeType: node.TypeArguments[index: 0]);
@@ -481,7 +505,7 @@ public partial class LLVMCodeGenerator
         bool isUnsigned = node.TypeArguments[index: 1]
                               .StartsWith(value: "u");
 
-        _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: toType,
+        _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: toType,
             IsUnsigned: isUnsigned,
             IsFloatingPoint: isFloat,
             RazorForgeType: node.TypeArguments[index: 1]);
@@ -491,9 +515,17 @@ public partial class LLVMCodeGenerator
     private string EmitMathIntrinsic(IntrinsicCallExpression node, string resultTemp)
     {
         string intrinsicName = node.IntrinsicName;
-        string llvmType = node.TypeArguments.Count > 0
-            ? MapRazorForgeTypeToLLVM(razorForgeType: node.TypeArguments[index: 0])
-            : "double";
+        if (node.TypeArguments.Count == 0)
+        {
+            throw CodeGenError.TypeResolutionFailed(
+                typeName: intrinsicName,
+                context: "math intrinsic requires a type argument",
+                file: _currentFileName,
+                line: node.Location.Line,
+                column: node.Location.Column,
+                position: node.Location.Position);
+        }
+        string llvmType = MapRazorForgeTypeToLLVM(razorForgeType: node.TypeArguments[index: 0]);
 
         if (intrinsicName == "sqrt" || intrinsicName == "fabs" || intrinsicName == "floor" ||
             intrinsicName == "ceil" || intrinsicName == "trunc_float" ||
@@ -533,7 +565,7 @@ public partial class LLVMCodeGenerator
                 message: $"Math intrinsic {intrinsicName} not implemented");
         }
 
-        _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: llvmType,
+        _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: llvmType,
             IsUnsigned: false,
             IsFloatingPoint: true,
             RazorForgeType: node.TypeArguments[index: 0]);
@@ -543,9 +575,17 @@ public partial class LLVMCodeGenerator
     private string EmitAtomicIntrinsic(IntrinsicCallExpression node, string resultTemp)
     {
         string intrinsicName = node.IntrinsicName;
-        string llvmType = node.TypeArguments.Count > 0
-            ? MapRazorForgeTypeToLLVM(razorForgeType: node.TypeArguments[index: 0])
-            : "i64";
+        if (node.TypeArguments.Count == 0)
+        {
+            throw CodeGenError.TypeResolutionFailed(
+                typeName: intrinsicName,
+                context: "atomic intrinsic requires a type argument",
+                file: _currentFileName,
+                line: node.Location.Line,
+                column: node.Location.Column,
+                position: node.Location.Position);
+        }
+        string llvmType = MapRazorForgeTypeToLLVM(razorForgeType: node.TypeArguments[index: 0]);
 
         string addrTemp = node.Arguments[index: 0]
                               .Accept(visitor: this);
@@ -598,7 +638,7 @@ public partial class LLVMCodeGenerator
                 message: $"Atomic intrinsic {intrinsicName} not implemented");
         }
 
-        _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: llvmType,
+        _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: llvmType,
             IsUnsigned: false,
             IsFloatingPoint: false,
             RazorForgeType: node.TypeArguments[index: 0]);
@@ -608,9 +648,17 @@ public partial class LLVMCodeGenerator
     private string EmitBitManipIntrinsic(IntrinsicCallExpression node, string resultTemp)
     {
         string intrinsicName = node.IntrinsicName;
-        string llvmType = node.TypeArguments.Count > 0
-            ? MapRazorForgeTypeToLLVM(razorForgeType: node.TypeArguments[index: 0])
-            : "i32";
+        if (node.TypeArguments.Count == 0)
+        {
+            throw CodeGenError.TypeResolutionFailed(
+                typeName: intrinsicName,
+                context: "bit manipulation intrinsic requires a type argument",
+                file: _currentFileName,
+                line: node.Location.Line,
+                column: node.Location.Column,
+                position: node.Location.Position);
+        }
+        string llvmType = MapRazorForgeTypeToLLVM(razorForgeType: node.TypeArguments[index: 0]);
 
         string valueTemp = node.Arguments[index: 0]
                                .Accept(visitor: this);
@@ -628,11 +676,88 @@ public partial class LLVMCodeGenerator
                 $"  {resultTemp} = call {llvmType} @llvm.{intrinsicName}.{llvmType}({llvmType} {valueTemp})");
         }
 
-        _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: llvmType,
+        _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: llvmType,
             IsUnsigned: false,
             IsFloatingPoint: false,
             RazorForgeType: node.TypeArguments[index: 0]);
         return resultTemp;
+    }
+
+    private string EmitTypeInfoIntrinsic(IntrinsicCallExpression node, string resultTemp, string intrinsicName)
+    {
+        // sizeof<T>() and alignof<T>() return the size/alignment of the type in bytes
+        if (node.TypeArguments.Count == 0)
+        {
+            throw CodeGenError.TypeResolutionFailed(
+                typeName: intrinsicName,
+                context: "sizeof/alignof intrinsic requires a type argument",
+                file: _currentFileName,
+                line: node.Location.Line,
+                column: node.Location.Column,
+                position: node.Location.Position);
+        }
+        string typeArg = node.TypeArguments[index: 0];
+
+        string llvmType = MapRazorForgeTypeToLLVM(razorForgeType: typeArg);
+
+        // Get the size or alignment of the type
+        int value = intrinsicName == "sizeof"
+            ? GetTypeSizeInBytes(llvmType: llvmType)
+            : GetTypeAlignment(llvmType: llvmType);
+
+        // Return as a constant uaddr (i64)
+        _output.AppendLine(handler: $"  {resultTemp} = add i64 0, {value}");
+
+        _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: "i64",
+            IsUnsigned: true,
+            IsFloatingPoint: false,
+            RazorForgeType: "uaddr");
+        return resultTemp;
+    }
+
+    /// <summary>
+    /// Gets the size of an LLVM type in bytes.
+    /// </summary>
+    private static int GetTypeSizeInBytes(string llvmType)
+    {
+        return llvmType switch
+        {
+            "i1" => 1,
+            "i8" => 1,
+            "i16" => 2,
+            "i32" => 4,
+            "i64" => 8,
+            "i128" => 16,
+            "half" => 2,
+            "float" => 4,
+            "double" => 8,
+            "fp128" => 16,
+            "ptr" => 8, // Assume 64-bit pointers
+            _ => 8 // Default to 8 bytes for unknown types
+        };
+    }
+
+    /// <summary>
+    /// Gets the alignment of an LLVM type in bytes.
+    /// </summary>
+    private static int GetTypeAlignment(string llvmType)
+    {
+        // For most types, alignment equals size up to 8 bytes
+        return llvmType switch
+        {
+            "i1" => 1,
+            "i8" => 1,
+            "i16" => 2,
+            "i32" => 4,
+            "i64" => 8,
+            "i128" => 16,
+            "half" => 2,
+            "float" => 4,
+            "double" => 8,
+            "fp128" => 16,
+            "ptr" => 8,
+            _ => 8
+        };
     }
 
     #endregion

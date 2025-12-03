@@ -1,5 +1,6 @@
 using System.Numerics;
 using Compilers.Shared.AST;
+using Compilers.Shared.Errors;
 using Compilers.Shared.Lexer;
 
 namespace Compilers.Shared.CodeGen;
@@ -16,6 +17,7 @@ public partial class LLVMCodeGenerator
     /// <returns>A string representing the LLVM IR code for the variable declaration.</returns>
     public string VisitVariableDeclaration(VariableDeclaration node)
     {
+        _currentLocation = node.Location;
         string type;
         string? initValue = null;
 
@@ -30,24 +32,34 @@ public partial class LLVMCodeGenerator
             initValue = node.Initializer.Accept(visitor: this);
             // For call expressions and other complex expressions, the type is tracked in _tempTypes
             // after visiting. Use the tracked type if available, otherwise fall back to GetTypeInfo.
-            if (_tempTypes.TryGetValue(key: initValue, value: out TypeInfo? trackedType))
+            if (_tempTypes.TryGetValue(key: initValue, value: out LLVMTypeInfo? trackedType))
             {
                 type = trackedType.LLVMType;
             }
             else
             {
-                TypeInfo inferredType = GetTypeInfo(expr: node.Initializer);
+                LLVMTypeInfo inferredType = GetTypeInfo(expr: node.Initializer);
                 type = inferredType.LLVMType;
             }
         }
         else
         {
-            // No type and no initializer - default to i32
-            type = "i32";
+            // No type and no initializer - this is an error
+            throw CodeGenError.TypeResolutionFailed(
+                typeName: node.Name,
+                context: "variable declaration must have either a type annotation or an initializer",
+                file: _currentFileName,
+                line: node.Location.Line,
+                column: node.Location.Column,
+                position: node.Location.Position);
         }
 
-        string varName = $"%{node.Name}";
+        // Generate unique variable name to avoid conflicts in different scopes (e.g., if-else branches)
+        string uniqueName = GetUniqueVarName(baseName: node.Name);
+        string varName = $"%{uniqueName}";
         _symbolTypes[key: node.Name] = type;
+        // Map original name to unique name for lookups
+        _symbolTypes[key: $"__varptr_{node.Name}"] = uniqueName;
 
         // Track RazorForge type for the variable
         if (node.Type != null)
@@ -58,20 +70,17 @@ public partial class LLVMCodeGenerator
         if (node.Initializer != null)
         {
             // If we already visited the initializer for type inference, use that value
-            if (initValue == null)
-            {
-                initValue = node.Initializer.Accept(visitor: this);
-            }
+            initValue ??= node.Initializer.Accept(visitor: this);
 
             // Track RazorForge type from initializer if not already set
-            if (!_symbolRfTypes.ContainsKey(key: node.Name) && initValue != null &&
-                _tempTypes.TryGetValue(key: initValue, value: out TypeInfo? initTypeInfo))
+            if (!_symbolRfTypes.ContainsKey(key: node.Name) &&
+                _tempTypes.TryGetValue(key: initValue, value: out LLVMTypeInfo? initTypeInfo))
             {
                 _symbolRfTypes[key: node.Name] = initTypeInfo.RazorForgeType;
             }
 
             _output.AppendLine(handler: $"  {varName} = alloca {type}");
-            _output.AppendLine(handler: $"  store {type} {initValue}, {type}* {varName}");
+            _output.AppendLine(handler: $"  store {type} {initValue}, ptr {varName}");
         }
         else
         {
@@ -106,18 +115,38 @@ public partial class LLVMCodeGenerator
     /// </remarks>
     public string VisitBinaryExpression(BinaryExpression node)
     {
+        _currentLocation = node.Location;
         // Handle NoneCoalesce (??) specially - it requires short-circuit evaluation
         if (node.Operator == BinaryOperator.NoneCoalesce)
         {
             return GenerateNoneCoalesce(node: node);
         }
 
+        // Handle logical And/Or with short-circuit evaluation
+        if (node.Operator == BinaryOperator.And)
+        {
+            return GenerateLogicalAnd(node: node);
+        }
+
+        if (node.Operator == BinaryOperator.Or)
+        {
+            return GenerateLogicalOr(node: node);
+        }
+
         string left = node.Left.Accept(visitor: this);
         string right = node.Right.Accept(visitor: this);
         string result = GetNextTemp();
 
-        // Get operand type information (assume both operands have same type)
-        TypeInfo leftTypeInfo = GetTypeInfo(expr: node.Left);
+        // Get operand type information from the generated temp variable
+        // This correctly handles CallExpressions that store their return type in _tempTypes
+        // First try to get from the temp variable (preferred - has accurate type info from actual codegen)
+        // Fall back to GetTypeInfo only if the temp isn't tracked (e.g., for literals)
+        LLVMTypeInfo leftTypeInfo = GetValueTypeInfo(value: left);
+        // If GetValueTypeInfo returned default i32 but the expression has ResolvedType, use that
+        if (leftTypeInfo.LLVMType == "i32" && leftTypeInfo.RazorForgeType == "i32" && node.Left.ResolvedType != null)
+        {
+            leftTypeInfo = ConvertAstTypeInfoToLLVM(astType: node.Left.ResolvedType);
+        }
         string operandType = leftTypeInfo.LLVMType;
 
         string op = node.Operator switch
@@ -126,9 +155,9 @@ public partial class LLVMCodeGenerator
             BinaryOperator.Add => "add",
             BinaryOperator.Subtract => "sub",
             BinaryOperator.Multiply => "mul",
-            BinaryOperator.Divide => GetIntegerDivisionOp(
+            BinaryOperator.FloorDivide => GetIntegerDivisionOp(
                 typeInfo: leftTypeInfo), // sdiv/udiv based on signed/unsigned
-            BinaryOperator.TrueDivide => "fdiv", // / (true division) - floats only
+            BinaryOperator.TrueDivide => "fdiv",  // / only for floats (semantic analysis rejects for integers)
             BinaryOperator.Modulo => GetModuloOp(
                 typeInfo: leftTypeInfo), // srem/urem for integers, frem for floats
 
@@ -136,8 +165,6 @@ public partial class LLVMCodeGenerator
             BinaryOperator.AddWrap => "add", // Wrapping is default behavior
             BinaryOperator.SubtractWrap => "sub",
             BinaryOperator.MultiplyWrap => "mul",
-            BinaryOperator.DivideWrap => GetIntegerDivisionOp(typeInfo: leftTypeInfo),
-            BinaryOperator.ModuloWrap => GetModuloOp(typeInfo: leftTypeInfo),
 
             BinaryOperator.AddSaturate => "", // Handled separately with intrinsics
             BinaryOperator.SubtractSaturate => "", // Handled separately with intrinsics
@@ -147,15 +174,12 @@ public partial class LLVMCodeGenerator
             BinaryOperator.SubtractChecked => "", // Handled separately with overflow intrinsics
             BinaryOperator.MultiplyChecked => "", // Handled separately with overflow intrinsics
 
-            BinaryOperator.AddUnchecked => "add", // Regular operations, no overflow checks
-            BinaryOperator.SubtractUnchecked => "sub",
-            BinaryOperator.MultiplyUnchecked => "mul",
-            BinaryOperator.DivideUnchecked => GetIntegerDivisionOp(typeInfo: leftTypeInfo),
-            BinaryOperator.ModuloUnchecked => GetModuloOp(typeInfo: leftTypeInfo),
 
             // Comparisons
             BinaryOperator.Less => "icmp slt",
+            BinaryOperator.LessEqual => "icmp sle",
             BinaryOperator.Greater => "icmp sgt",
+            BinaryOperator.GreaterEqual => "icmp sge",
             BinaryOperator.Equal => "icmp eq",
             BinaryOperator.NotEqual => "icmp ne",
 
@@ -165,13 +189,14 @@ public partial class LLVMCodeGenerator
             BinaryOperator.BitwiseXor => "xor",
 
             // Shift operations
-            BinaryOperator.LeftShift => "shl",
-            BinaryOperator.RightShift => "", // Handled separately (ashr/lshr based on signedness)
+            BinaryOperator.ArithmeticLeftShift => "shl",
+            BinaryOperator.ArithmeticRightShift => "", // Handled separately (ashr/lshr based on signedness)
             BinaryOperator.LogicalLeftShift => "shl",
             BinaryOperator.LogicalRightShift => "lshr",
-            BinaryOperator.LeftShiftChecked => "", // Handled separately with overflow check
+            BinaryOperator.ArithmeticLeftShiftChecked => "", // Handled separately with overflow check
 
-            _ => "add"
+            _ => throw new NotSupportedException(
+                message: $"Binary operator '{node.Operator}' is not supported in code generation")
         };
 
         // Handle special overflow operations with LLVM intrinsics
@@ -200,7 +225,7 @@ public partial class LLVMCodeGenerator
                         typeInfo: leftTypeInfo,
                         llvmType: operandType);
 
-                case BinaryOperator.RightShift:
+                case BinaryOperator.ArithmeticRightShift:
                     // Use ashr for signed, lshr for unsigned
                     string shiftOp = leftTypeInfo.IsUnsigned
                         ? "lshr"
@@ -210,7 +235,7 @@ public partial class LLVMCodeGenerator
                     _tempTypes[key: result] = leftTypeInfo;
                     return result;
 
-                case BinaryOperator.LeftShiftChecked:
+                case BinaryOperator.ArithmeticLeftShiftChecked:
                     // TODO: Implement overflow-checked left shift (returns Maybe<T>)
                     // For now, generate regular shl with a comment
                     _output.AppendLine(
@@ -225,8 +250,12 @@ public partial class LLVMCodeGenerator
             }
         }
 
-        // Get right operand type info for type matching
-        TypeInfo rightTypeInfo = GetTypeInfo(expr: node.Right);
+        // Get right operand type info for type matching (use same approach as left operand)
+        LLVMTypeInfo rightTypeInfo = GetValueTypeInfo(value: right);
+        if (rightTypeInfo.LLVMType == "i32" && rightTypeInfo.RazorForgeType == "i32" && node.Right.ResolvedType != null)
+        {
+            rightTypeInfo = ConvertAstTypeInfoToLLVM(astType: node.Right.ResolvedType);
+        }
 
         // Handle type mismatch - truncate or extend as needed
         string rightOperand = right;
@@ -265,7 +294,7 @@ public partial class LLVMCodeGenerator
         {
             // Comparison operations return i1
             _output.AppendLine(handler: $"  {result} = {op} {operandType} {left}, {rightOperand}");
-            _tempTypes[key: result] = new TypeInfo(LLVMType: "i1",
+            _tempTypes[key: result] = new LLVMTypeInfo(LLVMType: "i1",
                 IsUnsigned: false,
                 IsFloatingPoint: false,
                 RazorForgeType: "bool");
@@ -284,7 +313,7 @@ public partial class LLVMCodeGenerator
     /// Generates LLVM IR for saturating arithmetic operations using LLVM intrinsics.
     /// </summary>
     private string GenerateSaturatingArithmetic(BinaryOperator op, string left, string right,
-        string result, TypeInfo typeInfo, string llvmType)
+        string result, LLVMTypeInfo typeInfo, string llvmType)
     {
         string intrinsicName = op switch
         {
@@ -322,7 +351,7 @@ public partial class LLVMCodeGenerator
     /// LLVM doesn't provide a direct saturating multiply intrinsic, so we use overflow detection.
     /// </summary>
     private string GenerateSaturatingMultiply(string left, string right, string result,
-        TypeInfo typeInfo, string llvmType)
+        LLVMTypeInfo typeInfo, string llvmType)
     {
         string overflowTemp = GetNextTemp();
         string structTemp = GetNextTemp();
@@ -391,7 +420,7 @@ public partial class LLVMCodeGenerator
     /// Generates LLVM IR for checked arithmetic operations that trap on overflow.
     /// </summary>
     private string GenerateCheckedArithmetic(BinaryOperator op, string left, string right,
-        string result, TypeInfo typeInfo, string llvmType)
+        string result, LLVMTypeInfo typeInfo, string llvmType)
     {
         string intrinsicName = op switch
         {
@@ -445,7 +474,7 @@ public partial class LLVMCodeGenerator
     /// <summary>
     /// Gets the saturation bounds (max and min values) for a given type.
     /// </summary>
-    private (string maxValue, string minValue) GetSaturationBounds(TypeInfo typeInfo,
+    private (string maxValue, string minValue) GetSaturationBounds(LLVMTypeInfo typeInfo,
         string llvmType)
     {
         if (typeInfo.IsUnsigned)
@@ -459,7 +488,13 @@ public partial class LLVMCodeGenerator
                 32 => "4294967295",
                 64 => "18446744073709551615",
                 128 => "340282366920938463463374607431768211455",
-                _ => "0"
+                _ => throw CodeGenError.TypeResolutionFailed(
+                    typeName: llvmType,
+                    context: $"unsupported bit width {bits} for unsigned saturation bounds",
+                    file: _currentFileName,
+                    line: _currentLocation.Line,
+                    column: _currentLocation.Column,
+                    position: _currentLocation.Position)
             };
             return (maxValue, "0");
         }
@@ -475,7 +510,13 @@ public partial class LLVMCodeGenerator
                 64 => ("9223372036854775807", "-9223372036854775808"),
                 128 => ("170141183460469231731687303715884105727",
                     "-170141183460469231731687303715884105728"),
-                _ => ("0", "0")
+                _ => throw CodeGenError.TypeResolutionFailed(
+                    typeName: llvmType,
+                    context: $"unsupported bit width {bits} for signed saturation bounds",
+                    file: _currentFileName,
+                    line: _currentLocation.Line,
+                    column: _currentLocation.Column,
+                    position: _currentLocation.Position)
             };
             return (maxValue, minValue);
         }
@@ -509,13 +550,20 @@ public partial class LLVMCodeGenerator
                 or TokenType.Text16FormattedText or TokenType.RawText or TokenType.Text8RawText
                 or TokenType.Text16RawText or TokenType.RawFormattedText
                 or TokenType.Text8RawFormattedText or TokenType.Text16RawFormattedText => "i8*",
-            _ => "i32" // Default fallback
+            _ => throw CodeGenError.TypeResolutionFailed(
+                typeName: tokenType.ToString(),
+                context: "unknown token type in GetLLVMType",
+                file: _currentFileName,
+                line: _currentLocation.Line,
+                column: _currentLocation.Column,
+                position: _currentLocation.Position)
         };
     }
 
     // Identifier expression
     public string VisitIdentifierExpression(IdentifierExpression node)
     {
+        _currentLocation = node.Location;
         // Handle special built-in values
         if (node.Name == "None")
         {
@@ -523,7 +571,7 @@ public partial class LLVMCodeGenerator
             // When used in a return statement, the return type will be i8* (pointer)
             // so we return null constant
             string nextWord = GetNextTemp();
-            _tempTypes[key: nextWord] = new TypeInfo(LLVMType: "i8*",
+            _tempTypes[key: nextWord] = new LLVMTypeInfo(LLVMType: "i8*",
                 IsUnsigned: false,
                 IsFloatingPoint: false,
                 RazorForgeType: "None");
@@ -531,26 +579,55 @@ public partial class LLVMCodeGenerator
             return "null";
         }
 
-        string type = _symbolTypes.ContainsKey(key: node.Name)
-            ? _symbolTypes[key: node.Name]
-            : "i32";
+        if (!_symbolTypes.TryGetValue(key: node.Name, value: out string? type))
+        {
+            throw CodeGenError.TypeResolutionFailed(
+                typeName: node.Name,
+                context: "identifier not found in symbol table [VisitIdentifierExpression]",
+                file: _currentFileName,
+                line: node.Location.Line,
+                column: node.Location.Column,
+                position: node.Location.Position);
+        }
 
         // If this is a function parameter, it's already a value - no load needed
         if (_functionParameters.Contains(item: node.Name))
         {
-            return $"%{node.Name}";
+            // Track the type so function calls can use it
+            string paramType = type;
+            string paramValue = $"%{node.Name}";
+            string paramRfType = _symbolRfTypes.TryGetValue(key: node.Name, value: out string? storedParamRfType)
+                ? storedParamRfType
+                : node.Name;
+            _tempTypes[key: paramValue] = new LLVMTypeInfo(LLVMType: paramType,
+                IsUnsigned: paramType.StartsWith(value: "u"),
+                IsFloatingPoint: paramType.StartsWith(value: "f") || paramType.StartsWith(value: "double"),
+                RazorForgeType: paramRfType);
+            return paramValue;
         }
 
-        // For local variables, we need to load from the stack
+        // For global constants (presets), use @name instead of %name
         string temp = GetNextTemp();
-        _output.AppendLine(handler: $"  {temp} = load {type}, {type}* %{node.Name}");
+        if (_globalConstants.Contains(item: node.Name))
+        {
+            _output.AppendLine(handler: $"  {temp} = load {type}, ptr @{node.Name}");
+        }
+        else
+        {
+            // For local variables, we need to load from the stack
+            // Use unique name if available (for scoped variables like those in if-else branches)
+            string varPtr = _symbolTypes.TryGetValue(key: $"__varptr_{node.Name}", value: out string? uniqueName)
+                ? $"%{uniqueName}"
+                : $"%{node.Name}";
+            _output.AppendLine(handler: $"  {temp} = load {type}, ptr {varPtr}");
+        }
 
         // Track the type of this temp so it can be used correctly in function calls
         // Use stored RazorForge type if available, otherwise use variable name as fallback
         string rfType = _symbolRfTypes.TryGetValue(key: node.Name, value: out string? storedRfType)
             ? storedRfType
             : node.Name;
-        _tempTypes[key: temp] = new TypeInfo(LLVMType: type,
+        _tempTypes[key: temp] = new LLVMTypeInfo(LLVMType: type,
             IsUnsigned: type.StartsWith(value: "u"),
             IsFloatingPoint: type.StartsWith(value: "f") || type.StartsWith(value: "double"),
             RazorForgeType: rfType);
@@ -560,71 +637,78 @@ public partial class LLVMCodeGenerator
     // Function call expression
     public string VisitCallExpression(CallExpression node)
     {
+        _currentLocation = node.Location;
         string result = GetNextTemp();
 
-        // Check if this is a standalone danger zone function call (address_of!, invalidate!)
-        if (node.Callee is IdentifierExpression identifierExpr)
+        switch (node.Callee)
         {
-            string dangerfunctionName = identifierExpr.Name;
-            if (IsNonGenericDangerZoneFunction(functionName: dangerfunctionName))
+            // Check if this is a standalone danger zone function call (address_of!, invalidate!)
+            case IdentifierExpression identifierExpr:
             {
-                return HandleNonGenericDangerZoneFunction(node: node,
-                    functionName: dangerfunctionName,
-                    resultTemp: result);
+                string dangerfunctionName = identifierExpr.Name;
+                if (IsNonGenericDangerZoneFunction(functionName: dangerfunctionName))
+                {
+                    return HandleNonGenericDangerZoneFunction(node: node,
+                        functionName: dangerfunctionName,
+                        resultTemp: result);
+                }
+
+                // Check for non-generic CompilerService intrinsics (source location)
+                if (IsSourceLocationIntrinsic(functionName: dangerfunctionName))
+                {
+                    return HandleSourceLocationIntrinsic(node: node,
+                        functionName: dangerfunctionName,
+                        resultTemp: result);
+                }
+
+                // Check for error intrinsics (verify!, breach!, stop!)
+                if (IsErrorIntrinsic(functionName: dangerfunctionName))
+                {
+                    return HandleErrorIntrinsic(node: node,
+                        functionName: dangerfunctionName,
+                        resultTemp: result);
+                }
+
+                break;
             }
-
-            // Check for non-generic CompilerService intrinsics (source location)
-            if (IsSourceLocationIntrinsic(functionName: dangerfunctionName))
+            // Check for special handlers BEFORE visiting arguments to avoid double-visiting
+            case MemberExpression memberExprEarly:
             {
-                return HandleSourceLocationIntrinsic(node: node,
-                    functionName: dangerfunctionName,
-                    resultTemp: result);
-            }
+                string objectNameEarly = memberExprEarly.Object switch
+                {
+                    IdentifierExpression idExpr => idExpr.Name,
+                    _ => "unknown"
+                };
 
-            // Check for error intrinsics (verify!, breach!, stop!)
-            if (IsErrorIntrinsic(functionName: dangerfunctionName))
-            {
-                return HandleErrorIntrinsic(node: node,
-                    functionName: dangerfunctionName,
-                    resultTemp: result);
-            }
-        }
+                // Check if this is an external function call from imported module
+                string externalFuncName = $"{objectNameEarly}.{memberExprEarly.PropertyName}";
+                if (TryHandleExternalFunctionCall(funcName: externalFuncName,
+                        arguments: node.Arguments,
+                        resultTemp: result,
+                        result: out string? externalResult))
+                {
+                    return externalResult!;
+                }
 
-        // Check for special handlers BEFORE visiting arguments to avoid double-visiting
-        if (node.Callee is MemberExpression memberExprEarly)
-        {
-            string objectNameEarly = memberExprEarly.Object switch
-            {
-                IdentifierExpression idExpr => idExpr.Name,
-                _ => "unknown"
-            };
+                // Check if this is a call to an imported module function (including generic)
+                if (TryHandleImportedModuleFunctionCall(moduleName: objectNameEarly,
+                        functionName: memberExprEarly.PropertyName,
+                        arguments: node.Arguments,
+                        resultTemp: result,
+                        result: out string? importedResult))
+                {
+                    return importedResult!;
+                }
 
-            // Check if this is an external function call from imported module
-            string externalFuncName = $"{objectNameEarly}.{memberExprEarly.PropertyName}";
-            if (TryHandleExternalFunctionCall(funcName: externalFuncName,
-                    arguments: node.Arguments,
-                    resultTemp: result,
-                    result: out string? externalResult))
-            {
-                return externalResult!;
-            }
+                // Special handling for Error type
+                if (objectNameEarly == "Error")
+                {
+                    return HandleErrorCall(methodName: memberExprEarly.PropertyName,
+                        arguments: node.Arguments,
+                        resultTemp: result);
+                }
 
-            // Check if this is a call to an imported module function (including generic)
-            if (TryHandleImportedModuleFunctionCall(moduleName: objectNameEarly,
-                    functionName: memberExprEarly.PropertyName,
-                    arguments: node.Arguments,
-                    resultTemp: result,
-                    result: out string? importedResult))
-            {
-                return importedResult!;
-            }
-
-            // Special handling for Error type
-            if (objectNameEarly == "Error")
-            {
-                return HandleErrorCall(methodName: memberExprEarly.PropertyName,
-                    arguments: node.Arguments,
-                    resultTemp: result);
+                break;
             }
         }
 
@@ -664,6 +748,40 @@ public partial class LLVMCodeGenerator
                     arguments: node.Arguments,
                     resultTemp: result);
             }
+
+            // Check for primitive type conversions like saddr(value), uaddr(value), s32(value), etc.
+            if (IsPrimitiveTypeCast(typeName: identifierEarly.Name))
+            {
+                return HandlePrimitiveTypeCast(targetTypeName: identifierEarly.Name,
+                    arguments: node.Arguments,
+                    resultTemp: result);
+            }
+        }
+
+        // Check for generic type constructor calls like Text<letter8>(ptr: ptr)
+        if (node.Callee is GenericMemberExpression genericTypeExpr)
+        {
+            // Build the full generic type name like "Text<letter8>"
+            string typeArgs = string.Join(separator: ", ", values: genericTypeExpr.TypeArguments.Select(selector: t => t.Name));
+            string genericTypeName = $"{genericTypeExpr.MemberName}<{typeArgs}>";
+            string sanitizedGenericName = SanitizeFunctionName(name: genericTypeName);
+
+            // This is a generic type constructor call - needs to find and call __create__ method
+            if (TryHandleGenericTypeConstructor(typeName: genericTypeName,
+                    arguments: node.Arguments,
+                    resultTemp: result,
+                    result: out string? constructorResult))
+            {
+                return constructorResult!;
+            }
+
+            // Check for record constructor calls on generic types
+            if (IsRecordConstructorCall(typeName: genericTypeName))
+            {
+                return HandleRecordConstructorCall(typeName: genericTypeName,
+                    arguments: node.Arguments,
+                    resultTemp: result);
+            }
         }
 
         var args = new List<string>();
@@ -671,14 +789,20 @@ public partial class LLVMCodeGenerator
         {
             string argValue = arg.Accept(visitor: this);
             // Determine argument type - check if it's a tracked temp, otherwise infer from expression
-            string argType = "i32"; // default
-            if (_tempTypes.TryGetValue(key: argValue, value: out TypeInfo? argTypeInfo))
+            string argType;
+            if (_tempTypes.TryGetValue(key: argValue, value: out LLVMTypeInfo? argTypeInfo))
             {
                 argType = argTypeInfo.LLVMType;
             }
             else if (arg is LiteralExpression literal && literal.Value is string)
             {
                 argType = "i8*"; // String literals produce pointers
+            }
+            else
+            {
+                // Try to get type from the expression itself
+                LLVMTypeInfo inferredType = GetTypeInfo(expr: arg);
+                argType = inferredType.LLVMType;
             }
 
             args.Add(item: $"{argType} {argValue}");
@@ -718,16 +842,75 @@ public partial class LLVMCodeGenerator
         }
         else if (node.Callee is MemberExpression memberExpr)
         {
-            // Handle member expression calls like Console.show, Error.from_text
+            // Handle member expression calls like Console.show, Error.from_text, me.length()
+            // Also handle static method calls like Text<letter8>.from_cstr(ptr)
             string objectName = memberExpr.Object switch
             {
                 IdentifierExpression idExpr => idExpr.Name,
+                TypeExpression typeExpr => typeExpr.Name,
+                GenericMemberExpression genExpr => $"{genExpr.MemberName}<{string.Join(separator: ", ", values: genExpr.TypeArguments.Select(selector: t => t.Name))}>",
                 _ => "unknown"
             };
 
-            // Already handled Console and Error above, so this is for other member calls
-            // For other member calls, convert to mangled name: Object.method -> Object_method
-            functionName = $"{objectName}_{memberExpr.PropertyName}";
+            // Try to look up the method return type based on the object's type
+            string? objectTypeName = null;
+            if (memberExpr.Object is IdentifierExpression objIdExpr)
+            {
+                // Try to get the RazorForge type from our tracking
+                _symbolRfTypes.TryGetValue(key: objIdExpr.Name, value: out objectTypeName);
+            }
+            else if (memberExpr.Object is TypeExpression typeExpr)
+            {
+                // Static method call on a type - use the type name directly
+                objectTypeName = typeExpr.Name;
+            }
+            else if (memberExpr.Object is GenericMemberExpression genExpr)
+            {
+                // Static method call on a generic type like Text<letter8>.from_cstr
+                objectTypeName = $"{genExpr.MemberName}<{string.Join(separator: ", ", values: genExpr.TypeArguments.Select(selector: t => t.Name))}>";
+            }
+
+            // For method calls, use the type name (if known) instead of the variable name
+            // This converts me.length() to cstr.length(me) instead of me_length()
+            string methodReceiverName = objectTypeName ?? objectName;
+            functionName = $"{methodReceiverName}.{memberExpr.PropertyName}";
+
+            // Try to find the method return type in loaded modules
+            string methodReturnType = LookupMethodReturnType(
+                objectTypeName: objectTypeName,
+                methodName: memberExpr.PropertyName);
+
+            string sanitizedFunctionName = SanitizeFunctionName(name: functionName);
+
+            // For method calls on variables, we need to pass the object as the first argument
+            string methodArgList;
+            if (objectTypeName != null && objectTypeName != objectName)
+            {
+                // This is a method call on a typed variable - add the object as first argument
+                string objectValue = memberExpr.Object.Accept(visitor: this);
+                string objectLlvmType = _symbolTypes.TryGetValue(key: objectName, value: out string? storedType)
+                    ? storedType
+                    : MapTypeToLLVM(rfType: objectTypeName);
+                methodArgList = args.Count > 0
+                    ? $"{objectLlvmType} {objectValue}, {argList}"
+                    : $"{objectLlvmType} {objectValue}";
+            }
+            else
+            {
+                methodArgList = argList;
+            }
+
+            _output.AppendLine(
+                handler: $"  {result} = call {methodReturnType} @{sanitizedFunctionName}({methodArgList})");
+
+            // Track the result type
+            string rfReturnType = GetRazorForgeTypeFromLLVM(llvmType: methodReturnType);
+            _tempTypes[key: result] = new LLVMTypeInfo(LLVMType: methodReturnType,
+                IsUnsigned: rfReturnType.StartsWith(value: "u"),
+                IsFloatingPoint: methodReturnType.Contains(value: "float") ||
+                                 methodReturnType.Contains(value: "double"),
+                RazorForgeType: rfReturnType);
+            return result;
         }
         else
         {
@@ -735,57 +918,54 @@ public partial class LLVMCodeGenerator
             functionName = "unknown_function";
         }
 
-        string sanitizedFunctionName = SanitizeFunctionName(name: functionName);
-        _output.AppendLine(handler: $"  {result} = call i32 @{sanitizedFunctionName}({argList})");
+        string defaultSanitizedFunctionName = SanitizeFunctionName(name: functionName);
+        string defaultReturnType = LookupFunctionReturnType(functionName: defaultSanitizedFunctionName);
+        _output.AppendLine(
+            handler: $"  {result} = call {defaultReturnType} @{defaultSanitizedFunctionName}({argList})");
         return result;
     }
     public string VisitUnaryExpression(UnaryExpression node)
     {
+        _currentLocation = node.Location;
         // Special case: negative integer literals should be handled directly
         // to avoid type issues (e.g., -2147483648 should be i32, not i64)
         if (node.Operator == UnaryOperator.Minus && node.Operand is LiteralExpression lit)
         {
-            // Check if this is an integer literal that we can negate directly
-            if (lit.Value is long longVal)
+            switch (lit.Value)
             {
-                long negated = -longVal;
-                // Check if negated value fits in i32 (s32 range)
-                if (negated >= int.MinValue && negated <= int.MaxValue)
+                // Check if this is an integer literal that we can negate directly
+                case long longVal:
                 {
+                    long negated = -longVal;
+                    // Check if negated value fits in i32 (s32 range)
+                    if (negated is < int.MinValue or > int.MaxValue)
+                    {
+                        return negated.ToString();
+                    }
+
                     // Return as i32 literal
-                    _tempTypes[key: negated.ToString()] = new TypeInfo(LLVMType: "i32",
+                    _tempTypes[key: negated.ToString()] = new LLVMTypeInfo(LLVMType: "i32",
                         IsUnsigned: false,
                         IsFloatingPoint: false,
                         RazorForgeType: "s32");
                     return negated.ToString();
-                }
 
-                return negated.ToString();
-            }
-            else if (lit.Value is int intVal)
-            {
-                return (-intVal).ToString();
-            }
-            else if (lit.Value is double doubleVal)
-            {
-                return (-doubleVal).ToString(format: "G");
-            }
-            else if (lit.Value is float floatVal)
-            {
-                return (-floatVal).ToString(format: "G");
+                }
+                case int intVal:
+                    return (-intVal).ToString();
+                case double doubleVal:
+                    return (-doubleVal).ToString(format: "G");
+                case float floatVal:
+                    return (-floatVal).ToString(format: "G");
             }
         }
 
         string operand = node.Operand.Accept(visitor: this);
-        TypeInfo operandType = GetTypeInfo(expr: node.Operand);
+        LLVMTypeInfo operandType = GetTypeInfo(expr: node.Operand);
         string llvmType = operandType.LLVMType;
 
         switch (node.Operator)
         {
-            case UnaryOperator.Plus:
-                // Unary plus is a no-op, just return the operand
-                return operand;
-
             case UnaryOperator.Minus:
                 // Negation: 0 - operand for integers, fneg for floats
                 string result = GetNextTemp();
@@ -805,7 +985,7 @@ public partial class LLVMCodeGenerator
                 // Logical NOT: xor with 1 for i1 (bool)
                 string notResult = GetNextTemp();
                 _output.AppendLine(handler: $"  {notResult} = xor i1 {operand}, 1");
-                _tempTypes[key: notResult] = new TypeInfo(LLVMType: "i1",
+                _tempTypes[key: notResult] = new LLVMTypeInfo(LLVMType: "i1",
                     IsUnsigned: false,
                     IsFloatingPoint: false,
                     RazorForgeType: "bool");
@@ -824,6 +1004,7 @@ public partial class LLVMCodeGenerator
     }
     public string VisitMemberExpression(MemberExpression node)
     {
+        _currentLocation = node.Location;
         string? objectName = node.Object switch
         {
             IdentifierExpression idExpr => idExpr.Name,
@@ -831,76 +1012,124 @@ public partial class LLVMCodeGenerator
         };
 
         // Check if this is a record field access
-        if (objectName != null)
+        if (objectName == null)
         {
-            // First, try to get the record type from _symbolRfTypes
-            string? recordType = null;
-            if (_symbolRfTypes.TryGetValue(key: objectName, value: out string? rfType))
-            {
-                recordType = rfType;
-            }
-            // Also try from _symbolTypes (for LLVM types like %Point)
-            else if (_symbolTypes.TryGetValue(key: objectName, value: out string? llvmType) &&
-                     llvmType.StartsWith(value: "%"))
-            {
-                recordType = llvmType[1..]; // Remove % prefix
-            }
+            return "";
+        }
 
-            // If we have a record type, look up the field
-            if (recordType != null && _recordFields.TryGetValue(key: recordType,
-                    value: out List<(string Name, string Type)>? fields))
-            {
-                // Find the field index
-                int fieldIndex = -1;
-                string fieldType = "i32";
-                for (int i = 0; i < fields.Count; i++)
-                {
-                    if (fields[index: i].Name == node.PropertyName)
-                    {
-                        fieldIndex = i;
-                        fieldType = fields[index: i].Type;
-                        break;
-                    }
-                }
+        // First, try to get the record type from _symbolRfTypes
+        string? recordType = null;
+        if (_symbolRfTypes.TryGetValue(key: objectName, value: out string? rfType))
+        {
+            recordType = rfType;
+        }
+        // Also try from _symbolTypes (for LLVM types like %Point)
+        else if (_symbolTypes.TryGetValue(key: objectName, value: out string? llvmType) &&
+                 llvmType.StartsWith(value: "%"))
+        {
+            recordType = llvmType[1..]; // Remove % prefix
+        }
 
-                if (fieldIndex >= 0)
-                {
-                    // Generate getelementptr and load for field access
-                    string result = GetNextTemp();
-                    string fieldPtr = GetNextTemp();
-                    _output.AppendLine(
-                        handler:
-                        $"  {fieldPtr} = getelementptr inbounds %{recordType}, ptr %{objectName}, i32 0, i32 {fieldIndex}");
-                    _output.AppendLine(handler: $"  {result} = load {fieldType}, ptr {fieldPtr}");
-                    _tempTypes[key: result] = new TypeInfo(LLVMType: fieldType,
-                        IsUnsigned: false,
-                        IsFloatingPoint: false,
-                        RazorForgeType: "");
-                    return result;
-                }
+        // Convert generic type names to mangled form for lookup
+        // e.g., Range<BackIndex<uaddr>> -> Range_BackIndex_uaddr
+        if (recordType != null && recordType.Contains(value: '<'))
+        {
+            recordType = recordType
+                .Replace(oldValue: "<", newValue: "_")
+                .Replace(oldValue: ">", newValue: "")
+                .Replace(oldValue: ", ", newValue: "_")
+                .Replace(oldValue: ",", newValue: "_");
+        }
+
+        // If we have a record type, look up the field
+        if (recordType == null || !_recordFields.TryGetValue(key: recordType,
+                value: out List<(string Name, string Type)>? fields))
+        {
+            return "";
+        }
+
+        // Find the field index
+        int fieldIndex = -1;
+        string? fieldType = null;
+        for (int i = 0; i < fields.Count; i++)
+        {
+            if (fields[index: i].Name == node.PropertyName)
+            {
+                fieldIndex = i;
+                fieldType = fields[index: i].Type;
+                break;
             }
         }
 
         // Not a record field access - handle other cases
-        return "";
+        if (fieldIndex < 0 || fieldType == null)
+        {
+            return "";
+        }
+
+        // Generate getelementptr and load for field access
+        string result = GetNextTemp();
+        string fieldPtr = GetNextTemp();
+
+        // Check if objectName is a function parameter passed by value (struct type, not pointer)
+        // In LLVM, getelementptr requires a pointer operand, so for value-type parameters
+        // we need to allocate stack space and store the value first
+        // If the type ends with *, it's already a pointer and can be used directly
+        bool isValueParameter = _functionParameters.Contains(item: objectName) &&
+                                _symbolTypes.TryGetValue(key: objectName, value: out string? paramLlvmType) &&
+                                paramLlvmType.StartsWith(value: "%") &&
+                                !paramLlvmType.EndsWith(value: "*");
+
+        if (isValueParameter)
+        {
+            // Allocate stack space and store the struct value to get a pointer
+            string stackPtr = GetNextTemp();
+            _output.AppendLine(handler: $"  {stackPtr} = alloca %{recordType}");
+            _output.AppendLine(handler: $"  store %{recordType} %{objectName}, ptr {stackPtr}");
+            _output.AppendLine(
+                handler:
+                $"  {fieldPtr} = getelementptr inbounds %{recordType}, ptr {stackPtr}, i32 0, i32 {fieldIndex}");
+        }
+        else
+        {
+            // For local variables, use unique name if available
+            string varPtr = _symbolTypes.TryGetValue(key: $"__varptr_{objectName}", value: out string? uniqueName)
+                ? $"%{uniqueName}"
+                : $"%{objectName}";
+            _output.AppendLine(
+                handler:
+                $"  {fieldPtr} = getelementptr inbounds %{recordType}, ptr {varPtr}, i32 0, i32 {fieldIndex}");
+        }
+
+        _output.AppendLine(handler: $"  {result} = load {fieldType}, ptr {fieldPtr}");
+        _tempTypes[key: result] = new LLVMTypeInfo(LLVMType: fieldType,
+            IsUnsigned: false,
+            IsFloatingPoint: false,
+            RazorForgeType: "");
+        return result;
+
     }
     public string VisitIndexExpression(IndexExpression node)
     {
+        _currentLocation = node.Location;
         return "";
     }
     public string VisitConditionalExpression(ConditionalExpression node)
     {
+        _currentLocation = node.Location;
         return "";
     }
 
     public string VisitBlockExpression(BlockExpression node)
     {
+        _currentLocation = node.Location;
         // A block expression evaluates to its inner expression
         return node.Value.Accept(visitor: this);
     }
 
     public string VisitRangeExpression(RangeExpression node)
     {
+        _currentLocation = node.Location;
         // For now, generate a simple record representation
         // In a real implementation, this would create a Range<T> object
         string start = node.Start.Accept(visitor: this);
@@ -926,6 +1155,7 @@ public partial class LLVMCodeGenerator
 
     public string VisitChainedComparisonExpression(ChainedComparisonExpression node)
     {
+        _currentLocation = node.Location;
         // Desugar chained comparison: a < b < c becomes (a < b) and (b < c)
         // with single evaluation of b
         if (node.Operands.Count < 2 || node.Operators.Count < 1)
@@ -978,7 +1208,8 @@ public partial class LLVMCodeGenerator
                 BinaryOperator.GreaterEqual => "icmp sge",
                 BinaryOperator.Equal => "icmp eq",
                 BinaryOperator.NotEqual => "icmp ne",
-                _ => "icmp eq"
+                _ => throw new NotSupportedException(
+                    message: $"Chained comparison operator '{node.Operators[index: i]}' is not supported")
             };
 
             _output.AppendLine(handler: $"  {compResult} = {op} i32 {left}, {right}");
@@ -1004,6 +1235,7 @@ public partial class LLVMCodeGenerator
     }
     public string VisitTypeExpression(TypeExpression node)
     {
+        _currentLocation = node.Location;
         return "";
     }
     /// <summary>
@@ -1011,12 +1243,109 @@ public partial class LLVMCodeGenerator
     /// Returns the left value if it's valid (not None/Error), otherwise returns the right value.
     /// Works with Maybe, Result, and Lookup types.
     /// </summary>
+    /// <summary>
+    /// Generates LLVM IR for logical AND with short-circuit evaluation.
+    /// If the left operand is false, the right operand is not evaluated.
+    /// </summary>
+    private string GenerateLogicalAnd(BinaryExpression node)
+    {
+        string result = GetNextTemp();
+        string evalRightLabel = $"and_eval_right_{_labelCounter}";
+        string endLabel = $"and_end_{_labelCounter}";
+        _labelCounter++;
+
+        // Evaluate left operand
+        string left = node.Left.Accept(visitor: this);
+
+        // Get current block for phi node
+        string leftBlock = GetCurrentBlockName();
+
+        // Branch: if left is true, evaluate right; otherwise short-circuit to false
+        _output.AppendLine(handler: $"  br i1 {left}, label %{evalRightLabel}, label %{endLabel}");
+
+        // Evaluate right operand
+        _output.AppendLine(handler: $"{evalRightLabel}:");
+        string right = node.Right.Accept(visitor: this);
+        string rightBlock = GetCurrentBlockName();
+        _output.AppendLine(handler: $"  br label %{endLabel}");
+
+        // Merge with phi node
+        _output.AppendLine(handler: $"{endLabel}:");
+        _output.AppendLine(handler: $"  {result} = phi i1 [ 0, %{leftBlock} ], [ {right}, %{rightBlock} ]");
+
+        _tempTypes[key: result] = new LLVMTypeInfo(LLVMType: "i1",
+            IsUnsigned: false,
+            IsFloatingPoint: false,
+            RazorForgeType: "bool");
+
+        return result;
+    }
+
+    /// <summary>
+    /// Generates LLVM IR for logical OR with short-circuit evaluation.
+    /// If the left operand is true, the right operand is not evaluated.
+    /// </summary>
+    private string GenerateLogicalOr(BinaryExpression node)
+    {
+        string result = GetNextTemp();
+        string evalRightLabel = $"or_eval_right_{_labelCounter}";
+        string endLabel = $"or_end_{_labelCounter}";
+        _labelCounter++;
+
+        // Evaluate left operand
+        string left = node.Left.Accept(visitor: this);
+
+        // Get current block for phi node
+        string leftBlock = GetCurrentBlockName();
+
+        // Branch: if left is false, evaluate right; otherwise short-circuit to true
+        _output.AppendLine(handler: $"  br i1 {left}, label %{endLabel}, label %{evalRightLabel}");
+
+        // Evaluate right operand
+        _output.AppendLine(handler: $"{evalRightLabel}:");
+        string right = node.Right.Accept(visitor: this);
+        string rightBlock = GetCurrentBlockName();
+        _output.AppendLine(handler: $"  br label %{endLabel}");
+
+        // Merge with phi node
+        _output.AppendLine(handler: $"{endLabel}:");
+        _output.AppendLine(handler: $"  {result} = phi i1 [ 1, %{leftBlock} ], [ {right}, %{rightBlock} ]");
+
+        _tempTypes[key: result] = new LLVMTypeInfo(LLVMType: "i1",
+            IsUnsigned: false,
+            IsFloatingPoint: false,
+            RazorForgeType: "bool");
+
+        return result;
+    }
+
+    /// <summary>
+    /// Gets the name of the current basic block for phi node references.
+    /// </summary>
+    private string GetCurrentBlockName()
+    {
+        // Look back through the output to find the last label
+        string output = _output.ToString();
+        int lastNewline = output.LastIndexOf('\n');
+        while (lastNewline > 0)
+        {
+            int prevNewline = output.LastIndexOf('\n', lastNewline - 1);
+            string line = output.Substring(prevNewline + 1, lastNewline - prevNewline - 1).Trim();
+            if (line.EndsWith(":") && !line.StartsWith(";"))
+            {
+                return line.TrimEnd(':');
+            }
+            lastNewline = prevNewline;
+        }
+        return "entry"; // Default to entry block
+    }
+
     private string GenerateNoneCoalesce(BinaryExpression node)
     {
         // Evaluate the left side first
         string left = node.Left.Accept(visitor: this);
-        TypeInfo leftTypeInfo = GetTypeInfo(expr: node.Left);
-        string leftTypeName = leftTypeInfo.RazorForgeType ?? "";
+        LLVMTypeInfo leftTypeInfo = GetTypeInfo(expr: node.Left);
+        string leftTypeName = leftTypeInfo.RazorForgeType;
 
         // Generate unique labels for branching
         string validLabel = $"coalesce_valid_{_labelCounter}";
@@ -1090,7 +1419,7 @@ public partial class LLVMCodeGenerator
         // Merge point with phi
         _output.AppendLine(handler: $"{endLabel}:");
         string result = GetNextTemp();
-        TypeInfo rightTypeInfo = GetTypeInfo(expr: node.Right);
+        LLVMTypeInfo rightTypeInfo = GetTypeInfo(expr: node.Right);
         string resultType = rightTypeInfo.LLVMType;
         _output.AppendLine(
             handler:
@@ -1108,90 +1437,64 @@ public partial class LLVMCodeGenerator
     /// <returns>A string representation of the generated LLVM IR code for the given literal expression.</returns>
     public string VisitLiteralExpression(LiteralExpression node)
     {
-        if (node.Value is int intVal)
+        _currentLocation = node.Location;
+        switch (node.Value)
         {
-            return intVal.ToString();
-        }
-        else if (node.Value is long longVal)
-        {
-            return longVal.ToString();
-        }
-        else if (node.Value is byte byteVal)
-        {
-            return byteVal.ToString();
-        }
-        else if (node.Value is sbyte sbyteVal)
-        {
-            return sbyteVal.ToString();
-        }
-        else if (node.Value is short shortVal)
-        {
-            return shortVal.ToString();
-        }
-        else if (node.Value is ushort ushortVal)
-        {
-            return ushortVal.ToString();
-        }
-        else if (node.Value is uint uintVal)
-        {
-            return uintVal.ToString();
-        }
-        else if (node.Value is ulong ulongVal)
-        {
-            return ulongVal.ToString();
-        }
-        else if (node.Value is float floatVal)
-        {
-            return floatVal.ToString(format: "G");
-        }
-        else if (node.Value is double doubleVal)
-        {
-            return doubleVal.ToString(format: "G");
-        }
-        else if (node.Value is decimal decimalVal)
-        {
-            return decimalVal.ToString(format: "G");
-        }
-        else if (node.Value is BigInteger bigIntVal)
-        {
-            return bigIntVal.ToString();
-        }
-        else if (node.Value is Half halfVal)
-        {
-            return ((float)halfVal).ToString(format: "G");
-        }
-        else if (node.Value is bool boolVal)
-        {
-            return boolVal
-                ? "1"
-                : "0";
-        }
-        else if (node.Value is string strVal)
-        {
-            string strConst = $"@.str{_tempCounter++}";
-            int len = strVal.Length + 1;
-            // Store string constant for later emission instead of inserting immediately
-            if (_stringConstants == null)
+            case int intVal:
+                return intVal.ToString();
+            case long longVal:
+                return longVal.ToString();
+            case byte byteVal:
+                return byteVal.ToString();
+            case sbyte sbyteVal:
+                return sbyteVal.ToString();
+            case short shortVal:
+                return shortVal.ToString();
+            case ushort ushortVal:
+                return ushortVal.ToString();
+            case uint uintVal:
+                return uintVal.ToString();
+            case ulong ulongVal:
+                return ulongVal.ToString();
+            case float floatVal:
+                return floatVal.ToString(format: "G");
+            case double doubleVal:
+                return doubleVal.ToString(format: "G");
+            case decimal decimalVal:
+                return decimalVal.ToString(format: "G");
+            case BigInteger bigIntVal:
+                return bigIntVal.ToString();
+            case Half halfVal:
+                return ((float)halfVal).ToString(format: "G");
+            case bool boolVal:
+                return boolVal
+                    ? "1"
+                    : "0";
+            case string strVal:
             {
-                _stringConstants = new List<string>();
-            }
+                string strConst = $"@.str{_tempCounter++}";
+                int len = strVal.Length + 1;
+                // Store string constant for later emission instead of inserting immediately
+                _stringConstants ??= [];
 
-            _stringConstants.Add(
-                item:
-                $"{strConst} = private unnamed_addr constant [{len} x i8] c\"{strVal}\\00\", align 1");
-            string temp = GetNextTemp();
-            _output.AppendLine(
-                handler:
-                $"  {temp} = getelementptr [{len} x i8], [{len} x i8]* {strConst}, i32 0, i32 0");
-            // Register the temp as a string pointer type
-            _tempTypes[key: temp] = new TypeInfo(LLVMType: "i8*",
-                IsUnsigned: false,
-                IsFloatingPoint: false,
-                RazorForgeType: "Text");
-            return temp;
+                _stringConstants.Add(
+                    item:
+                    $"{strConst} = private unnamed_addr constant [{len} x i8] c\"{strVal}\\00\", align 1");
+                string temp = GetNextTemp();
+                _output.AppendLine(
+                    handler:
+                    $"  {temp} = getelementptr [{len} x i8], [{len} x i8]* {strConst}, i32 0, i32 0");
+                // Register the temp as a string pointer type
+                _tempTypes[key: temp] = new LLVMTypeInfo(LLVMType: "i8*",
+                    IsUnsigned: false,
+                    IsFloatingPoint: false,
+                    RazorForgeType: "Text");
+                return temp;
+            }
+            default:
+                return "0";
         }
 
-        return "0";
     }
 
     /// <summary>
@@ -1202,6 +1505,7 @@ public partial class LLVMCodeGenerator
     /// <returns>A string representing the generated LLVM IR code for the list literal expression.</returns>
     public string VisitListLiteralExpression(ListLiteralExpression node)
     {
+        _currentLocation = node.Location;
         // TODO: Generate actual List allocation and initialization
         // For now, just generate a comment placeholder
         _output.AppendLine(handler: $"  ; List literal with {node.Elements.Count} elements");
@@ -1218,6 +1522,7 @@ public partial class LLVMCodeGenerator
     /// </returns>
     public string VisitSetLiteralExpression(SetLiteralExpression node)
     {
+        _currentLocation = node.Location;
         // TODO: Generate actual Set allocation and initialization
         _output.AppendLine(handler: $"  ; Set literal with {node.Elements.Count} elements");
         return "null"; // Placeholder
@@ -1229,6 +1534,7 @@ public partial class LLVMCodeGenerator
     /// <returns>A string representing the generated LLVM IR code for the dictionary literal expression.</returns>
     public string VisitDictLiteralExpression(DictLiteralExpression node)
     {
+        _currentLocation = node.Location;
         // TODO: Generate actual Dict allocation and initialization
         _output.AppendLine(handler: $"  ; Dict literal with {node.Pairs.Count} pairs");
         return "null"; // Placeholder
@@ -1237,22 +1543,40 @@ public partial class LLVMCodeGenerator
     // Memory slice expression visitor methods
     public string VisitSliceConstructorExpression(SliceConstructorExpression node)
     {
+        _currentLocation = node.Location;
         string sizeTemp = node.SizeExpression.Accept(visitor: this);
         string resultTemp = GetNextTemp();
 
-        if (node.SliceType == "DynamicSlice")
+        // Check if sizeTemp is a MemorySize struct - if so, extract the i64 field
+        string actualSizeValue = sizeTemp;
+        if (_tempTypes.TryGetValue(key: sizeTemp, value: out LLVMTypeInfo? sizeTypeInfo) &&
+            sizeTypeInfo.RazorForgeType == "MemorySize")
         {
-            // Generate LLVM IR for heap slice construction
-            _output.AppendLine(handler: $"  {resultTemp} = call ptr @heap_alloc(i64 {sizeTemp})");
+            // MemorySize is a struct { i64 } - extract the i64 field
+            string extractTemp = GetNextTemp();
+            _output.AppendLine(handler: $"  {extractTemp} = extractvalue %MemorySize {sizeTemp}, 0");
+            _tempTypes[key: extractTemp] = new LLVMTypeInfo(LLVMType: "i64",
+                IsUnsigned: true,
+                IsFloatingPoint: false,
+                RazorForgeType: "u64");
+            actualSizeValue = extractTemp;
         }
-        else if (node.SliceType == "TemporarySlice")
+
+        switch (node.SliceType)
         {
-            // Generate LLVM IR for stack slice construction
-            _output.AppendLine(handler: $"  {resultTemp} = call ptr @stack_alloc(i64 {sizeTemp})");
+            case "DynamicSlice":
+                // Generate LLVM IR for heap slice construction
+                _output.AppendLine(handler: $"  {resultTemp} = call ptr @heap_alloc(i64 {actualSizeValue})");
+                break;
+            // TODO: this slice type is removed.
+            case "TemporarySlice":
+                // Generate LLVM IR for stack slice construction
+                _output.AppendLine(handler: $"  {resultTemp} = call ptr @stack_alloc(i64 {actualSizeValue})");
+                break;
         }
 
         // Store slice type information for later use
-        _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "ptr",
+        _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: "ptr",
             IsUnsigned: false,
             IsFloatingPoint: false,
             RazorForgeType: node.SliceType);

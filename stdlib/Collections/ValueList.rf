@@ -1,0 +1,124 @@
+# RazorForge ValueList<T, N> - Fixed-size inline array with value semantics
+# Record type - N elements of T stored inline, immutable, copied on assignment
+#
+# Usage:
+#   let coords: ValueList<f64, 3> = [1.0, 2.0, 3.0]
+#   let x = coords[0]          # Read element
+#   let copy = coords          # Full copy (value semantics)
+#
+#   # To "modify", use with statement or create new:
+#   let moved = coords with { [0]: 5.0 }
+
+import errors/IndexOutOfBoundsError
+import core/Integral
+import core/BackIndex
+
+# Fixed-size array with value semantics
+# Compiler lays out N elements of T inline
+record ValueList<T, N> {
+    # N elements of T stored inline by compiler - no explicit fields needed
+}
+
+# ============================================================================
+# Indexing with Integral (forward index) - read only
+# ============================================================================
+
+routine ValueList<T, N>.__getitem__!<I>(me: ValueList<T, N>, index: I) -> T
+    where I follows Integral {
+    let idx = index.to_uaddr()
+    if idx >= N {
+        throw IndexOutOfBoundsError(index: idx, count: N)
+    }
+    return me[idx]
+}
+
+# ============================================================================
+# Indexing with BackIndex (backward index using ^) - read only
+# ============================================================================
+
+routine ValueList<T, N>.__getitem__!<I>(me: ValueList<T, N>, index: BackIndex<I>) -> T
+    where I follows Integral {
+    let idx = index.resolve(N)
+    return me[idx]
+}
+
+# ============================================================================
+# Legacy get method
+# ============================================================================
+
+routine ValueList<T, N>.get!<I>(me: ValueList<T, N>, index: I) -> T
+    where I follows Integral {
+    return me.__getitem__!(index)
+}
+
+# ============================================================================
+# Query Operations
+# ============================================================================
+
+routine ValueList<T, N>.count(me: ValueList<T, N>) -> uaddr {
+    return N
+}
+
+routine ValueList<T, N>.is_empty(me: ValueList<T, N>) -> bool {
+    return N == 0uaddr
+}
+
+routine ValueList<T, N>.first!(me: ValueList<T, N>) -> T {
+    if N == 0uaddr {
+        absent
+    }
+    return me[0uaddr]
+}
+
+routine ValueList<T, N>.last!(me: ValueList<T, N>) -> T {
+    if N == 0uaddr {
+        absent
+    }
+    return me[N - 1uaddr]
+}
+
+routine ValueList<T, N>.contains(me: ValueList<T, N>, value: T) -> bool {
+    var i = 0uaddr
+    while i < N {
+        if me[i] == value {
+            return true
+        }
+        i = i + 1uaddr
+    }
+    return false
+}
+
+routine ValueList<T, N>.index_of!(me: ValueList<T, N>, value: T) -> uaddr {
+    var i = 0uaddr
+    while i < N {
+        if me[i] == value {
+            return i
+        }
+        i = i + 1uaddr
+    }
+    absent
+}
+
+# ============================================================================
+# Iteration Support
+# ============================================================================
+
+routine ValueList<T, N>.iter(me: ValueList<T, N>) -> ValueListIterator<T, N> {
+    return ValueListIterator<T, N>(list: me, index: 0uaddr)
+}
+
+record ValueListIterator<T, N> {
+    list: ValueList<T, N>
+    index: uaddr
+}
+
+routine ValueListIterator<T, N>.next(me: ValueListIterator<T, N>) -> T? {
+    if me.index >= N {
+        return None
+    }
+    let value = me.list[me.index]
+    me.index = me.index + 1uaddr
+    return value
+}
+
+# Comparison (==, !=) is auto-generated using memcmp for records

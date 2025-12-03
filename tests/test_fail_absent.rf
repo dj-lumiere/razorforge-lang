@@ -1,0 +1,24 @@
+# Test file for fail/absent variant generation
+
+routine divide(numerator: s32, denominator: s32) -> s32 {
+    if denominator == 0 {
+        throw DivisionByZeroError()
+    }
+    return numerator / denominator
+}
+
+routine find_user(id: s32) -> s32 {
+    if id < 0 {
+        throw InvalidIdError()
+    }
+
+    if id == 0 {
+        absent
+    }
+
+    return id
+}
+
+routine safe_operation() -> s32 {
+    return 42
+}

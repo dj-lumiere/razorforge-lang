@@ -1,0 +1,11 @@
+# Test that reserved prefixes are not allowed
+
+# This should fail - try_ is reserved
+routine try_my_function() -> s32
+{
+    return 42
+}
+
+routine main() -> void
+{
+}

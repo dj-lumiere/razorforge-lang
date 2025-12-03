@@ -1,0 +1,243 @@
+# RazorForge PriorityQueue<TElement, TPriority> - Binary min-heap
+# Entity type with heap allocation
+# O(log n) push, O(log n) pop, O(1) peek
+# Lower priority values are extracted first (min-heap)
+#
+# Usage:
+#   let tasks = PriorityQueue<Task, s32>()
+#   tasks.push(high_priority_task, 1)    # Priority 1 (high)
+#   tasks.push(low_priority_task, 10)    # Priority 10 (low)
+#   let next = tasks.pop!()              # Gets priority 1 task first
+
+import Collections/List
+import errors/IndexOutOfBoundsError
+
+# Element with priority
+record PQEntry<TElement, TPriority> {
+    element: TElement
+    priority: TPriority
+}
+
+entity PriorityQueue<TElement, TPriority> {
+    private heap: List<PQEntry<TElement, TPriority>>
+}
+
+# ============================================================================
+# Constructors
+# ============================================================================
+
+routine PriorityQueue<TElement, TPriority>.__create__() -> PriorityQueue<TElement, TPriority> {
+    return PriorityQueue<TElement, TPriority>(
+        heap: List<PQEntry<TElement, TPriority>>()
+    )
+}
+
+routine PriorityQueue<TElement, TPriority>.__create__(capacity: uaddr) -> PriorityQueue<TElement, TPriority> {
+    return PriorityQueue<TElement, TPriority>(
+        heap: List<PQEntry<TElement, TPriority>>(capacity)
+    )
+}
+
+# ============================================================================
+# Internal Heap Operations
+# ============================================================================
+
+routine PriorityQueue<TElement, TPriority>.parent(index: uaddr) -> uaddr {
+    return (index - 1uaddr) // 2uaddr
+}
+
+routine PriorityQueue<TElement, TPriority>.left_child(index: uaddr) -> uaddr {
+    return 2uaddr * index + 1uaddr
+}
+
+routine PriorityQueue<TElement, TPriority>.right_child(index: uaddr) -> uaddr {
+    return 2uaddr * index + 2uaddr
+}
+
+routine PriorityQueue<TElement, TPriority>.swap(me: PriorityQueue<TElement, TPriority>, i: uaddr, j: uaddr) {
+    let temp = me.heap[i]
+    me.heap[i] = me.heap[j]
+    me.heap[j] = temp
+}
+
+routine PriorityQueue<TElement, TPriority>.sift_up(me: PriorityQueue<TElement, TPriority>, index: uaddr) {
+    var i = index
+    while i > 0uaddr {
+        let p = PriorityQueue<TElement, TPriority>.parent(i)
+        if me.heap[i].priority < me.heap[p].priority {
+            me.swap(i, p)
+            i = p
+        } else {
+            break
+        }
+    }
+}
+
+routine PriorityQueue<TElement, TPriority>.sift_down(me: PriorityQueue<TElement, TPriority>, index: uaddr) {
+    var i = index
+    let size = me.heap.count()
+
+    loop {
+        let left = PriorityQueue<TElement, TPriority>.left_child(i)
+        let right = PriorityQueue<TElement, TPriority>.right_child(i)
+        var smallest = i
+
+        if left < size and me.heap[left].priority < me.heap[smallest].priority {
+            smallest = left
+        }
+
+        if right < size and me.heap[right].priority < me.heap[smallest].priority {
+            smallest = right
+        }
+
+        if smallest == i {
+            break
+        }
+
+        me.swap(i, smallest)
+        i = smallest
+    }
+}
+
+# ============================================================================
+# Core Operations
+# ============================================================================
+
+routine PriorityQueue<TElement, TPriority>.count(me: PriorityQueue<TElement, TPriority>) -> uaddr {
+    return me.heap.count()
+}
+
+routine PriorityQueue<TElement, TPriority>.is_empty(me: PriorityQueue<TElement, TPriority>) -> bool {
+    return me.heap.is_empty()
+}
+
+routine PriorityQueue<TElement, TPriority>.clear(me: PriorityQueue<TElement, TPriority>) {
+    me.heap.clear()
+}
+
+routine PriorityQueue<TElement, TPriority>.push(me: PriorityQueue<TElement, TPriority>, element: TElement, priority: TPriority) {
+    # Add element with priority - O(log n)
+    me.heap.push(PQEntry<TElement, TPriority>(element: element, priority: priority))
+    me.sift_up(me.heap.count() - 1uaddr)
+}
+
+routine PriorityQueue<TElement, TPriority>.pop!(me: PriorityQueue<TElement, TPriority>) -> TElement {
+    # Remove and return element with lowest priority - O(log n)
+    if me.is_empty() {
+        absent
+    }
+
+    let result = me.heap[0uaddr].element
+
+    # Move last element to root and sift down
+    let last_idx = me.heap.count() - 1uaddr
+    if last_idx > 0uaddr {
+        me.heap[0uaddr] = me.heap[last_idx]
+    }
+    me.heap.pop!()
+
+    if not me.is_empty() {
+        me.sift_down(0uaddr)
+    }
+
+    return result
+}
+
+routine PriorityQueue<TElement, TPriority>.peek!(me: PriorityQueue<TElement, TPriority>) -> TElement {
+    # View element with lowest priority without removing - O(1)
+    if me.is_empty() {
+        absent
+    }
+    return me.heap[0uaddr].element
+}
+
+routine PriorityQueue<TElement, TPriority>.peek_priority!(me: PriorityQueue<TElement, TPriority>) -> TPriority {
+    # View lowest priority value without removing - O(1)
+    if me.is_empty() {
+        absent
+    }
+    return me.heap[0uaddr].priority
+}
+
+routine PriorityQueue<TElement, TPriority>.peek_entry!(me: PriorityQueue<TElement, TPriority>) -> PQEntry<TElement, TPriority> {
+    # View element and priority without removing - O(1)
+    if me.is_empty() {
+        absent
+    }
+    return me.heap[0uaddr]
+}
+
+# ============================================================================
+# Bulk Operations
+# ============================================================================
+
+routine PriorityQueue<TElement, TPriority>.push_all(me: PriorityQueue<TElement, TPriority>, elements: List<TElement>, priorities: List<TPriority>) {
+    # Add multiple elements with their priorities
+    var i = 0uaddr
+    let count = if elements.count() < priorities.count() { elements.count() } else { priorities.count() }
+    while i < count {
+        me.push(elements[i], priorities[i])
+        i = i + 1uaddr
+    }
+}
+
+routine PriorityQueue<TElement, TPriority>.drain(me: PriorityQueue<TElement, TPriority>) -> List<TElement> {
+    # Remove all elements in priority order
+    let result = List<TElement>(me.count())
+    while not me.is_empty() {
+        result.push(me.pop!())
+    }
+    return result
+}
+
+# ============================================================================
+# Utility Operations
+# ============================================================================
+
+routine PriorityQueue<TElement, TPriority>.contains(me: PriorityQueue<TElement, TPriority>, element: TElement) -> bool {
+    # O(n) search - heap doesn't support efficient search
+    var i = 0uaddr
+    while i < me.heap.count() {
+        if me.heap[i].element == element {
+            return true
+        }
+        i = i + 1uaddr
+    }
+    return false
+}
+
+routine PriorityQueue<TElement, TPriority>.to_list(me: PriorityQueue<TElement, TPriority>) -> List<PQEntry<TElement, TPriority>> {
+    # Get all entries (not in priority order, heap order)
+    let result = List<PQEntry<TElement, TPriority>>(me.count())
+    var i = 0uaddr
+    while i < me.heap.count() {
+        result.push(me.heap[i])
+        i = i + 1uaddr
+    }
+    return result
+}
+
+# ============================================================================
+# Iteration (heap order, NOT priority order)
+# ============================================================================
+
+routine PriorityQueue<TElement, TPriority>.iter(me: PriorityQueue<TElement, TPriority>) -> PriorityQueueIterator<TElement, TPriority> {
+    return PriorityQueueIterator<TElement, TPriority>(
+        queue: me,
+        index: 0uaddr
+    )
+}
+
+record PriorityQueueIterator<TElement, TPriority> {
+    queue: PriorityQueue<TElement, TPriority>
+    index: uaddr
+}
+
+routine PriorityQueueIterator<TElement, TPriority>.next(me: PriorityQueueIterator<TElement, TPriority>) -> PQEntry<TElement, TPriority>? {
+    if me.index >= me.queue.count() {
+        return None
+    }
+    let entry = me.queue.heap[me.index]
+    me.index = me.index + 1uaddr
+    return entry
+}

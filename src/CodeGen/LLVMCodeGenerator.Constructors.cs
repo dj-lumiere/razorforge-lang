@@ -1,5 +1,6 @@
 using Compilers.Shared.Analysis;
 using Compilers.Shared.AST;
+using Compilers.Shared.Errors;
 
 namespace Compilers.Shared.CodeGen;
 
@@ -35,78 +36,88 @@ public partial class LLVMCodeGenerator
             int dotIndex = funcName.LastIndexOf(value: '.');
             if (dotIndex >= 0)
             {
-                string moduleName = funcName.Substring(startIndex: 0, length: dotIndex);
-                string methodName = funcName.Substring(startIndex: dotIndex + 1);
+                string moduleName = funcName[..dotIndex];
+                string methodName = funcName[(dotIndex + 1)..];
                 string externalName = $"rf_{moduleName.ToLowerInvariant()}_{methodName}";
                 symbol = _semanticSymbolTable.Lookup(name: externalName);
             }
         }
 
         // Check if we found an external function
-        if (symbol is FunctionSymbol funcSymbol && funcSymbol.IsExternal)
+        if (symbol is not FunctionSymbol { IsExternal: true } funcSymbol)
         {
-            string externalFuncName = funcSymbol.Name;
+            return false;
+        }
 
-            // Found the external function - emit the call
-            // First, visit all arguments
-            var argValues = new List<(string value, string type)>();
-            for (int i = 0; i < arguments.Count; i++)
+        string externalFuncName = funcSymbol.Name;
+
+        // Found the external function - emit the call
+        // First, visit all arguments
+        var argValues = new List<(string value, string type)>();
+        for (int i = 0; i < arguments.Count; i++)
+        {
+            string argValue = arguments[index: i]
+               .Accept(visitor: this);
+            string argType;
+
+            // Get the expected parameter type from the function symbol
+            if (i < funcSymbol.Parameters.Count && funcSymbol.Parameters[index: i].Type != null)
             {
-                string argValue = arguments[index: i]
-                   .Accept(visitor: this);
-                string argType = "i32"; // default
-
-                // Get the expected parameter type from the function symbol
-                if (i < funcSymbol.Parameters.Count &&
-                    funcSymbol.Parameters[index: i].Type != null)
-                {
-                    argType = MapTypeToLLVM(rfType: funcSymbol.Parameters[index: i].Type!.Name);
-                }
-                else if (_tempTypes.TryGetValue(key: argValue, value: out TypeInfo? argTypeInfo))
-                {
-                    argType = argTypeInfo.LLVMType;
-                }
-
-                argValues.Add(item: (argValue, argType));
+                argType = MapTypeToLLVM(rfType: funcSymbol.Parameters[index: i].Type!.Name);
             }
-
-            // Build the argument list string
-            string argList = string.Join(separator: ", ",
-                values: argValues.Select(selector: a => $"{a.type} {a.value}"));
-
-            // Determine the return type
-            string returnType = funcSymbol.ReturnType != null
-                ? MapTypeToLLVM(rfType: funcSymbol.ReturnType.Name)
-                : "void";
-
-            // Emit the call
-            if (returnType == "void")
+            else if (_tempTypes.TryGetValue(key: argValue, value: out LLVMTypeInfo? argTypeInfo))
             {
-                _output.AppendLine(handler: $"  call void @{externalFuncName}({argList})");
-                result = resultTemp;
+                argType = argTypeInfo.LLVMType;
             }
             else
             {
-                _output.AppendLine(
-                    handler: $"  {resultTemp} = call {returnType} @{externalFuncName}({argList})");
-
-                // Track the type of the result
-                string rfReturnType = funcSymbol.ReturnType?.Name ?? "s32";
-                bool isUnsigned = rfReturnType.StartsWith(value: "u");
-                bool isFloat = rfReturnType.StartsWith(value: "f") ||
-                               rfReturnType.StartsWith(value: "d");
-                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: returnType,
-                    IsUnsigned: isUnsigned,
-                    IsFloatingPoint: isFloat,
-                    RazorForgeType: rfReturnType);
-
-                result = resultTemp;
+                throw CodeGenError.TypeResolutionFailed(typeName: $"argument {i}",
+                    context:
+                    $"cannot determine type for argument {i} in external function call '{funcName}'",
+                    file: _currentFileName,
+                    line: _currentLocation.Line,
+                    column: _currentLocation.Column,
+                    position: _currentLocation.Position);
             }
 
-            return true;
+            argValues.Add(item: (argValue, argType));
         }
 
-        return false;
+        // Build the argument list string
+        string argList = string.Join(separator: ", ",
+            values: argValues.Select(selector: a => $"{a.type} {a.value}"));
+
+        // Determine the return type
+        string returnType = funcSymbol.ReturnType != null
+            ? MapTypeToLLVM(rfType: funcSymbol.ReturnType.Name)
+            : "void";
+
+        // Emit the call
+        if (returnType == "void")
+        {
+            _output.AppendLine(handler: $"  call void @{externalFuncName}({argList})");
+        }
+        else
+        {
+            _output.AppendLine(
+                handler: $"  {resultTemp} = call {returnType} @{externalFuncName}({argList})");
+
+            // Track the type of the result
+            string rfReturnType = funcSymbol.ReturnType?.Name ?? "Blank";
+            bool isUnsigned = rfReturnType.StartsWith(value: "u");
+            bool isFloat = rfReturnType.StartsWith(value: "f") ||
+                           rfReturnType.StartsWith(value: "d");
+            _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: returnType,
+                IsUnsigned: isUnsigned,
+                IsFloatingPoint: isFloat,
+                RazorForgeType: rfReturnType);
+
+        }
+
+        result = resultTemp;
+
+        return true;
+
     }
 
     /// <summary>
@@ -123,6 +134,9 @@ public partial class LLVMCodeGenerator
         List<Expression> arguments, string resultTemp, out string? result)
     {
         result = null;
+        string argList;
+        string returnType;
+        string rfReturnType;
 
         // Full qualified function name (e.g., "Console.alert")
         string qualifiedName = $"{moduleName}.{functionName}";
@@ -132,13 +146,23 @@ public partial class LLVMCodeGenerator
         foreach (Expression arg in arguments)
         {
             string argValue = arg.Accept(visitor: this);
-            string llvmType = "i32";
-            string rfType = "s32";
+            string llvmType;
+            string rfType;
 
-            if (_tempTypes.TryGetValue(key: argValue, value: out TypeInfo? typeInfo))
+            if (_tempTypes.TryGetValue(key: argValue, value: out LLVMTypeInfo? typeInfo))
             {
                 llvmType = typeInfo.LLVMType;
                 rfType = typeInfo.RazorForgeType;
+            }
+            else
+            {
+                throw CodeGenError.TypeResolutionFailed(typeName: "argument",
+                    context:
+                    $"cannot determine type for argument in imported module function call '{qualifiedName}'",
+                    file: _currentFileName,
+                    line: arg.Location.Line,
+                    column: arg.Location.Column,
+                    position: arg.Location.Position);
             }
 
             argValues.Add(item: (argValue, llvmType, rfType));
@@ -152,63 +176,80 @@ public partial class LLVMCodeGenerator
             {
                 foreach (IAstNode decl in moduleEntry.Value.Ast.Declarations)
                 {
-                    if (decl is FunctionDeclaration funcDecl && funcDecl.Name == qualifiedName &&
-                        (funcDecl.GenericParameters == null ||
-                         funcDecl.GenericParameters.Count == 0) &&
-                        funcDecl.Parameters?.Count == argValues.Count)
+                    if (decl is not FunctionDeclaration funcDecl ||
+                        funcDecl.Name != qualifiedName ||
+                        (funcDecl.GenericParameters != null &&
+                         funcDecl.GenericParameters.Count != 0) ||
+                        funcDecl.Parameters?.Count != argValues.Count)
                     {
-                        // Check if parameter types match
-                        bool matches = true;
-                        for (int i = 0; i < funcDecl.Parameters.Count && matches; i++)
+                        continue;
+                    }
+
+                    // Check if parameter types match
+                    bool matches = true;
+                    for (int i = 0; i < funcDecl.Parameters.Count && matches; i++)
+                    {
+                        if (funcDecl.Parameters[index: i].Type == null)
                         {
-                            string paramType = funcDecl.Parameters[index: i].Type?.Name ?? "s32";
-                            string argRfType = argValues[index: i].rfType;
-                            // Match if types are compatible (exact match or compatible string types)
-                            if (paramType != argRfType && !(IsStringType(typeName: paramType) &&
-                                                            IsStringType(typeName: argRfType)))
-                            {
-                                matches = false;
-                            }
+                            throw CodeGenError.TypeResolutionFailed(
+                                typeName: funcDecl.Parameters[index: i].Name,
+                                context:
+                                $"function '{qualifiedName}' parameter must have a type annotation",
+                                file: _currentFileName,
+                                line: funcDecl.Parameters[index: i].Location.Line,
+                                column: funcDecl.Parameters[index: i].Location.Column,
+                                position: funcDecl.Parameters[index: i].Location.Position);
                         }
 
-                        if (matches)
+                        string paramType = funcDecl.Parameters[index: i].Type!.Name;
+                        string argRfType = argValues[index: i].rfType;
+                        // Match if types are compatible (exact match or compatible string types)
+                        if (paramType != argRfType && !(IsStringType(typeName: paramType) &&
+                                                        IsStringType(typeName: argRfType)))
                         {
-                            // Found a matching non-generic overload - use it
-                            string argList = string.Join(separator: ", ",
-                                values: argValues.Select(selector: a => $"{a.type} {a.value}"));
-
-                            // Determine return type
-                            string returnType = funcDecl.ReturnType != null
-                                ? MapTypeToLLVM(rfType: funcDecl.ReturnType.Name)
-                                : "void";
-
-                            // Emit the call
-                            if (returnType == "void")
-                            {
-                                _output.AppendLine(
-                                    handler: $"  call void @\"{qualifiedName}\"({argList})");
-                                result = resultTemp;
-                            }
-                            else
-                            {
-                                _output.AppendLine(
-                                    handler:
-                                    $"  {resultTemp} = call {returnType} @\"{qualifiedName}\"({argList})");
-
-                                // Track result type
-                                string rfReturnType = funcDecl.ReturnType?.Name ?? "s32";
-                                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: returnType,
-                                    IsUnsigned: rfReturnType.StartsWith(value: "u"),
-                                    IsFloatingPoint: rfReturnType.StartsWith(value: "f") ||
-                                                     rfReturnType.StartsWith(value: "d"),
-                                    RazorForgeType: rfReturnType);
-
-                                result = resultTemp;
-                            }
-
-                            return true;
+                            matches = false;
                         }
                     }
+
+                    if (!matches)
+                    {
+                        continue;
+                    }
+
+                    // Found a matching non-generic overload - use it
+                    argList = string.Join(separator: ", ",
+                        values: argValues.Select(selector: a => $"{a.type} {a.value}"));
+
+                    // Determine return type
+                    returnType = funcDecl.ReturnType != null
+                        ? MapTypeToLLVM(rfType: funcDecl.ReturnType.Name)
+                        : "void";
+
+                    // Emit the call
+                    if (returnType == "void")
+                    {
+                        _output.AppendLine(
+                            handler: $"  call void @\"{qualifiedName}\"({argList})");
+                    }
+                    else
+                    {
+                        _output.AppendLine(
+                            handler:
+                            $"  {resultTemp} = call {returnType} @\"{qualifiedName}\"({argList})");
+
+                        // Track result type
+                        rfReturnType = funcDecl.ReturnType?.Name ?? "Blank";
+                        _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: returnType,
+                            IsUnsigned: rfReturnType.StartsWith(value: "u"),
+                            IsFloatingPoint: rfReturnType.StartsWith(value: "f") ||
+                                             rfReturnType.StartsWith(value: "d"),
+                            RazorForgeType: rfReturnType);
+
+                    }
+
+                    result = resultTemp;
+
+                    return true;
                 }
             }
         }
@@ -237,11 +278,13 @@ public partial class LLVMCodeGenerator
             }
             else if (template.GenericParameters != null)
             {
-                // No arguments - use default types
-                foreach (string gp in template.GenericParameters)
-                {
-                    inferredTypes.Add(item: "s32");
-                }
+                // No arguments - cannot infer generic types
+                throw CodeGenError.TypeResolutionFailed(typeName: qualifiedName,
+                    context: "cannot infer generic type arguments without arguments",
+                    file: _currentFileName,
+                    line: _currentLocation.Line,
+                    column: _currentLocation.Column,
+                    position: _currentLocation.Position);
             }
 
             // Instantiate the generic function
@@ -249,11 +292,11 @@ public partial class LLVMCodeGenerator
                 typeArguments: inferredTypes);
 
             // Build argument list for the call
-            string argList = string.Join(separator: ", ",
+            argList = string.Join(separator: ", ",
                 values: argValues.Select(selector: a => $"{a.type} {a.value}"));
 
             // Determine return type
-            string returnType = "void";
+            returnType = "void";
             if (template.ReturnType != null)
             {
                 returnType = MapTypeToLLVM(rfType: template.ReturnType.Name);
@@ -277,62 +320,63 @@ public partial class LLVMCodeGenerator
 
         // Check if it's a non-generic imported function
         // Look for function like "Console.get_line" in the generated functions
-        if (_generatedFunctions.Contains(item: qualifiedName))
+        if (!_generatedFunctions.Contains(item: qualifiedName))
         {
-            // Use already-visited argValues from above
-            string argList = string.Join(separator: ", ",
-                values: argValues.Select(selector: a => $"{a.type} {a.value}"));
-
-            // Look up the function's return type from loaded modules
-            string returnType = "i8*";
-            string rfReturnType = "cstr";
-
-            foreach (KeyValuePair<string, ModuleResolver.ModuleInfo> moduleEntry in
-                     _loadedModules ?? new Dictionary<string, ModuleResolver.ModuleInfo>())
-            {
-                foreach (IAstNode decl in moduleEntry.Value.Ast.Declarations)
-                {
-                    if (decl is FunctionDeclaration funcDecl && funcDecl.Name == qualifiedName)
-                    {
-                        if (funcDecl.ReturnType != null)
-                        {
-                            returnType = MapTypeToLLVM(rfType: funcDecl.ReturnType.Name);
-                            rfReturnType = funcDecl.ReturnType.Name;
-                        }
-                        else
-                        {
-                            returnType = "void";
-                            rfReturnType = "void";
-                        }
-
-                        break;
-                    }
-                }
-            }
-
-            // Emit call
-            if (returnType == "void")
-            {
-                _output.AppendLine(handler: $"  call void @\"{qualifiedName}\"({argList})");
-            }
-            else
-            {
-                _output.AppendLine(
-                    handler:
-                    $"  {resultTemp} = call {returnType} @\"{qualifiedName}\"({argList})");
-            }
-
-            // Track result type
-            _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: returnType,
-                IsUnsigned: false,
-                IsFloatingPoint: false,
-                RazorForgeType: rfReturnType);
-
-            result = resultTemp;
-            return true;
+            return false;
         }
 
-        return false;
+        // Use already-visited argValues from above
+        argList = string.Join(separator: ", ",
+            values: argValues.Select(selector: a => $"{a.type} {a.value}"));
+
+        // Look up the function's return type from loaded modules
+        returnType = "i8*";
+        rfReturnType = "cstr";
+
+        foreach (KeyValuePair<string, ModuleResolver.ModuleInfo> moduleEntry in _loadedModules ??
+                 new Dictionary<string, ModuleResolver.ModuleInfo>())
+        {
+            foreach (IAstNode decl in moduleEntry.Value.Ast.Declarations)
+            {
+                if (decl is not FunctionDeclaration funcDecl || funcDecl.Name != qualifiedName)
+                {
+                    continue;
+                }
+
+                if (funcDecl.ReturnType != null)
+                {
+                    returnType = MapTypeToLLVM(rfType: funcDecl.ReturnType.Name);
+                    rfReturnType = funcDecl.ReturnType.Name;
+                }
+                else
+                {
+                    returnType = "void";
+                    rfReturnType = "void";
+                }
+
+                break;
+            }
+        }
+
+        // Emit call
+        if (returnType == "void")
+        {
+            _output.AppendLine(handler: $"  call void @\"{qualifiedName}\"({argList})");
+        }
+        else
+        {
+            _output.AppendLine(
+                handler: $"  {resultTemp} = call {returnType} @\"{qualifiedName}\"({argList})");
+        }
+
+        // Track result type
+        _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: returnType,
+            IsUnsigned: false,
+            IsFloatingPoint: false,
+            RazorForgeType: rfReturnType);
+
+        result = resultTemp;
+        return true;
     }
 
     /// <summary>
@@ -352,7 +396,7 @@ public partial class LLVMCodeGenerator
                        .Accept(visitor: this);
                     // Just pass through the message pointer as the error value
                     // The throw statement will handle it appropriately
-                    _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i8*",
+                    _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: "i8*",
                         IsUnsigned: false,
                         IsFloatingPoint: false,
                         RazorForgeType: "Error");
@@ -367,9 +411,12 @@ public partial class LLVMCodeGenerator
 
             default:
                 // Unknown Error method
-                _output.AppendLine(handler: $"  ; Unknown Error.{methodName} - not implemented");
-                _output.AppendLine(handler: $"  {resultTemp} = inttoptr i32 0 to i8*");
-                return resultTemp;
+                throw CodeGenError.TypeResolutionFailed(typeName: $"Error.{methodName}",
+                    context: "unknown Error method",
+                    file: _currentFileName,
+                    line: _currentLocation.Line,
+                    column: _currentLocation.Column,
+                    position: _currentLocation.Position);
         }
     }
 
@@ -409,17 +456,27 @@ public partial class LLVMCodeGenerator
         }
         else
         {
-            // Unknown pattern
-            _output.AppendLine(handler: $"  ; Unknown type constructor: {functionName}");
-            _output.AppendLine(handler: $"  {resultTemp} = add i32 0, 0");
-            return resultTemp;
+            throw CodeGenError.TypeResolutionFailed(typeName: functionName,
+                context: "unknown type constructor pattern",
+                file: _currentFileName,
+                line: _currentLocation.Line,
+                column: _currentLocation.Column,
+                position: _currentLocation.Position);
         }
 
         // Get the string argument
-        string strArg = arguments.Count > 0
-            ? arguments[index: 0]
-               .Accept(visitor: this)
-            : "null";
+        if (arguments.Count == 0)
+        {
+            throw CodeGenError.TypeResolutionFailed(typeName: baseType,
+                context: "type constructor requires a string argument",
+                file: _currentFileName,
+                line: _currentLocation.Line,
+                column: _currentLocation.Column,
+                position: _currentLocation.Position);
+        }
+
+        string strArg = arguments[index: 0]
+           .Accept(visitor: this);
 
         // Handle different base types
         switch (baseType)
@@ -441,7 +498,12 @@ public partial class LLVMCodeGenerator
                     "s16" => "i16",
                     "s32" => "i32",
                     "s64" => "i64",
-                    _ => "i32"
+                    _ => throw CodeGenError.TypeResolutionFailed(typeName: baseType,
+                        context: "unsupported signed integer type for constructor",
+                        file: _currentFileName,
+                        line: _currentLocation.Line,
+                        column: _currentLocation.Column,
+                        position: _currentLocation.Position)
                 };
                 if (llvmType == "i64")
                 {
@@ -471,7 +533,12 @@ public partial class LLVMCodeGenerator
                     "u16" => "i16",
                     "u32" => "i32",
                     "u64" => "i64",
-                    _ => "i32"
+                    _ => throw CodeGenError.TypeResolutionFailed(typeName: baseType,
+                        context: "unsupported unsigned integer type for constructor",
+                        file: _currentFileName,
+                        line: _currentLocation.Line,
+                        column: _currentLocation.Column,
+                        position: _currentLocation.Position)
                 };
                 if (uLlvmType == "i64")
                 {
@@ -486,10 +553,12 @@ public partial class LLVMCodeGenerator
                 return resultTemp;
 
             default:
-                // Unknown type - return 0
-                _output.AppendLine(handler: $"  ; Unknown type constructor for: {baseType}");
-                _output.AppendLine(handler: $"  {resultTemp} = add i32 0, 0");
-                return resultTemp;
+                throw CodeGenError.TypeResolutionFailed(typeName: baseType,
+                    context: "unsupported type for string constructor",
+                    file: _currentFileName,
+                    line: _currentLocation.Line,
+                    column: _currentLocation.Column,
+                    position: _currentLocation.Position);
         }
     }
 
@@ -512,9 +581,12 @@ public partial class LLVMCodeGenerator
         if (!_recordFields.TryGetValue(key: typeName,
                 value: out List<(string Name, string Type)>? fields))
         {
-            _output.AppendLine(handler: $"  ; Unknown record type: {typeName}");
-            _output.AppendLine(handler: $"  {resultTemp} = alloca %{typeName}");
-            return resultTemp;
+            throw CodeGenError.TypeResolutionFailed(typeName: typeName,
+                context: "record type not found for constructor call",
+                file: _currentFileName,
+                line: _currentLocation.Line,
+                column: _currentLocation.Column,
+                position: _currentLocation.Position);
         }
 
         // Allocate the struct on the stack
@@ -532,7 +604,7 @@ public partial class LLVMCodeGenerator
                 string value = namedArg.Value.Accept(visitor: this);
                 argValues[key: namedArg.Name] = value;
                 // Try to get the type from temp tracking
-                if (_tempTypes.TryGetValue(key: value, value: out TypeInfo? typeInfo))
+                if (_tempTypes.TryGetValue(key: value, value: out LLVMTypeInfo? typeInfo))
                 {
                     argTypes[key: namedArg.Name] = typeInfo.LLVMType;
                 }
@@ -542,13 +614,15 @@ public partial class LLVMCodeGenerator
                 // Positional argument - match by index
                 string value = arg.Accept(visitor: this);
                 int index = arguments.IndexOf(item: arg);
-                if (index < fields.Count)
+                if (index >= fields.Count)
                 {
-                    argValues[key: fields[index: index].Name] = value;
-                    if (_tempTypes.TryGetValue(key: value, value: out TypeInfo? typeInfo))
-                    {
-                        argTypes[key: fields[index: index].Name] = typeInfo.LLVMType;
-                    }
+                    continue;
+                }
+
+                argValues[key: fields[index: index].Name] = value;
+                if (_tempTypes.TryGetValue(key: value, value: out LLVMTypeInfo? typeInfo))
+                {
+                    argTypes[key: fields[index: index].Name] = typeInfo.LLVMType;
                 }
             }
         }
@@ -580,10 +654,108 @@ public partial class LLVMCodeGenerator
 
         // Load the struct value to return (records are value types)
         _output.AppendLine(handler: $"  {resultTemp} = load %{typeName}, ptr {structPtr}");
-        _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: $"%{typeName}",
+        _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: $"%{typeName}",
             IsUnsigned: false,
             IsFloatingPoint: false,
             RazorForgeType: typeName);
+
+        return resultTemp;
+    }
+
+    /// <summary>
+    /// Checks if a type name is a primitive type that can be used for type casting.
+    /// </summary>
+    private bool IsPrimitiveTypeCast(string typeName)
+    {
+        return typeName switch
+        {
+            // Signed integers
+            "s8" or "s16" or "s32" or "s64" or "s128" or "saddr" => true,
+            // Unsigned integers
+            "u8" or "u16" or "u32" or "u64" or "u128" or "uaddr" => true,
+            // Floating point
+            "f16" or "f32" or "f64" or "f128" => true,
+            // Decimal
+            "d32" or "d64" or "d128" => true,
+            // Bool
+            "bool" => true,
+            _ => false
+        };
+    }
+
+    /// <summary>
+    /// Handles primitive type casts like saddr(value), uaddr(value), s32(value), etc.
+    /// Generates appropriate LLVM sext/zext/trunc/bitcast instructions.
+    /// </summary>
+    private string HandlePrimitiveTypeCast(string targetTypeName, List<Expression> arguments,
+        string resultTemp)
+    {
+        if (arguments.Count == 0)
+        {
+            throw CodeGenError.TypeResolutionFailed(typeName: targetTypeName,
+                context: "type cast requires an argument",
+                file: _currentFileName,
+                line: _currentLocation.Line,
+                column: _currentLocation.Column,
+                position: _currentLocation.Position);
+        }
+
+        // Evaluate the source value
+        string sourceValue = arguments[index: 0]
+           .Accept(visitor: this);
+
+        // Get source type info
+        string sourceType;
+        bool sourceIsSigned;
+        if (_tempTypes.TryGetValue(key: sourceValue, value: out LLVMTypeInfo? sourceTypeInfo))
+        {
+            sourceType = sourceTypeInfo.LLVMType;
+            sourceIsSigned = !sourceTypeInfo.IsUnsigned;
+        }
+        else
+        {
+            throw CodeGenError.TypeResolutionFailed(typeName: "source value",
+                context: $"cannot determine type for type cast to '{targetTypeName}'",
+                file: _currentFileName,
+                line: arguments[index: 0].Location.Line,
+                column: arguments[index: 0].Location.Column,
+                position: arguments[index: 0].Location.Position);
+        }
+
+        // Get target LLVM type
+        string targetType = MapTypeToLLVM(rfType: targetTypeName);
+        bool targetIsSigned = targetTypeName.StartsWith(value: "s") || targetTypeName == "saddr";
+
+        // Determine conversion operation
+        int sourceBits = GetTypeBitWidth(llvmType: sourceType);
+        int targetBits = GetTypeBitWidth(llvmType: targetType);
+
+        if (sourceBits == targetBits)
+        {
+            // Same size - just copy (or bitcast if needed)
+            _output.AppendLine(handler: $"  {resultTemp} = add {targetType} {sourceValue}, 0");
+        }
+        else if (targetBits > sourceBits)
+        {
+            // Extension - sext for signed, zext for unsigned
+            string extOp = sourceIsSigned
+                ? "sext"
+                : "zext";
+            _output.AppendLine(
+                handler: $"  {resultTemp} = {extOp} {sourceType} {sourceValue} to {targetType}");
+        }
+        else
+        {
+            // Truncation
+            _output.AppendLine(
+                handler: $"  {resultTemp} = trunc {sourceType} {sourceValue} to {targetType}");
+        }
+
+        // Track the result type
+        _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: targetType,
+            IsUnsigned: !targetIsSigned,
+            IsFloatingPoint: targetTypeName.StartsWith(value: "f"),
+            RazorForgeType: targetTypeName);
 
         return resultTemp;
     }
@@ -613,7 +785,7 @@ public partial class LLVMCodeGenerator
                 _output.AppendLine(
                     handler:
                     $"  {resultTemp} = load {llvmType}, ptr %ptr_{resultTemp}, align {GetAlignment(typeName: typeName)}");
-                _tempTypes[key: resultTemp] = new TypeInfo(
+                _tempTypes[key: resultTemp] = new LLVMTypeInfo(
                     LLVMType: MapRazorForgeTypeToLLVM(razorForgeType: typeName),
                     IsUnsigned: false,
                     IsFloatingPoint: false,
@@ -640,7 +812,7 @@ public partial class LLVMCodeGenerator
                 _output.AppendLine(
                     handler:
                     $"  {resultTemp} = load volatile {llvmType}, ptr %ptr_{resultTemp}, align {GetAlignment(typeName: typeName)}");
-                _tempTypes[key: resultTemp] = new TypeInfo(
+                _tempTypes[key: resultTemp] = new LLVMTypeInfo(
                     LLVMType: MapRazorForgeTypeToLLVM(razorForgeType: typeName),
                     IsUnsigned: false,
                     IsFloatingPoint: false,
@@ -648,9 +820,12 @@ public partial class LLVMCodeGenerator
                 return resultTemp;
 
             default:
-                throw new NotImplementedException(
-                    message:
-                    $"Danger zone function {functionName} not implemented in LLVM generator");
+                throw CodeGenError.UnsupportedFeature(
+                    feature: $"danger zone function '{functionName}'",
+                    file: _currentFileName,
+                    line: _currentLocation.Line,
+                    column: _currentLocation.Column,
+                    position: _currentLocation.Position);
         }
     }
 
@@ -673,9 +848,13 @@ public partial class LLVMCodeGenerator
                 // Expects a single identifier argument
                 if (node.Arguments.Count != 1)
                 {
-                    throw new InvalidOperationException(
-                        message:
-                        $"address_of! expects exactly 1 argument, got {node.Arguments.Count}");
+                    throw CodeGenError.TypeResolutionFailed(typeName: "address_of",
+                        context:
+                        $"address_of! expects exactly 1 argument, got {node.Arguments.Count}",
+                        file: _currentFileName,
+                        line: node.Location.Line,
+                        column: node.Location.Column,
+                        position: node.Location.Position);
                 }
 
                 Expression argument = node.Arguments[index: 0];
@@ -684,7 +863,7 @@ public partial class LLVMCodeGenerator
                     // Generate ptrtoint to get address of variable
                     _output.AppendLine(
                         handler: $"  {resultTemp} = ptrtoint ptr %{varIdent.Name} to i64");
-                    _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i64",
+                    _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: "i64",
                         IsUnsigned: false,
                         IsFloatingPoint: true,
                         RazorForgeType: "uaddr"); // uaddr is unsigned
@@ -695,7 +874,7 @@ public partial class LLVMCodeGenerator
                     // Handle complex expressions by first evaluating them
                     string argTemp = argument.Accept(visitor: this);
                     _output.AppendLine(handler: $"  {resultTemp} = ptrtoint ptr {argTemp} to i64");
-                    _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i64",
+                    _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: "i64",
                         IsUnsigned: false,
                         IsFloatingPoint: true,
                         RazorForgeType: "uaddr"); // uaddr is unsigned
@@ -706,9 +885,13 @@ public partial class LLVMCodeGenerator
                 // invalidate!(slice) -> void (free memory)
                 if (node.Arguments.Count != 1)
                 {
-                    throw new InvalidOperationException(
-                        message:
-                        $"invalidate! expects exactly 1 argument, got {node.Arguments.Count}");
+                    throw CodeGenError.TypeResolutionFailed(typeName: "invalidate",
+                        context:
+                        $"invalidate! expects exactly 1 argument, got {node.Arguments.Count}",
+                        file: _currentFileName,
+                        line: node.Location.Line,
+                        column: node.Location.Column,
+                        position: node.Location.Position);
                 }
 
                 Expression sliceArgument = node.Arguments[index: 0];
@@ -718,9 +901,12 @@ public partial class LLVMCodeGenerator
                 return ""; // void return
 
             default:
-                throw new NotImplementedException(
-                    message:
-                    $"Non-generic danger zone function {functionName} not implemented in LLVM generator");
+                throw CodeGenError.UnsupportedFeature(
+                    feature: $"non-generic danger zone function '{functionName}'",
+                    file: _currentFileName,
+                    line: node.Location.Line,
+                    column: node.Location.Column,
+                    position: node.Location.Position);
         }
     }
 
@@ -730,26 +916,365 @@ public partial class LLVMCodeGenerator
     /// </summary>
     public string VisitNamedArgumentExpression(NamedArgumentExpression node)
     {
+        _currentLocation = node.Location;
         // For LLVM IR, we just generate the value - argument matching happens at the call site
         return node.Value.Accept(visitor: this);
     }
 
     /// <summary>
-    /// Generates LLVM IR for a struct literal expression (Type { field: value, ... }).
-    /// Allocates memory for the struct and initializes fields.
+    /// Generates LLVM IR for a constructor expression (Type(field: value, ...)).
+    /// Allocates memory for the type and initializes fields.
     /// </summary>
-    public string VisitStructLiteralExpression(StructLiteralExpression node)
+    public string VisitConstructorExpression(ConstructorExpression node)
     {
-        // TODO: Implement struct literal code generation
-        // For now, generate a placeholder that will be expanded when structs are fully implemented
-        string structType = node.TypeName;
+        _currentLocation = node.Location;
+        // TODO: Implement constructor expression code generation
+        // For now, generate a placeholder that will be expanded when constructors are fully implemented
+        string typeName = node.TypeName;
         if (node.TypeArguments != null && node.TypeArguments.Count > 0)
         {
-            structType += "<" + string.Join(separator: ", ",
+            typeName += "<" + string.Join(separator: ", ",
                 values: node.TypeArguments.Select(selector: t => t.Name)) + ">";
         }
 
-        _output.AppendLine(value: $"  ; TODO: Struct literal not yet implemented: {structType}");
-        return "null";
+        throw CodeGenError.UnsupportedFeature(
+            feature: $"constructor expression for type '{typeName}'",
+            file: _currentFileName,
+            line: node.Location.Line,
+            column: node.Location.Column,
+            position: node.Location.Position);
+    }
+
+    /// <summary>
+    /// Looks up the return type of a method based on the object's type and method name.
+    /// Searches loaded modules for the method declaration.
+    /// </summary>
+    /// <param name="objectTypeName">The RazorForge type name of the object (e.g., "Text&lt;letter8&gt;")</param>
+    /// <param name="methodName">The name of the method being called (e.g., "to_cstr")</param>
+    /// <returns>The LLVM return type</returns>
+    private string LookupMethodReturnType(string? objectTypeName, string methodName)
+    {
+        if (_loadedModules == null || string.IsNullOrEmpty(value: objectTypeName))
+        {
+            throw CodeGenError.TypeResolutionFailed(
+                typeName: $"{objectTypeName ?? "unknown"}.{methodName}",
+                context: "cannot lookup method return type without loaded modules or object type",
+                file: _currentFileName,
+                line: _currentLocation.Line,
+                column: _currentLocation.Column,
+                position: _currentLocation.Position);
+        }
+
+        // Extract base type name (remove generic parameters for lookup)
+        string baseTypeName = objectTypeName;
+        if (objectTypeName.Contains(value: '<'))
+        {
+            baseTypeName = objectTypeName.Substring(startIndex: 0,
+                length: objectTypeName.IndexOf(value: '<'));
+        }
+
+        // Try to find the method in loaded modules
+        // Look for patterns like "Text<letter8>.to_cstr" or "TypeName.methodName"
+        foreach (KeyValuePair<string, ModuleResolver.ModuleInfo> moduleEntry in _loadedModules)
+        {
+            foreach (IAstNode decl in moduleEntry.Value.Ast.Declarations)
+            {
+                if (decl is not FunctionDeclaration funcDecl)
+                {
+                    continue;
+                }
+
+                // Check if this is the method we're looking for
+                // Method names can be: "TypeName.methodName" or "TypeName<T>.methodName"
+                string funcName = funcDecl.Name;
+
+                // Check various matching patterns
+                bool matches = false;
+
+                // Pattern 1: Exact match with full generic type (e.g., "Text<letter8>.to_cstr")
+                if (funcName == $"{objectTypeName}.{methodName}")
+                {
+                    matches = true;
+                }
+                // Pattern 2: Base type match (e.g., "Text.to_cstr" for "Text<letter8>")
+                else if (funcName == $"{baseTypeName}.{methodName}")
+                {
+                    matches = true;
+                }
+                // Pattern 3: Generic type pattern (e.g., "Text<T>.to_cstr")
+                else if (funcName.StartsWith(value: $"{baseTypeName}<") &&
+                         funcName.EndsWith(value: $">.{methodName}"))
+                {
+                    matches = true;
+                }
+
+                if (!matches)
+                {
+                    continue;
+                }
+
+                // Found the method - return its LLVM type
+                if (funcDecl.ReturnType != null)
+                {
+                    return MapTypeToLLVM(rfType: funcDecl.ReturnType.Name);
+                }
+
+                return "void";
+            }
+        }
+
+        // Method not found
+        throw CodeGenError.TypeResolutionFailed(typeName: $"{objectTypeName}.{methodName}",
+            context: "method not found in loaded modules",
+            file: _currentFileName,
+            line: _currentLocation.Line,
+            column: _currentLocation.Column,
+            position: _currentLocation.Position);
+    }
+
+    /// <summary>
+    /// Looks up the return type for a standalone function (not a method on a type).
+    /// Searches both the current program and loaded modules.
+    /// </summary>
+    /// <param name="functionName">The mangled/sanitized function name</param>
+    /// <returns>The LLVM return type</returns>
+    private string LookupFunctionReturnType(string functionName)
+    {
+        // First, try to find the function in the current program being compiled
+        if (_currentProgram != null)
+        {
+            foreach (IAstNode decl in _currentProgram.Declarations)
+            {
+                if (decl is not FunctionDeclaration funcDecl)
+                {
+                    continue;
+                }
+
+                // Check if this function matches (accounting for name sanitization)
+                string sanitizedFuncName = SanitizeFunctionName(name: funcDecl.Name);
+                if (sanitizedFuncName != functionName && funcDecl.Name != functionName)
+                {
+                    continue;
+                }
+
+                // Found the function - return its LLVM type
+                return funcDecl.ReturnType != null
+                    ? MapTypeToLLVM(rfType: funcDecl.ReturnType.Name)
+                    : "void";
+            }
+        }
+
+        // Try to find the function in loaded modules (imported)
+        if (_loadedModules == null)
+        {
+            throw CodeGenError.TypeResolutionFailed(typeName: functionName,
+                context: "module is null",
+                file: _currentFileName,
+                line: _currentLocation.Line,
+                column: _currentLocation.Column,
+                position: _currentLocation.Position);
+        }
+
+        foreach (KeyValuePair<string, ModuleResolver.ModuleInfo> moduleEntry in _loadedModules)
+        {
+            foreach (IAstNode decl in moduleEntry.Value.Ast.Declarations)
+            {
+                if (decl is not FunctionDeclaration funcDecl)
+                {
+                    continue;
+                }
+
+                // Check if this function matches (accounting for name sanitization)
+                string sanitizedFuncName = SanitizeFunctionName(name: funcDecl.Name);
+                if (sanitizedFuncName != functionName && funcDecl.Name != functionName)
+                {
+                    continue;
+                }
+
+                // Found the function - return its LLVM type
+                return funcDecl.ReturnType != null
+                    ? MapTypeToLLVM(rfType: funcDecl.ReturnType.Name)
+                    : "void";
+            }
+        }
+
+        // Function not found
+        throw CodeGenError.TypeResolutionFailed(typeName: functionName,
+            context: "function not found in current program or loaded modules",
+            file: _currentFileName,
+            line: _currentLocation.Line,
+            column: _currentLocation.Column,
+            position: _currentLocation.Position);
+    }
+
+    /// <summary>
+    /// Converts an LLVM type back to a RazorForge type name.
+    /// Used for tracking type information in _tempTypes.
+    /// </summary>
+    /// <param name="llvmType">The LLVM type (e.g., "i64", "i32", "ptr")</param>
+    /// <returns>The corresponding RazorForge type name</returns>
+    private string GetRazorForgeTypeFromLLVM(string llvmType)
+    {
+        return llvmType switch
+        {
+            "i8" => "s8",
+            "i16" => "s16",
+            "i32" => "s32",
+            "i64" => "s64",
+            "i128" => "s128",
+            "half" => "f16",
+            "float" => "f32",
+            "double" => "f64",
+            "fp128" => "f128",
+            "i1" => "bool",
+            "ptr" or "i8*" => "uaddr",
+            "void" => "Blank",
+            _ => throw CodeGenError.TypeResolutionFailed(typeName: llvmType,
+                context: "unknown LLVM type for reverse mapping",
+                file: _currentFileName,
+                line: _currentLocation.Line,
+                column: _currentLocation.Column,
+                position: _currentLocation.Position)
+        };
+    }
+
+    /// <summary>
+    /// Handles generic type constructor calls like Text&lt;letter8&gt;(ptr: ptr).
+    /// Looks up the __create__ constructor method and generates a call to it.
+    /// </summary>
+    private bool TryHandleGenericTypeConstructor(string typeName, List<Expression> arguments,
+        string resultTemp, out string? result)
+    {
+        result = null;
+
+        if (_loadedModules == null)
+        {
+            return false;
+        }
+
+        // Extract base type name (e.g., "Text" from "Text<letter8>")
+        int genericStart = typeName.IndexOf(value: '<');
+        if (genericStart < 0)
+        {
+            return false;
+        }
+
+        string baseTypeName = typeName[..genericStart];
+
+        // Look for __create__ constructor with matching parameter signature
+        foreach (KeyValuePair<string, ModuleResolver.ModuleInfo> moduleEntry in _loadedModules)
+        {
+            foreach (IAstNode decl in moduleEntry.Value.Ast.Declarations)
+            {
+                if (decl is not FunctionDeclaration funcDecl)
+                {
+                    continue;
+                }
+
+                // Check if this is a __create__ method for the type
+                // Pattern: Text<letter8>.__create__ or Text<LetterType>.__create__
+                if (!funcDecl.Name.Contains(value: ".__create__"))
+                {
+                    continue;
+                }
+
+                // Extract the type part of the function name
+                int createIndex = funcDecl.Name.IndexOf(value: ".__create__");
+                if (createIndex < 0)
+                {
+                    continue;
+                }
+
+                string funcTypeName = funcDecl.Name[..createIndex];
+
+                // Check if this is a matching generic type (base name matches)
+                // e.g., "Text<LetterType>" matches "Text<letter8>" or just "Text" matches
+                int funcGenericStart = funcTypeName.IndexOf(value: '<');
+                string funcBaseTypeName = funcGenericStart >= 0
+                    ? funcTypeName[..funcGenericStart]
+                    : funcTypeName;
+
+                if (funcBaseTypeName != baseTypeName)
+                {
+                    continue;
+                }
+
+                // Check parameter count matches
+                if (funcDecl.Parameters.Count != arguments.Count)
+                {
+                    continue;
+                }
+
+                // Check if parameter names match (for named arguments)
+                bool paramsMatch = true;
+                if (arguments.Count > 0 && arguments[index: 0] is NamedArgumentExpression)
+                {
+                    for (int i = 0; i < arguments.Count; i++)
+                    {
+                        if (arguments[index: i] is NamedArgumentExpression namedArg)
+                        {
+                            bool foundMatch =
+                                funcDecl.Parameters.Any(predicate: p => p.Name == namedArg.Name);
+                            if (!foundMatch)
+                            {
+                                paramsMatch = false;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (!paramsMatch)
+                {
+                    continue;
+                }
+
+                // Found matching constructor - generate the call
+                // Substitute the generic type parameters in the function name
+                string mangledFuncName = typeName + ".__create__";
+                string sanitizedFuncName = SanitizeFunctionName(name: mangledFuncName);
+
+                // Determine return type (should be the generic type itself, represented as a pointer)
+                string returnType = "ptr";
+
+                // Generate argument values
+                var argList = new List<string>();
+                foreach (Expression arg in arguments)
+                {
+                    Expression actualArg = arg is NamedArgumentExpression namedArg
+                        ? namedArg.Value
+                        : arg;
+                    string argValue = actualArg.Accept(visitor: this);
+                    string argType;
+                    if (_tempTypes.TryGetValue(key: argValue,
+                            value: out LLVMTypeInfo? argTypeInfo))
+                    {
+                        argType = argTypeInfo.LLVMType;
+                    }
+                    else
+                    {
+                        LLVMTypeInfo inferredType = GetTypeInfo(expr: actualArg);
+                        argType = inferredType.LLVMType;
+                    }
+
+                    argList.Add(item: $"{argType} {argValue}");
+                }
+
+                string args = string.Join(separator: ", ", values: argList);
+                _output.AppendLine(
+                    handler: $"  {resultTemp} = call {returnType} @{sanitizedFuncName}({args})");
+
+                // Track the result type
+                _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: returnType,
+                    IsUnsigned: false,
+                    IsFloatingPoint: false,
+                    RazorForgeType: typeName);
+
+                result = resultTemp;
+                return true;
+            }
+        }
+
+        return false;
     }
 }

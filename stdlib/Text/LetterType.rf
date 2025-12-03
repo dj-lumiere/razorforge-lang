@@ -1,0 +1,34 @@
+# RazorForge LetterType - Trait for text character types
+#
+# All letter types (letter8, letter16, letter32) follow this trait.
+# This enables generic text operations over different character widths.
+#
+# Encoding assumptions:
+# - letter8  = UTF-8 code unit (1 byte)
+# - letter16 = UTF-16 code unit (2 bytes, Windows UCS-2 compatible)
+# - letter32 = Unicode codepoint (4 bytes, full Unicode support)
+#
+# For legacy encodings (Latin-1, Shift-JIS, etc.), use List<u8> or List<u16>
+# and handle encoding/decoding manually.
+
+protocol LetterType {
+    # Get the numeric value of this letter
+    routine codepoint(me) -> u32
+
+    # Check if this is a valid Unicode character
+    routine is_valid(me) -> bool
+
+    # Character classification
+    routine is_ascii(me) -> bool
+    routine is_alphabetic(me) -> bool
+    routine is_numeric(me) -> bool
+    routine is_alphanumeric(me) -> bool
+    routine is_whitespace(me) -> bool
+    routine is_uppercase(me) -> bool
+    routine is_lowercase(me) -> bool
+    routine is_control(me) -> bool
+
+    # Case conversion
+    routine to_uppercase(me) -> Self
+    routine to_lowercase(me) -> Self
+}

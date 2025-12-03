@@ -29,6 +29,87 @@ routine f32.__create__!(from_text: Text<Letterlikes>) -> f32 {
     }
 }
 
+routine f32.__create__(from: s8) -> f32 {
+    danger! {
+        return @intrinsic.sitofp<i8, float>(from)
+    }
+}
+
+routine f32.__create__(from: u8) -> f32 {
+    danger! {
+        return @intrinsic.uitofp<i8, float>(from)
+    }
+}
+
+routine f32.__create__(from: s16) -> f32 {
+    danger! {
+        return @intrinsic.sitofp<i16, float>(from)
+    }
+}
+
+routine f32.__create__(from: u16) -> f32 {
+    danger! {
+        return @intrinsic.uitofp<i16, float>(from)
+    }
+}
+
+routine f32.__create__(from: s32) -> f32 {
+    danger! {
+        return @intrinsic.sitofp<i32, float>(from)
+    }
+}
+
+routine f32.__create__(from: u32) -> f32 {
+    danger! {
+        return @intrinsic.uitofp<i32, float>(from)
+    }
+}
+
+routine f32.__create__(from: s64) -> f32 {
+    danger! {
+        return @intrinsic.sitofp<i64, float>(from)
+    }
+}
+
+routine f32.__create__(from: u64) -> f32 {
+    danger! {
+        return @intrinsic.uitofp<i64, float>(from)
+    }
+}
+
+routine f32.__create__(from: f64) -> f32 {
+    danger! {
+        return @intrinsic.fptrunc<double, float>(from)
+    }
+}
+
+routine f32.__create__(from: d32) -> f32 {
+    danger! {
+        let bits = @intrinsic.bitcast<d32, u32>(from)
+        return rf_d32_to_f32(bits)
+    }
+}
+
+routine f32.__create__(from: d64) -> f32 {
+    danger! {
+        let bits = @intrinsic.bitcast<d64, u64>(from)
+        return rf_d64_to_f32(bits)
+    }
+}
+
+routine f32.__create__(from: d128) -> f32 {
+    danger! {
+        return rf_d128_to_f32(from.low_bits(), from.high_bits())
+    }
+}
+
+external routine rf_f32_to_d32(x: f32) -> u32;
+external routine rf_f32_to_d64(x: f32) -> u64;
+external routine rf_f32_to_d128(x: f32) -> d128;
+external routine rf_d32_to_f32(x: u32) -> f32;
+external routine rf_d64_to_f32(x: u64) -> f32;
+external routine rf_d128_to_f32(low: u64, high: u64) -> f32;
+
 # ============================================================================
 # Arithmetic Operations (IEEE 754 semantics)
 # ============================================================================
@@ -236,6 +317,42 @@ routine f32.to_s64() -> s64 {
 routine f32.to_u64() -> u64 {
     danger! {
         return @intrinsic.fptoui<float, i64>(me)
+    }
+}
+
+routine f32.to_s16() -> s16 {
+    return me.to_s32().to_s16()
+}
+
+routine f32.to_u16() -> u16 {
+    return me.to_u32().to_u16()
+}
+
+routine f32.to_s8() -> s8 {
+    return me.to_s32().to_s8()
+}
+
+routine f32.to_u8() -> u8 {
+    return me.to_u32().to_u8()
+}
+
+routine f32.to_d32() -> d32 {
+    danger! {
+        let bits = rf_f32_to_d32(me)
+        return @intrinsic.bitcast<u32, d32>(bits)
+    }
+}
+
+routine f32.to_d64() -> d64 {
+    danger! {
+        let bits = rf_f32_to_d64(me)
+        return @intrinsic.bitcast<u64, d64>(bits)
+    }
+}
+
+routine f32.to_d128() -> d128 {
+    danger! {
+        return rf_f32_to_d128(me)
     }
 }
 

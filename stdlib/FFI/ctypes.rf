@@ -1,0 +1,69 @@
+# RazorForge C FFI Type Definitions
+# Platform-dependent type aliases for C interop
+#
+# For C string types, see:
+# - cstr.rf  - null-terminated char* (narrow strings)
+# - cwstr.rf - null-terminated wchar_t* (wide strings)
+
+# ============================================================================
+# Pointer/Special Types
+# ============================================================================
+
+# Marker type for void*
+record cvoid {
+    pass
+}
+
+# Null pointer constant (raw address value)
+preset cnullptr: uaddr = 0uaddr
+
+# ============================================================================
+# Character Types
+# ============================================================================
+
+# Wide character (platform-dependent)
+@config(target="windows")
+define cwchar as u16
+
+@config(target="unix")
+define cwchar as u32
+
+# ============================================================================
+# Numeric Types (platform-dependent)
+# ============================================================================
+
+# int types (typically 32-bit everywhere)
+define cint as s32
+define cuint as u32
+
+# long types (32-bit Windows, 64-bit Unix)
+@config(target="windows")
+define clong as s32
+
+@config(target="windows")
+define culong as u32
+
+@config(target="unix")
+define clong as s64
+
+@config(target="unix")
+define culong as u64
+
+# long long types (64-bit everywhere)
+define clonglong as s64
+define culonglong as u64
+
+# short types (16-bit everywhere)
+define cshort as s16
+define cushort as u16
+
+# char types
+define cchar as s8
+define cuchar as u8
+
+# ============================================================================
+# Floating-point types
+# ============================================================================
+
+define cfloat as f32
+define cdouble as f64

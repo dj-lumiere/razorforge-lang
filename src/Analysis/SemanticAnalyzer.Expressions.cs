@@ -17,42 +17,40 @@ public partial class SemanticAnalyzer
     {
         // Use the explicit LiteralType from the token to determine the type
         // This is more accurate than inferring from C# runtime type
-        return node.LiteralType switch
+        TypeInfo? resultType = node.LiteralType switch
         {
             // Explicitly typed integer literals (same for both languages)
-            TokenType.S8Literal => new TypeInfo(Name: "s8", IsReference: false),
-            TokenType.S16Literal => new TypeInfo(Name: "s16", IsReference: false),
-            TokenType.S32Literal => new TypeInfo(Name: "s32", IsReference: false),
-            TokenType.S64Literal => new TypeInfo(Name: "s64", IsReference: false),
-            TokenType.S128Literal => new TypeInfo(Name: "s128", IsReference: false),
-            TokenType.SyssintLiteral => new TypeInfo(Name: "saddr", IsReference: false),
-            TokenType.U8Literal => new TypeInfo(Name: "u8", IsReference: false),
-            TokenType.U16Literal => new TypeInfo(Name: "u16", IsReference: false),
-            TokenType.U32Literal => new TypeInfo(Name: "u32", IsReference: false),
-            TokenType.U64Literal => new TypeInfo(Name: "u64", IsReference: false),
-            TokenType.U128Literal => new TypeInfo(Name: "u128", IsReference: false),
-            TokenType.SysuintLiteral => new TypeInfo(Name: "uaddr", IsReference: false),
+            TokenType.S8Literal => GetPrimitiveTypeInfo("s8"),
+            TokenType.S16Literal => GetPrimitiveTypeInfo("s16"),
+            TokenType.S32Literal => GetPrimitiveTypeInfo("s32"),
+            TokenType.S64Literal => GetPrimitiveTypeInfo("s64"),
+            TokenType.S128Literal => GetPrimitiveTypeInfo("s128"),
+            TokenType.SyssintLiteral => GetPrimitiveTypeInfo("saddr"),
+            TokenType.U8Literal => GetPrimitiveTypeInfo("u8"),
+            TokenType.U16Literal => GetPrimitiveTypeInfo("u16"),
+            TokenType.U32Literal => GetPrimitiveTypeInfo("u32"),
+            TokenType.U64Literal => GetPrimitiveTypeInfo("u64"),
+            TokenType.U128Literal => GetPrimitiveTypeInfo("u128"),
+            TokenType.SysuintLiteral => GetPrimitiveTypeInfo("uaddr"),
 
             // Untyped integer: RazorForge defaults to s64, Suflae defaults to Integer (arbitrary precision)
-            TokenType.Integer => new TypeInfo(Name: _language == Language.Suflae
-                    ? "Integer"
-                    : "s64",
-                IsReference: false),
+            TokenType.Integer => _language == Language.Suflae
+                ? new TypeInfo(Name: "Integer", IsReference: false)
+                : GetPrimitiveTypeInfo("s64"),
 
             // Explicitly typed floating-point literals (same for both languages)
-            TokenType.F16Literal => new TypeInfo(Name: "f16", IsReference: false),
-            TokenType.F32Literal => new TypeInfo(Name: "f32", IsReference: false),
-            TokenType.F64Literal => new TypeInfo(Name: "f64", IsReference: false),
-            TokenType.F128Literal => new TypeInfo(Name: "f128", IsReference: false),
-            TokenType.D32Literal => new TypeInfo(Name: "d32", IsReference: false),
-            TokenType.D64Literal => new TypeInfo(Name: "d64", IsReference: false),
-            TokenType.D128Literal => new TypeInfo(Name: "d128", IsReference: false),
+            TokenType.F16Literal => GetPrimitiveTypeInfo("f16"),
+            TokenType.F32Literal => GetPrimitiveTypeInfo("f32"),
+            TokenType.F64Literal => GetPrimitiveTypeInfo("f64"),
+            TokenType.F128Literal => GetPrimitiveTypeInfo("f128"),
+            TokenType.D32Literal => GetPrimitiveTypeInfo("d32"),
+            TokenType.D64Literal => GetPrimitiveTypeInfo("d64"),
+            TokenType.D128Literal => GetPrimitiveTypeInfo("d128"),
 
             // Untyped decimal: RazorForge defaults to f64, Suflae defaults to Decimal (arbitrary precision)
-            TokenType.Decimal => new TypeInfo(Name: _language == Language.Suflae
-                    ? "Decimal"
-                    : "f64",
-                IsReference: false),
+            TokenType.Decimal => _language == Language.Suflae
+                ? new TypeInfo(Name: "Decimal", IsReference: false)
+                : GetPrimitiveTypeInfo("f64"),
 
             // Text literals: RazorForge has Text<letter>/Text<letter8>/Text<letter16>, Suflae has Text (UTF-8) and Bytes (no Text16)
             TokenType.TextLiteral or TokenType.FormattedText or TokenType.RawText
@@ -96,10 +94,12 @@ public partial class SemanticAnalyzer
                 new TypeInfo(Name: "MemorySize", IsReference: false),
 
             // Boolean and none literals (same for both languages)
-            TokenType.True or TokenType.False => new TypeInfo(Name: "Bool", IsReference: false),
+            TokenType.True or TokenType.False => GetPrimitiveTypeInfo("bool"),
             TokenType.None => new TypeInfo(Name: "none", IsReference: false),
             _ => InferLiteralType(value: node.Value) // Fallback to runtime type inference
         };
+
+        return SetResolvedType(node, resultType);
     }
 
     /// <summary>
@@ -127,9 +127,10 @@ public partial class SemanticAnalyzer
         }
 
         string typeName = elementType?.Name ?? "unknown";
-        return new TypeInfo(Name: "List",
+        var resultType = new TypeInfo(Name: "List",
             IsReference: true,
             GenericArguments: [new TypeInfo(Name: typeName, IsReference: false)]);
+        return SetResolvedType(node, resultType);
     }
 
     /// <summary>
@@ -154,9 +155,10 @@ public partial class SemanticAnalyzer
         }
 
         string typeName = elementType?.Name ?? "unknown";
-        return new TypeInfo(Name: "Set",
+        var resultType = new TypeInfo(Name: "Set",
             IsReference: true,
             GenericArguments: [new TypeInfo(Name: typeName, IsReference: false)]);
+        return SetResolvedType(node, resultType);
     }
 
     /// <summary>
@@ -194,13 +196,14 @@ public partial class SemanticAnalyzer
 
         string keyTypeName = keyType?.Name ?? "unknown";
         string valueTypeName = valueType?.Name ?? "unknown";
-        return new TypeInfo(Name: "Dict",
+        var resultType = new TypeInfo(Name: "Dict",
             IsReference: true,
             GenericArguments:
             [
                 new TypeInfo(Name: keyTypeName, IsReference: false),
                 new TypeInfo(Name: valueTypeName, IsReference: false)
             ]);
+        return SetResolvedType(node, resultType);
     }
 
     /// <summary>
@@ -229,7 +232,7 @@ public partial class SemanticAnalyzer
                 location: node.Location);
         }
 
-        return symbol.Type;
+        return SetResolvedType(node, symbol.Type);
     }
 
     /// <summary>
@@ -251,24 +254,39 @@ public partial class SemanticAnalyzer
                     message:
                     $"Mixed-type arithmetic is not allowed. Cannot perform {node.Operator} between {leftType.Name} and {rightType.Name}. Use explicit type conversion with {rightType.Name}!(x) or x.{rightType.Name}!().",
                     location: node.Location);
-                return null;
+                return SetResolvedType(node, null);
+            }
+        }
+
+        // TrueDivide (/) is only allowed for floating-point types
+        // For integer division, use FloorDivide (//)
+        if (node.Operator == BinaryOperator.TrueDivide && leftType != null)
+        {
+            if (leftType.IsInteger || IsIntegerType(typeName: leftType.Name))
+            {
+                AddError(
+                    message:
+                    $"True division (/) is not supported for integer type '{leftType.Name}'. " +
+                    $"Use floor division (//) for integer division, or convert to a floating-point type first.",
+                    location: node.Location);
+                return SetResolvedType(node, null);
             }
         }
 
         // Comparison operators return Bool
         if (IsComparisonOperator(op: node.Operator))
         {
-            return new TypeInfo(Name: "Bool", IsReference: false);
+            return SetResolvedType(node, GetPrimitiveTypeInfo("bool"));
         }
 
         // Logical operators return Bool
         if (IsLogicalOperator(op: node.Operator))
         {
-            return new TypeInfo(Name: "Bool", IsReference: false);
+            return SetResolvedType(node, GetPrimitiveTypeInfo("bool"));
         }
 
         // Return the common type (they should be the same if we reach here)
-        return leftType ?? rightType;
+        return SetResolvedType(node, leftType ?? rightType);
     }
 
     private bool IsArithmeticOperator(BinaryOperator op)
@@ -276,18 +294,13 @@ public partial class SemanticAnalyzer
         return op switch
         {
             BinaryOperator.Add or BinaryOperator.Subtract or BinaryOperator.Multiply
-                or BinaryOperator.TrueDivide or BinaryOperator.Divide or BinaryOperator.Modulo
+                or BinaryOperator.TrueDivide or BinaryOperator.FloorDivide or BinaryOperator.Modulo
                 or BinaryOperator.Power or BinaryOperator.AddWrap or BinaryOperator.SubtractWrap
-                or BinaryOperator.MultiplyWrap or BinaryOperator.DivideWrap
-                or BinaryOperator.ModuloWrap or BinaryOperator.PowerWrap
+                or BinaryOperator.MultiplyWrap or BinaryOperator.PowerWrap
                 or BinaryOperator.AddSaturate or BinaryOperator.SubtractSaturate
-                or BinaryOperator.MultiplySaturate or BinaryOperator.DivideSaturate
-                or BinaryOperator.ModuloSaturate or BinaryOperator.PowerSaturate
-                or BinaryOperator.AddUnchecked or BinaryOperator.SubtractUnchecked
-                or BinaryOperator.MultiplyUnchecked or BinaryOperator.DivideUnchecked
-                or BinaryOperator.ModuloUnchecked or BinaryOperator.PowerUnchecked
+                or BinaryOperator.MultiplySaturate or BinaryOperator.PowerSaturate
                 or BinaryOperator.AddChecked or BinaryOperator.SubtractChecked
-                or BinaryOperator.MultiplyChecked or BinaryOperator.DivideChecked
+                or BinaryOperator.MultiplyChecked or BinaryOperator.FloorDivideChecked
                 or BinaryOperator.ModuloChecked or BinaryOperator.PowerChecked => true,
             _ => false
         };
@@ -326,7 +339,56 @@ public partial class SemanticAnalyzer
         }
 
         // Types are compatible if they are exactly the same
-        return left.Name == right.Name && left.IsReference == right.IsReference;
+        if (left.Name == right.Name && left.IsReference == right.IsReference)
+        {
+            return true;
+        }
+
+        // Allow arithmetic between pointer-sized types and their fixed-size equivalents
+        // uaddr is the unsigned address type (platform-specific), compatible with u64/u32
+        // saddr is the signed address type (platform-specific), compatible with s64/s32
+        if (IsPointerSizedType(typeName: left.Name) || IsPointerSizedType(typeName: right.Name))
+        {
+            // Check both are integers of the same signedness
+            bool leftUnsigned = IsUnsignedIntegerType(typeName: left.Name);
+            bool rightUnsigned = IsUnsignedIntegerType(typeName: right.Name);
+            bool leftSigned = IsSignedIntegerType(typeName: left.Name);
+            bool rightSigned = IsSignedIntegerType(typeName: right.Name);
+
+            // Both unsigned (u64 * uaddr) or both signed (s64 * saddr)
+            if ((leftUnsigned && rightUnsigned) || (leftSigned && rightSigned))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if the type is a pointer-sized integer type.
+    /// </summary>
+    private static bool IsPointerSizedType(string typeName)
+    {
+        return typeName == "uaddr" || typeName == "saddr";
+    }
+
+    /// <summary>
+    /// Checks if the type is an unsigned integer type.
+    /// </summary>
+    private static bool IsUnsignedIntegerType(string typeName)
+    {
+        return typeName == "u8" || typeName == "u16" || typeName == "u32" ||
+               typeName == "u64" || typeName == "u128" || typeName == "uaddr";
+    }
+
+    /// <summary>
+    /// Checks if the type is a signed integer type.
+    /// </summary>
+    private static bool IsSignedIntegerType(string typeName)
+    {
+        return typeName == "s8" || typeName == "s16" || typeName == "s32" ||
+               typeName == "s64" || typeName == "s128" || typeName == "saddr";
     }
 
     /// <summary>
@@ -338,7 +400,7 @@ public partial class SemanticAnalyzer
     {
         var operandType = node.Operand.Accept(visitor: this) as TypeInfo;
         // TODO: Check unary operator compatibility
-        return operandType;
+        return SetResolvedType(node, operandType);
     }
 
     /// <summary>
@@ -352,8 +414,10 @@ public partial class SemanticAnalyzer
 
         if (objectType == null)
         {
-            return null;
+            return SetResolvedType(node, null);
         }
+
+        string typeName = objectType.Name;
 
         // Check if accessing field through a wrapper type that allows transparent access
         // Hijacked<T>, Viewed<T>, Retained<T> all allow direct field access on inner type T
@@ -361,29 +425,51 @@ public partial class SemanticAnalyzer
                 innerType: out string? innerTypeName))
         {
             // Unwrap to get the inner type and check member on that type
-            // For now, we'll return a generic TypeInfo - full field validation would need type lookup
-            // TODO: Look up field type from type definition of innerTypeName
-            return new TypeInfo(Name: "unknown", IsReference: false);
+            typeName = innerTypeName ?? objectType.Name;
         }
 
-        // TODO: Check if member exists on objectType directly
-        return null;
+        // Look up field type from type definition cache
+        TypeInfo? fieldType = LookupFieldType(typeName: typeName, fieldName: node.PropertyName);
+        if (fieldType != null)
+        {
+            return SetResolvedType(node, fieldType);
+        }
+
+        // Handle special "me" reference - we may not have cached the current type yet
+        // In this case, allow the access and return unknown (it will be validated at code gen)
+        if (node.Object is IdentifierExpression idExpr && idExpr.Name == "me")
+        {
+            // Allow member access on "me" - type checking will happen at code gen time
+            return SetResolvedType(node, new TypeInfo(Name: "unknown", IsReference: false));
+        }
+
+        // For generic types or types not in cache, allow access but return unknown
+        // This handles cases like slice types (DynamicSlice) which have built-in methods
+        if (objectType.Name == "DynamicSlice" || objectType.Name == "TemporarySlice")
+        {
+            // Slice types have built-in fields/methods handled elsewhere
+            return SetResolvedType(node, new TypeInfo(Name: "unknown", IsReference: false));
+        }
+
+        // Return unknown type to allow compilation to continue
+        // Full member validation would require complete type information
+        return SetResolvedType(node, new TypeInfo(Name: "unknown", IsReference: false));
     }
 
     /// <summary>
     /// Checks if a type is a transparent wrapper that allows direct field access.
-    /// Transparent wrappers: Hijacked&lt;T&gt;, Viewed&lt;T&gt;, Retained&lt;T&gt;, Observed&lt;T&gt;, Seized&lt;T&gt;
+    /// Transparent wrappers: Hijacked&lt;T&gt;, Viewed&lt;T&gt;, Retained&lt;T&gt;, Inspected&lt;T&gt;, Seized&lt;T&gt;
     /// Note: Snatched&lt;T&gt; requires explicit .reveal_as&lt;U&gt;() - not transparent
     /// </summary>
     private bool IsTransparentWrapperType(string typeName, out string? innerType)
     {
-        // Match patterns: Hijacked<T>, Viewed<T>, Retained<T>, Observed<T>, Seized<T>
+        // Match patterns: Hijacked<T>, Viewed<T>, Retained<T>, Inspected<T>, Seized<T>
         foreach (string wrapperPrefix in new[]
                  {
                      "Hijacked<",
                      "Viewed<",
                      "Retained<",
-                     "Observed<",
+                     "Inspected<",
                      "Seized<"
                  })
         {
@@ -402,11 +488,11 @@ public partial class SemanticAnalyzer
 
     /// <summary>
     /// Checks if a type is a read-only wrapper that does not allow mutation.
-    /// Read-only wrappers: Viewed&lt;T>, Observed&lt;T>
+    /// Read-only wrappers: Viewed&lt;T>, Inspected&lt;T>
     /// </summary>
     private bool IsReadOnlyWrapperType(string typeName)
     {
-        return typeName.StartsWith(value: "Viewed<") || typeName.StartsWith(value: "Observed<");
+        return typeName.StartsWith(value: "Viewed<") || typeName.StartsWith(value: "Inspected<");
     }
 
     /// <summary>
@@ -418,8 +504,8 @@ public partial class SemanticAnalyzer
     {
         var objectType = node.Object.Accept(visitor: this) as TypeInfo;
         var indexType = node.Index.Accept(visitor: this) as TypeInfo;
-        // TODO: Check indexing compatibility
-        return null;
+        // TODO: Check indexing compatibility and infer element type
+        return SetResolvedType(node, null);
     }
 
     /// <summary>
@@ -433,14 +519,15 @@ public partial class SemanticAnalyzer
         var trueType = node.TrueExpression.Accept(visitor: this) as TypeInfo;
         var falseType = node.FalseExpression.Accept(visitor: this) as TypeInfo;
 
-        if (conditionType != null && conditionType.Name != "Bool")
+        // Accept both Bool and bool for compatibility
+        if (conditionType != null && conditionType.Name != "Bool" && conditionType.Name != "bool")
         {
             AddError(message: $"Conditional expression condition must be boolean",
                 location: node.Location);
         }
 
         // TODO: Return common type of true/false branches
-        return trueType;
+        return SetResolvedType(node, trueType);
     }
 
     /// <summary>
@@ -451,7 +538,8 @@ public partial class SemanticAnalyzer
     public object? VisitBlockExpression(BlockExpression node)
     {
         // A block expression evaluates to its inner expression
-        return node.Value.Accept(visitor: this);
+        var resultType = node.Value.Accept(visitor: this) as TypeInfo;
+        return SetResolvedType(node, resultType);
     }
 
     /// <summary>
@@ -476,7 +564,8 @@ public partial class SemanticAnalyzer
                 _symbolTable.TryDeclare(symbol: paramSymbol);
             }
 
-            return node.Body.Accept(visitor: this);
+            var bodyType = node.Body.Accept(visitor: this) as TypeInfo;
+            return SetResolvedType(node, bodyType);
         }
         finally
         {
@@ -512,7 +601,7 @@ public partial class SemanticAnalyzer
         }
 
         // Chained comparisons always return boolean
-        return new TypeInfo(Name: "Bool", IsReference: false);
+        return SetResolvedType(node, GetPrimitiveTypeInfo("bool"));
     }
 
     /// <summary>
@@ -550,7 +639,7 @@ public partial class SemanticAnalyzer
         }
 
         // Range expressions return a Range<T> type
-        return new TypeInfo(Name: "Range", IsReference: false);
+        return SetResolvedType(node, new TypeInfo(Name: "Range", IsReference: false));
     }
 
     /// <summary>
@@ -561,7 +650,7 @@ public partial class SemanticAnalyzer
     public object? VisitTypeExpression(TypeExpression node)
     {
         // Type expressions are handled during semantic analysis
-        return null;
+        return SetResolvedType(node, null);
     }
 
     /// <summary>
@@ -580,7 +669,7 @@ public partial class SemanticAnalyzer
         {
             _errors.Add(item: new SemanticError(Message: $"Unknown type: {targetTypeName}",
                 Location: node.Location));
-            return null;
+            return SetResolvedType(node, null);
         }
 
         // Check if the conversion is valid
@@ -591,12 +680,14 @@ public partial class SemanticAnalyzer
                 Message:
                 $"Cannot convert from {sourceType?.Name ?? "unknown"} to {targetTypeName}",
                 Location: node.Location));
-            return null;
+            return SetResolvedType(node, null);
         }
 
         // Return the target type
-        return new TypeInfo(Name: targetTypeName,
-            IsReference: IsUnsignedType(typeName: targetTypeName));
+        var resultType = PrimitiveTypes.IsPrimitive(targetTypeName)
+            ? GetPrimitiveTypeInfo(targetTypeName)
+            : new TypeInfo(Name: targetTypeName, IsReference: IsUnsignedType(typeName: targetTypeName));
+        return SetResolvedType(node, resultType);
     }
 
     /// <summary>
@@ -606,14 +697,15 @@ public partial class SemanticAnalyzer
     public object? VisitNamedArgumentExpression(NamedArgumentExpression node)
     {
         // Type check the value expression
-        return node.Value.Accept(visitor: this);
+        var resultType = node.Value.Accept(visitor: this) as TypeInfo;
+        return SetResolvedType(node, resultType);
     }
 
     /// <summary>
-    /// Visits a struct literal expression (Type { field: value, ... }).
+    /// Visits a constructor expression (Type(field: value, ...)).
     /// Verifies the type exists and all fields are properly initialized.
     /// </summary>
-    public object? VisitStructLiteralExpression(StructLiteralExpression node)
+    public object? VisitConstructorExpression(ConstructorExpression node)
     {
         // Type check all field value expressions
         foreach ((string Name, Expression Value) field in node.Fields)
@@ -621,7 +713,34 @@ public partial class SemanticAnalyzer
             field.Value.Accept(visitor: this);
         }
 
-        // TODO: Verify struct type exists and fields match
-        return null;
+        // Look up the type to verify it exists
+        Symbol? symbol = _symbolTable.Lookup(name: node.TypeName);
+
+        // Check if it's a TypeWithConstructors (type + constructors share name)
+        if (symbol is TypeWithConstructors typeWithCtors)
+        {
+            symbol = typeWithCtors.TypeSymbol;
+        }
+
+        if (symbol == null)
+        {
+            AddError(message: $"Unknown type '{node.TypeName}'", location: node.Location);
+            return SetResolvedType(node, null);
+        }
+
+        // Return the type info for the struct/entity/record
+        // Handle generic types by including type arguments
+        string typeName = node.TypeName;
+        if (node.TypeArguments != null && node.TypeArguments.Count > 0)
+        {
+            // For generic types, the full name includes type arguments
+            // e.g., List<T> or Dict<K, V>
+            typeName = node.TypeName;
+        }
+
+        // Determine if this is a reference type (entity) or value type (record)
+        bool isReference = symbol is ClassSymbol;
+
+        return SetResolvedType(node, new TypeInfo(Name: typeName, IsReference: isReference));
     }
 }

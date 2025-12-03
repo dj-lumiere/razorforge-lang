@@ -1,0 +1,7 @@
+record DataHandle {
+    private value: uaddr
+
+    public routine unwrap<T>() {
+        return Snatched<T>(value).read_as<T>()
+    }
+}

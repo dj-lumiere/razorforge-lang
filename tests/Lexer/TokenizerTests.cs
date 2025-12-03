@@ -244,13 +244,12 @@ public class TokenizerTests
             ("variant", TokenType.Variant),
             ("mutant", TokenType.Mutant),
             ("danger", TokenType.Danger),
-            ("mayhem", TokenType.Mayhem),
             ("protocol", TokenType.Protocol),
             ("let", TokenType.Let),
             ("var", TokenType.Var),
             ("common", TokenType.TypeWise),
             ("if", TokenType.If),
-            ("elif", TokenType.Elif),
+            ("elseif", TokenType.Elseif),
             ("else", TokenType.Else),
             ("unless", TokenType.Unless),
             ("when", TokenType.When),
@@ -268,7 +267,7 @@ public class TokenizerTests
             ("where", TokenType.Where),
             ("in", TokenType.In),
             ("to", TokenType.To),
-            ("step", TokenType.Step),
+            ("by", TokenType.By),
             ("and", TokenType.And),
             ("or", TokenType.Or),
             ("not", TokenType.Not),
@@ -291,9 +290,10 @@ public class TokenizerTests
                 Tokenizer.Tokenize(source: keyword, language: Language.RazorForge);
             Assert.Single(collection: tokens.Where(predicate: t => t.Type != TokenType.Eof));
             Assert.Equal(expected: expectedType, actual: tokens[index: 0].Type);
-            Assert.Equal(expected: keyword.ToLower(), actual: tokens[index: 0]
-                                                             .Text
-                                                             .ToLower());
+            Assert.Equal(expected: keyword.ToLower(),
+                actual: tokens[index: 0]
+                       .Text
+                       .ToLower());
         }
     }
 

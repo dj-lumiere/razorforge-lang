@@ -106,6 +106,57 @@ public class SymbolTable
                     existingSet.AddOverload(overload: newFunc);
                     return true;
                 }
+                else if (existing is TypeWithConstructors existingTypeWithCtors)
+                {
+                    // Add constructor to existing type-with-constructors
+                    existingTypeWithCtors.AddConstructor(constructor: newFunc);
+                    return true;
+                }
+                else if (existing is StructSymbol or ClassSymbol or VariantSymbol or TypeSymbol)
+                {
+                    // Type symbol exists, convert to TypeWithConstructors
+                    var typeWithCtors = new TypeWithConstructors(Name: symbol.Name,
+                        TypeSymbol: existing,
+                        Constructors: new List<FunctionSymbol> { newFunc },
+                        Visibility: existing.Visibility);
+                    currentScope[key: symbol.Name] = typeWithCtors;
+                    return true;
+                }
+            }
+            // Handle type symbol when constructors already exist
+            else if (symbol is StructSymbol or ClassSymbol or VariantSymbol or TypeSymbol)
+            {
+                if (existing is FunctionSymbol existingFunc)
+                {
+                    // Function exists, convert to TypeWithConstructors
+                    var typeWithCtors = new TypeWithConstructors(Name: symbol.Name,
+                        TypeSymbol: symbol,
+                        Constructors: new List<FunctionSymbol> { existingFunc },
+                        Visibility: symbol.Visibility);
+                    currentScope[key: symbol.Name] = typeWithCtors;
+                    return true;
+                }
+                else if (existing is FunctionOverloadSet existingOverloads)
+                {
+                    // Overload set exists, convert to TypeWithConstructors
+                    var typeWithCtors = new TypeWithConstructors(Name: symbol.Name,
+                        TypeSymbol: symbol,
+                        Constructors: existingOverloads.Overloads,
+                        Visibility: symbol.Visibility);
+                    currentScope[key: symbol.Name] = typeWithCtors;
+                    return true;
+                }
+                else if (existing is TypeWithConstructors)
+                {
+                    // Type already registered with constructors - duplicate type declaration
+                    return false;
+                }
+                else if (existing is StructSymbol or ClassSymbol or VariantSymbol or TypeSymbol)
+                {
+                    // Type already exists with same kind - silently ignore (redeclaration from import)
+                    // This handles cases like letter8 being both a primitive and a stdlib record
+                    return true;
+                }
             }
 
             return false; // Non-function symbol conflict
@@ -144,6 +195,33 @@ public class SymbolTable
 
         return null; // Symbol not found in any scope
     }
+
+    /// <summary>
+    /// Gets all symbols from all scopes.
+    /// Used by code generators to enumerate external function declarations.
+    /// </summary>
+    /// <returns>Enumerable of all symbols in all scopes</returns>
+    public IEnumerable<Symbol> GetAllSymbols()
+    {
+        foreach (Dictionary<string, Symbol> scope in _scopes)
+        {
+            foreach (Symbol symbol in scope.Values)
+            {
+                // If it's an overload set, return each function
+                if (symbol is FunctionOverloadSet overloadSet)
+                {
+                    foreach (FunctionSymbol overload in overloadSet.Overloads)
+                    {
+                        yield return overload;
+                    }
+                }
+                else
+                {
+                    yield return symbol;
+                }
+            }
+        }
+    }
 }
 
 /// <summary>
@@ -170,8 +248,9 @@ public record FunctionSymbol(
     VisibilityModifier Visibility,
     bool IsUsurping = false,
     List<string>? GenericParameters = null,
-    List<GenericConstraint>? GenericConstraints = null)
-    : Symbol(Name: Name, Type: ReturnType, Visibility: Visibility)
+    List<GenericConstraint>? GenericConstraints = null,
+    string? CallingConvention = null,
+    bool IsExternal = false) : Symbol(Name: Name, Type: ReturnType, Visibility: Visibility)
 {
     /// <summary>true if this function has generic parameters</summary>
     public bool IsGeneric => GenericParameters != null && GenericParameters.Count > 0;
@@ -190,6 +269,25 @@ public record FunctionOverloadSet(
     public void AddOverload(FunctionSymbol overload)
     {
         Overloads.Add(item: overload);
+    }
+}
+
+/// <summary>
+/// Contains both a type symbol and its constructor functions.
+/// This allows types and their constructors to share the same name.
+/// For example, 'record cstr { ... }' creates a StructSymbol and
+/// 'routine cstr(...) -> cstr { ... }' creates constructor FunctionSymbols.
+/// </summary>
+public record TypeWithConstructors(
+    string Name,
+    Symbol TypeSymbol,
+    List<FunctionSymbol> Constructors,
+    VisibilityModifier Visibility) : Symbol(Name: Name, Type: null, Visibility: Visibility)
+{
+    /// <summary>Adds a constructor to this type</summary>
+    public void AddConstructor(FunctionSymbol constructor)
+    {
+        Constructors.Add(item: constructor);
     }
 }
 
@@ -217,8 +315,7 @@ public record StructSymbol(
     VisibilityModifier Visibility,
     List<string>? GenericParameters = null,
     List<GenericConstraint>? GenericConstraints = null,
-    List<string>? Interfaces = null)
-    : Symbol(Name: Name, Type: null, Visibility: Visibility)
+    List<string>? Interfaces = null) : Symbol(Name: Name, Type: null, Visibility: Visibility)
 {
     /// <summary>true if this record has generic parameters</summary>
     public bool IsGeneric => GenericParameters != null && GenericParameters.Count > 0;
@@ -271,64 +368,7 @@ public record TypeSymbol(string Name, TypeInfo TypeInfo, VisibilityModifier Visi
 /// Type information for symbols, including primitive type classification.
 /// Provides utilities for type checking and compatibility analysis.
 /// </summary>
-/// <param name="Name">The type name (e.g., "s32", "f64", "bool", "MyClass")</param>
-/// <param name="IsReference">true if this is a reference type; false for value types</param>
-/// <param name="GenericArguments">Generic type arguments if this is a generic type instantiation (e.g., Array[s32])</param>
-/// <param name="IsGenericParameter">true if this represents a generic type parameter (e.g., T in Array[T])</param>
-/// <remarks>
-/// This record encapsulates type information used throughout semantic analysis.
-/// It provides convenient properties to classify primitive types according to
-/// RazorForge's type system:
-/// <list type="bullet">
-/// <item>Signed integers: s8, s16, s32, s64, s128, saddr</item>
-/// <item>Unsigned integers: u8, u16, u32, u64, u128, uaddr</item>
-/// <item>IEEE754 binary floating point: f16, f32, f64, f128</item>
-/// <item>IEEE754 decimal floating point: d32, d64, d128</item>
-/// <item>Character types: letter8, letter16, letter</item>
-/// <item>Text types: text8, text16, text</item>
-/// </list>
-/// </remarks>
-public record TypeInfo(
-    string Name,
-    bool IsReference,
-    List<TypeInfo>? GenericArguments = null,
-    bool IsGenericParameter = false)
-{
-    /// <summary>true if this is any numeric type (integer, floating point, or decimal)</summary>
-    public bool IsNumeric => Name.StartsWith(value: "s") || Name.StartsWith(value: "u") ||
-                             Name.StartsWith(value: "f") || Name.StartsWith(value: "d") ||
-                             Name == "saddr" || Name == "uaddr";
-
-    /// <summary>true if this is any integer type (signed or unsigned)</summary>
-    public bool IsInteger => Name.StartsWith(value: "s") || Name.StartsWith(value: "u") ||
-                             Name == "saddr" || Name == "uaddr";
-
-    /// <summary>true if this is any floating point type (binary or decimal)</summary>
-    public bool IsFloatingPoint => Name.StartsWith(value: "f") || Name.StartsWith(value: "d");
-
-    /// <summary>true if this is a signed numeric type</summary>
-    public bool IsSigned => Name.StartsWith(value: "s") || Name.StartsWith(value: "f") ||
-                            Name.StartsWith(value: "d") || Name == "saddr";
-
-    /// <summary>true if this is a generic type (has generic arguments)</summary>
-    public bool IsGeneric => GenericArguments != null && GenericArguments.Count > 0;
-
-    /// <summary>Gets the fully qualified type name including generic arguments (e.g., "Array[s32]")</summary>
-    public string FullName
-    {
-        get
-        {
-            if (!IsGeneric)
-            {
-                return Name;
-            }
-
-            string args = string.Join(separator: ", ",
-                values: GenericArguments!.Select(selector: t => t.FullName));
-            return $"{Name}[{args}]";
-        }
-    }
-}
+// TypeInfo is now defined in Compilers.Shared.AST.TypeInfo
 
 /// <summary>
 /// Generic constraint information for type parameters

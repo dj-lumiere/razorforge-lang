@@ -1,0 +1,12 @@
+# Test nested generic types (>> tokenization fix)
+
+# Function that returns a nested generic type
+routine get_list_of_lists() -> List<List<s32>> {
+    let x: List<List<s32>> = List<List<s32>>()
+    return x
+}
+
+# Main function
+routine main() -> s32 {
+    return 0
+}

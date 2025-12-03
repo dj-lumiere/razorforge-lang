@@ -24,7 +24,7 @@
 # - RejectEdit: NOT allowed - compiler error (immutable shared data)
 #
 # Downgrading:
-# - Can create observing block within seizing block (downgrade write to read)
+# - Can create inspecting block within seizing block (downgrade write to read)
 #
 # This type is a marker for the type system - the compiler handles lock operations.
 

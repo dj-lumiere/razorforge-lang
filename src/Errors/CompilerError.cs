@@ -7,10 +7,13 @@ public enum DiagnosticSeverity
 {
     /// <summary>Informational hint, not an error</summary>
     Hint,
+
     /// <summary>Warning that doesn't prevent compilation</summary>
     Warning,
+
     /// <summary>Error that prevents successful compilation</summary>
     Error,
+
     /// <summary>Fatal error that stops compilation immediately</summary>
     Fatal
 }
@@ -29,7 +32,7 @@ public static class ErrorCode
     public const string UnknownSuffix = "EL005";
     public const string InvalidUnicodeEscape = "EL006";
     public const string UnexpectedCharacter = "EL007";
-    public const string UnnecessarySyntax = "EL008";  // TimeParadoxError
+    public const string UnnecessarySyntax = "EL008"; // TimeParadoxError
 
     // Parser errors (EP001-EP099)
     public const string UnexpectedToken = "EP001";
@@ -61,6 +64,7 @@ public static class ErrorCode
     public const string UnsupportedFeature = "EG001";
     public const string InternalError = "EG002";
     public const string TargetError = "EG003";
+    public const string TypeResolutionFailed = "EG004";
 }
 
 /// <summary>
@@ -93,12 +97,9 @@ public class CompilerError : Exception
     /// <summary>The source code text (for context display)</summary>
     public string? SourceText { get; init; }
 
-    public CompilerError(
-        string code,
-        string message,
-        SourceSpan span,
-        DiagnosticSeverity severity = DiagnosticSeverity.Error)
-        : base(message: FormatMessage(code: code, message: message, span: span))
+    public CompilerError(string code, string message, SourceSpan span,
+        DiagnosticSeverity severity = DiagnosticSeverity.Error) : base(
+        message: FormatMessage(code: code, message: message, span: span))
     {
         Code = code;
         ErrorMessage = message;
@@ -106,13 +107,10 @@ public class CompilerError : Exception
         Severity = severity;
     }
 
-    public CompilerError(
-        string code,
-        string message,
-        SourceSpan span,
-        Exception innerException,
-        DiagnosticSeverity severity = DiagnosticSeverity.Error)
-        : base(message: FormatMessage(code: code, message: message, span: span), innerException: innerException)
+    public CompilerError(string code, string message, SourceSpan span, Exception innerException,
+        DiagnosticSeverity severity = DiagnosticSeverity.Error) : base(
+        message: FormatMessage(code: code, message: message, span: span),
+        innerException: innerException)
     {
         Code = code;
         ErrorMessage = message;

@@ -183,7 +183,7 @@ public record HoverInfo
     /// Source location of the symbol definition.
     /// Used for highlighting the relevant range in the editor.
     /// </summary>
-    public SourceLocation Location { get; init; } = new(Line: 0, Column: 0, Position: 0);
+    public SourceLocation Location { get; init; } = new(FileName:"", Line: 0, Column: 0, Position: 0);
 }
 
 /// <summary>

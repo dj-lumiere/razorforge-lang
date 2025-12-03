@@ -9,5 +9,5 @@ protocol Crashable {
     error_code: u32
 
     # Required routine
-    routine crash_message() -> Text
+    routine crash_message() -> Text<letter32>
 }

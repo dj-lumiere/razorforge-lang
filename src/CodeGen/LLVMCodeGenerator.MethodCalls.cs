@@ -1,4 +1,5 @@
 using Compilers.Shared.AST;
+using Compilers.Shared.Errors;
 using Compilers.Shared.Lexer;
 
 namespace Compilers.Shared.CodeGen;
@@ -7,6 +8,7 @@ public partial class LLVMCodeGenerator
 {
     public string VisitGenericMethodCallExpression(GenericMethodCallExpression node)
     {
+        _currentLocation = node.Location;
         string resultTemp = GetNextTemp();
 
         // Check if this is a standalone danger zone function call or user-defined generic function
@@ -55,23 +57,44 @@ public partial class LLVMCodeGenerator
                 foreach (Expression arg in node.Arguments)
                 {
                     string argTemp = arg.Accept(visitor: this);
-                    string argType = _tempTypes.TryGetValue(key: argTemp, value: out TypeInfo? ti)
-                        ? ti.LLVMType
-                        : "i32";
+                    if (!_tempTypes.TryGetValue(key: argTemp, value: out LLVMTypeInfo? ti))
+                    {
+                        throw CodeGenError.TypeResolutionFailed(
+                            typeName: argTemp,
+                            context: "could not determine type of argument in generic function call",
+                            file: _currentFileName,
+                            line: arg.Location.Line,
+                            column: arg.Location.Column,
+                            position: arg.Location.Position);
+                    }
                     argTemps.Add(item: argTemp);
-                    argTypes.Add(item: argType);
+                    argTypes.Add(item: ti.LLVMType);
                 }
 
                 string argList = string.Join(separator: ", ",
                     values: argTemps.Zip(second: argTypes,
                         resultSelector: (temp, type) => $"{type} {temp}"));
 
-                // Determine return type (simplified - would need proper type resolution)
-                string returnType = "i32"; // Default
+                // Determine return type from function signature
+                string returnType = LookupFunctionReturnType(functionName: mangledName);
 
                 _output.AppendLine(
                     handler: $"  {resultTemp} = call {returnType} @{mangledName}({argList})");
                 return resultTemp;
+            }
+
+            // Check for generic type constructor calls like Text<letter8>(ptr: ptr)
+            // The function name (e.g., "Text") combined with type arguments makes a full type name
+            string typeArgStr = string.Join(separator: ", ",
+                values: node.TypeArguments.Select(selector: t => t.Name));
+            string genericTypeName = $"{functionName}<{typeArgStr}>";
+
+            if (TryHandleGenericTypeConstructor(typeName: genericTypeName,
+                    arguments: node.Arguments,
+                    resultTemp: resultTemp,
+                    result: out string? constructorResult))
+            {
+                return constructorResult!;
             }
         }
 
@@ -89,7 +112,7 @@ public partial class LLVMCodeGenerator
                 _output.AppendLine(
                     handler:
                     $"  {resultTemp} = call {llvmType} @memory_read_{typeArg.Name}(ptr {objectTemp}, i64 {offsetTemp})");
-                _tempTypes[key: resultTemp] = new TypeInfo(
+                _tempTypes[key: resultTemp] = new LLVMTypeInfo(
                     LLVMType: MapRazorForgeTypeToLLVM(razorForgeType: typeArg.Name),
                     IsUnsigned: false,
                     IsFloatingPoint: false,
@@ -130,7 +153,7 @@ public partial class LLVMCodeGenerator
                 _output.AppendLine(
                     handler:
                     $"  {resultTemp} = load {llvmType}, ptr %ptr_{resultTemp}, align {GetAlignment(typeName: typeArg.Name)}");
-                _tempTypes[key: resultTemp] = new TypeInfo(
+                _tempTypes[key: resultTemp] = new LLVMTypeInfo(
                     LLVMType: MapRazorForgeTypeToLLVM(razorForgeType: typeArg.Name),
                     IsUnsigned: false,
                     IsFloatingPoint: false,
@@ -160,7 +183,7 @@ public partial class LLVMCodeGenerator
                 _output.AppendLine(
                     handler:
                     $"  {resultTemp} = load volatile {llvmType}, ptr %ptr_{resultTemp}, align {GetAlignment(typeName: typeArg.Name)}");
-                _tempTypes[key: resultTemp] = new TypeInfo(
+                _tempTypes[key: resultTemp] = new LLVMTypeInfo(
                     LLVMType: MapRazorForgeTypeToLLVM(razorForgeType: typeArg.Name),
                     IsUnsigned: false,
                     IsFloatingPoint: false,
@@ -192,20 +215,26 @@ public partial class LLVMCodeGenerator
                         foreach (Expression arg in node.Arguments)
                         {
                             string argTemp = arg.Accept(visitor: this);
-                            string argType =
-                                _tempTypes.TryGetValue(key: argTemp, value: out TypeInfo? ti)
-                                    ? ti.LLVMType
-                                    : "i32";
+                            if (!_tempTypes.TryGetValue(key: argTemp, value: out LLVMTypeInfo? ti))
+                            {
+                                throw CodeGenError.TypeResolutionFailed(
+                                    typeName: argTemp,
+                                    context: "could not determine type of argument in generic function call",
+                                    file: _currentFileName,
+                                    line: arg.Location.Line,
+                                    column: arg.Location.Column,
+                                    position: arg.Location.Position);
+                            }
                             argTemps.Add(item: argTemp);
-                            argTypes.Add(item: argType);
+                            argTypes.Add(item: ti.LLVMType);
                         }
 
                         string argList = string.Join(separator: ", ",
                             values: argTemps.Zip(second: argTypes,
                                 resultSelector: (temp, type) => $"{type} {temp}"));
 
-                        // Determine return type (simplified - would need proper type resolution)
-                        string returnType = "i32"; // Default
+                        // Determine return type from function signature
+                        string returnType = LookupFunctionReturnType(functionName: mangledName);
 
                         _output.AppendLine(
                             handler:
@@ -214,26 +243,93 @@ public partial class LLVMCodeGenerator
                     }
                 }
 
-                // Fall through to method call on object
-                string objMethodTemp = node.Object.Accept(visitor: this);
+                // Check if this is a static method call on a type (e.g., Text<letter8>.from_cstr)
+                // In this case, node.Object is a TypeExpression or GenericMemberExpression
+                string? staticTypeName = null;
+                if (node.Object is TypeExpression typeExpr)
+                {
+                    staticTypeName = typeExpr.Name;
+                }
+                else if (node.Object is GenericMemberExpression genMemberExpr)
+                {
+                    // e.g., Text<letter8> -> "Text<letter8>"
+                    string baseType = genMemberExpr.Object is TypeExpression baseTypeExpr
+                        ? baseTypeExpr.Name
+                        : genMemberExpr.Object.Accept(visitor: this);
+                    string genericArgs = string.Join(separator: ", ",
+                        values: genMemberExpr.TypeArguments.Select(selector: t => t.Name));
+                    staticTypeName = $"{genMemberExpr.MemberName}<{genericArgs}>";
+                }
+
+                // For static method calls, we don't have an object temp
+                string? objMethodTemp = null;
+                string? objectTypeName = staticTypeName;
+
+                if (staticTypeName == null)
+                {
+                    // Fall through to method call on object instance
+                    objMethodTemp = node.Object.Accept(visitor: this);
+
+                    // Get the object's RazorForge type for method lookup
+                    // Try multiple sources: _tempTypes, then the expression's ResolvedType
+                    if (_tempTypes.TryGetValue(key: objMethodTemp, value: out LLVMTypeInfo? objTypeInfo))
+                    {
+                        objectTypeName = objTypeInfo.RazorForgeType;
+                    }
+                    else if (node.Object.ResolvedType != null)
+                    {
+                        objectTypeName = node.Object.ResolvedType.Name;
+                    }
+                }
+
                 var methodTypeArgs = node.TypeArguments
                                          .Select(selector: t => t.Name)
                                          .ToList();
-                string methodMangledName =
-                    $"{node.MethodName}_{string.Join(separator: "_", values: methodTypeArgs)}";
+                string methodMangledName = methodTypeArgs.Count > 0
+                    ? $"{node.MethodName}_{string.Join(separator: "_", values: methodTypeArgs)}"
+                    : node.MethodName;
 
                 var methodArgTemps = new List<string>();
+                var methodArgTypes = new List<string>();
                 foreach (Expression arg in node.Arguments)
                 {
-                    methodArgTemps.Add(item: arg.Accept(visitor: this));
+                    string argTemp = arg.Accept(visitor: this);
+                    if (!_tempTypes.TryGetValue(key: argTemp, value: out LLVMTypeInfo? ti))
+                    {
+                        throw CodeGenError.TypeResolutionFailed(
+                            typeName: argTemp,
+                            context: "could not determine type of argument in method call",
+                            file: _currentFileName,
+                            line: arg.Location.Line,
+                            column: arg.Location.Column,
+                            position: arg.Location.Position);
+                    }
+                    methodArgTemps.Add(item: argTemp);
+                    methodArgTypes.Add(item: ti.LLVMType);
                 }
 
                 string methodArgList = string.Join(separator: ", ",
-                    values: methodArgTemps.Select(selector: t => $"i32 {t}"));
+                    values: methodArgTemps.Zip(second: methodArgTypes,
+                        resultSelector: (temp, type) => $"{type} {temp}"));
 
-                _output.AppendLine(
-                    handler:
-                    $"  {resultTemp} = call i32 @{methodMangledName}(ptr {objMethodTemp}{(methodArgTemps.Count > 0 ? ", " + methodArgList : "")})");
+                // Determine return type from method signature
+                string methodReturnType = LookupMethodReturnType(objectTypeName: objectTypeName, methodName: methodMangledName);
+
+                // Generate the call - static methods don't have an object parameter
+                if (staticTypeName != null)
+                {
+                    // Static method call - just pass the arguments
+                    _output.AppendLine(
+                        handler:
+                        $"  {resultTemp} = call {methodReturnType} @{SanitizeFunctionName(name: objectTypeName + "." + methodMangledName)}({methodArgList})");
+                }
+                else
+                {
+                    // Instance method call - pass object as first argument
+                    _output.AppendLine(
+                        handler:
+                        $"  {resultTemp} = call {methodReturnType} @{methodMangledName}(ptr {objMethodTemp}{(methodArgTemps.Count > 0 ? ", " + methodArgList : "")})");
+                }
                 return resultTemp;
         }
 
@@ -242,12 +338,14 @@ public partial class LLVMCodeGenerator
 
     public string VisitGenericMemberExpression(GenericMemberExpression node)
     {
+        _currentLocation = node.Location;
         // TODO: Implement generic member access
         return GetNextTemp();
     }
 
     public string VisitMemoryOperationExpression(MemoryOperationExpression node)
     {
+        _currentLocation = node.Location;
         string objectTemp = node.Object.Accept(visitor: this);
         string resultTemp = GetNextTemp();
 
@@ -256,7 +354,7 @@ public partial class LLVMCodeGenerator
             case "size":
                 _output.AppendLine(
                     handler: $"  {resultTemp} = call i64 @slice_size(ptr {objectTemp})");
-                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i64",
+                _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: "i64",
                     IsUnsigned: false,
                     IsFloatingPoint: false,
                     RazorForgeType: "uaddr");
@@ -265,7 +363,7 @@ public partial class LLVMCodeGenerator
             case "address":
                 _output.AppendLine(
                     handler: $"  {resultTemp} = call i64 @slice_address(ptr {objectTemp})");
-                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i64",
+                _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: "i64",
                     IsUnsigned: false,
                     IsFloatingPoint: false,
                     RazorForgeType: "uaddr");
@@ -274,7 +372,7 @@ public partial class LLVMCodeGenerator
             case "is_valid":
                 _output.AppendLine(
                     handler: $"  {resultTemp} = call i1 @slice_is_valid(ptr {objectTemp})");
-                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i1",
+                _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: "i1",
                     IsUnsigned: false,
                     IsFloatingPoint: false,
                     RazorForgeType: "bool");
@@ -286,7 +384,7 @@ public partial class LLVMCodeGenerator
                 _output.AppendLine(
                     handler:
                     $"  {resultTemp} = call i64 @slice_unsafe_ptr(ptr {objectTemp}, i64 {offsetTemp})");
-                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i64",
+                _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: "i64",
                     IsUnsigned: false,
                     IsFloatingPoint: false,
                     RazorForgeType: "uaddr");
@@ -302,7 +400,7 @@ public partial class LLVMCodeGenerator
                     $"  {resultTemp} = call ptr @slice_subslice(ptr {objectTemp}, i64 {sliceOffsetTemp}, i64 {sliceBytesTemp})");
 
                 // Get the original slice type
-                if (_tempTypes.TryGetValue(key: objectTemp, value: out TypeInfo? objType))
+                if (_tempTypes.TryGetValue(key: objectTemp, value: out LLVMTypeInfo? objType))
                 {
                     _tempTypes[key: resultTemp] = objType;
                 }
@@ -312,9 +410,9 @@ public partial class LLVMCodeGenerator
             case "hijack":
                 _output.AppendLine(
                     handler: $"  {resultTemp} = call ptr @slice_hijack(ptr {objectTemp})");
-                if (_tempTypes.TryGetValue(key: objectTemp, value: out TypeInfo? hijackType))
+                if (_tempTypes.TryGetValue(key: objectTemp, value: out LLVMTypeInfo? hijackType))
                 {
-                    _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "ptr",
+                    _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: "ptr",
                         IsUnsigned: false,
                         IsFloatingPoint: false,
                         RazorForgeType: $"Hijacked<{hijackType.RazorForgeType}>");
@@ -325,7 +423,7 @@ public partial class LLVMCodeGenerator
             case "refer":
                 _output.AppendLine(
                     handler: $"  {resultTemp} = call i64 @slice_refer(ptr {objectTemp})");
-                _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i64",
+                _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: "i64",
                     IsUnsigned: false,
                     IsFloatingPoint: false,
                     RazorForgeType: "uaddr");
@@ -341,6 +439,7 @@ public partial class LLVMCodeGenerator
 
     public string VisitIntrinsicCallExpression(IntrinsicCallExpression node)
     {
+        _currentLocation = node.Location;
         string resultTemp = GetNextTemp();
         string intrinsicName = node.IntrinsicName;
 
@@ -399,6 +498,10 @@ public partial class LLVMCodeGenerator
         {
             return EmitBitManipIntrinsic(node: node, resultTemp: resultTemp);
         }
+        else if (intrinsicName == "sizeof" || intrinsicName == "alignof")
+        {
+            return EmitTypeInfoIntrinsic(node: node, resultTemp: resultTemp, intrinsicName: intrinsicName);
+        }
         else
         {
             throw new NotImplementedException(
@@ -408,6 +511,7 @@ public partial class LLVMCodeGenerator
 
     public string VisitNativeCallExpression(NativeCallExpression node)
     {
+        _currentLocation = node.Location;
         string resultTemp = GetNextTemp();
         string functionName = node.FunctionName;
 
@@ -484,64 +588,66 @@ public partial class LLVMCodeGenerator
     private string DetermineNativeFunctionReturnType(string functionName)
     {
         // Known return types for common native functions
-        if (functionName.StartsWith(value: "rf_bigint_") ||
-            functionName.StartsWith(value: "rf_bigdec_"))
+        if (!functionName.StartsWith(value: "rf_bigint_") &&
+            !functionName.StartsWith(value: "rf_bigdec_"))
         {
-            // BigInt/BigDec functions that return handles
-            if (functionName.EndsWith(value: "_new") || functionName.EndsWith(value: "_copy"))
+            return functionName switch
             {
-                return "i8*"; // Returns a pointer/handle
-            }
-
-            // Comparison and query functions return i32
-            if (functionName.Contains(value: "_cmp") || functionName.Contains(value: "_is_"))
-            {
-                return "i32";
-            }
-
-            // Get functions may return values
-            if (functionName.Contains(value: "_get_i64"))
-            {
-                return "i64";
-            }
-
-            if (functionName.Contains(value: "_get_u64"))
-            {
-                return "i64";
-            }
-
-            if (functionName.Contains(value: "_get_str"))
-            {
-                return "i8*"; // Returns a string pointer
-            }
-
-            // Default for bigint/bigdec operations that modify in-place
-            return "i32"; // Return status code
+                "printf" => "i32",
+                "puts" => "i32",
+                "putchar" => "i32",
+                "malloc" => "i8*",
+                "calloc" => "i8*",
+                "realloc" => "i8*",
+                "free" => "void",
+                "memcpy" => "i8*",
+                "memmove" => "i8*",
+                "memset" => "i8*",
+                "strlen" => "i64",
+                "strcmp" => "i32",
+                "strcpy" => "i8*",
+                "strdup" => "i8*",
+                _ => "i64" // Default return type
+            };
         }
 
-        // Standard C library functions
-        return functionName switch
+        // BigInt/BigDec functions that return handles
+        if (functionName.EndsWith(value: "_new") || functionName.EndsWith(value: "_copy"))
         {
-            "printf" => "i32",
-            "puts" => "i32",
-            "putchar" => "i32",
-            "malloc" => "i8*",
-            "calloc" => "i8*",
-            "realloc" => "i8*",
-            "free" => "void",
-            "memcpy" => "i8*",
-            "memmove" => "i8*",
-            "memset" => "i8*",
-            "strlen" => "i64",
-            "strcmp" => "i32",
-            "strcpy" => "i8*",
-            "strdup" => "i8*",
-            _ => "i64" // Default return type
-        };
+            return "i8*"; // Returns a pointer/handle
+        }
+
+        // Comparison and query functions return i32
+        if (functionName.Contains(value: "_cmp") || functionName.Contains(value: "_is_"))
+        {
+            return "i32";
+        }
+
+        // Get functions may return values
+        if (functionName.Contains(value: "_get_i64"))
+        {
+            return "i64";
+        }
+
+        if (functionName.Contains(value: "_get_u64"))
+        {
+            return "i64";
+        }
+
+        if (functionName.Contains(value: "_get_str"))
+        {
+            return "i8*"; // Returns a string pointer
+        }
+
+        // Default for bigint/bigdec operations that modify in-place
+        return "i32"; // Return status code
+
+        // Standard C library functions
     }
 
     public string VisitDangerStatement(DangerStatement node)
     {
+        _currentLocation = node.Location;
         // Add comment to indicate unsafe block
         _output.AppendLine(value: "  ; === DANGER BLOCK START ===");
         node.Body.Accept(visitor: this);
@@ -549,12 +655,4 @@ public partial class LLVMCodeGenerator
         return "";
     }
 
-    public string VisitMayhemStatement(MayhemStatement node)
-    {
-        // Add comment to indicate maximum unsafe block
-        _output.AppendLine(value: "  ; === MAYHEM BLOCK START ===");
-        node.Body.Accept(visitor: this);
-        _output.AppendLine(value: "  ; === MAYHEM BLOCK END ===");
-        return "";
-    }
 }

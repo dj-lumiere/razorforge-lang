@@ -13,6 +13,7 @@ public abstract class BaseParser
     protected readonly List<Token> Tokens;
     protected int Position = 0;
     protected readonly List<CompileWarning> Warnings = new();
+    public string fileName = "";
 
     protected BaseParser(List<Token> tokens)
     {
@@ -79,8 +80,7 @@ public abstract class BaseParser
         }
 
         Token current = CurrentToken;
-        throw new ParseException(
-            message: $"{errorMessage}. Expected {type}, got {current.Type}.");
+        throw new ParseException(message: $"{errorMessage}. Expected {type}, got {current.Type}.");
     }
 
     /// <summary>
@@ -348,7 +348,10 @@ public abstract class BaseParser
     }
     protected SourceLocation GetLocation(Token token)
     {
-        return new SourceLocation(Line: token.Line, Column: token.Column,
+        return new SourceLocation(
+            FileName: "",
+            Line: token.Line,
+            Column: token.Column,
             Position: token.Position);
     }
 
@@ -368,17 +371,21 @@ public abstract class BaseParser
                 errorMessage: "Expected 'else' in conditional expression");
             // Parse else expression at higher precedence to prevent nesting
             Expression elseExpr = ParseExpression(minPrecedence: Precedence.Range);
-            return new ConditionalExpression(Condition: condition, TrueExpression: thenExpr,
-                FalseExpression: elseExpr, Location: GetLocation());
+            return new ConditionalExpression(Condition: condition,
+                TrueExpression: thenExpr,
+                FalseExpression: elseExpr,
+                Location: GetLocation());
         }
 
         // Parse prefix expression (unary operators, literals, etc.)
         Expression left = ParsePrefixExpression();
 
         // Handle range expressions: a to b [by c] or a downto b [by c]
-        if (minPrecedence <= Precedence.Range && (Match(type: TokenType.To) || Match(type: TokenType.Downto)))
+        if (minPrecedence <= Precedence.Range &&
+            (Match(type: TokenType.To) || Match(type: TokenType.Downto)))
         {
-            bool isDescending = PeekToken(offset: -1).Type == TokenType.Downto;
+            bool isDescending = PeekToken(offset: -1)
+               .Type == TokenType.Downto;
             Expression end = ParseExpression(minPrecedence: Precedence.LogicalOr);
             Expression? step = null;
 
@@ -387,7 +394,11 @@ public abstract class BaseParser
                 step = ParseExpression(minPrecedence: Precedence.LogicalOr);
             }
 
-            left = new RangeExpression(Start: left, End: end, Step: step, IsDescending: isDescending, Location: GetLocation());
+            left = new RangeExpression(Start: left,
+                End: end,
+                Step: step,
+                IsDescending: isDescending,
+                Location: GetLocation());
         }
 
         // Check for comparison chaining at comparison precedence level
@@ -417,7 +428,8 @@ public abstract class BaseParser
             }
 
             // Skip range operators - they're handled above
-            if (CurrentToken.Type == TokenType.To || CurrentToken.Type == TokenType.Downto || CurrentToken.Type == TokenType.By)
+            if (CurrentToken.Type == TokenType.To || CurrentToken.Type == TokenType.Downto ||
+                CurrentToken.Type == TokenType.By)
             {
                 break;
             }
@@ -443,12 +455,17 @@ public abstract class BaseParser
     protected Expression ParsePrefixExpression()
     {
         // Handle unary operators
-        if (Match(TokenType.Plus, TokenType.Minus, TokenType.Tilde, TokenType.Not, TokenType.Bang))
+        if (Match(TokenType.Plus,
+                TokenType.Minus,
+                TokenType.Tilde,
+                TokenType.Not,
+                TokenType.Bang))
         {
             Token op = PeekToken(offset: -1);
             Expression operand = ParseExpression(minPrecedence: Precedence.Unary);
             return new UnaryExpression(Operator: TokenToUnaryOperator(tokenType: op.Type),
-                Operand: operand, Location: GetLocation(token: op));
+                Operand: operand,
+                Location: GetLocation(token: op));
         }
 
         // Parse postfix expression (which includes primary)
@@ -485,15 +502,18 @@ public abstract class BaseParser
                         errorMessage: "Expected '(' after type conversion");
                     Consume(type: TokenType.RightParen,
                         errorMessage: "Expected ')' after type conversion");
-                    expr = new TypeConversionExpression(TargetType: typeName, Expression: expr,
-                        IsMethodStyle: true, Location: GetLocation());
+                    expr = new TypeConversionExpression(TargetType: typeName,
+                        Expression: expr,
+                        IsMethodStyle: true,
+                        Location: GetLocation());
                 }
                 else
                 {
                     // Regular member access: x.member
                     Token member = Consume(type: TokenType.Identifier,
                         errorMessage: "Expected member name after '.'");
-                    expr = new MemberExpression(Object: expr, PropertyName: member.Text,
+                    expr = new MemberExpression(Object: expr,
+                        PropertyName: member.Text,
                         Location: GetLocation());
                 }
             }
@@ -591,7 +611,8 @@ public abstract class BaseParser
         // Regular binary operators
         Expression right = ParseExpression(minPrecedence: minPrecedence);
         return new BinaryExpression(Left: left,
-            Operator: TokenToBinaryOperator(tokenType: op.Type), Right: right,
+            Operator: TokenToBinaryOperator(tokenType: op.Type),
+            Right: right,
             Location: GetLocation(token: op));
     }
 
@@ -603,42 +624,63 @@ public abstract class BaseParser
         // Boolean literals
         if (Match(type: TokenType.True))
         {
-            return new LiteralExpression(Value: true, LiteralType: TokenType.True,
+            return new LiteralExpression(Value: true,
+                LiteralType: TokenType.True,
                 Location: GetLocation(token: PeekToken(offset: -1)));
         }
 
         if (Match(type: TokenType.False))
         {
-            return new LiteralExpression(Value: false, LiteralType: TokenType.False,
+            return new LiteralExpression(Value: false,
+                LiteralType: TokenType.False,
                 Location: GetLocation(token: PeekToken(offset: -1)));
         }
 
         if (Match(type: TokenType.None))
         {
-            return new LiteralExpression(Value: null, LiteralType: TokenType.None,
+            return new LiteralExpression(Value: null,
+                LiteralType: TokenType.None,
                 Location: GetLocation(token: PeekToken(offset: -1)));
         }
 
         // Numeric literals
-        if (Match(TokenType.Integer, TokenType.Decimal, TokenType.S8Literal, TokenType.S16Literal,
-                TokenType.S32Literal, TokenType.S64Literal, TokenType.U8Literal,
-                TokenType.U16Literal, TokenType.U32Literal, TokenType.U64Literal,
-                TokenType.F16Literal, TokenType.F32Literal, TokenType.F64Literal))
+        if (Match(TokenType.Integer,
+                TokenType.Decimal,
+                TokenType.S8Literal,
+                TokenType.S16Literal,
+                TokenType.S32Literal,
+                TokenType.S64Literal,
+                TokenType.U8Literal,
+                TokenType.U16Literal,
+                TokenType.U32Literal,
+                TokenType.U64Literal,
+                TokenType.F16Literal,
+                TokenType.F32Literal,
+                TokenType.F64Literal))
         {
             Token token = PeekToken(offset: -1);
             return new LiteralExpression(Value: ParseNumericLiteral(token: token),
-                LiteralType: token.Type, Location: GetLocation(token: token));
+                LiteralType: token.Type,
+                Location: GetLocation(token: token));
         }
 
         // String literals
-        if (Match(TokenType.TextLiteral, TokenType.FormattedText, TokenType.RawText,
-                TokenType.RawFormattedText, TokenType.Text8Literal, TokenType.Text8RawText,
-                TokenType.Text8FormattedText, TokenType.Text8RawFormattedText,
-                TokenType.Text16Literal, TokenType.Text16RawText, TokenType.Text16FormattedText,
+        if (Match(TokenType.TextLiteral,
+                TokenType.FormattedText,
+                TokenType.RawText,
+                TokenType.RawFormattedText,
+                TokenType.Text8Literal,
+                TokenType.Text8RawText,
+                TokenType.Text8FormattedText,
+                TokenType.Text8RawFormattedText,
+                TokenType.Text16Literal,
+                TokenType.Text16RawText,
+                TokenType.Text16FormattedText,
                 TokenType.Text16RawFormattedText))
         {
             Token token = PeekToken(offset: -1);
-            return new LiteralExpression(Value: token.Text, LiteralType: token.Type,
+            return new LiteralExpression(Value: token.Text,
+                LiteralType: token.Type,
                 Location: GetLocation(token: token));
         }
 
@@ -657,8 +699,10 @@ public abstract class BaseParser
             Consume(type: TokenType.LeftParen, errorMessage: "Expected '(' after type conversion");
             Expression expr = ParseExpression();
             Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after expression");
-            return new TypeConversionExpression(TargetType: typeName, Expression: expr,
-                IsMethodStyle: false, Location: GetLocation(token: typeToken));
+            return new TypeConversionExpression(TargetType: typeName,
+                Expression: expr,
+                IsMethodStyle: false,
+                Location: GetLocation(token: typeToken));
         }
 
         // Identifiers
@@ -775,11 +819,11 @@ public abstract class BaseParser
         if (!IsValidComparisonChain(operators: operators))
         {
             throw new ParseException(
-                message:
-                $"Invalid comparison chain: mixed ascending and descending operators");
+                message: $"Invalid comparison chain: mixed ascending and descending operators");
         }
 
-        return new ChainedComparisonExpression(Operands: operands, Operators: operators,
+        return new ChainedComparisonExpression(Operands: operands,
+            Operators: operators,
             Location: GetLocation());
     }
 
@@ -931,34 +975,24 @@ public abstract class BaseParser
             TokenType.Minus => BinaryOperator.Subtract,
             TokenType.Star => BinaryOperator.Multiply,
             TokenType.Slash => BinaryOperator.TrueDivide,
-            TokenType.Divide => BinaryOperator.Divide,
+            TokenType.Divide => BinaryOperator.FloorDivide,
             TokenType.Percent => BinaryOperator.Modulo,
             TokenType.Power => BinaryOperator.Power,
 
             // Overflow variants
             TokenType.PlusWrap => BinaryOperator.AddWrap,
             TokenType.PlusSaturate => BinaryOperator.AddSaturate,
-            TokenType.PlusUnchecked => BinaryOperator.AddUnchecked,
             TokenType.PlusChecked => BinaryOperator.AddChecked,
             TokenType.MinusWrap => BinaryOperator.SubtractWrap,
             TokenType.MinusSaturate => BinaryOperator.SubtractSaturate,
-            TokenType.MinusUnchecked => BinaryOperator.SubtractUnchecked,
             TokenType.MinusChecked => BinaryOperator.SubtractChecked,
             TokenType.MultiplyWrap => BinaryOperator.MultiplyWrap,
             TokenType.MultiplySaturate => BinaryOperator.MultiplySaturate,
-            TokenType.MultiplyUnchecked => BinaryOperator.MultiplyUnchecked,
             TokenType.MultiplyChecked => BinaryOperator.MultiplyChecked,
-            TokenType.ModuloWrap => BinaryOperator.ModuloWrap,
-            TokenType.ModuloSaturate => BinaryOperator.ModuloSaturate,
-            TokenType.ModuloUnchecked => BinaryOperator.ModuloUnchecked,
             TokenType.ModuloChecked => BinaryOperator.ModuloChecked,
-            TokenType.DivideWrap => BinaryOperator.DivideWrap,
-            TokenType.DivideSaturate => BinaryOperator.DivideSaturate,
-            TokenType.DivideChecked => BinaryOperator.DivideChecked,
-            TokenType.DivideUnchecked => BinaryOperator.DivideUnchecked,
+            TokenType.DivideChecked => BinaryOperator.FloorDivideChecked,
             TokenType.PowerWrap => BinaryOperator.PowerWrap,
             TokenType.PowerSaturate => BinaryOperator.PowerSaturate,
-            TokenType.PowerUnchecked => BinaryOperator.PowerUnchecked,
             TokenType.PowerChecked => BinaryOperator.PowerChecked,
 
             TokenType.Equal => BinaryOperator.Equal,
@@ -972,9 +1006,9 @@ public abstract class BaseParser
             TokenType.Ampersand => BinaryOperator.BitwiseAnd,
             TokenType.Pipe => BinaryOperator.BitwiseOr,
             TokenType.Caret => BinaryOperator.BitwiseXor,
-            TokenType.LeftShift => BinaryOperator.LeftShift,
-            TokenType.LeftShiftChecked => BinaryOperator.LeftShiftChecked,
-            TokenType.RightShift => BinaryOperator.RightShift,
+            TokenType.LeftShift => BinaryOperator.ArithmeticLeftShift,
+            TokenType.LeftShiftChecked => BinaryOperator.ArithmeticLeftShiftChecked,
+            TokenType.RightShift => BinaryOperator.ArithmeticRightShift,
             TokenType.LogicalLeftShift => BinaryOperator.LogicalLeftShift,
             TokenType.LogicalRightShift => BinaryOperator.LogicalRightShift,
             TokenType.Assign => BinaryOperator.Assign,
@@ -999,7 +1033,6 @@ public abstract class BaseParser
     {
         return tokenType switch
         {
-            TokenType.Plus => UnaryOperator.Plus,
             TokenType.Minus => UnaryOperator.Minus,
             TokenType.Bang => UnaryOperator.Not,
             TokenType.Not => UnaryOperator.Not,
@@ -1015,8 +1048,11 @@ public abstract class BaseParser
     protected void AddWarning(string message, Token token, string warningCode,
         WarningSeverity severity = WarningSeverity.Warning)
     {
-        Warnings.Add(item: new CompileWarning(message: message, line: token.Line,
-            column: token.Column, severity: severity, warningCode: warningCode));
+        Warnings.Add(item: new CompileWarning(message: message,
+            line: token.Line,
+            column: token.Column,
+            severity: severity,
+            warningCode: warningCode));
     }
 
     /// <summary>
@@ -1037,7 +1073,8 @@ public abstract class BaseParser
             AddWarning(
                 message:
                 "Unnecessary semicolon detected. RazorForge uses expression-based syntax without statement terminators.",
-                token: CurrentToken, warningCode: WarningCodes.UnnecessarySemicolon,
+                token: CurrentToken,
+                warningCode: WarningCodes.UnnecessarySemicolon,
                 severity: WarningSeverity.StyleViolation);
         }
     }
@@ -1052,7 +1089,8 @@ public abstract class BaseParser
             AddWarning(
                 message:
                 "Unnecessary closing brace detected. Suflae uses indentation-based scoping, not braces.",
-                token: CurrentToken, warningCode: WarningCodes.UnnecessaryBraces,
+                token: CurrentToken,
+                warningCode: WarningCodes.UnnecessaryBraces,
                 severity: WarningSeverity.StyleViolation);
         }
     }

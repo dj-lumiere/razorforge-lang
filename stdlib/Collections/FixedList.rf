@@ -1,5 +1,283 @@
+# RazorForge FixedList<T, N> - Fixed-capacity list
+# Resident type with fixed capacity N at compile time
+# O(1) push/pop at end, O(1) random access
+# No heap allocation - storage is inline
+#
+# Usage:
+#   let buffer: FixedList<u8, 16> = FixedList()
+#   buffer.push!(42)
+#   buffer.push!(13)
+#   let first = buffer[0]
+#   if buffer.is_full() { }
+
+import errors/IndexOutOfBoundsError
+import core/Integral
+import core/BackIndex
+
+# Fixed-capacity list with reference semantics
+# N elements of T stored inline, count tracks active elements
 resident FixedList<T, N> {
-    private data_start: Snatched<T> # This is Snatched<T> because it should be
-    private len: u64                # Current number of elements
+    private count: uaddr    # Current number of elements (0 to N)
+    # N elements of T stored inline by compiler
 }
 
+# ============================================================================
+# Constructors
+# ============================================================================
+
+routine FixedList<T, N>.__create__() -> FixedList<T, N> {
+    return FixedList<T, N>(count: 0uaddr)
+}
+
+# ============================================================================
+# Core Operations
+# ============================================================================
+
+routine FixedList<T, N>.count(me: FixedList<T, N>) -> uaddr {
+    return me.count
+}
+
+routine FixedList<T, N>.capacity(me: FixedList<T, N>) -> uaddr {
+    return N
+}
+
+routine FixedList<T, N>.is_empty(me: FixedList<T, N>) -> bool {
+    return me.count == 0uaddr
+}
+
+routine FixedList<T, N>.is_full(me: FixedList<T, N>) -> bool {
+    return me.count == N
+}
+
+routine FixedList<T, N>.remaining(me: FixedList<T, N>) -> uaddr {
+    return N - me.count
+}
+
+routine FixedList<T, N>.push!(me: FixedList<T, N>, value: T) {
+    # Append element to end - O(1)
+    # Throws if full
+    if me.count >= N {
+        throw IndexOutOfBoundsError(index: me.count, count: N)
+    }
+    me[me.count] = value
+    me.count = me.count + 1uaddr
+}
+
+routine FixedList<T, N>.pop!(me: FixedList<T, N>) -> T {
+    # Remove and return last element - O(1)
+    if me.is_empty() {
+        absent
+    }
+    me.count = me.count - 1uaddr
+    return me[me.count]
+}
+
+routine FixedList<T, N>.clear(me: FixedList<T, N>) {
+    me.count = 0uaddr
+}
+
+# ============================================================================
+# Indexing with Integral (forward index)
+# ============================================================================
+
+routine FixedList<T, N>.__getitem__!<I>(me: FixedList<T, N>, index: I) -> T
+    where I follows Integral {
+    let idx = index.to_uaddr()
+    if idx >= me.count {
+        throw IndexOutOfBoundsError(index: idx, count: me.count)
+    }
+    return me[idx]
+}
+
+routine FixedList<T, N>.__setitem__!<I>(me: FixedList<T, N>, index: I, value: T)
+    where I follows Integral {
+    let idx = index.to_uaddr()
+    if idx >= me.count {
+        throw IndexOutOfBoundsError(index: idx, count: me.count)
+    }
+    me[idx] = value
+}
+
+# ============================================================================
+# Indexing with BackIndex (backward index using ^)
+# ============================================================================
+
+routine FixedList<T, N>.__getitem__!<I>(me: FixedList<T, N>, index: BackIndex<I>) -> T
+    where I follows Integral {
+    let idx = index.resolve(me.count)
+    return me[idx]
+}
+
+routine FixedList<T, N>.__setitem__!<I>(me: FixedList<T, N>, index: BackIndex<I>, value: T)
+    where I follows Integral {
+    let idx = index.resolve(me.count)
+    me[idx] = value
+}
+
+# ============================================================================
+# Legacy get/set methods
+# ============================================================================
+
+routine FixedList<T, N>.get!<I>(me: FixedList<T, N>, index: I) -> T
+    where I follows Integral {
+    return me.__getitem__!(index)
+}
+
+routine FixedList<T, N>.set!<I>(me: FixedList<T, N>, index: I, value: T)
+    where I follows Integral {
+    me.__setitem__!(index, value)
+}
+
+# ============================================================================
+# Insert/Remove (O(n) operations)
+# ============================================================================
+
+routine FixedList<T, N>.insert!<I>(me: FixedList<T, N>, index: I, value: T)
+    where I follows Integral {
+    # Insert at index, shifting elements right - O(n)
+    let idx = index.to_uaddr()
+    if idx > me.count {
+        throw IndexOutOfBoundsError(index: idx, count: me.count)
+    }
+    if me.is_full() {
+        throw IndexOutOfBoundsError(index: me.count, count: N)
+    }
+
+    # Shift elements right
+    var i = me.count
+    while i > idx {
+        me[i] = me[i - 1uaddr]
+        i = i - 1uaddr
+    }
+    me[idx] = value
+    me.count = me.count + 1uaddr
+}
+
+routine FixedList<T, N>.remove!<I>(me: FixedList<T, N>, index: I) -> T
+    where I follows Integral {
+    # Remove at index, shifting elements left - O(n)
+    let idx = index.to_uaddr()
+    if idx >= me.count {
+        throw IndexOutOfBoundsError(index: idx, count: me.count)
+    }
+
+    let value = me[idx]
+
+    # Shift elements left
+    var i = idx
+    while i < me.count - 1uaddr {
+        me[i] = me[i + 1uaddr]
+        i = i + 1uaddr
+    }
+    me.count = me.count - 1uaddr
+
+    return value
+}
+
+# ============================================================================
+# Iteration Support
+# ============================================================================
+
+routine FixedList<T, N>.iter(me: FixedList<T, N>) -> FixedListIterator<T, N> {
+    return FixedListIterator<T, N>(list: me, index: 0uaddr)
+}
+
+record FixedListIterator<T, N> {
+    list: FixedList<T, N>
+    index: uaddr
+}
+
+routine FixedListIterator<T, N>.next(me: FixedListIterator<T, N>) -> T? {
+    if me.index >= me.list.count() {
+        return None
+    }
+    let value = me.list[me.index]
+    me.index = me.index + 1uaddr
+    return value
+}
+
+# ============================================================================
+# Utility Operations
+# ============================================================================
+
+routine FixedList<T, N>.first!(me: FixedList<T, N>) -> T {
+    if me.is_empty() {
+        absent
+    }
+    return me[0uaddr]
+}
+
+routine FixedList<T, N>.last!(me: FixedList<T, N>) -> T {
+    if me.is_empty() {
+        absent
+    }
+    return me[me.count - 1uaddr]
+}
+
+routine FixedList<T, N>.first_or_default(me: FixedList<T, N>, default_value: T) -> T {
+    if me.is_empty() {
+        return default_value
+    }
+    return me[0uaddr]
+}
+
+routine FixedList<T, N>.last_or_default(me: FixedList<T, N>, default_value: T) -> T {
+    if me.is_empty() {
+        return default_value
+    }
+    return me[me.count - 1uaddr]
+}
+
+routine FixedList<T, N>.contains(me: FixedList<T, N>, value: T) -> bool {
+    var i = 0uaddr
+    while i < me.count {
+        if me[i] == value {
+            return true
+        }
+        i = i + 1uaddr
+    }
+    return false
+}
+
+routine FixedList<T, N>.index_of!(me: FixedList<T, N>, value: T) -> uaddr {
+    var i = 0uaddr
+    while i < me.count {
+        if me[i] == value {
+            return i
+        }
+        i = i + 1uaddr
+    }
+    absent
+}
+
+routine FixedList<T, N>.fill(me: FixedList<T, N>, value: T) {
+    # Fill to capacity with value
+    var i = 0uaddr
+    while i < N {
+        me[i] = value
+        i = i + 1uaddr
+    }
+    me.count = N
+}
+
+# ============================================================================
+# Comparison Operations
+# ============================================================================
+
+routine FixedList<T, N>.__eq__(me: FixedList<T, N>, other: FixedList<T, N>) -> bool {
+    if me.count != other.count {
+        return false
+    }
+    var i = 0uaddr
+    while i < me.count {
+        if me[i] != other[i] {
+            return false
+        }
+        i = i + 1uaddr
+    }
+    return true
+}
+
+routine FixedList<T, N>.__ne__(me: FixedList<T, N>, other: FixedList<T, N>) -> bool {
+    return not (me == other)
+}

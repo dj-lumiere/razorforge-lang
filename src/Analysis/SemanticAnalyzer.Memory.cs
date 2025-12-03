@@ -22,7 +22,7 @@ public partial class SemanticAnalyzer
     ///
     /// Scoped access constructs (compile-time borrows):
     /// - viewing/hijacking - immutable/mutable borrow
-    /// - observing/seizing - runtime-locked immutable/mutable access
+    /// - inspecting/seizing - runtime-locked immutable/mutable access
     ///
     /// The '!' suffix indicates these operations can potentially crash/panic
     /// if used incorrectly, emphasizing their power and responsibility.
@@ -35,7 +35,7 @@ public partial class SemanticAnalyzer
         {
             // Core memory transformation operations
             "retain" or "share" or "track" or "snatch!" or "try_recover" or "recover!"
-                or "try_seize" or "check_seize" or "try_observe" or "check_observe" => true,
+                or "try_seize" or "check_seize" or "try_inspect" or "check_inspect" => true,
             _ => false
         };
     }
@@ -229,8 +229,8 @@ public partial class SemanticAnalyzer
             // Fallible lock acquisition (must be used with 'when')
             "try_seize" => MemoryOperation.TrySeize,
             "check_seize" => MemoryOperation.CheckSeize,
-            "try_observe" => MemoryOperation.TryObserve,
-            "check_observe" => MemoryOperation.CheckObserve,
+            "try_inspect" => MemoryOperation.TryInsepct,
+            "check_inspect" => MemoryOperation.CheckInspect,
 
             // Unsafe operations (danger! block only)
             "snatch!" => MemoryOperation.Snatch,
@@ -253,16 +253,16 @@ public partial class SemanticAnalyzer
     {
         return operation switch
         {
-            MemoryOperation.TrySeize or MemoryOperation.CheckSeize or MemoryOperation.TryObserve
-                or MemoryOperation.CheckObserve => true,
+            MemoryOperation.TrySeize or MemoryOperation.CheckSeize or MemoryOperation.TryInsepct
+                or MemoryOperation.CheckInspect => true,
             _ => false
         };
     }
 
     /// <summary>
     /// Check if a type is a scoped token type that cannot escape its scope.
-    /// Scoped tokens: Viewed&lt;T&gt;, Hijacked&lt;T&gt;, Seized&lt;T&gt;, Observed&lt;T&gt;.
-    /// These are created by scoped access statements (viewing, hijacking, seizing, observing).
+    /// Scoped tokens: Viewed&lt;T&gt;, Hijacked&lt;T&gt;, Seized&lt;T&gt;, Inspected&lt;T&gt;.
+    /// These are created by scoped access statements (viewing, hijacking, seizing, inspecting).
     /// </summary>
     /// <param name="type">Type to check</param>
     /// <returns>True if type is a scoped token</returns>
@@ -275,13 +275,13 @@ public partial class SemanticAnalyzer
 
         string typeName = type.Name;
         return typeName.StartsWith(value: "Viewed<") || typeName.StartsWith(value: "Hijacked<") ||
-               typeName.StartsWith(value: "Seized<") || typeName.StartsWith(value: "Observed<");
+               typeName.StartsWith(value: "Seized<") || typeName.StartsWith(value: "Inspected<");
     }
 
     /// <summary>
-    /// Check if a type is a fallible lock token (from try_seize, check_seize, try_observe, check_observe).
+    /// Check if a type is a fallible lock token (from try_seize, check_seize, try_inspect, check_inspect).
     /// These operations return Maybe&lt;Seized&lt;T&gt;&gt;, Result&lt;Seized&lt;T&gt;, E&gt;,
-    /// Maybe&lt;Observed&lt;T&gt;&gt;, or Result&lt;Observed&lt;T&gt;, E&gt;.
+    /// Maybe&lt;Inspected&lt;T&gt;&gt;, or Result&lt;Inspected&lt;T&gt;, E&gt;.
     /// </summary>
     /// <param name="type">Type to check</param>
     /// <returns>True if type is a fallible lock token wrapper</returns>
@@ -294,20 +294,20 @@ public partial class SemanticAnalyzer
 
         string typeName = type.Name;
 
-        // Check for Maybe<Seized<T>> or Maybe<Observed<T>>
+        // Check for Maybe<Seized<T>> or Maybe<Inspected<T>>
         if (typeName.StartsWith(value: "Maybe<"))
         {
             string inner = ExtractGenericTypeArgument(typeName: typeName, wrapperName: "Maybe");
-            return inner.StartsWith(value: "Seized<") || inner.StartsWith(value: "Observed<");
+            return inner.StartsWith(value: "Seized<") || inner.StartsWith(value: "Inspected<");
         }
 
-        // Check for Result<Seized<T>, E> or Result<Observed<T>, E>
+        // Check for Result<Seized<T>, E> or Result<Inspected<T>, E>
         if (typeName.StartsWith(value: "Result<"))
         {
             string firstArg =
                 ExtractFirstGenericTypeArgument(typeName: typeName, wrapperName: "Result");
             return firstArg.StartsWith(value: "Seized<") ||
-                   firstArg.StartsWith(value: "Observed<");
+                   firstArg.StartsWith(value: "Inspected<");
         }
 
         return false;
@@ -413,7 +413,7 @@ public partial class SemanticAnalyzer
     /// The source cannot be accessed while the scoped token exists.
     /// </summary>
     /// <param name="sourceName">Name of the source variable to invalidate</param>
-    /// <param name="accessType">Type of access (viewing, hijacking, seizing, observing)</param>
+    /// <param name="accessType">Type of access (viewing, hijacking, seizing, inspecting)</param>
     private void InvalidateSource(string sourceName, string accessType)
     {
         _invalidatedSources[key: sourceName] = (_scopeDepth, accessType);

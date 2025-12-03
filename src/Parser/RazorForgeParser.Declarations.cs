@@ -102,7 +102,7 @@ public partial class RazorForgeParser
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
 
         string modulePath = "";
-        string? alias = (string?)null;
+        string? alias = null;
         var specificImports = (List<string>?)null;
 
         // Parse module path - could be multiple identifiers separated by slashes
@@ -161,6 +161,25 @@ public partial class RazorForgeParser
         return new UsingDeclaration(Type: type, Alias: alias, Location: location);
     }
 
+    /// <summary>
+    /// Parses a preset declaration: preset name: Type = value
+    /// Preset is a compile-time constant.
+    /// </summary>
+    private PresetDeclaration ParsePresetDeclaration()
+    {
+        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
+
+        string name = ConsumeIdentifier(errorMessage: "Expected preset name");
+        Consume(type: TokenType.Colon, errorMessage: "Expected ':' after preset name");
+        TypeExpression type = ParseType();
+        Consume(type: TokenType.Assign, errorMessage: "Expected '=' after preset type");
+        Expression value = ParseExpression();
+
+        ConsumeStatementTerminator();
+
+        return new PresetDeclaration(Name: name, Type: type, Value: value, Location: location);
+    }
+
     private VisibilityModifier ParseVisibilityModifier()
     {
         if (Match(type: TokenType.Public))
@@ -170,12 +189,12 @@ public partial class RazorForgeParser
 
         if (Match(type: TokenType.PublicFamily))
         {
-            return VisibilityModifier.Protected;
+            return VisibilityModifier.PublicFamily;
         }
 
         if (Match(type: TokenType.PublicModule))
         {
-            return VisibilityModifier.Internal;
+            return VisibilityModifier.PublicModule;
         }
 
         if (Match(type: TokenType.Private))
@@ -215,7 +234,8 @@ public partial class RazorForgeParser
 
     private FunctionDeclaration ParseFunctionDeclaration(
         VisibilityModifier visibility = VisibilityModifier.Private,
-        List<string>? attributes = null)
+        List<string>? attributes = null,
+        bool allowNoBody = false)
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
 
@@ -223,17 +243,14 @@ public partial class RazorForgeParser
 
         // Support generic type in name like Text<T>.method (generics BEFORE dot)
         List<string>? genericParams = null;
+        List<GenericConstraintDeclaration>? inlineConstraints = null;
         if (Match(type: TokenType.Less))
         {
-            genericParams = new List<string>();
-            do
-            {
-                genericParams.Add(
-                    item: ConsumeIdentifier(errorMessage: "Expected generic parameter name"));
-            } while (Match(type: TokenType.Comma));
+            var result = ParseGenericParametersWithConstraints();
+            genericParams = result.genericParams;
+            inlineConstraints = result.inlineConstraints;
 
-            Consume(type: TokenType.Greater,
-                errorMessage: "Expected '>' after generic parameters");
+            ConsumeGreaterForGeneric(errorMessage: "Expected '>' after generic parameters");
 
             // After generic params, check for method syntax: Type<T>.method or Type<T>.method<U>
             if (Match(type: TokenType.Dot))
@@ -252,22 +269,17 @@ public partial class RazorForgeParser
                         nextToken.Type == TokenType.Greater)
                     {
                         Match(type: TokenType.Less);
-                        var methodGenericParams = new List<string>();
-                        if (!Check(type: TokenType.Greater))
-                        {
-                            do
-                            {
-                                methodGenericParams.Add(
-                                    item: ConsumeIdentifier(
-                                        errorMessage: "Expected generic parameter name"));
-                            } while (Match(type: TokenType.Comma));
-                        }
+                        var methodResult = ParseGenericParametersWithConstraints();
 
-                        Consume(type: TokenType.Greater,
-                            errorMessage: "Expected '>' after generic parameters");
+                        ConsumeGreaterForGeneric(errorMessage: "Expected '>' after generic parameters");
 
                         // Merge the method generic params into the main generic params
-                        genericParams.AddRange(collection: methodGenericParams);
+                        genericParams.AddRange(collection: methodResult.genericParams);
+                        if (methodResult.inlineConstraints != null)
+                        {
+                            inlineConstraints ??= new List<GenericConstraintDeclaration>();
+                            inlineConstraints.AddRange(collection: methodResult.inlineConstraints);
+                        }
                     }
                 }
             }
@@ -290,19 +302,11 @@ public partial class RazorForgeParser
                     nextToken.Type == TokenType.Greater)
                 {
                     Match(type: TokenType.Less);
-                    genericParams = new List<string>();
-                    if (!Check(type: TokenType.Greater))
-                    {
-                        do
-                        {
-                            genericParams.Add(
-                                item: ConsumeIdentifier(
-                                    errorMessage: "Expected generic parameter name"));
-                        } while (Match(type: TokenType.Comma));
-                    }
+                    var result = ParseGenericParametersWithConstraints();
+                    genericParams = result.genericParams;
+                    inlineConstraints = result.inlineConstraints;
 
-                    Consume(type: TokenType.Greater,
-                        errorMessage: "Expected '>' after generic parameters");
+                    ConsumeGreaterForGeneric(errorMessage: "Expected '>' after generic parameters");
                 }
             }
         }
@@ -321,24 +325,41 @@ public partial class RazorForgeParser
         {
             do
             {
-                string paramName = ConsumeIdentifier(errorMessage: "Expected parameter name");
-                TypeExpression? paramType = null;
-                Expression? defaultValue = null;
-
-                if (Match(type: TokenType.Colon))
+                // Handle 'me' parameter without type (self reference)
+                if (Check(type: TokenType.Self))
                 {
-                    paramType = ParseType();
+                    Token selfToken = Advance();
+                    TypeExpression? selfType = null;
+                    if (Match(type: TokenType.Colon))
+                    {
+                        selfType = ParseType();
+                    }
+                    parameters.Add(item: new Parameter(Name: "me",
+                        Type: selfType,
+                        DefaultValue: null,
+                        Location: GetLocation(token: selfToken)));
                 }
-
-                if (Match(type: TokenType.Assign))
+                else
                 {
-                    defaultValue = ParseExpression();
-                }
+                    string paramName = ConsumeIdentifier(errorMessage: "Expected parameter name");
+                    TypeExpression? paramType = null;
+                    Expression? defaultValue = null;
 
-                parameters.Add(item: new Parameter(Name: paramName,
-                    Type: paramType,
-                    DefaultValue: defaultValue,
-                    Location: GetLocation()));
+                    if (Match(type: TokenType.Colon))
+                    {
+                        paramType = ParseType();
+                    }
+
+                    if (Match(type: TokenType.Assign))
+                    {
+                        defaultValue = ParseExpression();
+                    }
+
+                    parameters.Add(item: new Parameter(Name: paramName,
+                        Type: paramType,
+                        DefaultValue: defaultValue,
+                        Location: GetLocation()));
+                }
             } while (Match(type: TokenType.Comma));
         }
 
@@ -351,12 +372,28 @@ public partial class RazorForgeParser
             returnType = ParseType();
         }
 
-        // Parse generic constraints (where clause)
+        // Parse generic constraints (where clause) - merge with inline constraints
         List<GenericConstraintDeclaration>? constraints =
-            ParseGenericConstraints(genericParams: genericParams);
+            ParseGenericConstraints(genericParams: genericParams, existingConstraints: inlineConstraints);
 
-        // Body
-        BlockStatement body = ParseBlockStatement();
+        // Body - check if allowed to have no body (for protocol method signatures)
+        BlockStatement? body = null;
+        if (Check(type: TokenType.LeftBrace))
+        {
+            body = ParseBlockStatement();
+        }
+        else if (!allowNoBody)
+        {
+            // If no body and not allowed, it's an error
+            Consume(type: TokenType.LeftBrace, errorMessage: "Expected '{' after function signature");
+            body = new BlockStatement(Statements: new List<Statement>(), Location: location);
+        }
+        else
+        {
+            // No body - this is a signature-only declaration (protocol)
+            ConsumeStatementTerminator();
+            body = new BlockStatement(Statements: new List<Statement>(), Location: location);
+        }
 
         return new FunctionDeclaration(Name: name,
             Parameters: parameters,
@@ -369,31 +406,28 @@ public partial class RazorForgeParser
             GenericConstraints: constraints);
     }
 
-    private ClassDeclaration ParseClassDeclaration(
+    private EntityDeclaration ParseClassDeclaration(
         VisibilityModifier visibility = VisibilityModifier.Private)
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
 
         string name = ConsumeIdentifier(errorMessage: "Expected entity name");
 
-        // Generic parameters
+        // Generic parameters with inline constraints
         List<string>? genericParams = null;
+        List<GenericConstraintDeclaration>? inlineConstraints = null;
         if (Match(type: TokenType.Less))
         {
-            genericParams = new List<string>();
-            do
-            {
-                genericParams.Add(
-                    item: ConsumeIdentifier(errorMessage: "Expected generic parameter name"));
-            } while (Match(type: TokenType.Comma));
+            var result = ParseGenericParametersWithConstraints();
+            genericParams = result.genericParams;
+            inlineConstraints = result.inlineConstraints;
 
-            Consume(type: TokenType.Greater,
-                errorMessage: "Expected '>' after generic parameters");
+            ConsumeGreaterForGeneric(errorMessage: "Expected '>' after generic parameters");
         }
 
-        // Parse generic constraints (where clause)
+        // Parse generic constraints (where clause) - merge with inline constraints
         List<GenericConstraintDeclaration>? constraints =
-            ParseGenericConstraints(genericParams: genericParams);
+            ParseGenericConstraints(genericParams: genericParams, existingConstraints: inlineConstraints);
 
         // Base entity - can use "from Animal" syntax
         TypeExpression? baseClass = null;
@@ -414,8 +448,7 @@ public partial class RazorForgeParser
                 continue;
             }
 
-            var member = ParseDeclaration() as Declaration;
-            if (member != null)
+            if (ParseDeclaration() is Declaration member)
             {
                 members.Add(item: member);
             }
@@ -423,7 +456,7 @@ public partial class RazorForgeParser
 
         Consume(type: TokenType.RightBrace, errorMessage: "Expected '}' after entity body");
 
-        return new ClassDeclaration(Name: name,
+        return new EntityDeclaration(Name: name,
             GenericParameters: genericParams,
             GenericConstraints: constraints,
             BaseClass: baseClass,
@@ -433,31 +466,28 @@ public partial class RazorForgeParser
             Location: location);
     }
 
-    private StructDeclaration ParseStructDeclaration(
+    private RecordDeclaration ParseStructDeclaration(
         VisibilityModifier visibility = VisibilityModifier.Private)
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
 
         string name = ConsumeIdentifier(errorMessage: "Expected record name");
 
-        // Generic parameters
+        // Generic parameters with inline constraints
         List<string>? genericParams = null;
+        List<GenericConstraintDeclaration>? inlineConstraints = null;
         if (Match(type: TokenType.Less))
         {
-            genericParams = new List<string>();
-            do
-            {
-                genericParams.Add(
-                    item: ConsumeIdentifier(errorMessage: "Expected generic parameter name"));
-            } while (Match(type: TokenType.Comma));
+            var result = ParseGenericParametersWithConstraints();
+            genericParams = result.genericParams;
+            inlineConstraints = result.inlineConstraints;
 
-            Consume(type: TokenType.Greater,
-                errorMessage: "Expected '>' after generic parameters");
+            ConsumeGreaterForGeneric(errorMessage: "Expected '>' after generic parameters");
         }
 
-        // Parse generic constraints (where clause)
+        // Parse generic constraints (where clause) - merge with inline constraints
         List<GenericConstraintDeclaration>? constraints =
-            ParseGenericConstraints(genericParams: genericParams);
+            ParseGenericConstraints(genericParams: genericParams, existingConstraints: inlineConstraints);
 
         // Parse interfaces/protocols the record follows
         var interfaces = new List<TypeExpression>();
@@ -489,7 +519,7 @@ public partial class RazorForgeParser
 
         Consume(type: TokenType.RightBrace, errorMessage: "Expected '}' after record body");
 
-        return new StructDeclaration(Name: name,
+        return new RecordDeclaration(Name: name,
             GenericParameters: genericParams,
             GenericConstraints: constraints,
             Interfaces: interfaces,
@@ -498,7 +528,7 @@ public partial class RazorForgeParser
             Location: location);
     }
 
-    private MenuDeclaration ParseEnumDeclaration(
+    private ChoiceDeclaration ParseEnumDeclaration(
         VisibilityModifier visibility = VisibilityModifier.Private)
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
@@ -540,7 +570,7 @@ public partial class RazorForgeParser
 
         Consume(type: TokenType.RightBrace, errorMessage: "Expected '}' after enum body");
 
-        return new MenuDeclaration(Name: name,
+        return new ChoiceDeclaration(Name: name,
             Variants: variants,
             Methods: new List<FunctionDeclaration>(),
             Visibility: visibility,
@@ -549,30 +579,27 @@ public partial class RazorForgeParser
 
     private VariantDeclaration ParseVariantDeclaration(
         VisibilityModifier visibility = VisibilityModifier.Private,
-        VariantKind kind = VariantKind.Chimera)
+        VariantKind kind = VariantKind.Variant)
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
 
         string name = ConsumeIdentifier(errorMessage: "Expected variant name");
 
-        // Generic parameters
+        // Generic parameters with inline constraints
         List<string>? genericParams = null;
+        List<GenericConstraintDeclaration>? inlineConstraints = null;
         if (Match(type: TokenType.Less))
         {
-            genericParams = new List<string>();
-            do
-            {
-                genericParams.Add(
-                    item: ConsumeIdentifier(errorMessage: "Expected generic parameter name"));
-            } while (Match(type: TokenType.Comma));
+            var result = ParseGenericParametersWithConstraints();
+            genericParams = result.genericParams;
+            inlineConstraints = result.inlineConstraints;
 
-            Consume(type: TokenType.Greater,
-                errorMessage: "Expected '>' after generic parameters");
+            ConsumeGreaterForGeneric(errorMessage: "Expected '>' after generic parameters");
         }
 
-        // Parse generic constraints (where clause)
+        // Parse generic constraints (where clause) - merge with inline constraints
         List<GenericConstraintDeclaration>? constraints =
-            ParseGenericConstraints(genericParams: genericParams);
+            ParseGenericConstraints(genericParams: genericParams, existingConstraints: inlineConstraints);
 
         Consume(type: TokenType.LeftBrace, errorMessage: "Expected '{' after variant header");
 
@@ -640,31 +667,28 @@ public partial class RazorForgeParser
             Location: location);
     }
 
-    private FeatureDeclaration ParseFeatureDeclaration(
+    private ProtocolDeclaration ParseFeatureDeclaration(
         VisibilityModifier visibility = VisibilityModifier.Private)
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
 
         string name = ConsumeIdentifier(errorMessage: "Expected feature name");
 
-        // Generic parameters
+        // Generic parameters with inline constraints
         List<string>? genericParams = null;
+        List<GenericConstraintDeclaration>? inlineConstraints = null;
         if (Match(type: TokenType.Less))
         {
-            genericParams = new List<string>();
-            do
-            {
-                genericParams.Add(
-                    item: ConsumeIdentifier(errorMessage: "Expected generic parameter name"));
-            } while (Match(type: TokenType.Comma));
+            var result = ParseGenericParametersWithConstraints();
+            genericParams = result.genericParams;
+            inlineConstraints = result.inlineConstraints;
 
-            Consume(type: TokenType.Greater,
-                errorMessage: "Expected '>' after generic parameters");
+            ConsumeGreaterForGeneric(errorMessage: "Expected '>' after generic parameters");
         }
 
-        // Parse generic constraints (where clause)
+        // Parse generic constraints (where clause) - merge with inline constraints
         List<GenericConstraintDeclaration>? constraints =
-            ParseGenericConstraints(genericParams: genericParams);
+            ParseGenericConstraints(genericParams: genericParams, existingConstraints: inlineConstraints);
 
         Consume(type: TokenType.LeftBrace, errorMessage: "Expected '{' after feature header");
 
@@ -681,8 +705,14 @@ public partial class RazorForgeParser
             // Check if this is a routine (method signature) or a field requirement
             if (Match(type: TokenType.Routine))
             {
-                // Parse function signature
+                // Parse function signature (without body)
                 string methodName = ConsumeIdentifier(errorMessage: "Expected method name");
+
+                // Support ! suffix for failable methods
+                if (Match(type: TokenType.Bang))
+                {
+                    methodName = methodName + "!";
+                }
 
                 // Parameters
                 Consume(type: TokenType.LeftParen, errorMessage: "Expected '(' after method name");
@@ -692,15 +722,36 @@ public partial class RazorForgeParser
                 {
                     do
                     {
-                        string paramName =
-                            ConsumeIdentifier(errorMessage: "Expected parameter name");
-                        Consume(type: TokenType.Colon,
-                            errorMessage: "Expected ':' after parameter name");
-                        TypeExpression paramType = ParseType();
-                        parameters.Add(item: new Parameter(Name: paramName,
-                            Type: paramType,
-                            DefaultValue: null,
-                            Location: GetLocation()));
+                        // Handle 'me' parameter without type (self reference)
+                        if (Check(type: TokenType.Self))
+                        {
+                            Token selfToken = Advance();
+                            TypeExpression? selfType = null;
+                            if (Match(type: TokenType.Colon))
+                            {
+                                selfType = ParseType();
+                            }
+                            parameters.Add(item: new Parameter(Name: "me",
+                                Type: selfType,
+                                DefaultValue: null,
+                                Location: GetLocation(token: selfToken)));
+                        }
+                        else
+                        {
+                            string paramName =
+                                ConsumeIdentifier(errorMessage: "Expected parameter name");
+
+                            TypeExpression? paramType = null;
+                            if (Match(type: TokenType.Colon))
+                            {
+                                paramType = ParseType();
+                            }
+
+                            parameters.Add(item: new Parameter(Name: paramName,
+                                Type: paramType,
+                                DefaultValue: null,
+                                Location: GetLocation()));
+                        }
                     } while (Match(type: TokenType.Comma));
                 }
 
@@ -717,6 +768,8 @@ public partial class RazorForgeParser
                     Parameters: parameters,
                     ReturnType: returnType,
                     Location: GetLocation()));
+
+                ConsumeStatementTerminator();
             }
             else if (Check(type: TokenType.Identifier))
             {
@@ -728,19 +781,18 @@ public partial class RazorForgeParser
                 requiredFields.Add(item: new FieldRequirement(Name: fieldName,
                     Type: fieldType,
                     Location: fieldLocation));
+                ConsumeStatementTerminator();
             }
             else
             {
                 // Unknown token, skip it
                 Advance();
             }
-
-            Match(type: TokenType.Newline);
         }
 
         Consume(type: TokenType.RightBrace, errorMessage: "Expected '}' after feature body");
 
-        return new FeatureDeclaration(Name: name,
+        return new ProtocolDeclaration(Name: name,
             GenericParameters: genericParams,
             GenericConstraints: constraints,
             Methods: methods,
@@ -774,19 +826,16 @@ public partial class RazorForgeParser
             name = name + "!";
         }
 
-        // Check for generic parameters
+        // Check for generic parameters with inline constraints
         List<string>? genericParams = null;
+        List<GenericConstraintDeclaration>? inlineConstraints = null;
         if (Match(type: TokenType.Less))
         {
-            genericParams = new List<string>();
-            do
-            {
-                genericParams.Add(
-                    item: ConsumeIdentifier(errorMessage: "Expected generic parameter name"));
-            } while (Match(type: TokenType.Comma));
+            var result = ParseGenericParametersWithConstraints();
+            genericParams = result.genericParams;
+            inlineConstraints = result.inlineConstraints;
 
-            Consume(type: TokenType.Greater,
-                errorMessage: "Expected '>' after generic parameters");
+            ConsumeGreaterForGeneric(errorMessage: "Expected '>' after generic parameters");
         }
 
         // Parameters
@@ -824,9 +873,9 @@ public partial class RazorForgeParser
             returnType = ParseType();
         }
 
-        // Parse generic constraints (where clause)
+        // Parse generic constraints (where clause) - merge with inline constraints
         List<GenericConstraintDeclaration>? constraints =
-            ParseGenericConstraints(genericParams: genericParams);
+            ParseGenericConstraints(genericParams: genericParams, existingConstraints: inlineConstraints);
 
         ConsumeStatementTerminator();
 

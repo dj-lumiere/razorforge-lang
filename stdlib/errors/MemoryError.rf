@@ -1,0 +1,29 @@
+# MemoryError - Error types for memory operations
+
+record MemoryAllocationError follows Crashable {
+    public requested_bytes: uaddr
+
+    routine crash_message(me) -> Text<letter32> {
+        return f"Failed to allocate {me.requested_bytes} bytes"
+    }
+}
+
+record MemoryBoundsError follows Crashable {
+    public offset: uaddr
+    public size: uaddr
+    public allocated: uaddr
+
+    routine crash_message(me) -> Text<letter32> {
+        return f"Memory access at offset {me.offset} with size {me.size} exceeds allocated {me.allocated} bytes"
+    }
+}
+
+record SliceBoundsError follows Crashable {
+    public offset: uaddr
+    public length: uaddr
+    public allocated: uaddr
+
+    routine crash_message(me) -> Text<letter32> {
+        return f"Slice from {me.offset} with length {me.length} exceeds allocated {me.allocated} bytes"
+    }
+}

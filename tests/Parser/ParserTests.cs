@@ -175,13 +175,14 @@ routine test() {
             Assert.NotNull(@object: returnStmt);
             var expr = returnStmt.Expression as BinaryExpression;
             Assert.NotNull(@object: expr);
-            Assert.Contains(expected: expr.Operator.ToStringRepresentation(), collection: new[]
-            {
-                "==",
-                "!=",
-                "<",
-                ">="
-            });
+            Assert.Contains(expected: expr.Operator.ToStringRepresentation(),
+                collection: new[]
+                {
+                    "==",
+                    "!=",
+                    "<",
+                    ">="
+                });
         }
     }
 

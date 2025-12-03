@@ -20,8 +20,17 @@ namespace Compilers.Shared.AST;
 /// <item>Memory operations: slice constructors, memory slice method calls</item>
 /// <item>Danger zone operations: raw memory access, type punning</item>
 /// </list>
+/// After semantic analysis, ResolvedType contains the computed type of this expression.
 /// </remarks>
-public abstract record Expression(SourceLocation Location) : AstNode(Location: Location);
+public abstract record Expression(SourceLocation Location) : AstNode(Location: Location)
+{
+    /// <summary>
+    /// The resolved type of this expression, set by the semantic analyzer.
+    /// This is null before semantic analysis and populated during type checking.
+    /// Code generators should use this instead of re-inferring types.
+    /// </summary>
+    public TypeInfo? ResolvedType { get; set; }
+}
 
 #endregion
 
@@ -158,11 +167,11 @@ public record IdentifierExpression(string Name, SourceLocation Location)
 /// <remarks>
 /// Supports extensive operator categories:
 /// <list type="bullet">
-/// <item>Arithmetic: +, -, *, /, %, ** (with overflow variants)</item>
-/// <item>Comparison: ==, !=, &lt;, &lt;=, &gt;, &gt;=</item>
-/// <item>Logical: &amp;&amp;, ||</item>
-/// <item>Membership: in, not in, is, is not, follows, not follows</item>
-/// <item>Bitwise: &amp;, |, ^, &lt;&lt;, &gt;&gt;</item>
+/// <item>Arithmetic: +, -, *, /, //, %, ** (with overflow variants)</item>
+/// <item>Comparison: ==, !=, ===, !==, &lt;, &lt;=, &gt;, &gt;=</item>
+/// <item>Logical: and, or</item>
+/// <item>Membership: in, notin, is, isnot, follows, notfollows, from, notfrom</item>
+/// <item>Bitwise: &amp;, |, ^, &lt;&lt;, &lt;&lt;?, &gt;&gt;, &lt;&lt;&lt;, &gt;&gt;&gt;</item>
 /// </list>
 /// </remarks>
 public record BinaryExpression(
@@ -188,8 +197,8 @@ public record BinaryExpression(
 /// <remarks>
 /// Supported unary operators:
 /// <list type="bullet">
-/// <item>Arithmetic: +x (unary plus), -x (negation)</item>
-/// <item>Logical: !condition (logical NOT)</item>
+/// <item>Arithmetic: -x (negation)</item>
+/// <item>Logical: not (logical NOT)</item>
 /// <item>Bitwise: ~x (bitwise complement)</item>
 /// </list>
 /// </remarks>
@@ -217,7 +226,7 @@ public record UnaryExpression(UnaryOperator Operator, Expression Operand, Source
 /// <item>Method calls: obj.method(x, y)</item>
 /// <item>Constructor calls: Point(x, y)</item>
 /// <item>Lambda calls: ((x) => x + 1)(42)</item>
-/// <item>Operator method calls: obj.+(other)</item>
+/// <item>Operator method calls: obj.__add__(other)</item>
 /// </list>
 /// </remarks>
 public record CallExpression(
@@ -267,22 +276,22 @@ public record NamedArgumentExpression(string Name, Expression Value, SourceLocat
 }
 
 /// <summary>
-/// Expression representing a struct/record literal with named field initializers.
-/// Creates instances using brace syntax: TypeName { field1: value1, field2: value2 }
+/// Expression representing a constructor call with named field initializers.
+/// Creates instances using parenthesis syntax: TypeName(field1: value1, field2: value2)
 /// </summary>
-/// <param name="TypeName">The name of the struct/record type being instantiated</param>
+/// <param name="TypeName">The name of the type being instantiated</param>
 /// <param name="TypeArguments">Optional generic type arguments (e.g., List&lt;T&gt;)</param>
 /// <param name="Fields">List of field name-value pairs for initialization</param>
 /// <param name="Location">Source location information</param>
 /// <remarks>
-/// Struct literal patterns:
+/// Constructor expression patterns:
 /// <list type="bullet">
-/// <item>Simple: Point { x: 10, y: 20 }</item>
-/// <item>Generic: TextIterator&lt;T&gt; { text: me, index: 0 }</item>
-/// <item>Nested: Node { value: 5, next: Node { value: 10, next: none } }</item>
+/// <item>Simple: Point(x: 10, y: 20)</item>
+/// <item>Generic: TextIterator&lt;T&gt;(text: me, index: 0)</item>
+/// <item>Nested: Node(value: 5, next: Node(value: 10, next: none))</item>
 /// </list>
 /// </remarks>
-public record StructLiteralExpression(
+public record ConstructorExpression(
     string TypeName,
     List<TypeExpression>? TypeArguments,
     List<(string Name, Expression Value)> Fields,
@@ -291,7 +300,7 @@ public record StructLiteralExpression(
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
     public override T Accept<T>(IAstVisitor<T> visitor)
     {
-        return visitor.VisitStructLiteralExpression(node: this);
+        return visitor.VisitConstructorExpression(node: this);
     }
 }
 
@@ -306,7 +315,6 @@ public record StructLiteralExpression(
 /// Member access patterns:
 /// <list type="bullet">
 /// <item>Field access: obj.field</item>
-/// <item>Property access: obj.property</item>
 /// <item>Method reference: obj.method (not a call)</item>
 /// <item>Chained access: obj.child.grandchild</item>
 /// </list>
@@ -386,14 +394,13 @@ public record ConditionalExpression(
 /// <remarks>
 /// Block expressions are used for:
 /// <list type="bullet">
-/// <item>Inline if-else expressions: if condition { expr1 } else { expr2 }</item>
+/// <item>Inline if-else expressions: if condition then expr1 else expr2</item>
 /// <item>Multi-statement computations that produce a value</item>
 /// <item>Scoped variable declarations that contribute to a result</item>
 /// </list>
 /// </remarks>
-public record BlockExpression(
-    Expression Value,
-    SourceLocation Location) : Expression(Location: Location)
+public record BlockExpression(Expression Value, SourceLocation Location)
+    : Expression(Location: Location)
 {
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
     public override T Accept<T>(IAstVisitor<T> visitor)
@@ -404,7 +411,7 @@ public record BlockExpression(
 
 /// <summary>
 /// Expression that chains multiple comparison operations in a single statement.
-/// Allows natural mathematical notation like a < b < c instead of a < b && b < c.
+/// Allows natural mathematical notation like a &lt; b &lt; c instead of a &lt; b and b &lt; c.
 /// </summary>
 /// <param name="Operands">List of expressions to compare (minimum 2 required)</param>
 /// <param name="Operators">List of comparison operators between operands (one fewer than operands)</param>
@@ -412,9 +419,9 @@ public record BlockExpression(
 /// <remarks>
 /// Chained comparison features:
 /// <list type="bullet">
-/// <item>Mathematical notation: 1 < x < 10, a >= b == c</item>
+/// <item>Mathematical notation: 1 &lt; x &lt; 10, a >= b == c</item>
 /// <item>Short-circuit evaluation: stops on first false comparison</item>
-/// <item>Mixed operators: supports different operators in same chain</item>
+/// <item>Mixed operators: supports different operators in the same chain</item>
 /// <item>Type checking: ensures compatible types across all comparisons</item>
 /// </list>
 /// </remarks>
@@ -435,7 +442,7 @@ public record ChainedComparisonExpression(
 /// Supports both simple ranges and ranges with custom step values.
 /// </summary>
 /// <param name="Start">Expression that evaluates to the starting value of the range</param>
-/// <param name="End">Expression that evaluates to the ending value of the range (inclusive or exclusive)</param>
+/// <param name="End">Expression that evaluates to the ending value of the range (inclusive)</param>
 /// <param name="Step">Optional expression for the step size between values (default is 1)</param>
 /// <param name="Location">Source location information</param>
 /// <remarks>
@@ -509,24 +516,24 @@ public record LambdaExpression(
 public enum BinaryOperator
 {
     // Arithmetic - standard operations
-    Add, Subtract, Multiply, TrueDivide, Divide, Modulo, Power,
+    Add, Subtract, Multiply, TrueDivide, FloorDivide, Modulo, Power,
 
-    // Arithmetic with overflow handling variants
-    AddWrap, SubtractWrap, MultiplyWrap, DivideWrap, ModuloWrap, PowerWrap,
-    AddSaturate, SubtractSaturate, MultiplySaturate, DivideSaturate, ModuloSaturate, PowerSaturate,
-    AddUnchecked, SubtractUnchecked, MultiplyUnchecked, DivideUnchecked, ModuloUnchecked,
-    PowerUnchecked,
-    AddChecked, SubtractChecked, MultiplyChecked, DivideChecked, ModuloChecked, PowerChecked,
+    // Arithmetic with overflow handling variants - Wrap (wrapping on overflow)
+    AddWrap, SubtractWrap, MultiplyWrap, PowerWrap,
+    // Arithmetic with overflow handling variants - Saturate (clamp to min/max)
+    AddSaturate, SubtractSaturate, MultiplySaturate, PowerSaturate,
+    // Arithmetic with overflow handling variants - Checked (throw on overflow)
+    AddChecked, SubtractChecked, MultiplyChecked, FloorDivideChecked, ModuloChecked, PowerChecked,
 
     // Comparison - equality, relational, and membership
-    Equal, NotEqual, Less, LessEqual, Greater, GreaterEqual,
+    Equal, NotEqual, Identical, NotIdentical, Less, LessEqual, Greater, GreaterEqual,
     In, NotIn, Is, IsNot, From, NotFrom, Follows, NotFollows,
 
     // Logical - boolean operations with short-circuit evaluation
     And, Or,
 
     // Bitwise - low-level bit manipulation
-    BitwiseAnd, BitwiseOr, BitwiseXor, LeftShift, LeftShiftChecked, RightShift,
+    BitwiseAnd, BitwiseOr, BitwiseXor, ArithmeticLeftShift, ArithmeticLeftShiftChecked, ArithmeticRightShift,
     LogicalLeftShift, LogicalRightShift,
 
     // Assignment - when assignment is used as expression
@@ -551,11 +558,28 @@ public static class BinaryOperatorExtensions
             BinaryOperator.Add => "+",
             BinaryOperator.Subtract => "-",
             BinaryOperator.Multiply => "*",
-            BinaryOperator.Divide or BinaryOperator.TrueDivide => "/",
+            BinaryOperator.TrueDivide => "/",
+            BinaryOperator.FloorDivide => "//",
             BinaryOperator.Modulo => "%",
             BinaryOperator.Power => "**",
+            BinaryOperator.AddWrap => "+%",
+            BinaryOperator.SubtractWrap => "-%",
+            BinaryOperator.MultiplyWrap => "*%",
+            BinaryOperator.PowerWrap => "**%",
+            BinaryOperator.AddSaturate => "+^",
+            BinaryOperator.SubtractSaturate => "-^",
+            BinaryOperator.MultiplySaturate => "*^",
+            BinaryOperator.PowerSaturate => "**^",
+            BinaryOperator.AddChecked => "+?",
+            BinaryOperator.SubtractChecked => "-?",
+            BinaryOperator.MultiplyChecked => "*?",
+            BinaryOperator.FloorDivideChecked => "//?",
+            BinaryOperator.ModuloChecked => "%?",
+            BinaryOperator.PowerChecked => "**?",
             BinaryOperator.Equal => "==",
             BinaryOperator.NotEqual => "!=",
+            BinaryOperator.Identical => "===",
+            BinaryOperator.NotIdentical => "!==",
             BinaryOperator.Less => "<",
             BinaryOperator.LessEqual => "<=",
             BinaryOperator.Greater => ">",
@@ -565,15 +589,15 @@ public static class BinaryOperatorExtensions
             BinaryOperator.BitwiseAnd => "&",
             BinaryOperator.BitwiseOr => "|",
             BinaryOperator.BitwiseXor => "^",
-            BinaryOperator.LeftShift => "<<",
-            BinaryOperator.LeftShiftChecked => "<<?",
-            BinaryOperator.RightShift => ">>",
+            BinaryOperator.ArithmeticLeftShift => "<<",
+            BinaryOperator.ArithmeticLeftShiftChecked => "<<?",
+            BinaryOperator.ArithmeticRightShift => ">>",
             BinaryOperator.LogicalLeftShift => "<<<",
             BinaryOperator.LogicalRightShift => ">>>",
             BinaryOperator.In => "in",
-            BinaryOperator.NotIn => "not in",
+            BinaryOperator.NotIn => "notin",
             BinaryOperator.Is => "is",
-            BinaryOperator.IsNot => "is not",
+            BinaryOperator.IsNot => "isnot",
             BinaryOperator.Assign => "=",
             BinaryOperator.NoneCoalesce => "??",
             _ => op.ToString()
@@ -593,7 +617,7 @@ public static class BinaryOperatorExtensions
             BinaryOperator.Subtract => "__sub__",
             BinaryOperator.Multiply => "__mul__",
             BinaryOperator.TrueDivide => "__truediv__",
-            BinaryOperator.Divide => "__floordiv__",
+            BinaryOperator.FloorDivide => "__floordiv__",
             BinaryOperator.Modulo => "__mod__",
             BinaryOperator.Power => "__pow__",
 
@@ -601,23 +625,19 @@ public static class BinaryOperatorExtensions
             BinaryOperator.AddWrap => "__add_wrap__",
             BinaryOperator.SubtractWrap => "__sub_wrap__",
             BinaryOperator.MultiplyWrap => "__mul_wrap__",
-            BinaryOperator.DivideWrap => "__floordiv_wrap__",
-            BinaryOperator.ModuloWrap => "__mod_wrap__",
             BinaryOperator.PowerWrap => "__pow_wrap__",
 
             // Saturating arithmetic
             BinaryOperator.AddSaturate => "__add_sat__",
             BinaryOperator.SubtractSaturate => "__sub_sat__",
             BinaryOperator.MultiplySaturate => "__mul_sat__",
-            BinaryOperator.DivideSaturate => "__floordiv_sat__",
-            BinaryOperator.ModuloSaturate => "__mod_sat__",
             BinaryOperator.PowerSaturate => "__pow_sat__",
 
             // Checked arithmetic
             BinaryOperator.AddChecked => "__add_checked__",
             BinaryOperator.SubtractChecked => "__sub_checked__",
             BinaryOperator.MultiplyChecked => "__mul_checked__",
-            BinaryOperator.DivideChecked => "__floordiv_checked__",
+            BinaryOperator.FloorDivideChecked => "__floordiv_checked__",
             BinaryOperator.ModuloChecked => "__mod_checked__",
             BinaryOperator.PowerChecked => "__pow_checked__",
 
@@ -633,15 +653,17 @@ public static class BinaryOperatorExtensions
             BinaryOperator.BitwiseXor => "__xor__",
 
             // Shift operators
-            BinaryOperator.LeftShift => "__ashl__",
-            BinaryOperator.LeftShiftChecked => "__ashl_checked__",
-            BinaryOperator.RightShift => "__ashr__",
+            BinaryOperator.ArithmeticLeftShift => "__ashl__",
+            BinaryOperator.ArithmeticLeftShiftChecked => "__ashl_checked__",
+            BinaryOperator.ArithmeticRightShift => "__ashr__",
             BinaryOperator.LogicalLeftShift => "__lshl__",
             BinaryOperator.LogicalRightShift => "__lshr__",
 
             // Non-overloadable operators return null
             BinaryOperator.Equal => null,
             BinaryOperator.NotEqual => null,
+            BinaryOperator.Identical => null,
+            BinaryOperator.NotIdentical => null,
             BinaryOperator.And => null,
             BinaryOperator.Or => null,
             BinaryOperator.In => null,
@@ -675,7 +697,7 @@ public static class BinaryOperatorExtensions
 public enum UnaryOperator
 {
     // Arithmetic - sign operations
-    Plus, Minus,
+    Minus,
 
     // Logical - boolean negation
     Not,

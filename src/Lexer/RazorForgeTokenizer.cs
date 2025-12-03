@@ -30,6 +30,7 @@ public class RazorForgeTokenizer : BaseTokenizer
         [key: "global"] = TokenType.Global,
         [key: "external"] = TokenType.External,
         [key: "me"] = TokenType.Self,
+        [key: "MyType"] = TokenType.SelfType,
         [key: "parent"] = TokenType.Super,
         [key: "if"] = TokenType.If,
         [key: "elseif"] = TokenType.Elseif,
@@ -82,7 +83,7 @@ public class RazorForgeTokenizer : BaseTokenizer
         [key: "viewing"] = TokenType.Viewing,
         [key: "hijacking"] = TokenType.Hijacking,
         [key: "seizing"] = TokenType.Seizing,
-        [key: "observing"] = TokenType.Observing
+        [key: "inspecting"] = TokenType.Inspecting
     };
 
     #endregion
@@ -121,7 +122,10 @@ public class RazorForgeTokenizer : BaseTokenizer
             ScanToken();
         }
 
-        Tokens.Add(item: new Token(Type: TokenType.Eof, Text: "", Line: Line, Column: Column,
+        Tokens.Add(item: new Token(Type: TokenType.Eof,
+            Text: "",
+            Line: Line,
+            Column: Column,
             Position: Position));
         return Tokens;
     }
@@ -260,8 +264,9 @@ public class RazorForgeTokenizer : BaseTokenizer
                 {
                     ScanPrefixedNumber(isHex: true);
                 }
-                else if ((Peek() == 'b' || Peek() == 'B') &&
-                         (Peek(offset: 1) == '0' || Peek(offset: 1) == '1' || Peek(offset: 1) == '_'))
+                else if ((Peek() == 'b' || Peek() == 'B') && (Peek(offset: 1) == '0' ||
+                                                              Peek(offset: 1) == '1' ||
+                                                              Peek(offset: 1) == '_'))
                 {
                     // Only treat as binary prefix if followed by binary digit or underscore
                     // Otherwise, 'b' is a byte suffix (e.g., 0b = 0 bytes)
@@ -303,8 +308,10 @@ public class RazorForgeTokenizer : BaseTokenizer
     /// </summary>
     private void ScanRazorForgeString()
     {
-        ScanStringLiteralWithType(isRaw: false, isFormatted: false,
-            tokenType: TokenType.Text8Literal, bitWidth: 8);
+        ScanStringLiteralWithType(isRaw: false,
+            isFormatted: false,
+            tokenType: TokenType.Text8Literal,
+            bitWidth: 8);
     }
 
     /// <summary>

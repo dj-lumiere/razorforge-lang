@@ -24,6 +24,20 @@ routine u32.__create__!(from_text: Text<Letterlikes>) -> u32 {
     }
 }
 
+# From u8 - always fits, no check needed
+routine u32.__create__!(from: u8) -> u32 {
+    danger! {
+        return @intrinsic.zext<i8, i32>(from)
+    }
+}
+
+# From u16 - always fits, no check needed
+routine u32.__create__!(from: u16) -> u32 {
+    danger! {
+        return @intrinsic.zext<i16, i32>(from)
+    }
+}
+
 # From s8 - crashes if value is negative
 routine u32.__create__!(from: s8) -> u32 {
     if from < 0_s8 {
@@ -92,6 +106,32 @@ routine u32.__create__!(from: u128) -> u32 {
     danger! {
         return @intrinsic.trunc<i128, i32>(from)
     }
+}
+
+# From floating point - truncates
+routine u32.__create__(from: f32) -> u32 {
+    danger! {
+        return @intrinsic.fptoui<float, i32>(from)
+    }
+}
+
+routine u32.__create__(from: f64) -> u32 {
+    danger! {
+        return @intrinsic.fptoui<double, i32>(from)
+    }
+}
+
+# From decimal - truncates
+routine u32.__create__(from: d32) -> u32 {
+    return from.to_u32()
+}
+
+routine u32.__create__(from: d64) -> u32 {
+    return from.to_u32()
+}
+
+routine u32.__create__(from: d128) -> u32 {
+    return from.to_u32()
 }
 
 # ============================================================================

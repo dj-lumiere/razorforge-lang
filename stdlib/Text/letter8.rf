@@ -1,40 +1,58 @@
-# RazorForge letter8 (8-bit ASCII character) implementation
-# ASCII character support for basic text processing
+# RazorForge letter8 - UTF-8 code unit
+#
+# Represents a single byte in UTF-8 encoded text.
+# In UTF-8, characters are encoded as 1-4 bytes:
+# - ASCII (0x00-0x7F): 1 byte
+# - Most Latin/Greek/Cyrillic: 2 bytes
+# - Most CJK: 3 bytes
+# - Emoji and rare characters: 4 bytes
+#
+# For character-level operations, use letter32 (Unicode codepoint).
+# letter8 is primarily for UTF-8 I/O and storage.
+#
+# For legacy encodings (Latin-1, etc.), use List<u8> instead.
 
-record letter8 {
+import Text/LetterType
+import core/Integral
+
+record letter8 follows LetterType {
     private value: u8
 }
 
-# ASCII constants
-preset LETTER8_NULL: letter8 = letter8(codepoint: 0x00)
-preset LETTER8_MAX_ASCII: letter8 = letter8(codepoint: 0x7F)
-preset LETTER8_SPACE: letter8 = letter8(codepoint: 0x20)
-preset LETTER8_NEWLINE: letter8 = letter8(codepoint: 0x0A)
-preset LETTER8_TAB: letter8 = letter8(codepoint: 0x09)
+# UTF-8 constants
+preset LETTER8_NULL: letter8 = letter8(value: 0x00)
+preset LETTER8_SPACE: letter8 = letter8(value: 0x20)
+preset LETTER8_NEWLINE: letter8 = letter8(value: 0x0A)
+preset LETTER8_TAB: letter8 = letter8(value: 0x09)
 
-# Core character properties
-routine letter8.codepoint(me: letter8) -> u8 {
-    return me.value
+# ============================================================================
+# LetterType trait implementation
+# ============================================================================
+
+routine letter8.codepoint(me: letter8) -> u32 {
+    return u32(me.value)
 }
 
-routine letter8(codepoint: u8) -> letter8 {
-    return letter8 { value: codepoint }
+routine letter8.is_valid(me: letter8) -> bool {
+    # In UTF-8 context, check if this is a valid lead byte or continuation byte
+    let v = me.value
+    # Invalid: 0xC0, 0xC1 (overlong), 0xF5-0xFF (out of Unicode range)
+    return v <= 0xF4 and v != 0xC0 and v != 0xC1
 }
 
 routine letter8.is_ascii(me: letter8) -> bool {
-    return me.codepoint() <= 127
+    return me.value <= 0x7F
 }
 
-# Character classification (ASCII only)
 routine letter8.is_alphabetic(me: letter8) -> bool {
-    let cp = me.codepoint()
-    return (cp >= 0x41 and cp <= 0x5A) or    # A-Z
-           (cp >= 0x61 and cp <= 0x7A)       # a-z
+    let v = me.value
+    return (0x41u8 <= v <= 0x5Au8) or    # A-Z
+           (0x61u8 <= v <= 0x7Au8)       # a-z
 }
 
 routine letter8.is_numeric(me: letter8) -> bool {
-    let cp = me.codepoint()
-    return cp >= 0x30 and cp <= 0x39  # 0-9
+    let v = me.value
+    return 0x30u8 <= v <= 0x39u8  # 0-9
 }
 
 routine letter8.is_alphanumeric(me: letter8) -> bool {
@@ -42,100 +60,123 @@ routine letter8.is_alphanumeric(me: letter8) -> bool {
 }
 
 routine letter8.is_uppercase(me: letter8) -> bool {
-    let cp = me.codepoint()
-    return cp >= 0x41 and cp <= 0x5A  # A-Z
+    let v = me.value
+    return 0x41u8 <= v <= 0x5Au8  # A-Z
 }
 
 routine letter8.is_lowercase(me: letter8) -> bool {
-    let cp = me.codepoint()
-    return cp >= 0x61 and cp <= 0x7A  # a-z
+    let v = me.value
+    return 0x61u8 <= v <= 0x7Au8  # a-z
 }
 
 routine letter8.is_whitespace(me: letter8) -> bool {
-    let cp = me.codepoint()
-    return cp == 0x20 or    # Space
-           cp == 0x09 or    # Tab
-           cp == 0x0A or    # Line feed
-           cp == 0x0D or    # Carriage return
-           cp == 0x0C       # Form feed
+    let v = me.value
+    return v == 0x20 or    # Space
+           v == 0x09 or    # Tab
+           v == 0x0A or    # Line feed
+           v == 0x0D or    # Carriage return
+           v == 0x0C       # Form feed
 }
 
 routine letter8.is_control(me: letter8) -> bool {
-    let cp = me.codepoint()
-    return (cp <= 0x1F) or cp == 0x7F
+    let v = me.value
+    return v <= 0x1F or v == 0x7F
 }
 
-# Case conversions
 routine letter8.to_uppercase(me: letter8) -> letter8 {
-    when (me.is_lowercase()) {
-        true => return letter8(codepoint: me.codepoint() - 32),
-        false => return me
+    if me.is_lowercase() {
+        return letter8(value: me.value - 32u8)
     }
+    return me
 }
 
 routine letter8.to_lowercase(me: letter8) -> letter8 {
-    when (me.is_uppercase()) {
-        true => return letter8(codepoint: me.codepoint() + 32),
-        false => return me
+    if me.is_uppercase() {
+        return letter8(value: me.value + 32u8)
+    }
+    return me
+}
+
+# ============================================================================
+# UTF-8 specific methods
+# ============================================================================
+
+# Check if this byte is a UTF-8 lead byte (starts a multi-byte sequence)
+routine letter8.is_lead_byte(me: letter8) -> bool {
+    let v = me.value
+    return v < 0x80u8 or (0xC2u8 <= v <= 0xF4u8)
+}
+
+# Check if this byte is a UTF-8 continuation byte
+routine letter8.is_continuation_byte(me: letter8) -> bool {
+    let v = me.value
+    return (v & 0xC0) == 0x80  # 10xxxxxx pattern
+}
+
+# Get the number of bytes in the UTF-8 sequence starting with this byte
+# Returns 0 if this is not a valid lead byte
+routine letter8.sequence_length(me: letter8) -> u8 {
+    let v = me.value
+    when true {
+        v < 0x80 => return 1u8,           # ASCII
+        v < 0xC2 => return 0u8,           # Invalid lead byte
+        v < 0xE0 => return 2u8,           # 2-byte sequence
+        v < 0xF0 => return 3u8,           # 3-byte sequence
+        v <= 0xF4 => return 4u8,          # 4-byte sequence
+        _ => return 0u8                    # Invalid
     }
 }
 
+# ============================================================================
 # Comparison operations
-routine letter8.eq(me: letter8, other: letter8) -> bool {
-    return me.codepoint() == other.codepoint()
+# ============================================================================
+
+routine letter8.__eq__(me: letter8, other: letter8) -> bool {
+    return me.value == other.value
 }
 
-routine letter8.ne(me: letter8, other: letter8) -> bool {
-    return me.codepoint() != other.codepoint()
+routine letter8.__ne__(me: letter8, other: letter8) -> bool {
+    return me.value != other.value
 }
 
-routine letter8.lt(me: letter8, other: letter8) -> bool {
-    return me.codepoint() < other.codepoint()
+routine letter8.__lt__(me: letter8, other: letter8) -> bool {
+    return me.value < other.value
 }
 
-routine letter8.le(me: letter8, other: letter8) -> bool {
-    return me.codepoint() <= other.codepoint()
+routine letter8.__le__(me: letter8, other: letter8) -> bool {
+    return me.value <= other.value
 }
 
-routine letter8.gt(me: letter8, other: letter8) -> bool {
-    return me.codepoint() > other.codepoint()
+routine letter8.__gt__(me: letter8, other: letter8) -> bool {
+    return me.value > other.value
 }
 
-routine letter8.ge(me: letter8, other: letter8) -> bool {
-    return me.codepoint() >= other.codepoint()
+routine letter8.__ge__(me: letter8, other: letter8) -> bool {
+    return me.value >= other.value
 }
 
+# ============================================================================
 # Type conversions
-routine letter32(from_letter8: letter8) -> letter32 {
-    # Extend to full Unicode letter32
-    return letter32(codepoint: from_letter8.codepoint() as u32)
+# ============================================================================
+
+routine letter8.to_u8(me: letter8) -> u8 {
+    return me.value
 }
 
-routine letter16(from_letter8: letter8) -> letter16 {
-    # Extend to 16-bit letter
-    return letter16(codepoint: from_letter8.codepoint() as u16)
+routine letter8.to_letter16(me: letter8) -> letter16 {
+    # Only valid for ASCII range
+    return letter16(codepoint: u16(me.value))
 }
 
-routine u8(from_letter8: letter8) -> u8 {
-    return from_letter8.codepoint()
+routine letter8.to_letter32(me: letter8) -> letter32 {
+    # Only valid for ASCII range - for multi-byte UTF-8, use Text conversion
+    return letter32(codepoint: u32(me.value))
 }
 
-routine s8(from_letter8: letter8) -> s8 {
-    return from_letter8.codepoint() as s8
-}
+# ============================================================================
+# Utility methods
+# ============================================================================
 
-# Text conversion
-routine Text8(from_letter8: letter8) -> Text8 {
-    # Convert single ASCII character to Text8 string
-    return ""  # Placeholder - would create single-char ASCII string
-}
-
-routine letter8(from_text8: Text8) -> letter8 {
-    # Extract first character from Text8 string
-    return LETTER8_NULL  # Placeholder - would extract first ASCII char
-}
-
-# Utility routines
 routine letter8.is_digit(me: letter8) -> bool {
     return me.is_numeric()
 }
@@ -145,30 +186,39 @@ routine letter8.is_letter(me: letter8) -> bool {
 }
 
 routine letter8.digit_value(me: letter8) -> s8 {
-    when (me.is_numeric()) {
-        true => return (me.codepoint() - 0x30) as s8,
-        false => return -1
+    if me.is_numeric() {
+        return s8(me.value - 0x30u8)
     }
+    return -1s8
 }
 
 routine letter8.is_printable(me: letter8) -> bool {
-    let cp = me.codepoint()
-    return cp >= 0x20 and cp <= 0x7E  # Printable ASCII range
+    let v = me.value
+    return 0x20u8 <= v <= 0x7Eu8
 }
 
 routine letter8.is_hex_digit(me: letter8) -> bool {
-    let cp = me.codepoint()
-    return (cp >= 0x30 and cp <= 0x39) or    # 0-9
-           (cp >= 0x41 and cp <= 0x46) or    # A-F
-           (cp >= 0x61 and cp <= 0x66)       # a-f
+    let v = me.value
+    return (0x30u8 <= v <= 0x39u8) or    # 0-9
+           (0x41u8 <= v <= 0x46u8) or    # A-F
+           (0x61u8 <= v <= 0x66u8)       # a-f
 }
 
 routine letter8.hex_value(me: letter8) -> s8 {
-    let cp = me.codepoint()
-    when {
-        cp >= 0x30 and cp <= 0x39 => return (cp - 0x30) as s8,  # 0-9
-        cp >= 0x41 and cp <= 0x46 => return (cp - 0x37) as s8,  # A-F
-        cp >= 0x61 and cp <= 0x66 => return (cp - 0x57) as s8,  # a-f
-        _ => return -1
+    let v = me.value
+    when true {
+        0x30u8 <= v <= 0x39u8 => return s8(v - 0x30u8),  # 0-9
+        0x41u8 <= v <= 0x46u8 => return s8(v - 0x37u8),  # A-F (10-15)
+        0x61u8 <= v <= 0x66u8 => return s8(v - 0x57u8),  # a-f (10-15)
+        _ => return -1s8
     }
+}
+
+# ============================================================================
+# Codepoint offset
+# ============================================================================
+
+routine letter8.offset!<I: Integral>(me: letter8, delta: I) -> letter8 {
+    let new_value = saddr(me.value) + delta.to_saddr()
+    return letter8(value: u8(new_value))
 }

@@ -10,6 +10,7 @@ public partial class SemanticAnalyzer
 {
     private bool IsValidType(string typeName)
     {
+        // TODO: Remove hardcoded list of types and replace with loading from files.
         return typeName switch
         {
             "s8" or "s16" or "s32" or "s64" or "s128" or "saddr" or "u8" or "u16" or "u32" or "u64"
@@ -21,6 +22,7 @@ public partial class SemanticAnalyzer
 
     private bool IsValidConversion(string sourceType, string targetType)
     {
+        // TODO: Determine valid conversions based on constructors.
         // For now, allow all conversions between numeric types
         // In a production compiler, this would have more sophisticated rules
         return IsNumericType(typeName: sourceType) && IsNumericType(typeName: targetType);
@@ -638,9 +640,9 @@ public partial class SemanticAnalyzer
                         Visibility: VisibilityModifier.Private);
                     _symbolTable.TryDeclare(symbol: patternVar);
 
-                    // CRITICAL: Check if this is a fallible lock token (from try_seize/check_seize/try_observe/check_observe)
-                    // These return Maybe<Seized<T>>, Result<Seized<T>, E>, Maybe<Observed<T>>, or Result<Observed<T>, E>
-                    // The inner token (Seized/Observed) is scoped and cannot escape
+                    // CRITICAL: Check if this is a fallible lock token (from try_seize/check_seize/try_inspect/check_inspect)
+                    // These return Maybe<Seized<T>>, Result<Seized<T>, E>, Maybe<Inspected<T>>, or Result<Inspected<T>, E>
+                    // The inner token (Seized/Inspected) is scoped and cannot escape
                     if (IsFallibleLockToken(type: expressionType))
                     {
                         // Register the pattern variable as a scoped token
@@ -866,8 +868,30 @@ public partial class SemanticAnalyzer
             "uaddr",
             "DynamicSlice",
             "TemporarySlice",
-            "Snatched" // C FFI pointer type
-            // cstr and cwstr are now stdlib record types, not built-in
+            "Snatched", // C FFI pointer type
+            // C FFI types for external function declarations
+            "cchar",
+            "cschar",
+            "cuchar",
+            "cwchar",
+            "cchar8",
+            "cchar16",
+            "cchar32",
+            "cshort",
+            "cushort",
+            "cint",
+            "cuint",
+            "clong",
+            "culong",
+            "cll",
+            "cull",
+            "cfloat",
+            "cdouble",
+            "csptr",
+            "cuptr",
+            "cvoid",
+            "cbool",
+            "cstr" // C null-terminated string pointer
         };
 
         return builtInTypes.Contains(value: typeName);

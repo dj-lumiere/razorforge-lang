@@ -77,7 +77,10 @@ public class RazorForgeCompilerService : IRazorForgeCompilerService
                 Errors = new List<SemanticError>
                 {
                     new(Message: $"Compilation failed: {ex.Message}",
-                        Location: new SourceLocation(Line: 0, Column: 0, Position: 0))
+                        Location: new SourceLocation(FileName: "",
+                            Line: 0,
+                            Column: 0,
+                            Position: 0))
                 },
                 IsValid = false
             };
@@ -133,8 +136,9 @@ public class RazorForgeCompilerService : IRazorForgeCompilerService
             if (result.SymbolsByLine.TryGetValue(key: line, value: out List<Symbol>? symbols))
             {
                 // Find symbol at or near the column
-                Symbol? symbol =
-                    symbols.FirstOrDefault(); // Simplified - would need better position matching
+                Symbol?
+                    symbol = symbols
+                       .FirstOrDefault(); // Simplified - would need better position matching
 
                 if (symbol != null)
                 {
@@ -214,7 +218,7 @@ public class RazorForgeCompilerService : IRazorForgeCompilerService
 
                     break;
 
-                case ClassDeclaration cls:
+                case EntityDeclaration cls:
                     symbols.Add(item: new Symbol
                     {
                         Name = cls.Name,
@@ -225,7 +229,7 @@ public class RazorForgeCompilerService : IRazorForgeCompilerService
                     });
                     break;
 
-                case StructDeclaration str:
+                case RecordDeclaration str:
                     symbols.Add(item: new Symbol
                     {
                         Name = str.Name,

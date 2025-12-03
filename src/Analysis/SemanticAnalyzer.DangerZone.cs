@@ -3,7 +3,7 @@ using Compilers.Shared.AST;
 namespace Compilers.Shared.Analysis;
 
 /// <summary>
-/// Partial class containing danger!/mayhem! block handling and intrinsic validation.
+/// Partial class containing danger! block handling and intrinsic validation.
 /// </summary>
 public partial class SemanticAnalyzer
 {
@@ -41,50 +41,19 @@ public partial class SemanticAnalyzer
         return null;
     }
 
-    /// <summary>
-    /// Visits a mayhem! block that disables all safety checks.
-    /// Tracks mayhem mode state for validation.
-    /// </summary>
-    /// <param name="node">Mayhem statement node</param>
-    /// <returns>Null</returns>
-    public object? VisitMayhemStatement(MayhemStatement node)
-    {
-        // Save current mayhem mode state
-        bool previousMayhemMode = _isInMayhemMode;
-
-        try
-        {
-            // Enable mayhem mode for this block
-            _isInMayhemMode = true;
-
-            // Create new scope for variables declared in mayhem block
-            _symbolTable.EnterScope();
-
-            // Process the mayhem block body with maximum permissions
-            node.Body.Accept(visitor: this);
-        }
-        finally
-        {
-            // Exit the mayhem block scope
-            _symbolTable.ExitScope();
-
-            // Restore previous mayhem mode
-            _isInMayhemMode = previousMayhemMode;
-        }
-
-        return null;
-    }
-
     public object? VisitIntrinsicCallExpression(IntrinsicCallExpression node)
     {
-        // Intrinsics can only be used inside danger! blocks
-        if (!_isInDangerMode)
+        // Check if this is a safe intrinsic (can be used outside danger blocks)
+        bool isSafeIntrinsic = IsSafeIntrinsic(intrinsicName: node.IntrinsicName);
+
+        // Unsafe intrinsics can only be used inside danger! blocks
+        if (!isSafeIntrinsic && !_isInDangerMode)
         {
             AddError(
                 message:
                 $"Intrinsic '{node.IntrinsicName}' can only be used inside danger! blocks",
                 location: node.Location);
-            return null;
+            return SetResolvedType(node, null);
         }
 
         // Visit arguments for type checking
@@ -93,9 +62,99 @@ public partial class SemanticAnalyzer
             arg.Accept(visitor: this);
         }
 
-        // For now, return a generic type - intrinsics will be validated in codegen
-        // We could add more sophisticated type checking here based on the intrinsic name
-        return new TypeInfo(Name: "intrinsic_result", IsReference: false);
+        // Return appropriate type based on intrinsic
+        var resultType = GetIntrinsicReturnType(node: node);
+        return SetResolvedType(node, resultType);
+    }
+
+    /// <summary>
+    /// Checks if an intrinsic is safe to use outside danger blocks.
+    /// Safe intrinsics are compile-time operations that don't perform unsafe memory access.
+    /// </summary>
+    private static bool IsSafeIntrinsic(string intrinsicName)
+    {
+        return intrinsicName switch
+        {
+            // sizeof is a compile-time constant - no unsafe operations
+            "sizeof" => true,
+            // alignof is also compile-time
+            "alignof" => true,
+            // All other intrinsics require danger blocks
+            _ => false
+        };
+    }
+
+    /// <summary>
+    /// Returns the appropriate type for an intrinsic call.
+    /// </summary>
+    private TypeInfo GetIntrinsicReturnType(IntrinsicCallExpression node)
+    {
+        return node.IntrinsicName switch
+        {
+            // sizeof returns uaddr (size type)
+            "sizeof" => GetPrimitiveTypeInfo("uaddr"),
+            // alignof returns uaddr (alignment value)
+            "alignof" => GetPrimitiveTypeInfo("uaddr"),
+            // load returns the type argument
+            "load" or "volatile_load" or "atomic.load" =>
+                node.TypeArguments.Count > 0
+                    ? GetTypeInfoForName(node.TypeArguments[0])
+                    : new TypeInfo(Name: "unknown", IsReference: false),
+            // store, volatile_store return void
+            "store" or "volatile_store" or "atomic.store" =>
+                new TypeInfo(Name: "void", IsReference: false),
+            // bitcast returns the second type argument
+            "bitcast" =>
+                node.TypeArguments.Count > 1
+                    ? GetTypeInfoForName(node.TypeArguments[1])
+                    : new TypeInfo(Name: "unknown", IsReference: false),
+            // Arithmetic intrinsics return the type argument
+            "add.wrapping" or "sub.wrapping" or "mul.wrapping" or "div.wrapping" or "rem.wrapping"
+                or "add.saturating" or "sub.saturating" =>
+                node.TypeArguments.Count > 0
+                    ? GetTypeInfoForName(node.TypeArguments[0])
+                    : new TypeInfo(Name: "unknown", IsReference: false),
+            // Comparison intrinsics return bool
+            var name when name.StartsWith("icmp.") || name.StartsWith("fcmp.") =>
+                GetPrimitiveTypeInfo("bool"),
+            // Bitwise intrinsics return the type argument
+            "and" or "or" or "xor" or "not" or "shl" or "lshr" or "ashr" =>
+                node.TypeArguments.Count > 0
+                    ? GetTypeInfoForName(node.TypeArguments[0])
+                    : new TypeInfo(Name: "unknown", IsReference: false),
+            // Type conversion intrinsics return the target type
+            "trunc" or "zext" or "sext" or "fptrunc" or "fpext"
+                or "fptoui" or "fptosi" or "uitofp" or "sitofp" =>
+                node.TypeArguments.Count > 1
+                    ? GetTypeInfoForName(node.TypeArguments[1])
+                    : new TypeInfo(Name: "unknown", IsReference: false),
+            // Math intrinsics return the type argument
+            "sqrt" or "abs" or "fabs" or "copysign" or "floor" or "ceil"
+                or "trunc_float" or "round" or "pow" or "exp" or "log" or "log10"
+                or "sin" or "cos" =>
+                node.TypeArguments.Count > 0
+                    ? GetTypeInfoForName(node.TypeArguments[0])
+                    : GetPrimitiveTypeInfo("f64"),
+            // Bit manipulation intrinsics
+            "ctpop" or "ctlz" or "cttz" =>
+                GetPrimitiveTypeInfo("u32"),
+            "bswap" or "bitreverse" =>
+                node.TypeArguments.Count > 0
+                    ? GetTypeInfoForName(node.TypeArguments[0])
+                    : new TypeInfo(Name: "unknown", IsReference: false),
+            // Default: return generic result type
+            _ => new TypeInfo(Name: "intrinsic_result", IsReference: false)
+        };
+    }
+
+    /// <summary>
+    /// Gets TypeInfo for a type name, using primitive type factory for known types.
+    /// </summary>
+    private TypeInfo GetTypeInfoForName(string typeName)
+    {
+        return PrimitiveTypes.IsPrimitive(typeName)
+            ? GetPrimitiveTypeInfo(typeName)
+            : new TypeInfo(Name: typeName, IsReference: false);
     }
 
     public object? VisitNativeCallExpression(NativeCallExpression node)
@@ -107,7 +166,7 @@ public partial class SemanticAnalyzer
                 message:
                 $"Native call '@native.{node.FunctionName}' can only be used inside danger! blocks",
                 location: node.Location);
-            return null;
+            return SetResolvedType(node, null);
         }
 
         // Visit arguments for type checking
@@ -118,7 +177,7 @@ public partial class SemanticAnalyzer
 
         // Native calls return uaddr by default (pointer-sized value)
         // The actual return type depends on the native function signature
-        return new TypeInfo(Name: "uaddr", IsReference: false);
+        return SetResolvedType(node, GetPrimitiveTypeInfo("uaddr"));
     }
 
     /// <summary>
@@ -145,6 +204,31 @@ public partial class SemanticAnalyzer
         if (!_symbolTable.TryDeclare(symbol: functionSymbol))
         {
             AddError(message: $"External function '{node.Name}' is already declared",
+                location: node.Location);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Visits a preset declaration for compile-time constants.
+    /// Registers preset constants in the symbol table.
+    /// </summary>
+    /// <param name="node">Preset declaration node</param>
+    /// <returns>Null</returns>
+    public object? VisitPresetDeclaration(PresetDeclaration node)
+    {
+        // Create variable symbol for preset declaration (treated as immutable constant)
+        TypeInfo typeInfo = new TypeInfo(Name: node.Type.Name, IsReference: false);
+
+        var symbol = new VariableSymbol(Name: node.Name,
+            Type: typeInfo,
+            IsMutable: false,
+            Visibility: VisibilityModifier.Private);
+
+        if (!_symbolTable.TryDeclare(symbol: symbol))
+        {
+            AddError(message: $"Preset constant '{node.Name}' is already declared",
                 location: node.Location);
         }
 
@@ -590,7 +674,7 @@ public partial class SemanticAnalyzer
 
     private bool IsInDangerBlock()
     {
-        // Use the tracked danger/mayhem mode state
-        return _isInDangerMode || _isInMayhemMode;
+        // Use the tracked danger mode state
+        return _isInDangerMode;
     }
 }

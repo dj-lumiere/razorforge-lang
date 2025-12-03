@@ -47,10 +47,7 @@ public partial class LLVMCodeGenerator
             customMessage ?? GetDefaultErrorMessage(errorTypeName: errorTypeName);
 
         // Create string constants for error type and message
-        if (_stringConstants == null)
-        {
-            _stringConstants = new List<string>();
-        }
+        _stringConstants ??= [];
 
         string errorTypeConst = $"@.str_errtype{_tempCounter++}";
         int typeLen = errorTypeName.Length + 1;
@@ -89,86 +86,94 @@ public partial class LLVMCodeGenerator
     /// </summary>
     private bool TryGenerateDynamicThrow(string errorTypeName, CallExpression callExpr)
     {
-        // Handle IndexOutOfBoundsError(index: X, count: Y)
-        if (errorTypeName == "IndexOutOfBoundsError")
+        switch (errorTypeName)
         {
-            Expression? indexArg = GetNamedArgument(arguments: callExpr.Arguments, name: "index");
-            Expression? countArg = GetNamedArgument(arguments: callExpr.Arguments, name: "count");
-
-            if (indexArg != null && countArg != null)
+            // Handle IndexOutOfBoundsError(index: X, count: Y)
+            case "IndexOutOfBoundsError":
             {
-                string indexVal = indexArg.Accept(visitor: this);
-                string countVal = countArg.Accept(visitor: this);
+                Expression? indexArg =
+                    GetNamedArgument(arguments: callExpr.Arguments, name: "index");
+                Expression? countArg =
+                    GetNamedArgument(arguments: callExpr.Arguments, name: "count");
 
-                // Call runtime function: __rf_throw_index_out_of_bounds(index, count)
-                _output.AppendLine(
-                    value:
-                    $"  call void @__rf_throw_index_out_of_bounds(i32 {indexVal}, i32 {countVal})");
+                if (indexArg != null && countArg != null)
+                {
+                    string indexVal = indexArg.Accept(visitor: this);
+                    string countVal = countArg.Accept(visitor: this);
+
+                    // Call runtime function: __rf_throw_index_out_of_bounds(index, count)
+                    _output.AppendLine(
+                        value:
+                        $"  call void @__rf_throw_index_out_of_bounds(i32 {indexVal}, i32 {countVal})");
+                    _output.AppendLine(value: "  unreachable");
+                    return true;
+                }
+
+                break;
+            }
+            // Handle IntegerOverflowError(message: "...")
+            case "IntegerOverflowError":
+            {
+                Expression? msgArg =
+                    GetNamedArgument(arguments: callExpr.Arguments, name: "message");
+                if (msgArg is LiteralExpression literal && literal.Value is string msg)
+                {
+                    // Create string constant and call runtime
+                    string msgConst = $"@.str_overflow_msg{_tempCounter++}";
+                    int msgLen = msg.Length + 1;
+                    string escapedMsg = msg.Replace(oldValue: "\\", newValue: "\\5C")
+                                           .Replace(oldValue: "\"", newValue: "\\22");
+                    _stringConstants ??= new List<string>();
+                    _stringConstants.Add(
+                        item:
+                        $"{msgConst} = private unnamed_addr constant [{msgLen} x i8] c\"{escapedMsg}\\00\", align 1");
+
+                    string msgPtr = GetNextTemp();
+                    _output.AppendLine(
+                        value:
+                        $"  {msgPtr} = getelementptr [{msgLen} x i8], [{msgLen} x i8]* {msgConst}, i32 0, i32 0");
+                    _output.AppendLine(
+                        value: $"  call void @__rf_throw_integer_overflow(i8* {msgPtr})");
+                    _output.AppendLine(value: "  unreachable");
+                    return true;
+                }
+
+                break;
+            }
+            // Handle EmptyCollectionError(operation: "...")
+            case "EmptyCollectionError":
+            {
+                Expression? opArg =
+                    GetNamedArgument(arguments: callExpr.Arguments, name: "operation");
+                if (opArg is LiteralExpression literal && literal.Value is string op)
+                {
+                    // Create string constant and call runtime
+                    string opConst = $"@.str_empty_op{_tempCounter++}";
+                    int opLen = op.Length + 1;
+                    string escapedOp = op.Replace(oldValue: "\\", newValue: "\\5C")
+                                         .Replace(oldValue: "\"", newValue: "\\22");
+                    _stringConstants ??= new List<string>();
+                    _stringConstants.Add(
+                        item:
+                        $"{opConst} = private unnamed_addr constant [{opLen} x i8] c\"{escapedOp}\\00\", align 1");
+
+                    string opPtr = GetNextTemp();
+                    _output.AppendLine(
+                        value:
+                        $"  {opPtr} = getelementptr [{opLen} x i8], [{opLen} x i8]* {opConst}, i32 0, i32 0");
+                    _output.AppendLine(
+                        value: $"  call void @__rf_throw_empty_collection(i8* {opPtr})");
+                    _output.AppendLine(value: "  unreachable");
+                    return true;
+                }
+
+                break;
+            }
+            // Handle ElementNotFoundError (no fields)
+            case "ElementNotFoundError":
+                _output.AppendLine(value: "  call void @__rf_throw_element_not_found()");
                 _output.AppendLine(value: "  unreachable");
                 return true;
-            }
-        }
-
-        // Handle IntegerOverflowError(message: "...")
-        if (errorTypeName == "IntegerOverflowError")
-        {
-            Expression? msgArg = GetNamedArgument(arguments: callExpr.Arguments, name: "message");
-            if (msgArg is LiteralExpression literal && literal.Value is string msg)
-            {
-                // Create string constant and call runtime
-                string msgConst = $"@.str_overflow_msg{_tempCounter++}";
-                int msgLen = msg.Length + 1;
-                string escapedMsg = msg.Replace(oldValue: "\\", newValue: "\\5C")
-                                       .Replace(oldValue: "\"", newValue: "\\22");
-                _stringConstants ??= new List<string>();
-                _stringConstants.Add(
-                    item:
-                    $"{msgConst} = private unnamed_addr constant [{msgLen} x i8] c\"{escapedMsg}\\00\", align 1");
-
-                string msgPtr = GetNextTemp();
-                _output.AppendLine(
-                    value:
-                    $"  {msgPtr} = getelementptr [{msgLen} x i8], [{msgLen} x i8]* {msgConst}, i32 0, i32 0");
-                _output.AppendLine(
-                    value: $"  call void @__rf_throw_integer_overflow(i8* {msgPtr})");
-                _output.AppendLine(value: "  unreachable");
-                return true;
-            }
-        }
-
-        // Handle EmptyCollectionError(operation: "...")
-        if (errorTypeName == "EmptyCollectionError")
-        {
-            Expression? opArg = GetNamedArgument(arguments: callExpr.Arguments, name: "operation");
-            if (opArg is LiteralExpression literal && literal.Value is string op)
-            {
-                // Create string constant and call runtime
-                string opConst = $"@.str_empty_op{_tempCounter++}";
-                int opLen = op.Length + 1;
-                string escapedOp = op.Replace(oldValue: "\\", newValue: "\\5C")
-                                     .Replace(oldValue: "\"", newValue: "\\22");
-                _stringConstants ??= new List<string>();
-                _stringConstants.Add(
-                    item:
-                    $"{opConst} = private unnamed_addr constant [{opLen} x i8] c\"{escapedOp}\\00\", align 1");
-
-                string opPtr = GetNextTemp();
-                _output.AppendLine(
-                    value:
-                    $"  {opPtr} = getelementptr [{opLen} x i8], [{opLen} x i8]* {opConst}, i32 0, i32 0");
-                _output.AppendLine(
-                    value: $"  call void @__rf_throw_empty_collection(i8* {opPtr})");
-                _output.AppendLine(value: "  unreachable");
-                return true;
-            }
-        }
-
-        // Handle ElementNotFoundError (no fields)
-        if (errorTypeName == "ElementNotFoundError")
-        {
-            _output.AppendLine(value: "  call void @__rf_throw_element_not_found()");
-            _output.AppendLine(value: "  unreachable");
-            return true;
         }
 
         return false;
@@ -201,6 +206,7 @@ public partial class LLVMCodeGenerator
     /// </summary>
     private bool IsCrashableErrorType(string typeName)
     {
+        // TODO: Do not hardcode list of known error types and instead judge the type that follows protocol Crashable.
         return typeName switch
         {
             "DivisionByZeroError" or "IntegerOverflowError" or "IndexOutOfBoundsError"
@@ -235,7 +241,7 @@ public partial class LLVMCodeGenerator
         _output.AppendLine(
             handler:
             $"  {resultTemp} = getelementptr [{msgLen} x i8], [{msgLen} x i8]* {msgConst}, i32 0, i32 0");
-        _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "i8*",
+        _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: "i8*",
             IsUnsigned: false,
             IsFloatingPoint: false,
             RazorForgeType: "text");
@@ -268,6 +274,17 @@ public partial class LLVMCodeGenerator
         return "";
     }
 
+    /// <summary>
+    /// Visits a pass statement (empty placeholder).
+    /// Generates a no-op in LLVM IR.
+    /// </summary>
+    public string VisitPassStatement(PassStatement node)
+    {
+        // Pass is a no-op - just add a comment
+        _output.AppendLine($"  ; pass (no-op)");
+        return "";
+    }
+
     public string VisitWhenStatement(WhenStatement node)
     {
         // Check if this is a standalone when (no subject expression, just guards)
@@ -288,39 +305,45 @@ public partial class LLVMCodeGenerator
                     ? GetNextLabel()
                     : endLabel;
 
-                if (clause.Pattern is WildcardPattern)
+                switch (clause.Pattern)
                 {
-                    // Wildcard pattern - always matches (default case)
-                    clause.Body.Accept(visitor: this);
-                    _output.AppendLine(value: $"  br label %{endLabel}");
-                }
-                else if (clause.Pattern is ExpressionPattern exprPat)
-                {
-                    // Expression pattern - evaluate the boolean condition
-                    string condResult = exprPat.Expression.Accept(visitor: this);
-                    string thenLabel = GetNextLabel();
-
-                    // Convert to i1 if needed (non-zero = true)
-                    string condBool = GetNextTemp();
-                    _output.AppendLine(value: $"  {condBool} = icmp ne i32 {condResult}, 0");
-                    _output.AppendLine(
-                        value: $"  br i1 {condBool}, label %{thenLabel}, label %{nextLabel}");
-
-                    _output.AppendLine(value: $"{thenLabel}:");
-                    clause.Body.Accept(visitor: this);
-                    _output.AppendLine(value: $"  br label %{endLabel}");
-
-                    if (idx < node.Clauses.Count - 1)
+                    case WildcardPattern:
+                        // Wildcard pattern - always matches (default case)
+                        clause.Body.Accept(visitor: this);
+                        _output.AppendLine(value: $"  br label %{endLabel}");
+                        break;
+                    case ExpressionPattern exprPat:
                     {
-                        _output.AppendLine(value: $"{nextLabel}:");
+                        // Expression pattern - evaluate the boolean condition
+                        string condResult = exprPat.Expression.Accept(visitor: this);
+                        string thenLabel = GetNextLabel();
+
+                        // Convert to i1 if needed (non-zero = true)
+                        string condBool = GetNextTemp();
+                        _output.AppendLine(value: $"  {condBool} = icmp ne i32 {condResult}, 0");
+                        _output.AppendLine(
+                            value: $"  br i1 {condBool}, label %{thenLabel}, label %{nextLabel}");
+
+                        _output.AppendLine(value: $"{thenLabel}:");
+                        clause.Body.Accept(visitor: this);
+                        _output.AppendLine(value: $"  br label %{endLabel}");
+
+                        if (idx < node.Clauses.Count - 1)
+                        {
+                            _output.AppendLine(value: $"{nextLabel}:");
+                        }
+
+                        break;
                     }
-                }
-                else
-                {
-                    // Unknown pattern type in standalone when - skip
-                    if (idx < node.Clauses.Count - 1)
+                    default:
                     {
-                        _output.AppendLine(value: $"{nextLabel}:");
+                        // Unknown pattern type in standalone when - skip
+                        if (idx < node.Clauses.Count - 1)
+                        {
+                            _output.AppendLine(value: $"{nextLabel}:");
+                        }
+
+                        break;
                     }
                 }
             }
@@ -329,7 +352,7 @@ public partial class LLVMCodeGenerator
         {
             // When with subject: when expr { value1 => body1, value2 => body2, _ => default }
             string subjectValue = node.Expression.Accept(visitor: this);
-            TypeInfo subjectType = GetTypeInfo(expr: node.Expression);
+            LLVMTypeInfo subjectType = GetTypeInfo(expr: node.Expression);
 
             for (int idx = 0; idx < node.Clauses.Count; idx++)
             {
@@ -338,60 +361,68 @@ public partial class LLVMCodeGenerator
                     ? GetNextLabel()
                     : endLabel;
 
-                if (clause.Pattern is WildcardPattern)
+                switch (clause.Pattern)
                 {
-                    // Wildcard pattern - always matches (default case)
-                    clause.Body.Accept(visitor: this);
-                    _output.AppendLine(value: $"  br label %{endLabel}");
-                }
-                else if (clause.Pattern is LiteralPattern litPat)
-                {
-                    // Literal pattern - compare subject to literal value
-                    string litValue = litPat.Value.ToString() ?? "0";
-                    string cmpResult = GetNextTemp();
-                    string thenLabel = GetNextLabel();
-
-                    _output.AppendLine(
-                        value:
-                        $"  {cmpResult} = icmp eq {subjectType.LLVMType} {subjectValue}, {litValue}");
-                    _output.AppendLine(
-                        value: $"  br i1 {cmpResult}, label %{thenLabel}, label %{nextLabel}");
-
-                    _output.AppendLine(value: $"{thenLabel}:");
-                    clause.Body.Accept(visitor: this);
-                    _output.AppendLine(value: $"  br label %{endLabel}");
-
-                    if (idx < node.Clauses.Count - 1)
+                    case WildcardPattern:
+                        // Wildcard pattern - always matches (default case)
+                        clause.Body.Accept(visitor: this);
+                        _output.AppendLine(value: $"  br label %{endLabel}");
+                        break;
+                    case LiteralPattern litPat:
                     {
-                        _output.AppendLine(value: $"{nextLabel}:");
+                        // Literal pattern - compare subject to literal value
+                        string litValue = litPat.Value.ToString() ?? "0";
+                        string cmpResult = GetNextTemp();
+                        string thenLabel = GetNextLabel();
+
+                        _output.AppendLine(
+                            value:
+                            $"  {cmpResult} = icmp eq {subjectType.LLVMType} {subjectValue}, {litValue}");
+                        _output.AppendLine(
+                            value: $"  br i1 {cmpResult}, label %{thenLabel}, label %{nextLabel}");
+
+                        _output.AppendLine(value: $"{thenLabel}:");
+                        clause.Body.Accept(visitor: this);
+                        _output.AppendLine(value: $"  br label %{endLabel}");
+
+                        if (idx < node.Clauses.Count - 1)
+                        {
+                            _output.AppendLine(value: $"{nextLabel}:");
+                        }
+
+                        break;
                     }
-                }
-                else if (clause.Pattern is IdentifierPattern idPat)
-                {
-                    // Identifier pattern - bind the subject to a variable and execute body
-                    // This is like a default case that captures the value
-                    string varPtr = $"%{idPat.Name}";
-                    _output.AppendLine(value: $"  {varPtr} = alloca {subjectType.LLVMType}");
-                    _output.AppendLine(
-                        value:
-                        $"  store {subjectType.LLVMType} {subjectValue}, {subjectType.LLVMType}* {varPtr}");
-                    _symbolTypes[key: idPat.Name] = subjectType.LLVMType;
-
-                    clause.Body.Accept(visitor: this);
-                    _output.AppendLine(value: $"  br label %{endLabel}");
-
-                    if (idx < node.Clauses.Count - 1)
+                    case IdentifierPattern idPat:
                     {
-                        _output.AppendLine(value: $"{nextLabel}:");
+                        // Identifier pattern - bind the subject to a variable and execute body
+                        // This is like a default case that captures the value
+                        string varPtr = $"%{idPat.Name}";
+                        _output.AppendLine(value: $"  {varPtr} = alloca {subjectType.LLVMType}");
+                        _output.AppendLine(
+                            value:
+                            $"  store {subjectType.LLVMType} {subjectValue}, ptr {varPtr}");
+                        _symbolTypes[key: idPat.Name] = subjectType.LLVMType;
+
+                        clause.Body.Accept(visitor: this);
+                        _output.AppendLine(value: $"  br label %{endLabel}");
+
+                        if (idx < node.Clauses.Count - 1)
+                        {
+                            _output.AppendLine(value: $"{nextLabel}:");
+                        }
+
+                        break;
                     }
-                }
-                else
-                {
-                    // Unknown pattern type - skip to next
-                    if (idx < node.Clauses.Count - 1)
+                    default:
                     {
-                        _output.AppendLine(value: $"  br label %{nextLabel}");
-                        _output.AppendLine(value: $"{nextLabel}:");
+                        // Unknown pattern type - skip to next
+                        if (idx < node.Clauses.Count - 1)
+                        {
+                            _output.AppendLine(value: $"  br label %{nextLabel}");
+                            _output.AppendLine(value: $"{nextLabel}:");
+                        }
+
+                        break;
                     }
                 }
             }
@@ -408,21 +439,22 @@ public partial class LLVMCodeGenerator
     {
         foreach (Expression arg in arguments)
         {
-            // Check for named argument like message: "..."
-            if (arg is NamedArgumentExpression namedArg)
+            switch (arg)
             {
-                if (namedArg.Name == "message" && namedArg.Value is LiteralExpression msgLiteral)
+                // Check for named argument like message: "..."
+                case NamedArgumentExpression namedArg:
                 {
-                    if (msgLiteral.Value is string msgStr)
+                    if (namedArg is
+                        { Name: "message", Value: LiteralExpression { Value: string msgStr } })
                     {
                         return msgStr;
                     }
+
+                    break;
                 }
-            }
-            // Check for positional string literal (first one)
-            else if (arg is LiteralExpression literal && literal.Value is string str)
-            {
-                return str;
+                // Check for positional string literal (first one)
+                case LiteralExpression { Value: string str }:
+                    return str;
             }
         }
 

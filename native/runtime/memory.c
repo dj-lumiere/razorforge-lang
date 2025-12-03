@@ -14,22 +14,6 @@ typedef uintptr_t uaddr;
 typedef size_t rf_size_t;
 
 /*
- * Stack allocation using alloca equivalent
- * In LLVM, this will be replaced with alloca instruction
- */
-uaddr stack_alloc(uaddr bytes)
-{
-    // In real implementation, this would be LLVM's alloca instruction
-    // For testing purposes, we use malloc but this should be stack allocation
-    void* ptr = malloc(bytes);
-    if (!ptr)
-    {
-        return 0;
-    }
-    return (uaddr)ptr;
-}
-
-/*
  * Heap allocation with error handling
  */
 uaddr heap_alloc(uaddr bytes)

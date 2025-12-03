@@ -1,6 +1,8 @@
 # IndexOutOfBoundsError - Error for invalid index access in collections
 # Used by List<T> and other indexed collections
 
+import Text/Text
+
 record IndexOutOfBoundsError follows Crashable {
     public index: u64
     public count: u64
@@ -11,7 +13,7 @@ record IndexOutOfBoundsError follows Crashable {
 }
 
 record EmptyCollectionError follows Crashable {
-    public operation: ValueText<letter32, 64>
+    public operation: Text<letter32>
 
     routine crash_message(me) -> Text<letter32> {
         return f"Cannot {me.operation} on empty collection"

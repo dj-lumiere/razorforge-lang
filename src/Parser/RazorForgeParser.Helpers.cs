@@ -234,6 +234,13 @@ public partial class RazorForgeParser
         {
             string name = CurrentToken.Text;
             Advance();
+
+            // Check for ! suffix (failable method marker)
+            if (Match(type: TokenType.Bang))
+            {
+                name += "!";
+            }
+
             return name;
         }
 
@@ -242,6 +249,13 @@ public partial class RazorForgeParser
         {
             string name = CurrentToken.Text;
             Advance();
+
+            // Check for ! suffix (failable method marker)
+            if (Match(type: TokenType.Bang))
+            {
+                name += "!";
+            }
+
             return name;
         }
 

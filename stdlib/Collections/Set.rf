@@ -1,0 +1,381 @@
+# RazorForge Set<T> - Hash set with separate chaining
+# Entity type with heap allocation
+# O(1) average insert, delete, contains
+# Uses hash buckets with SortedSet for collision chains
+#
+# Usage:
+#   let names = Set<Text>()
+#   names.insert("Alice")
+#   names.insert("Bob")
+#   if names.contains("Alice") { }
+#   names.remove("Bob")
+
+import Collections/List
+import Collections/SortedSet
+import errors/IndexOutOfBoundsError
+import core/Integral
+
+# Initial number of buckets
+preset SET_INITIAL_BUCKETS: uaddr = 16uaddr
+# Load factor threshold for rehashing (as percentage)
+preset SET_LOAD_FACTOR: uaddr = 75uaddr
+
+entity Set<T> {
+    private buckets: List<SortedSet<T>>
+    private count: uaddr
+}
+
+# ============================================================================
+# Constructors
+# ============================================================================
+
+routine Set<T>.__create__() -> Set<T> {
+    let set = Set<T>(
+        buckets: List<SortedSet<T>>(SET_INITIAL_BUCKETS),
+        count: 0uaddr
+    )
+    # Initialize empty buckets
+    var i = 0uaddr
+    while i < SET_INITIAL_BUCKETS {
+        set.buckets.push(SortedSet<T>())
+        i = i + 1uaddr
+    }
+    return set
+}
+
+routine Set<T>.__create__(capacity: uaddr) -> Set<T> {
+    # Calculate bucket count for desired capacity
+    let bucket_count = if capacity < SET_INITIAL_BUCKETS { SET_INITIAL_BUCKETS } else { capacity }
+    let set = Set<T>(
+        buckets: List<SortedSet<T>>(bucket_count),
+        count: 0uaddr
+    )
+    var i = 0uaddr
+    while i < bucket_count {
+        set.buckets.push(SortedSet<T>())
+        i = i + 1uaddr
+    }
+    return set
+}
+
+# ============================================================================
+# Internal Operations
+# ============================================================================
+
+routine Set<T>.bucket_index(me: Set<T>, value: T) -> uaddr {
+    # Get bucket index for value using hash
+    let hash = value.__hash__()
+    return hash % me.buckets.count()
+}
+
+routine Set<T>.should_rehash(me: Set<T>) -> bool {
+    # Check if load factor exceeds threshold
+    let load = (me.count * 100uaddr) / me.buckets.count()
+    return load > SET_LOAD_FACTOR
+}
+
+routine Set<T>.rehash(me: Set<T>) {
+    # Double the bucket count and redistribute
+    let old_buckets = me.buckets
+    let new_bucket_count = old_buckets.count() * 2uaddr
+
+    me.buckets = List<SortedSet<T>>(new_bucket_count)
+    var i = 0uaddr
+    while i < new_bucket_count {
+        me.buckets.push(SortedSet<T>())
+        i = i + 1uaddr
+    }
+    me.count = 0uaddr
+
+    # Reinsert all elements
+    i = 0uaddr
+    while i < old_buckets.count() {
+        let bucket = old_buckets[i]
+        let elements = bucket.to_list()
+        var j = 0uaddr
+        while j < elements.count() {
+            me.insert(elements[j])
+            j = j + 1uaddr
+        }
+        i = i + 1uaddr
+    }
+}
+
+# ============================================================================
+# Core Operations
+# ============================================================================
+
+routine Set<T>.count(me: Set<T>) -> uaddr {
+    return me.count
+}
+
+routine Set<T>.is_empty(me: Set<T>) -> bool {
+    return me.count == 0uaddr
+}
+
+routine Set<T>.clear(me: Set<T>) {
+    var i = 0uaddr
+    while i < me.buckets.count() {
+        me.buckets[i].clear()
+        i = i + 1uaddr
+    }
+    me.count = 0uaddr
+}
+
+routine Set<T>.contains(me: Set<T>, value: T) -> bool {
+    let idx = me.bucket_index(value)
+    return me.buckets[idx].contains(value)
+}
+
+routine Set<T>.insert(me: Set<T>, value: T) -> bool {
+    # Returns true if inserted, false if already exists
+    if me.should_rehash() {
+        me.rehash()
+    }
+
+    let idx = me.bucket_index(value)
+    if me.buckets[idx].insert(value) {
+        me.count = me.count + 1uaddr
+        return true
+    }
+    return false
+}
+
+routine Set<T>.remove(me: Set<T>, value: T) -> bool {
+    # Returns true if removed, false if not found
+    let idx = me.bucket_index(value)
+    if me.buckets[idx].remove(value) {
+        me.count = me.count - 1uaddr
+        return true
+    }
+    return false
+}
+
+# ============================================================================
+# Set Operations
+# ============================================================================
+
+routine Set<T>.union(me: Set<T>, other: Set<T>) -> Set<T> {
+    # Return new set with all elements from both
+    let result = Set<T>(me.count + other.count)
+
+    # Add all from me
+    var i = 0uaddr
+    while i < me.buckets.count() {
+        let elements = me.buckets[i].to_list()
+        var j = 0uaddr
+        while j < elements.count() {
+            result.insert(elements[j])
+            j = j + 1uaddr
+        }
+        i = i + 1uaddr
+    }
+
+    # Add all from other
+    i = 0uaddr
+    while i < other.buckets.count() {
+        let elements = other.buckets[i].to_list()
+        var j = 0uaddr
+        while j < elements.count() {
+            result.insert(elements[j])
+            j = j + 1uaddr
+        }
+        i = i + 1uaddr
+    }
+
+    return result
+}
+
+routine Set<T>.intersection(me: Set<T>, other: Set<T>) -> Set<T> {
+    # Return new set with elements in both
+    let result = Set<T>()
+
+    # Use smaller set for iteration
+    let smaller = if me.count < other.count { me } else { other }
+    let larger = if me.count < other.count { other } else { me }
+
+    var i = 0uaddr
+    while i < smaller.buckets.count() {
+        let elements = smaller.buckets[i].to_list()
+        var j = 0uaddr
+        while j < elements.count() {
+            if larger.contains(elements[j]) {
+                result.insert(elements[j])
+            }
+            j = j + 1uaddr
+        }
+        i = i + 1uaddr
+    }
+
+    return result
+}
+
+routine Set<T>.difference(me: Set<T>, other: Set<T>) -> Set<T> {
+    # Return new set with elements in me but not in other
+    let result = Set<T>()
+
+    var i = 0uaddr
+    while i < me.buckets.count() {
+        let elements = me.buckets[i].to_list()
+        var j = 0uaddr
+        while j < elements.count() {
+            if not other.contains(elements[j]) {
+                result.insert(elements[j])
+            }
+            j = j + 1uaddr
+        }
+        i = i + 1uaddr
+    }
+
+    return result
+}
+
+routine Set<T>.symmetric_difference(me: Set<T>, other: Set<T>) -> Set<T> {
+    # Return new set with elements in either but not both
+    let result = Set<T>()
+
+    # Add elements from me not in other
+    var i = 0uaddr
+    while i < me.buckets.count() {
+        let elements = me.buckets[i].to_list()
+        var j = 0uaddr
+        while j < elements.count() {
+            if not other.contains(elements[j]) {
+                result.insert(elements[j])
+            }
+            j = j + 1uaddr
+        }
+        i = i + 1uaddr
+    }
+
+    # Add elements from other not in me
+    i = 0uaddr
+    while i < other.buckets.count() {
+        let elements = other.buckets[i].to_list()
+        var j = 0uaddr
+        while j < elements.count() {
+            if not me.contains(elements[j]) {
+                result.insert(elements[j])
+            }
+            j = j + 1uaddr
+        }
+        i = i + 1uaddr
+    }
+
+    return result
+}
+
+routine Set<T>.is_subset(me: Set<T>, other: Set<T>) -> bool {
+    # Check if all elements of me are in other
+    if me.count > other.count {
+        return false
+    }
+
+    var i = 0uaddr
+    while i < me.buckets.count() {
+        let elements = me.buckets[i].to_list()
+        var j = 0uaddr
+        while j < elements.count() {
+            if not other.contains(elements[j]) {
+                return false
+            }
+            j = j + 1uaddr
+        }
+        i = i + 1uaddr
+    }
+    return true
+}
+
+routine Set<T>.is_superset(me: Set<T>, other: Set<T>) -> bool {
+    return other.is_subset(me)
+}
+
+routine Set<T>.is_disjoint(me: Set<T>, other: Set<T>) -> bool {
+    # Check if no elements in common
+    let smaller = if me.count < other.count { me } else { other }
+    let larger = if me.count < other.count { other } else { me }
+
+    var i = 0uaddr
+    while i < smaller.buckets.count() {
+        let elements = smaller.buckets[i].to_list()
+        var j = 0uaddr
+        while j < elements.count() {
+            if larger.contains(elements[j]) {
+                return false
+            }
+            j = j + 1uaddr
+        }
+        i = i + 1uaddr
+    }
+    return true
+}
+
+# ============================================================================
+# Conversion
+# ============================================================================
+
+routine Set<T>.to_list(me: Set<T>) -> List<T> {
+    let result = List<T>(me.count)
+    var i = 0uaddr
+    while i < me.buckets.count() {
+        let elements = me.buckets[i].to_list()
+        var j = 0uaddr
+        while j < elements.count() {
+            result.push(elements[j])
+            j = j + 1uaddr
+        }
+        i = i + 1uaddr
+    }
+    return result
+}
+
+# ============================================================================
+# Iteration
+# ============================================================================
+
+routine Set<T>.iter(me: Set<T>) -> SetIterator<T> {
+    return SetIterator<T>(
+        set: me,
+        bucket_idx: 0uaddr,
+        element_idx: 0uaddr,
+        current_elements: List<T>()
+    )
+}
+
+record SetIterator<T> {
+    set: Set<T>
+    bucket_idx: uaddr
+    element_idx: uaddr
+    current_elements: List<T>
+}
+
+routine SetIterator<T>.next(me: SetIterator<T>) -> T? {
+    # Advance to next non-empty bucket if needed
+    while me.element_idx >= me.current_elements.count() {
+        if me.bucket_idx >= me.set.buckets.count() {
+            return None
+        }
+        me.current_elements = me.set.buckets[me.bucket_idx].to_list()
+        me.element_idx = 0uaddr
+        me.bucket_idx = me.bucket_idx + 1uaddr
+    }
+
+    let value = me.current_elements[me.element_idx]
+    me.element_idx = me.element_idx + 1uaddr
+    return value
+}
+
+# ============================================================================
+# Comparison
+# ============================================================================
+
+routine Set<T>.__eq__(me: Set<T>, other: Set<T>) -> bool {
+    if me.count != other.count {
+        return false
+    }
+    return me.is_subset(other)
+}
+
+routine Set<T>.__ne__(me: Set<T>, other: Set<T>) -> bool {
+    return not (me == other)
+}

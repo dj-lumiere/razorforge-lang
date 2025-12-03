@@ -39,6 +39,12 @@ public partial class RazorForgeParser
                 Location: location);
         }
 
+        // MyType - self type in protocols/methods (like Self in Rust)
+        if (Match(type: TokenType.SelfType))
+        {
+            return new TypeExpression(Name: "MyType", GenericArguments: null, Location: location);
+        }
+
         // Named type (identifier or type identifier)
         if (Match(TokenType.Identifier, TokenType.TypeIdentifier))
         {
@@ -145,96 +151,182 @@ public partial class RazorForgeParser
     }
 
     /// <summary>
+    /// Parses generic parameters with optional inline constraints like &lt;T follows Integral&gt;.
+    /// Returns both the parameter names and any inline constraints found.
+    /// </summary>
+    private (List<string> genericParams, List<GenericConstraintDeclaration>? inlineConstraints)
+        ParseGenericParametersWithConstraints()
+    {
+        var genericParams = new List<string>();
+        var inlineConstraints = new List<GenericConstraintDeclaration>();
+
+        do
+        {
+            SourceLocation location = GetLocation();
+            string paramName = ConsumeIdentifier(errorMessage: "Expected generic parameter name");
+            genericParams.Add(item: paramName);
+
+            // Check for inline constraint: T follows Protocol or T: Protocol (legacy)
+            if (!Match(type: TokenType.Follows) && !Match(type: TokenType.Colon))
+            {
+                continue;
+            }
+
+            // Check for record/entity constraint first (only with colon syntax)
+            if (Match(type: TokenType.Record))
+            {
+                inlineConstraints.Add(item: new GenericConstraintDeclaration(
+                    ParameterName: paramName,
+                    ConstraintType: ConstraintKind.ValueType,
+                    ConstraintTypes: null,
+                    Location: location));
+            }
+            else if (Match(type: TokenType.Entity))
+            {
+                inlineConstraints.Add(item: new GenericConstraintDeclaration(
+                    ParameterName: paramName,
+                    ConstraintType: ConstraintKind.ReferenceType,
+                    ConstraintTypes: null,
+                    Location: location));
+            }
+            else
+            {
+                // Parse protocol constraints: T follows Protocol or T: Protocol
+                var constraintTypes = new List<TypeExpression>();
+                do
+                {
+                    constraintTypes.Add(item: ParseType());
+                    // Continue if comma but next token is NOT an identifier followed by follows/colon or greater
+                    // This handles both "T follows A, B" (multiple constraints) and "T follows A, U follows B" (next param)
+                } while (Match(type: TokenType.Comma) &&
+                         !Check(type: TokenType.Greater) &&
+                         !(Check(type: TokenType.Identifier) &&
+                           (PeekToken(offset: 1).Type == TokenType.Follows ||
+                            PeekToken(offset: 1).Type == TokenType.Colon)));
+
+                inlineConstraints.Add(item: new GenericConstraintDeclaration(
+                    ParameterName: paramName,
+                    ConstraintType: ConstraintKind.Follows,
+                    ConstraintTypes: constraintTypes,
+                    Location: location));
+
+                // If we stopped because of a new param (identifier followed by follows/colon),
+                // we need to continue the outer loop
+                if (Check(type: TokenType.Identifier) &&
+                    (PeekToken(offset: 1).Type == TokenType.Follows || PeekToken(offset: 1).Type == TokenType.Colon))
+                {
+                    continue;
+                }
+
+                // If we stopped on comma but not followed by constraint pattern, break
+                if (!Check(type: TokenType.Comma))
+                {
+                    break;
+                }
+            }
+        } while (Match(type: TokenType.Comma));
+
+        return (genericParams, inlineConstraints.Count > 0 ? inlineConstraints : null);
+    }
+
+    /// <summary>
     /// Parses generic constraints for type parameters.
     /// Supports inline constraints (T follows Protocol) and where clauses.
     /// </summary>
     private List<GenericConstraintDeclaration>? ParseGenericConstraints(
-        List<string>? genericParams)
+        List<string>? genericParams,
+        List<GenericConstraintDeclaration>? existingConstraints = null)
     {
         if (genericParams == null || genericParams.Count == 0)
         {
-            return null;
+            return existingConstraints;
         }
 
-        var constraints = new List<GenericConstraintDeclaration>();
+        var constraints = existingConstraints != null
+            ? new List<GenericConstraintDeclaration>(existingConstraints)
+            : new List<GenericConstraintDeclaration>();
 
         // Check for where clause: where T follows Protocol, U from BaseType
-        if (Match(type: TokenType.Where))
+        if (!Match(type: TokenType.Where))
         {
-            do
+            return constraints.Count > 0
+                ? constraints
+                : null;
+        }
+
+        do
+        {
+            SourceLocation location = GetLocation();
+            string paramName = ConsumeIdentifier(errorMessage: "Expected type parameter name");
+
+            // Verify this parameter was declared
+            if (!genericParams.Contains(item: paramName))
             {
-                SourceLocation location = GetLocation();
-                string paramName = ConsumeIdentifier(errorMessage: "Expected type parameter name");
+                throw new ParseException(
+                    message:
+                    $"Type parameter '{paramName}' not declared in generic parameters");
+            }
 
-                // Verify this parameter was declared
-                if (!genericParams.Contains(item: paramName))
+            // Parse constraint kind and types
+            if (Match(type: TokenType.Follows))
+            {
+                // T follows Protocol1, Protocol2
+                var constraintTypes = new List<TypeExpression>();
+                do
                 {
-                    throw new ParseException(
-                        message:
-                        $"Type parameter '{paramName}' not declared in generic parameters");
-                }
+                    constraintTypes.Add(item: ParseType());
+                } while (Match(type: TokenType.Comma) && !Check(type: TokenType.Identifier));
 
-                // Parse constraint kind and types
-                if (Match(type: TokenType.Follows))
+                constraints.Add(item: new GenericConstraintDeclaration(
+                    ParameterName: paramName,
+                    ConstraintType: ConstraintKind.Follows,
+                    ConstraintTypes: constraintTypes,
+                    Location: location));
+            }
+            else if (Match(type: TokenType.From))
+            {
+                // T from BaseType
+                TypeExpression baseType = ParseType();
+                constraints.Add(item: new GenericConstraintDeclaration(
+                    ParameterName: paramName,
+                    ConstraintType: ConstraintKind.From,
+                    ConstraintTypes: new List<TypeExpression> { baseType },
+                    Location: location));
+            }
+            else if (Check(type: TokenType.Colon))
+            {
+                // T: record or T: entity
+                Advance(); // consume ':'
+                if (Match(type: TokenType.Record))
                 {
-                    // T follows Protocol1, Protocol2
-                    var constraintTypes = new List<TypeExpression>();
-                    do
-                    {
-                        constraintTypes.Add(item: ParseType());
-                    } while (Match(type: TokenType.Comma) && !Check(type: TokenType.Identifier));
-
                     constraints.Add(item: new GenericConstraintDeclaration(
                         ParameterName: paramName,
-                        ConstraintType: ConstraintKind.Follows,
-                        ConstraintTypes: constraintTypes,
+                        ConstraintType: ConstraintKind.ValueType,
+                        ConstraintTypes: null,
                         Location: location));
                 }
-                else if (Match(type: TokenType.From))
+                else if (Match(type: TokenType.Entity))
                 {
-                    // T from BaseType
-                    TypeExpression baseType = ParseType();
                     constraints.Add(item: new GenericConstraintDeclaration(
                         ParameterName: paramName,
-                        ConstraintType: ConstraintKind.From,
-                        ConstraintTypes: new List<TypeExpression> { baseType },
+                        ConstraintType: ConstraintKind.ReferenceType,
+                        ConstraintTypes: null,
                         Location: location));
-                }
-                else if (Check(type: TokenType.Colon))
-                {
-                    // T: record or T: entity
-                    Advance(); // consume ':'
-                    if (Match(type: TokenType.Record))
-                    {
-                        constraints.Add(item: new GenericConstraintDeclaration(
-                            ParameterName: paramName,
-                            ConstraintType: ConstraintKind.ValueType,
-                            ConstraintTypes: null,
-                            Location: location));
-                    }
-                    else if (Match(type: TokenType.Entity))
-                    {
-                        constraints.Add(item: new GenericConstraintDeclaration(
-                            ParameterName: paramName,
-                            ConstraintType: ConstraintKind.ReferenceType,
-                            ConstraintTypes: null,
-                            Location: location));
-                    }
-                    else
-                    {
-                        throw new ParseException(
-                            message: "Expected 'record' or 'entity' after ':' in constraint");
-                    }
                 }
                 else
                 {
                     throw new ParseException(
-                        message: "Expected 'follows', 'from', or ':' in generic constraint");
+                        message: "Expected 'record' or 'entity' after ':' in constraint");
                 }
+            }
+            else
+            {
+                throw new ParseException(
+                    message: "Expected 'follows', 'from', or ':' in generic constraint");
+            }
 
-                // Continue parsing if there's a comma
-            } while (Match(type: TokenType.Comma));
-        }
+            // Continue parsing if there's a comma
+        } while (Match(type: TokenType.Comma));
 
         return constraints.Count > 0
             ? constraints
@@ -259,9 +351,7 @@ public partial class RazorForgeParser
             // Boolean
             "bool" => true,
             // Character types
-            "letter" or "letter8" or "letter16" => true,
-            // Text types
-            "text" or "text8" or "text16" => true,
+            "letter" or "letter8" or "letter16" or "letter32" => true,
             // Void type
             "void" => true,
             _ => false

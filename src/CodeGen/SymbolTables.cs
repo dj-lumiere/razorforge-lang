@@ -83,6 +83,7 @@ public class SymbolTables
         {
             return $"<unknown file:{fileId}>";
         }
+
         return _idToFile[index: (int)fileId];
     }
 
@@ -95,6 +96,7 @@ public class SymbolTables
         {
             return $"<unknown routine:{routineId}>";
         }
+
         return _idToRoutine[index: (int)routineId];
     }
 
@@ -107,6 +109,7 @@ public class SymbolTables
         {
             return $"<unknown type:{typeId}>";
         }
+
         return _idToType[index: (int)typeId];
     }
 

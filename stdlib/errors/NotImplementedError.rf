@@ -1,0 +1,15 @@
+# NotImplementedError - Error for unimplemented functionality
+# Used as a placeholder for methods/routines that are not yet implemented
+
+record NotImplementedError follows Crashable {
+    public feature: Text<letter32>
+
+    routine crash_message(me) -> Text<letter32> {
+        return f"Not implemented: {me.feature}"
+    }
+}
+
+# Convenience constructor with no message
+routine NotImplementedError() -> NotImplementedError {
+    return NotImplementedError(feature: "")
+}

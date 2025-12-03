@@ -1,0 +1,24 @@
+# Test generic function monomorphization
+
+# A simple generic identity function
+routine identity<T>(value: T) -> T {
+    return value
+}
+
+# A generic add function
+routine add_values<T>(a: T, b: T) -> T {
+    return a + b
+}
+
+# Main function that calls generic functions with different types
+routine main() -> s32 {
+    # Test identity with different types
+    let x: s32 = identity<s32>(42)
+    let y: s32 = identity<s32>(10)
+
+    # Test add_values
+    let sum: s32 = add_values<s32>(x, y)
+
+    # Return the sum (should be 52)
+    return sum
+}

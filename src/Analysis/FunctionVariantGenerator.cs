@@ -29,9 +29,9 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
     /// </summary>
     private static readonly HashSet<string> UnrecoverableIntrinsics = new()
     {
-        "stop!",    // User-initiated termination
-        "breach!",  // Logic breach (unreachable code reached)
-        "verify!"   // Verification/assertion failure
+        "stop!", // User-initiated termination
+        "breach!", // Logic breach (unreachable code reached)
+        "verify!" // Verification/assertion failure
     };
 
     /// <summary>
@@ -96,22 +96,28 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
         // - has throw, no absent → try_, check_
         // - has throw, has absent → try_, find_
 
-        if (_hasThrow && _hasAbsent)
+        switch (_hasThrow)
         {
-            // Has both throw and absent → generate try_ and find_
-            _generatedVariants.Add(item: GenerateTryVariant(original: node));
-            _generatedVariants.Add(item: GenerateFindVariant(original: node));
-        }
-        else if (_hasThrow)
-        {
-            // Has throw but no absent → generate try_ and check_
-            _generatedVariants.Add(item: GenerateTryVariant(original: node));
-            _generatedVariants.Add(item: GenerateCheckVariant(original: node));
-        }
-        else if (_hasAbsent)
-        {
-            // Has absent but no throw → generate try_ only
-            _generatedVariants.Add(item: GenerateTryVariant(original: node));
+            case true when _hasAbsent:
+                // Has both throw and absent → generate try_ and find_
+                _generatedVariants.Add(item: GenerateTryVariant(original: node));
+                _generatedVariants.Add(item: GenerateFindVariant(original: node));
+                break;
+            case true:
+                // Has throw but no absent → generate try_ and check_
+                _generatedVariants.Add(item: GenerateTryVariant(original: node));
+                _generatedVariants.Add(item: GenerateCheckVariant(original: node));
+                break;
+            default:
+            {
+                if (_hasAbsent)
+                {
+                    // Has absent but no throw → generate try_ only
+                    _generatedVariants.Add(item: GenerateTryVariant(original: node));
+                }
+
+                break;
+            }
         }
         // else: no throw, no absent → compile error (handled by semantic analyzer)
 
@@ -123,65 +129,79 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
     /// </summary>
     private void AnalyzeFunctionBody(Statement statement)
     {
-        if (statement is ThrowStatement)
+        while (true)
         {
-            _hasThrow = true;
-        }
-        else if (statement is AbsentStatement)
-        {
-            _hasAbsent = true;
-        }
-        else if (statement is BlockStatement block)
-        {
-            foreach (Statement stmt in block.Statements)
+            switch (statement)
             {
-                AnalyzeFunctionBody(statement: stmt);
+                case ThrowStatement:
+                    _hasThrow = true;
+                    break;
+                case AbsentStatement:
+                    _hasAbsent = true;
+                    break;
+                case BlockStatement block:
+                {
+                    foreach (Statement stmt in block.Statements)
+                    {
+                        AnalyzeFunctionBody(statement: stmt);
+                    }
+
+                    break;
+                }
+                case IfStatement ifStmt:
+                {
+                    AnalyzeExpression(expression: ifStmt.Condition);
+                    AnalyzeFunctionBody(statement: ifStmt.ThenStatement);
+                    if (ifStmt.ElseStatement != null)
+                    {
+                        statement = ifStmt.ElseStatement;
+                        continue;
+                    }
+
+                    break;
+                }
+                case WhileStatement whileStmt:
+                    AnalyzeExpression(expression: whileStmt.Condition);
+                    statement = whileStmt.Body;
+                    continue;
+                case ForStatement forStmt:
+                    AnalyzeExpression(expression: forStmt.Iterable);
+                    statement = forStmt.Body;
+                    continue;
+                case WhenStatement whenStmt:
+                {
+                    AnalyzeExpression(expression: whenStmt.Expression);
+                    foreach (WhenClause clause in whenStmt.Clauses)
+                    {
+                        AnalyzeFunctionBody(statement: clause.Body);
+                    }
+
+                    break;
+                }
+                case ExpressionStatement exprStmt:
+                    AnalyzeExpression(expression: exprStmt.Expression);
+                    break;
+                case DeclarationStatement declStmt when declStmt.Declaration is VariableDeclaration varDecl:
+                {
+                    if (varDecl.Initializer != null)
+                    {
+                        AnalyzeExpression(expression: varDecl.Initializer);
+                    }
+
+                    break;
+                }
+                case ReturnStatement returnStmt:
+                {
+                    if (returnStmt.Value != null)
+                    {
+                        AnalyzeExpression(expression: returnStmt.Value);
+                    }
+
+                    break;
+                }
             }
-        }
-        else if (statement is IfStatement ifStmt)
-        {
-            AnalyzeExpression(expression: ifStmt.Condition);
-            AnalyzeFunctionBody(statement: ifStmt.ThenStatement);
-            if (ifStmt.ElseStatement != null)
-            {
-                AnalyzeFunctionBody(statement: ifStmt.ElseStatement);
-            }
-        }
-        else if (statement is WhileStatement whileStmt)
-        {
-            AnalyzeExpression(expression: whileStmt.Condition);
-            AnalyzeFunctionBody(statement: whileStmt.Body);
-        }
-        else if (statement is ForStatement forStmt)
-        {
-            AnalyzeExpression(expression: forStmt.Iterable);
-            AnalyzeFunctionBody(statement: forStmt.Body);
-        }
-        else if (statement is WhenStatement whenStmt)
-        {
-            AnalyzeExpression(expression: whenStmt.Expression);
-            foreach (WhenClause clause in whenStmt.Clauses)
-            {
-                AnalyzeFunctionBody(statement: clause.Body);
-            }
-        }
-        else if (statement is ExpressionStatement exprStmt)
-        {
-            AnalyzeExpression(expression: exprStmt.Expression);
-        }
-        else if (statement is DeclarationStatement declStmt && declStmt.Declaration is VariableDeclaration varDecl)
-        {
-            if (varDecl.Initializer != null)
-            {
-                AnalyzeExpression(expression: varDecl.Initializer);
-            }
-        }
-        else if (statement is ReturnStatement returnStmt)
-        {
-            if (returnStmt.Value != null)
-            {
-                AnalyzeExpression(expression: returnStmt.Value);
-            }
+
+            break;
         }
     }
 
@@ -190,44 +210,44 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
     /// </summary>
     private void AnalyzeExpression(Expression expression)
     {
-        if (expression is CallExpression call)
+        switch (expression)
         {
-            // Check if this is a call to an unrecoverable intrinsic
-            string? functionName = GetFunctionName(callee: call.Callee);
-            if (functionName != null && UnrecoverableIntrinsics.Contains(item: functionName))
+            case CallExpression call:
             {
-                _hasUnrecoverableIntrinsic = true;
-            }
+                // Check if this is a call to an unrecoverable intrinsic
+                string? functionName = GetFunctionName(callee: call.Callee);
+                if (functionName != null && UnrecoverableIntrinsics.Contains(item: functionName))
+                {
+                    _hasUnrecoverableIntrinsic = true;
+                }
 
-            // Analyze arguments
-            foreach (Expression arg in call.Arguments)
-            {
-                AnalyzeExpression(expression: arg);
+                // Analyze arguments
+                foreach (Expression arg in call.Arguments)
+                {
+                    AnalyzeExpression(expression: arg);
+                }
+
+                break;
             }
-        }
-        else if (expression is BinaryExpression binary)
-        {
-            AnalyzeExpression(expression: binary.Left);
-            AnalyzeExpression(expression: binary.Right);
-        }
-        else if (expression is UnaryExpression unary)
-        {
-            AnalyzeExpression(expression: unary.Operand);
-        }
-        else if (expression is ConditionalExpression cond)
-        {
-            AnalyzeExpression(expression: cond.Condition);
-            AnalyzeExpression(expression: cond.TrueExpression);
-            AnalyzeExpression(expression: cond.FalseExpression);
-        }
-        else if (expression is MemberExpression member)
-        {
-            AnalyzeExpression(expression: member.Object);
-        }
-        else if (expression is IndexExpression index)
-        {
-            AnalyzeExpression(expression: index.Object);
-            AnalyzeExpression(expression: index.Index);
+            case BinaryExpression binary:
+                AnalyzeExpression(expression: binary.Left);
+                AnalyzeExpression(expression: binary.Right);
+                break;
+            case UnaryExpression unary:
+                AnalyzeExpression(expression: unary.Operand);
+                break;
+            case ConditionalExpression cond:
+                AnalyzeExpression(expression: cond.Condition);
+                AnalyzeExpression(expression: cond.TrueExpression);
+                AnalyzeExpression(expression: cond.FalseExpression);
+                break;
+            case MemberExpression member:
+                AnalyzeExpression(expression: member.Object);
+                break;
+            case IndexExpression index:
+                AnalyzeExpression(expression: index.Object);
+                AnalyzeExpression(expression: index.Index);
+                break;
         }
     }
 
@@ -258,7 +278,7 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
         // Wrap return type in Maybe<T>
         TypeExpression? newReturnType = original.ReturnType != null
             ? new TypeExpression(Name: "Maybe",
-                GenericArguments: new List<TypeExpression> { original.ReturnType },
+                GenericArguments: [original.ReturnType],
                 Location: original.ReturnType.Location)
             : null;
 
@@ -269,9 +289,13 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
             ? TransformBodyForTryVariant(statement: original.Body, location: original.Location)
             : null;
 
-        return new FunctionDeclaration(Name: newName, Parameters: original.Parameters,
-            ReturnType: newReturnType, Body: transformedBody, Visibility: original.Visibility,
-            Attributes: original.Attributes, Location: original.Location);
+        return new FunctionDeclaration(Name: newName,
+            Parameters: original.Parameters,
+            ReturnType: newReturnType,
+            Body: transformedBody,
+            Visibility: original.Visibility,
+            Attributes: original.Attributes,
+            Location: original.Location);
     }
 
     /// <summary>
@@ -298,15 +322,19 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
             ReturnStatement => statement,
 
             BlockStatement block => new BlockStatement(Statements: block.Statements
-               .Select(selector: s => TransformBodyForTryVariant(statement: s, location: location))
-               .ToList(), Location: block.Location),
+                   .Select(selector: s =>
+                        TransformBodyForTryVariant(statement: s, location: location))
+                   .ToList(),
+                Location: block.Location),
 
             IfStatement ifStmt => new IfStatement(Condition: ifStmt.Condition,
                 ThenStatement: TransformBodyForTryVariant(statement: ifStmt.ThenStatement,
-                    location: location), ElseStatement: ifStmt.ElseStatement != null
+                    location: location),
+                ElseStatement: ifStmt.ElseStatement != null
                     ? TransformBodyForTryVariant(statement: ifStmt.ElseStatement,
                         location: location)
-                    : null, Location: ifStmt.Location),
+                    : null,
+                Location: ifStmt.Location),
 
             WhileStatement whileStmt => new WhileStatement(Condition: whileStmt.Condition,
                 Body: TransformBodyForTryVariant(statement: whileStmt.Body, location: location),
@@ -321,8 +349,10 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
                 Clauses: whenStmt.Clauses
                                  .Select(selector: c => new WhenClause(Pattern: c.Pattern,
                                       Body: TransformBodyForTryVariant(statement: c.Body,
-                                          location: location), Location: c.Location))
-                                 .ToList(), Location: whenStmt.Location),
+                                          location: location),
+                                      Location: c.Location))
+                                 .ToList(),
+                Location: whenStmt.Location),
 
             _ => statement // Pass through other statements unchanged
         };
@@ -342,7 +372,7 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
         // Wrap return type in Result<T>
         TypeExpression? newReturnType = original.ReturnType != null
             ? new TypeExpression(Name: "Result",
-                GenericArguments: new List<TypeExpression> { original.ReturnType },
+                GenericArguments: [original.ReturnType],
                 Location: original.ReturnType.Location)
             : null;
 
@@ -353,9 +383,13 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
             ? TransformBodyForCheckVariant(statement: original.Body, location: original.Location)
             : null;
 
-        return new FunctionDeclaration(Name: newName, Parameters: original.Parameters,
-            ReturnType: newReturnType, Body: transformedBody, Visibility: original.Visibility,
-            Attributes: original.Attributes, Location: original.Location);
+        return new FunctionDeclaration(Name: newName,
+            Parameters: original.Parameters,
+            ReturnType: newReturnType,
+            Body: transformedBody,
+            Visibility: original.Visibility,
+            Attributes: original.Attributes,
+            Location: original.Location);
     }
 
     /// <summary>
@@ -375,16 +409,19 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
             ReturnStatement => statement,
 
             BlockStatement block => new BlockStatement(Statements: block.Statements
-               .Select(selector: s =>
-                    TransformBodyForCheckVariant(statement: s, location: location))
-               .ToList(), Location: block.Location),
+                   .Select(selector: s =>
+                        TransformBodyForCheckVariant(statement: s, location: location))
+                   .ToList(),
+                Location: block.Location),
 
             IfStatement ifStmt => new IfStatement(Condition: ifStmt.Condition,
                 ThenStatement: TransformBodyForCheckVariant(statement: ifStmt.ThenStatement,
-                    location: location), ElseStatement: ifStmt.ElseStatement != null
+                    location: location),
+                ElseStatement: ifStmt.ElseStatement != null
                     ? TransformBodyForCheckVariant(statement: ifStmt.ElseStatement,
                         location: location)
-                    : null, Location: ifStmt.Location),
+                    : null,
+                Location: ifStmt.Location),
 
             WhileStatement whileStmt => new WhileStatement(Condition: whileStmt.Condition,
                 Body: TransformBodyForCheckVariant(statement: whileStmt.Body, location: location),
@@ -399,8 +436,10 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
                 Clauses: whenStmt.Clauses
                                  .Select(selector: c => new WhenClause(Pattern: c.Pattern,
                                       Body: TransformBodyForCheckVariant(statement: c.Body,
-                                          location: location), Location: c.Location))
-                                 .ToList(), Location: whenStmt.Location),
+                                          location: location),
+                                      Location: c.Location))
+                                 .ToList(),
+                Location: whenStmt.Location),
 
             _ => statement // Pass through other statements unchanged
         };
@@ -421,7 +460,7 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
         // Wrap return type in Lookup<T>
         TypeExpression? newReturnType = original.ReturnType != null
             ? new TypeExpression(Name: "Lookup",
-                GenericArguments: new List<TypeExpression> { original.ReturnType },
+                GenericArguments: [original.ReturnType],
                 Location: original.ReturnType.Location)
             : null;
 
@@ -433,9 +472,13 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
             ? TransformBodyForFindVariant(statement: original.Body, location: original.Location)
             : null;
 
-        return new FunctionDeclaration(Name: newName, Parameters: original.Parameters,
-            ReturnType: newReturnType, Body: transformedBody, Visibility: original.Visibility,
-            Attributes: original.Attributes, Location: original.Location);
+        return new FunctionDeclaration(Name: newName,
+            Parameters: original.Parameters,
+            ReturnType: newReturnType,
+            Body: transformedBody,
+            Visibility: original.Visibility,
+            Attributes: original.Attributes,
+            Location: original.Location);
     }
 
     /// <summary>
@@ -461,16 +504,20 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
             ReturnStatement => statement,
 
             BlockStatement block => new BlockStatement(Statements: block.Statements
-               .Select(
-                    selector: s => TransformBodyForFindVariant(statement: s, location: location))
-               .ToList(), Location: block.Location),
+                   .Select(
+                        selector: s =>
+                            TransformBodyForFindVariant(statement: s, location: location))
+                   .ToList(),
+                Location: block.Location),
 
             IfStatement ifStmt => new IfStatement(Condition: ifStmt.Condition,
                 ThenStatement: TransformBodyForFindVariant(statement: ifStmt.ThenStatement,
-                    location: location), ElseStatement: ifStmt.ElseStatement != null
+                    location: location),
+                ElseStatement: ifStmt.ElseStatement != null
                     ? TransformBodyForFindVariant(statement: ifStmt.ElseStatement,
                         location: location)
-                    : null, Location: ifStmt.Location),
+                    : null,
+                Location: ifStmt.Location),
 
             WhileStatement whileStmt => new WhileStatement(Condition: whileStmt.Condition,
                 Body: TransformBodyForFindVariant(statement: whileStmt.Body, location: location),
@@ -485,8 +532,10 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
                 Clauses: whenStmt.Clauses
                                  .Select(selector: c => new WhenClause(Pattern: c.Pattern,
                                       Body: TransformBodyForFindVariant(statement: c.Body,
-                                          location: location), Location: c.Location))
-                                 .ToList(), Location: whenStmt.Location),
+                                          location: location),
+                                      Location: c.Location))
+                                 .ToList(),
+                Location: whenStmt.Location),
 
             _ => statement // Pass through other statements unchanged
         };
@@ -498,15 +547,15 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
     {
         return null;
     }
-    public object? VisitClassDeclaration(ClassDeclaration node)
+    public object? VisitEntityDeclaration(EntityDeclaration node)
     {
         return null;
     }
-    public object? VisitStructDeclaration(StructDeclaration node)
+    public object? VisitRecordDeclaration(RecordDeclaration node)
     {
         return null;
     }
-    public object? VisitMenuDeclaration(MenuDeclaration node)
+    public object? VisitChoiceDeclaration(ChoiceDeclaration node)
     {
         return null;
     }
@@ -514,7 +563,7 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
     {
         return null;
     }
-    public object? VisitFeatureDeclaration(FeatureDeclaration node)
+    public object? VisitProtocolDeclaration(ProtocolDeclaration node)
     {
         return null;
     }
@@ -530,7 +579,7 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
     {
         return null;
     }
-    public object? VisitRedefinitionDeclaration(RedefinitionDeclaration node)
+    public object? VisitDefineDeclaration(RedefinitionDeclaration node)
     {
         return null;
     }
@@ -591,6 +640,14 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
         return null;
     }
     public object? VisitAbsentStatement(AbsentStatement node)
+    {
+        return null;
+    }
+    public object? VisitPassStatement(PassStatement node)
+    {
+        return null;
+    }
+    public object? VisitPresetDeclaration(PresetDeclaration node)
     {
         return null;
     }
@@ -696,10 +753,6 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
     {
         return null;
     }
-    public object? VisitMayhemStatement(MayhemStatement node)
-    {
-        return null;
-    }
     public object? VisitViewingStatement(ViewingStatement node)
     {
         return null;
@@ -721,7 +774,7 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
         return null;
     }
 
-    public object? VisitStructLiteralExpression(StructLiteralExpression node)
+    public object? VisitConstructorExpression(ConstructorExpression node)
     {
         return null;
     }

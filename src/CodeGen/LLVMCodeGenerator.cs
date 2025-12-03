@@ -3,6 +3,7 @@ using System.Text;
 using Compilers.Shared.AST;
 using Compilers.Shared.Analysis;
 using Compilers.Shared.Lexer;
+using Compilers.Shared.Errors;
 
 namespace Compilers.Shared.CodeGen;
 
@@ -49,6 +50,7 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
     private readonly TargetPlatform _targetPlatform;
     private int _tempCounter;
     private int _labelCounter;
+    private int _varCounter; // For unique local variable names
     private readonly Dictionary<string, string> _symbolTypes;
 
     private readonly Dictionary<string, string>
@@ -57,7 +59,10 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
     private readonly HashSet<string>
         _functionParameters = new(); // Track function parameters (no load needed)
 
-    private readonly Dictionary<string, TypeInfo>
+    private readonly HashSet<string>
+        _globalConstants = new(); // Track global constants (presets) - use @name instead of %name
+
+    private readonly Dictionary<string, LLVMTypeInfo>
         _tempTypes = new(); // Track types of temporary variables
 
     private bool _hasReturn = false;
@@ -65,15 +70,14 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
     private List<string>? _stringConstants; // Collect string constants for proper emission
 
     // Generic instantiation tracking for monomorphization
-    private readonly Dictionary<string, List<List<Analysis.TypeInfo>>> _genericInstantiations =
-        new();
+    private readonly Dictionary<string, List<List<TypeInfo>>> _genericInstantiations = new();
 
     private readonly Dictionary<string, FunctionDeclaration> _genericFunctionTemplates = new();
     private readonly List<string> _pendingGenericInstantiations = new();
 
     // Generic type (record/entity) templates for monomorphization
-    private readonly Dictionary<string, StructDeclaration> _genericRecordTemplates = new();
-    private readonly Dictionary<string, ClassDeclaration> _genericEntityTemplates = new();
+    private readonly Dictionary<string, RecordDeclaration> _genericRecordTemplates = new();
+    private readonly Dictionary<string, EntityDeclaration> _genericEntityTemplates = new();
     private readonly Dictionary<string, List<List<string>>> _genericTypeInstantiations = new();
     private readonly List<string> _pendingRecordInstantiations = new();
     private readonly List<string> _pendingEntityInstantiations = new();
@@ -88,6 +92,11 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
     // CompilerService intrinsic tracking
     private string? _currentFileName;
     private string? _currentFunctionName;
+
+    private SourceLocation _currentLocation = new(FileName: "",
+        Line: 0,
+        Column: 0,
+        Position: 0);
 
     /// <summary>
     /// Sets the source file name for stack trace information.
@@ -118,6 +127,9 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
 
     // Track generated imported module functions (non-generic)
     private readonly HashSet<string> _generatedFunctions = new();
+
+    // Current program being compiled (for looking up functions defined in current file)
+    private AST.Program? _currentProgram;
 
     // Current type substitutions for generic function body generation
     private Dictionary<string, string>? _currentTypeSubstitutions;
@@ -169,7 +181,7 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
     /// Sets up the internal state required for AST traversal and IR generation.
     /// </summary>
     /// <param name="language">Target language (RazorForge or Suflae) affecting syntax and semantics</param>
-    /// <param name="mode">Language mode (Normal/Danger for RazorForge, Sweet/Bitter for Suflae)</param>
+    /// <param name="mode">Language mode (Normal/Freestanding for RazorForge and Suflae)</param>
     /// <param name="targetPlatform">Target platform (optional, defaults to x86_64 Linux)</param>
     /// <remarks>
     /// The language and mode parameters influence:
@@ -189,6 +201,7 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
         _output = new StringBuilder();
         _tempCounter = 0;
         _labelCounter = 0;
+        _varCounter = 0;
         _symbolTypes = new Dictionary<string, string>();
         _stackTraceCodeGen = new StackTraceCodeGen(symbolTables: _symbolTables, output: _output);
 
@@ -260,6 +273,7 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
     /// </remarks>
     public void Generate(AST.Program program)
     {
+        _currentLocation = _currentLocation with { FileName = _currentFileName ?? throw new ArgumentNullException(paramName: nameof(program)) };
         // LLVM IR module headers - provide module identification and target configuration
         _output.AppendLine(value: "; ModuleID = 'razorforge'");
         _output.AppendLine(value: "source_filename = \"razorforge.rf\"");
@@ -312,6 +326,9 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
 
         // Generate code for imported module functions first
         GenerateImportedModuleFunctions();
+
+        // Store the current program for function lookups
+        _currentProgram = program;
 
         // Process the program AST to generate function definitions and global declarations
         program.Accept(visitor: this);
@@ -366,6 +383,14 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
         return $"label{_labelCounter++}";
     }
 
+    /// <summary>Generates a unique variable name to avoid conflicts in different scopes</summary>
+    /// <param name="baseName">The original variable name from source code</param>
+    /// <returns>Unique variable name with suffix (e.g., diff_0, diff_1)</returns>
+    private string GetUniqueVarName(string baseName)
+    {
+        return $"{baseName}_{_varCounter++}";
+    }
+
     /// <summary>
     /// Sanitizes a function name to be valid LLVM IR identifier.
     /// Removes or replaces characters that are not allowed in LLVM function names.
@@ -381,39 +406,45 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
     /// </remarks>
     private string SanitizeFunctionName(string name)
     {
-        // Replace ! with _throwable suffix to indicate error-handling functions
-        if (name.EndsWith(value: '!'))
+        string unprefixedName = name;
+        bool isCrashable = name.EndsWith(value: '!');
+        if (isCrashable)
         {
-            string baseName = name[..^1];
-
-            // Check if this is a type constructor call (e.g., s32!, u64!, Text!)
-            // Type constructors map to typename.__create__! -> typename___create___throwable
-            if (IsTypeName(name: baseName))
-            {
-                return baseName + "___create___throwable";
-            }
-
-            // Regular throwable function (e.g., divide! -> divide_throwable)
-            return baseName + "_throwable";
+            unprefixedName = unprefixedName[..^1];
         }
 
-        // Replace ? with _try suffix for safe/maybe-returning functions
-        if (name.EndsWith(value: '?'))
+        bool isDunder = name.StartsWith(value: "__") && name.EndsWith(value: "__");
+        if (isDunder)
         {
-            string baseName = name[..^1];
-
-            // Check if this is a type constructor call (e.g., s32?, u64?, Text?)
-            // Safe type constructors map to try_typename.__create__ -> try_typename___create__
-            if (IsTypeName(name: baseName))
-            {
-                return "try_" + baseName + "___create__";
-            }
-
-            // Regular safe function (e.g., find? -> find_try or try_find)
-            return baseName + "_try";
+            unprefixedName = unprefixedName[2..^2];
         }
 
-        // Other special characters can be added here as needed
+        bool isTypeName = IsTypeName(name: unprefixedName);
+
+        // Sanitize angle brackets in generic types (e.g., Text<letter8> -> Text_letter8)
+        if (unprefixedName.Contains(value: '<'))
+        {
+            unprefixedName = unprefixedName.Replace(oldValue: "<", newValue: "_")
+                                           .Replace(oldValue: ">", newValue: "")
+                                           .Replace(oldValue: ", ", newValue: "_")
+                                           .Replace(oldValue: ",", newValue: "_");
+        }
+
+        if (isDunder && !isTypeName)
+        {
+            unprefixedName = $"{unprefixedName}_dunder";
+        }
+
+        if (isDunder && isTypeName)
+        {
+            unprefixedName = $"{unprefixedName}___create__";
+        }
+
+        if (isCrashable)
+        {
+            unprefixedName = $"{unprefixedName}_throwable";
+        }
+
         return name;
     }
 
@@ -423,7 +454,7 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
     /// </summary>
     private bool IsTypeName(string name)
     {
-        // Built-in numeric types
+        // TODO: actually figure out what types are loaded
         return name is "s8" or "s16" or "s32" or "s64" or "s128" or "u8" or "u16" or "u32" or "u64"
             or "u128" or "f16" or "f32" or "f64" or "f128" or "bool" or "Text" or "letter";
     }
@@ -433,6 +464,7 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
     /// </summary>
     private bool IsStringType(string typeName)
     {
+        // TODO: ValueText, FixedText, FixedTextBuffer, TextBuffer should be added here
         return typeName.StartsWith(value: "Text<") || typeName == "Text";
     }
 
@@ -489,23 +521,28 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
             // Boolean type
             "bool" => "i1", // Single bit boolean
 
+            // Void/Blank type
+            "void" or "Blank" => "void", // No return value
+
             // Character types (RazorForge letter types)
             "letter8" => "i8", // 8-bit UTF-8 code unit
             "letter16" => "i16", // 16-bit UTF-16 code unit
-            "letter32" or "letter" => "i32", // 32-bit Unicode codepoint (default letter type)
+            "letter32" => "i32", // 32-bit Unicode codepoint (default letter type)
 
-            // Text/String types
-            "text" => "i8*", // Null-terminated C string
-            "Text" => "i8*", // Alternative capitalization
+            // Text/String types - these are entities, not C strings!
+            // Text<T> requires a type parameter and is handled by MapGenericTypeToLLVM
+            // Plain "Text" defaults to Text<letter32> for convenience
+            // TODO: It should be suflae only, razorforge should not do this.
+            "text" or "Text" => "%Text_letter32",
+
+            // C FFI types - String type (record but commonly used)
+            "cstr" => "%cstr", // C string wrapper record { ptr: uaddr }
 
             // C FFI types - Character types
             "cchar" or "cschar" => "i8", // char, signed char
             "cuchar" => "i8", // unsigned char (same LLVM type, different signedness)
             "cwchar" => _targetPlatform
                .GetWCharType(), // wchar_t (varies by OS: 32-bit on Unix/Linux, 16-bit on Windows)
-            "cchar8" => "i8", // char8_t
-            "cchar16" => "i16", // char16_t
-            "cchar32" => "i32", // char32_t
 
             // C FFI types - Numeric types
             "cshort" => "i16", // short
@@ -532,8 +569,55 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
                .GetPointerSizedIntType(), // void (represented as uaddr in RazorForge)
             "cbool" => "i1", // C bool (_Bool)
 
-            _ => "i8*" // Default to pointer for unknown types (including cptr<T>)
+            _ => MapUnknownTypeToLLVM(
+                rfType: rfType) // Check for record types or default to pointer
         };
+    }
+
+    /// <summary>
+    /// Maps an unknown type to LLVM, checking if it's a registered record type first.
+    /// </summary>
+    private string MapUnknownTypeToLLVM(string rfType)
+    {
+        // Check if this is a registered record type
+        if (_recordFields.ContainsKey(key: rfType))
+        {
+            return $"%{rfType}"; // Return the struct type reference
+        }
+
+        // Check if it's a registered entity type or already emitted
+        if (_genericEntityTemplates.ContainsKey(key: rfType) ||
+            _emittedTypes.Contains(item: rfType))
+        {
+            return $"%{rfType}"; // Return the struct type reference
+        }
+
+        // Check if this is a generic record/entity template used without type arguments
+        // This is a programming error - generic types require concrete type arguments
+        if (_genericRecordTemplates.ContainsKey(key: rfType))
+        {
+            throw CodeGenError.GenericTypeRequiresArguments(typeName: rfType,
+                file: _currentFileName,
+                line: _currentLocation.Line,
+                column: _currentLocation.Column,
+                position: _currentLocation.Position);
+        }
+
+        if (_genericEntityTemplates.ContainsKey(key: rfType))
+        {
+            throw CodeGenError.GenericTypeRequiresArguments(typeName: rfType,
+                file: _currentFileName,
+                line: _currentLocation.Line,
+                column: _currentLocation.Column,
+                position: _currentLocation.Position);
+        }
+
+        // Unknown type - throw proper compile error instead of silently generating wrong code
+        throw CodeGenError.UnknownType(typeName: rfType,
+            file: _currentFileName,
+            line: _currentLocation.Line,
+            column: _currentLocation.Column,
+            position: _currentLocation.Position);
     }
 
     /// <summary>
@@ -548,7 +632,7 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
 
         if (openBracket < 0 || closeBracket < 0 || closeBracket <= openBracket)
         {
-            return "i8*"; // Invalid format, fallback
+            throw new InvalidOperationException($"Invalid generic type format: '{genericType}'");
         }
 
         string baseName = genericType.Substring(startIndex: 0, length: openBracket);
@@ -562,20 +646,22 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
             // Snatched<T> maps to a pointer to T's LLVM type
             // For most cases, this is i8* (especially for Snatched<letter8>)
             List<string> typeArgs = ParseTypeArguments(typeArgsStr: typeArgsStr);
-            if (typeArgs.Count > 0)
+            if (typeArgs.Count <= 0)
             {
-                string innerType = MapTypeToLLVM(rfType: typeArgs[index: 0]);
-                // If the inner type is already a pointer, return it as-is
-                if (innerType.EndsWith(value: "*"))
-                {
-                    return innerType;
-                }
-
-                // Otherwise return a pointer to the inner type
-                return $"{innerType}*";
+                throw new InvalidOperationException(
+                    $"Snatched<> requires a type argument: '{genericType}'");
             }
 
-            return "i8*"; // Default to generic pointer
+            string innerType = MapTypeToLLVM(rfType: typeArgs[index: 0]);
+            // If the inner type is already a pointer, return it as-is
+            if (innerType.EndsWith(value: "*"))
+            {
+                return innerType;
+            }
+
+            // Otherwise return a pointer to the inner type
+            return $"{innerType}*";
+
         }
 
         // Split type arguments (handle nested generics carefully)
@@ -595,8 +681,9 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
         }
         else
         {
-            // Unknown generic type - just create a mangled name
-            mangledName = $"{baseName}_{string.Join(separator: "_", values: typeArguments)}";
+            // Unknown generic type - crash instead of silently generating wrong code
+            throw new InvalidOperationException(
+                $"Unknown generic type '{baseName}' - not a registered generic record or entity");
         }
 
         // Return as a pointer to the monomorphized struct
@@ -616,30 +703,32 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
         for (int i = 0; i < typeArgsStr.Length; i++)
         {
             char c = typeArgsStr[index: i];
-            if (c == '<')
+            switch (c)
             {
-                depth++;
-            }
-            else if (c == '>')
-            {
-                depth--;
-            }
-            else if (c == ',' && depth == 0)
-            {
-                string arg = typeArgsStr.Substring(startIndex: start, length: i - start)
-                                        .Trim();
-                if (!string.IsNullOrEmpty(value: arg))
+                case '<':
+                    depth++;
+                    break;
+                case '>':
+                    depth--;
+                    break;
+                case ',' when depth == 0:
                 {
-                    result.Add(item: arg);
-                }
+                    string arg = typeArgsStr.Substring(startIndex: start, length: i - start)
+                                            .Trim();
+                    if (!string.IsNullOrEmpty(value: arg))
+                    {
+                        result.Add(item: arg);
+                    }
 
-                start = i + 1;
+                    start = i + 1;
+                    break;
+                }
             }
         }
 
         // Don't forget the last argument
-        string lastArg = typeArgsStr.Substring(startIndex: start)
-                                    .Trim();
+        string lastArg = typeArgsStr[start..]
+           .Trim();
         if (!string.IsNullOrEmpty(value: lastArg))
         {
             result.Add(item: lastArg);

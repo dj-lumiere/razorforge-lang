@@ -1,0 +1,553 @@
+# RazorForge SortedSet<T> - B-tree based sorted set
+# Entity type with heap allocation
+# O(log n) insert, delete, search, and indexing
+# Elements are unique and always in sorted order
+#
+# Usage:
+#   let set = SortedSet<s32>()
+#   set.insert(5)
+#   set.insert(1)
+#   set.insert(3)
+#   let first = set[0]     # 1 (O(log n) access)
+#   let last = set[^1]     # 5
+#   let range = set.range(1, 10)
+
+import memory/DynamicSlice
+import memory/MemorySize
+import errors/IndexOutOfBoundsError
+import core/Integral
+import core/BackIndex
+import Collections/List
+
+# B-tree order (max children per node)
+# B = 32 means each node has 16-31 keys (except root)
+preset B: uaddr = 32uaddr
+preset MIN_KEYS: uaddr = 15uaddr  # B/2 - 1
+
+# B-tree node
+entity BTreeSetNode<T> {
+    keys: List<T>                       # Keys in this node
+    children: List<BTreeSetNode<T>>     # Child pointers (empty for leaf)
+    subtree_size: uaddr                 # Total elements in this subtree
+    is_leaf: bool
+}
+
+entity SortedSet<T> {
+    private root: BTreeSetNode<T>?
+    private count: uaddr
+}
+
+# ============================================================================
+# Node Constructors
+# ============================================================================
+
+routine BTreeSetNode<T>.__create__(is_leaf: bool) -> BTreeSetNode<T> {
+    return BTreeSetNode<T>(
+        keys: List<T>(),
+        children: List<BTreeSetNode<T>>(),
+        subtree_size: 0uaddr,
+        is_leaf: is_leaf
+    )
+}
+
+# ============================================================================
+# SortedSet Constructors
+# ============================================================================
+
+routine SortedSet<T>.__create__() -> SortedSet<T> {
+    return SortedSet<T>(
+        root: None,
+        count: 0uaddr
+    )
+}
+
+# ============================================================================
+# Core Operations
+# ============================================================================
+
+routine SortedSet<T>.count(me: SortedSet<T>) -> uaddr {
+    return me.count
+}
+
+routine SortedSet<T>.is_empty(me: SortedSet<T>) -> bool {
+    return me.count == 0uaddr
+}
+
+routine SortedSet<T>.clear(me: SortedSet<T>) {
+    me.root = None
+    me.count = 0uaddr
+}
+
+# ============================================================================
+# Search
+# ============================================================================
+
+routine SortedSet<T>.contains(me: SortedSet<T>, value: T) -> bool {
+    if me.root is None {
+        return false
+    }
+    return me.search_node(me.root!, value)
+}
+
+routine SortedSet<T>.search_node(me: SortedSet<T>, node: BTreeSetNode<T>, value: T) -> bool {
+    # Binary search for position in keys
+    var i = 0uaddr
+    while i < node.keys.count() and value > node.keys[i] {
+        i = i + 1uaddr
+    }
+
+    # Check if found
+    if i < node.keys.count() and value == node.keys[i] {
+        return true
+    }
+
+    # If leaf, not found
+    if node.is_leaf {
+        return false
+    }
+
+    # Search in appropriate child
+    return me.search_node(node.children[i], value)
+}
+
+# ============================================================================
+# Insert
+# ============================================================================
+
+routine SortedSet<T>.insert(me: SortedSet<T>, value: T) -> bool {
+    # Returns true if inserted, false if already exists
+
+    if me.root is None {
+        me.root = BTreeSetNode<T>(is_leaf: true)
+        me.root!.keys.push(value)
+        me.root!.subtree_size = 1uaddr
+        me.count = 1uaddr
+        return true
+    }
+
+    # Check if already exists
+    if me.contains(value) {
+        return false
+    }
+
+    # If root is full, split it
+    if me.root!.keys.count() >= B - 1uaddr {
+        let old_root = me.root!
+        let new_root = BTreeSetNode<T>(is_leaf: false)
+        new_root.children.push(old_root)
+        me.split_child(new_root, 0uaddr)
+        me.root = new_root
+        me.update_subtree_size(new_root)
+    }
+
+    me.insert_non_full(me.root!, value)
+    me.count = me.count + 1uaddr
+    return true
+}
+
+routine SortedSet<T>.insert_non_full(me: SortedSet<T>, node: BTreeSetNode<T>, value: T) {
+    var i = node.keys.count()
+
+    if node.is_leaf {
+        # Find position and insert
+        while i > 0uaddr and value < node.keys[i - 1uaddr] {
+            i = i - 1uaddr
+        }
+        # Insert at position i
+        let keys_copy = List<T>()
+        var j = 0uaddr
+        while j < i {
+            keys_copy.push(node.keys[j])
+            j = j + 1uaddr
+        }
+        keys_copy.push(value)
+        while j < node.keys.count() {
+            keys_copy.push(node.keys[j])
+            j = j + 1uaddr
+        }
+        node.keys = keys_copy
+        node.subtree_size = node.subtree_size + 1uaddr
+    } else {
+        # Find child to descend into
+        while i > 0uaddr and value < node.keys[i - 1uaddr] {
+            i = i - 1uaddr
+        }
+
+        # Split child if full
+        if node.children[i].keys.count() >= B - 1uaddr {
+            me.split_child(node, i)
+            if value > node.keys[i] {
+                i = i + 1uaddr
+            }
+        }
+
+        me.insert_non_full(node.children[i], value)
+        node.subtree_size = node.subtree_size + 1uaddr
+    }
+}
+
+routine SortedSet<T>.split_child(me: SortedSet<T>, parent: BTreeSetNode<T>, child_idx: uaddr) {
+    let child = parent.children[child_idx]
+    let mid = (B - 1uaddr) / 2uaddr
+
+    # Create new node for right half
+    let new_node = BTreeSetNode<T>(is_leaf: child.is_leaf)
+
+    # Move upper keys to new node
+    var i = mid + 1uaddr
+    while i < child.keys.count() {
+        new_node.keys.push(child.keys[i])
+        i = i + 1uaddr
+    }
+
+    # Move children if not leaf
+    if not child.is_leaf {
+        i = mid + 1uaddr
+        while i < child.children.count() {
+            new_node.children.push(child.children[i])
+            i = i + 1uaddr
+        }
+    }
+
+    # Get middle key to promote
+    let mid_key = child.keys[mid]
+
+    # Truncate child's keys
+    let left_keys = List<T>()
+    i = 0uaddr
+    while i < mid {
+        left_keys.push(child.keys[i])
+        i = i + 1uaddr
+    }
+    child.keys = left_keys
+
+    # Truncate child's children if not leaf
+    if not child.is_leaf {
+        let left_children = List<BTreeSetNode<T>>()
+        i = 0uaddr
+        while i <= mid {
+            left_children.push(child.children[i])
+            i = i + 1uaddr
+        }
+        child.children = left_children
+    }
+
+    # Update subtree sizes
+    me.update_subtree_size(child)
+    me.update_subtree_size(new_node)
+
+    # Insert mid_key and new_node into parent
+    let new_keys = List<T>()
+    let new_children = List<BTreeSetNode<T>>()
+
+    i = 0uaddr
+    while i < child_idx {
+        new_keys.push(parent.keys[i])
+        new_children.push(parent.children[i])
+        i = i + 1uaddr
+    }
+    new_keys.push(mid_key)
+    new_children.push(child)
+    new_children.push(new_node)
+    while i < parent.keys.count() {
+        new_keys.push(parent.keys[i])
+        i = i + 1uaddr
+    }
+    i = child_idx + 1uaddr
+    while i < parent.children.count() {
+        new_children.push(parent.children[i])
+        i = i + 1uaddr
+    }
+
+    parent.keys = new_keys
+    parent.children = new_children
+}
+
+routine SortedSet<T>.update_subtree_size(me: SortedSet<T>, node: BTreeSetNode<T>) {
+    if node.is_leaf {
+        node.subtree_size = node.keys.count()
+    } else {
+        var size = node.keys.count()
+        var i = 0uaddr
+        while i < node.children.count() {
+            size = size + node.children[i].subtree_size
+            i = i + 1uaddr
+        }
+        node.subtree_size = size
+    }
+}
+
+# ============================================================================
+# Remove
+# ============================================================================
+
+routine SortedSet<T>.remove(me: SortedSet<T>, value: T) -> bool {
+    # Returns true if removed, false if not found
+    if me.root is None {
+        return false
+    }
+
+    if not me.contains(value) {
+        return false
+    }
+
+    me.remove_from_node(me.root!, value)
+    me.count = me.count - 1uaddr
+
+    # If root has no keys but has children, make first child the new root
+    if me.root!.keys.count() == 0uaddr and not me.root!.is_leaf {
+        me.root = me.root!.children[0]
+    }
+
+    # If tree is empty
+    if me.root!.keys.count() == 0uaddr {
+        me.root = None
+    }
+
+    return true
+}
+
+routine SortedSet<T>.remove_from_node(me: SortedSet<T>, node: BTreeSetNode<T>, value: T) {
+    # Find position of value
+    var i = 0uaddr
+    while i < node.keys.count() and value > node.keys[i] {
+        i = i + 1uaddr
+    }
+
+    if i < node.keys.count() and value == node.keys[i] {
+        # Found in this node
+        if node.is_leaf {
+            # Simply remove from leaf
+            let new_keys = List<T>()
+            var j = 0uaddr
+            while j < node.keys.count() {
+                if j != i {
+                    new_keys.push(node.keys[j])
+                }
+                j = j + 1uaddr
+            }
+            node.keys = new_keys
+            node.subtree_size = node.subtree_size - 1uaddr
+        } else {
+            # Internal node - replace with predecessor or successor
+            let pred = me.get_predecessor(node, i)
+            node.keys[i] = pred
+            me.remove_from_node(node.children[i], pred)
+            node.subtree_size = node.subtree_size - 1uaddr
+        }
+    } else {
+        # Not in this node, descend to child
+        if node.is_leaf {
+            return  # Not found
+        }
+
+        me.remove_from_node(node.children[i], value)
+        node.subtree_size = node.subtree_size - 1uaddr
+    }
+}
+
+routine SortedSet<T>.get_predecessor(me: SortedSet<T>, node: BTreeSetNode<T>, idx: uaddr) -> T {
+    # Get the largest key in the left subtree of keys[idx]
+    var current = node.children[idx]
+    while not current.is_leaf {
+        current = current.children[current.children.count() - 1uaddr]
+    }
+    return current.keys[current.keys.count() - 1uaddr]
+}
+
+# ============================================================================
+# Indexing - O(log n) access by position
+# ============================================================================
+
+routine SortedSet<T>.__getitem__!<I>(me: SortedSet<T>, index: I) -> T
+    where I follows Integral {
+    let idx = index.to_uaddr()
+    if idx >= me.count {
+        throw IndexOutOfBoundsError(index: idx, count: me.count)
+    }
+    return me.get_by_rank(me.root!, idx)
+}
+
+routine SortedSet<T>.__getitem__!<I>(me: SortedSet<T>, index: BackIndex<I>) -> T
+    where I follows Integral {
+    let idx = index.resolve(me.count)
+    return me.get_by_rank(me.root!, idx)
+}
+
+routine SortedSet<T>.get_by_rank(me: SortedSet<T>, node: BTreeSetNode<T>, rank: uaddr) -> T {
+    # Get element at rank (0-indexed) in this subtree
+    if node.is_leaf {
+        return node.keys[rank]
+    }
+
+    var remaining = rank
+    var i = 0uaddr
+
+    while i < node.children.count() {
+        let child_size = node.children[i].subtree_size
+
+        if remaining < child_size {
+            # Element is in this child
+            return me.get_by_rank(node.children[i], remaining)
+        }
+
+        remaining = remaining - child_size
+
+        # Check if it's the key between children
+        if i < node.keys.count() {
+            if remaining == 0uaddr {
+                return node.keys[i]
+            }
+            remaining = remaining - 1uaddr
+        }
+
+        i = i + 1uaddr
+    }
+
+    # Should not reach here if rank is valid
+    return node.keys[0]
+}
+
+routine SortedSet<T>.get!<I>(me: SortedSet<T>, index: I) -> T
+    where I follows Integral {
+    return me.__getitem__!(index)
+}
+
+# ============================================================================
+# Range Queries
+# ============================================================================
+
+routine SortedSet<T>.range(me: SortedSet<T>, min_val: T, max_val: T) -> List<T> {
+    # Get all elements in [min_val, max_val]
+    let result = List<T>()
+    if me.root is None {
+        return result
+    }
+    me.range_collect(me.root!, min_val, max_val, result)
+    return result
+}
+
+routine SortedSet<T>.range_collect(me: SortedSet<T>, node: BTreeSetNode<T>, min_val: T, max_val: T, result: List<T>) {
+    var i = 0uaddr
+
+    while i < node.keys.count() {
+        # Visit left child if might contain elements >= min_val
+        if not node.is_leaf and (i == 0uaddr or node.keys[i - 1uaddr] >= min_val) {
+            me.range_collect(node.children[i], min_val, max_val, result)
+        }
+
+        # Check this key
+        let key = node.keys[i]
+        if key >= min_val and key <= max_val {
+            result.push(key)
+        }
+
+        i = i + 1uaddr
+    }
+
+    # Visit rightmost child
+    if not node.is_leaf {
+        me.range_collect(node.children[node.children.count() - 1uaddr], min_val, max_val, result)
+    }
+}
+
+# ============================================================================
+# Min/Max
+# ============================================================================
+
+routine SortedSet<T>.min!(me: SortedSet<T>) -> T {
+    if me.is_empty() {
+        absent
+    }
+    var node = me.root!
+    while not node.is_leaf {
+        node = node.children[0]
+    }
+    return node.keys[0]
+}
+
+routine SortedSet<T>.max!(me: SortedSet<T>) -> T {
+    if me.is_empty() {
+        absent
+    }
+    var node = me.root!
+    while not node.is_leaf {
+        node = node.children[node.children.count() - 1uaddr]
+    }
+    return node.keys[node.keys.count() - 1uaddr]
+}
+
+routine SortedSet<T>.first!(me: SortedSet<T>) -> T {
+    return me.min!()
+}
+
+routine SortedSet<T>.last!(me: SortedSet<T>) -> T {
+    return me.max!()
+}
+
+# ============================================================================
+# Iteration (in-order traversal)
+# ============================================================================
+
+routine SortedSet<T>.iter(me: SortedSet<T>) -> SortedSetIterator<T> {
+    return SortedSetIterator<T>(set: me, index: 0uaddr)
+}
+
+routine SortedSet<T>.to_list(me: SortedSet<T>) -> List<T> {
+    let result = List<T>(me.count)
+    if me.root is None {
+        return result
+    }
+    me.collect_inorder(me.root!, result)
+    return result
+}
+
+routine SortedSet<T>.collect_inorder(me: SortedSet<T>, node: BTreeSetNode<T>, result: List<T>) {
+    var i = 0uaddr
+    while i < node.keys.count() {
+        if not node.is_leaf {
+            me.collect_inorder(node.children[i], result)
+        }
+        result.push(node.keys[i])
+        i = i + 1uaddr
+    }
+    if not node.is_leaf {
+        me.collect_inorder(node.children[node.children.count() - 1uaddr], result)
+    }
+}
+
+record SortedSetIterator<T> {
+    set: SortedSet<T>
+    index: uaddr
+}
+
+routine SortedSetIterator<T>.next(me: SortedSetIterator<T>) -> T? {
+    if me.index >= me.set.count() {
+        return None
+    }
+    let value = me.set[me.index]
+    me.index = me.index + 1uaddr
+    return value
+}
+
+# ============================================================================
+# Comparison
+# ============================================================================
+
+routine SortedSet<T>.__eq__(me: SortedSet<T>, other: SortedSet<T>) -> bool {
+    if me.count != other.count {
+        return false
+    }
+    var i = 0uaddr
+    while i < me.count {
+        if me[i] != other[i] {
+            return false
+        }
+        i = i + 1uaddr
+    }
+    return true
+}
+
+routine SortedSet<T>.__ne__(me: SortedSet<T>, other: SortedSet<T>) -> bool {
+    return not (me == other)
+}

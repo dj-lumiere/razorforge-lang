@@ -25,8 +25,7 @@ public record SourceSpan(
     /// </summary>
     public static SourceSpan Point(string? file, int line, int column, int position)
     {
-        return new SourceSpan(
-            File: file,
+        return new SourceSpan(File: file,
             StartLine: line,
             StartColumn: column,
             EndLine: line,
@@ -38,10 +37,10 @@ public record SourceSpan(
     /// <summary>
     /// Creates a span covering an entire line.
     /// </summary>
-    public static SourceSpan Line(string? file, int line, int startColumn, int endColumn, int startPosition, int endPosition)
+    public static SourceSpan Line(string? file, int line, int startColumn, int endColumn,
+        int startPosition, int endPosition)
     {
-        return new SourceSpan(
-            File: file,
+        return new SourceSpan(File: file,
             StartLine: line,
             StartColumn: startColumn,
             EndLine: line,
@@ -55,15 +54,19 @@ public record SourceSpan(
     /// </summary>
     public override string ToString()
     {
-        string filePrefix = File != null ? $"{File}:" : "";
+        string filePrefix = File != null
+            ? $"{File}:"
+            : "";
         if (StartLine == EndLine && StartColumn == EndColumn)
         {
             return $"{filePrefix}{StartLine}:{StartColumn}";
         }
+
         if (StartLine == EndLine)
         {
             return $"{filePrefix}{StartLine}:{StartColumn}-{EndColumn}";
         }
+
         return $"{filePrefix}{StartLine}:{StartColumn} to {EndLine}:{EndColumn}";
     }
 }

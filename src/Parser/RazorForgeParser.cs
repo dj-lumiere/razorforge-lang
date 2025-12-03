@@ -24,6 +24,15 @@ public partial class RazorForgeParser : BaseParser
         _fileName = fileName;
     }
 
+    protected SourceLocation GetLocation(Token token)
+    {
+        return new SourceLocation(
+            FileName: _fileName ?? "",
+            Line: token.Line,
+            Column: token.Column,
+            Position: token.Position);
+    }
+
     public override Compilers.Shared.AST.Program Parse()
     {
         var declarations = new List<IAstNode>();
@@ -87,7 +96,13 @@ public partial class RazorForgeParser : BaseParser
             return ParseUsingDeclaration();
         }
 
-        // Parse attributes (e.g., @crash_only, @inline)
+        // Preset (compile-time constant)
+        if (Match(type: TokenType.Preset))
+        {
+            return ParsePresetDeclaration();
+        }
+
+        // Parse attributes (e.g., @crash_only, @inline, @config)
         List<string> attributes = ParseAttributes();
 
         // Parse visibility modifier
@@ -125,6 +140,13 @@ public partial class RazorForgeParser : BaseParser
             return ParseVariableDeclaration(visibility: visibility);
         }
 
+        // Pass statement (empty placeholder in records/protocols)
+        if (Match(type: TokenType.Pass))
+        {
+            ConsumeStatementTerminator();
+            return new PassStatement(Location: GetLocation());
+        }
+
         // Field declaration in records: public name: Type or name: Type
         // Detected by identifier followed by colon (no var/let keyword needed)
         if (Check(type: TokenType.Identifier) && PeekToken(offset: 1)
@@ -153,11 +175,6 @@ public partial class RazorForgeParser : BaseParser
         if (Match(type: TokenType.Choice))
         {
             return ParseEnumDeclaration(visibility: visibility);
-        }
-
-        if (Match(type: TokenType.Chimera))
-        {
-            return ParseVariantDeclaration(visibility: visibility, kind: VariantKind.Chimera);
         }
 
         if (Match(type: TokenType.Variant))
@@ -250,12 +267,6 @@ public partial class RazorForgeParser : BaseParser
             return ParseDangerStatement();
         }
 
-        // Mayhem block
-        if (Match(type: TokenType.Mayhem))
-        {
-            return ParseMayhemStatement();
-        }
-
         // Viewing block (scoped read-only access)
         if (Match(type: TokenType.Viewing))
         {
@@ -268,8 +279,8 @@ public partial class RazorForgeParser : BaseParser
             return ParseHijackingStatement();
         }
 
-        // Observing block (thread-safe scoped read access)
-        if (Match(type: TokenType.Observing))
+        // Inspecting block (thread-safe scoped read access)
+        if (Match(type: TokenType.Inspecting))
         {
             return ParseObservingStatement();
         }

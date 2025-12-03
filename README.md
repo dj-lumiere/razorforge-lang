@@ -279,7 +279,7 @@ RazorForge provides **explicit control** over concurrent access with zero hidden
 ###
 ### Demonstrates:
 ### - Shared<T, Policy> for thread-safe references
-### - observing for concurrent reads
+### - inspecting for concurrent reads
 ### - seizing for exclusive writes
 entity Counter {
     var value: s64
@@ -295,7 +295,7 @@ routine main() -> s32 {
     for i in 0 to 5 {
         let reader = shared  # Clone Arc (atomic increment)
         spawn_thread({
-            observing reader as r {
+            inspecting reader as r {
                 show("Thread {i} reads: {r.value}")
             }  # Read lock released automatically
         })

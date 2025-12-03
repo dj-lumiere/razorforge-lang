@@ -1,36 +1,32 @@
-namespace standard/errors
-
 # Common Error Types
 #
 # Built-in error types for common runtime errors.
 # All error types follow the Crashable protocol.
 
-namespace standard/error
-
 # AbsentValueError - thrown when accessing an absent value
 record AbsentValueError follows Crashable {
-    routine crash_message() -> Text {
+    routine crash_message() -> Text<letter32> {
         return @intrinsic.ptr_to_text(me.message_handle.ptr)
     }
 }
 
 # UserTerminationError - thrown by stop!()
 record UserTerminationError follows Crashable {
-    routine crash_message() -> Text {
+    routine crash_message() -> Text<letter32> {
         return @intrinsic.ptr_to_text(me.message_handle.ptr)
     }
 }
 
 # VerificationFailedError - thrown by verify!()
 record VerificationFailedError follows Crashable {
-    routine crash_message() -> Text {
+    routine crash_message() -> Text<letter32> {
         return @intrinsic.ptr_to_text(me.message_handle.ptr)
     }
 }
 
 # LogicBreachedError - thrown by breach!()
 record LogicBreachedError follows Crashable {
-    routine crash_message() -> Text {
+    routine crash_message() -> Text<letter32> {
         return @intrinsic.ptr_to_text(me.message_handle.ptr)
     }
 }

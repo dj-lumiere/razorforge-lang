@@ -1,6 +1,7 @@
 using System.Text;
 using Compilers.Shared.Analysis;
 using Compilers.Shared.AST;
+using Compilers.Shared.Errors;
 using Compilers.Shared.Lexer;
 
 namespace Compilers.Shared.CodeGen;
@@ -30,6 +31,7 @@ public partial class LLVMCodeGenerator
     /// </remarks>
     public string VisitLambdaExpression(LambdaExpression node)
     {
+        _currentLocation = node.Location;
         // Generate unique lambda name
         string lambdaName = $"__lambda_{_lambdaCounter++}";
 
@@ -39,9 +41,17 @@ public partial class LLVMCodeGenerator
 
         foreach (Parameter param in node.Parameters)
         {
-            string paramType = param.Type != null
-                ? MapRazorForgeTypeToLLVM(razorForgeType: param.Type.Name)
-                : "i32"; // Default to i32 if no type specified
+            if (param.Type == null)
+            {
+                throw CodeGenError.TypeResolutionFailed(
+                    typeName: param.Name,
+                    context: "lambda parameter must have a type annotation",
+                    file: _currentFileName,
+                    line: param.Location.Line,
+                    column: param.Location.Column,
+                    position: param.Location.Position);
+            }
+            string paramType = MapRazorForgeTypeToLLVM(razorForgeType: param.Type.Name);
 
             paramTypes.Add(item: paramType);
             paramList.Add(item: $"{paramType} %{param.Name}");
@@ -140,7 +150,7 @@ public partial class LLVMCodeGenerator
             $"  {resultTemp} = bitcast {returnType} ({paramTypeStr})* @{lambdaName} to ptr");
 
         // Track the type
-        _tempTypes[key: resultTemp] = new TypeInfo(LLVMType: "ptr",
+        _tempTypes[key: resultTemp] = new LLVMTypeInfo(LLVMType: "ptr",
             IsUnsigned: false,
             IsFloatingPoint: false,
             RazorForgeType:
@@ -158,9 +168,17 @@ public partial class LLVMCodeGenerator
         var tempSymbolTypes = new Dictionary<string, string>();
         foreach (Parameter param in parameters)
         {
-            string paramType = param.Type != null
-                ? MapRazorForgeTypeToLLVM(razorForgeType: param.Type.Name)
-                : "i32";
+            if (param.Type == null)
+            {
+                throw CodeGenError.TypeResolutionFailed(
+                    typeName: param.Name,
+                    context: "lambda parameter must have a type annotation for return type inference",
+                    file: _currentFileName,
+                    line: param.Location.Line,
+                    column: param.Location.Column,
+                    position: param.Location.Position);
+            }
+            string paramType = MapRazorForgeTypeToLLVM(razorForgeType: param.Type.Name);
             tempSymbolTypes[key: param.Name] = paramType;
         }
 
@@ -173,11 +191,29 @@ public partial class LLVMCodeGenerator
             IdentifierExpression id => tempSymbolTypes.TryGetValue(key: id.Name,
                 value: out string? t)
                 ? t
-                : "i32",
-            CallExpression => "i32", // Default for function calls
+                : throw CodeGenError.TypeResolutionFailed(
+                    typeName: id.Name,
+                    context: "identifier not found in lambda parameter scope",
+                    file: _currentFileName,
+                    line: id.Location.Line,
+                    column: id.Location.Column,
+                    position: id.Location.Position),
+            CallExpression call => throw CodeGenError.TypeResolutionFailed(
+                typeName: "call expression",
+                context: "cannot infer return type from function call in lambda - use explicit return type annotation",
+                file: _currentFileName,
+                line: call.Location.Line,
+                column: call.Location.Column,
+                position: call.Location.Position),
             ConditionalExpression cond => InferLambdaReturnType(body: cond.TrueExpression,
                 parameters: parameters),
-            _ => "i32" // Default to i32
+            _ => throw CodeGenError.TypeResolutionFailed(
+                typeName: body.GetType().Name,
+                context: "cannot infer lambda return type from this expression - use explicit return type annotation",
+                file: _currentFileName,
+                line: body.Location.Line,
+                column: body.Location.Column,
+                position: body.Location.Position)
         };
     }
 
@@ -227,7 +263,13 @@ public partial class LLVMCodeGenerator
             TokenType.Letter16Literal => "i16",
             TokenType.LetterLiteral => "i32", // Default letter is 32-bit (Unicode codepoint)
 
-            _ => "i32"
+            _ => throw CodeGenError.TypeResolutionFailed(
+                typeName: lit.LiteralType.ToString(),
+                context: "unknown literal token type - cannot infer LLVM type",
+                file: _currentFileName,
+                line: lit.Location.Line,
+                column: lit.Location.Column,
+                position: lit.Location.Position)
         };
     }
 
@@ -251,10 +293,22 @@ public partial class LLVMCodeGenerator
             LiteralExpression lit => InferLiteralType(lit: lit),
             IdentifierExpression id => symbolTypes.TryGetValue(key: id.Name, value: out string? t)
                 ? t
-                : "i32",
+                : throw CodeGenError.TypeResolutionFailed(
+                    typeName: id.Name,
+                    context: "identifier not found in scope during binary expression type inference",
+                    file: _currentFileName,
+                    line: id.Location.Line,
+                    column: id.Location.Column,
+                    position: id.Location.Position),
             BinaryExpression nested => InferBinaryExpressionType(bin: nested,
                 symbolTypes: symbolTypes),
-            _ => "i32"
+            _ => throw CodeGenError.TypeResolutionFailed(
+                typeName: bin.Left.GetType().Name,
+                context: "cannot infer type of binary expression operand",
+                file: _currentFileName,
+                line: bin.Left.Location.Line,
+                column: bin.Left.Location.Column,
+                position: bin.Left.Location.Position)
         };
 
         return leftType;
@@ -265,14 +319,15 @@ public partial class LLVMCodeGenerator
     /// </summary>
     public string VisitTypeConversionExpression(TypeConversionExpression node)
     {
+        _currentLocation = node.Location;
         string sourceValue = node.Expression.Accept(visitor: this);
-        TypeInfo targetTypeInfo = GetTypeInfo(typeName: node.TargetType);
+        LLVMTypeInfo targetTypeInfo = GetTypeInfo(typeName: node.TargetType);
 
         // Generate a temporary variable for the conversion result
         string tempVar = $"%tmp{_tempCounter++}";
 
         // Perform the type conversion using LLVM cast instructions
-        TypeInfo sourceTypeInfo = GetTypeInfo(expr: node.Expression);
+        LLVMTypeInfo sourceTypeInfo = GetTypeInfo(expr: node.Expression);
 
         string conversionOp =
             GetConversionInstruction(sourceType: sourceTypeInfo, targetType: targetTypeInfo);
@@ -284,7 +339,7 @@ public partial class LLVMCodeGenerator
         return tempVar;
     }
 
-    private string GetConversionInstruction(TypeInfo sourceType, TypeInfo targetType)
+    private string GetConversionInstruction(LLVMTypeInfo sourceType, LLVMTypeInfo targetType)
     {
         // Handle floating point to integer conversions
         if (sourceType.IsFloatingPoint && !targetType.IsFloatingPoint)
@@ -333,8 +388,13 @@ public partial class LLVMCodeGenerator
             }
         }
 
-        throw new InvalidOperationException(
-            message: $"Cannot convert from {sourceType.LLVMType} to {targetType.LLVMType}");
+        throw CodeGenError.TypeResolutionFailed(
+            typeName: $"{sourceType.LLVMType} -> {targetType.LLVMType}",
+            context: "unsupported type conversion",
+            file: _currentFileName,
+            line: _currentLocation.Line,
+            column: _currentLocation.Column,
+            position: _currentLocation.Position);
     }
 
     private int GetFloatingPointSize(string llvmType)
@@ -345,7 +405,13 @@ public partial class LLVMCodeGenerator
             "float" => 32,
             "double" => 64,
             "fp128" => 128,
-            _ => throw new ArgumentException(message: $"Unknown floating point type: {llvmType}")
+            _ => throw CodeGenError.TypeResolutionFailed(
+                typeName: llvmType,
+                context: "unknown floating point type",
+                file: _currentFileName,
+                line: _currentLocation.Line,
+                column: _currentLocation.Column,
+                position: _currentLocation.Position)
         };
     }
 
@@ -353,11 +419,19 @@ public partial class LLVMCodeGenerator
     {
         return llvmType switch
         {
+            "i1" => 1,
             "i8" => 8,
             "i16" => 16,
             "i32" => 32,
             "i64" => 64,
-            _ => throw new ArgumentException(message: $"Unknown integer type: {llvmType}")
+            "i128" => 128,
+            _ => throw CodeGenError.TypeResolutionFailed(
+                typeName: llvmType,
+                context: "unknown integer type",
+                file: _currentFileName,
+                line: _currentLocation.Line,
+                column: _currentLocation.Column,
+                position: _currentLocation.Position)
         };
     }
 }

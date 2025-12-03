@@ -42,8 +42,29 @@ public partial class SemanticAnalyzer
                     }
 
                     // Return the target type as the result type
-                    return new TypeInfo(Name: baseTypeName, IsReference: false);
+                    var resultType = PrimitiveTypes.IsPrimitive(baseTypeName)
+                        ? GetPrimitiveTypeInfo(baseTypeName)
+                        : new TypeInfo(Name: baseTypeName, IsReference: false);
+                    return SetResolvedType(node, resultType);
                 }
+            }
+
+            // Check for type constructor calls: Type(args) where Type is a known type
+            // This handles cases like MemorySize(bytes), DynamicSlice(size), etc.
+            if (IsTypeName(name: functionName))
+            {
+                // This is a constructor call
+                // Type check all arguments
+                foreach (Expression arg in node.Arguments)
+                {
+                    arg.Accept(visitor: this);
+                }
+
+                // Return the constructed type
+                Symbol? symbol = _symbolTable.Lookup(name: functionName);
+                bool isReference = symbol is ClassSymbol;
+                var resultType = new TypeInfo(Name: functionName, IsReference: isReference);
+                return SetResolvedType(node, resultType);
             }
 
             // Check for error intrinsics (verify!, breach!, stop!)
@@ -80,7 +101,7 @@ public partial class SemanticAnalyzer
                 }
 
                 // Error intrinsics return void (they don't return on failure)
-                return new TypeInfo(Name: "void", IsReference: false);
+                return SetResolvedType(node, new TypeInfo(Name: "void", IsReference: false));
             }
 
             if (IsNonGenericDangerZoneFunction(functionName: functionName))
@@ -92,11 +113,12 @@ public partial class SemanticAnalyzer
                         Message:
                         $"Danger zone function '{functionName}!' can only be used inside danger blocks",
                         Location: node.Location));
-                    return new TypeInfo(Name: "void", IsReference: false);
+                    return SetResolvedType(node, new TypeInfo(Name: "void", IsReference: false));
                 }
 
-                return ValidateNonGenericDangerZoneFunction(node: node,
-                    functionName: functionName);
+                var dangerResult = ValidateNonGenericDangerZoneFunction(node: node,
+                    functionName: functionName) as TypeInfo;
+                return SetResolvedType(node, dangerResult);
             }
         }
 
@@ -106,10 +128,11 @@ public partial class SemanticAnalyzer
             IsMemoryOperation(methodName: memberExpr.PropertyName))
         {
             // Route through specialized memory operation handler
-            return HandleMemoryOperationCall(memberExpr: memberExpr,
+            var memOpResult = HandleMemoryOperationCall(memberExpr: memberExpr,
                 operationName: memberExpr.PropertyName,
                 arguments: node.Arguments,
                 location: node.Location);
+            return SetResolvedType(node, memOpResult);
         }
 
         // Handle namespaced function calls (e.g., Console.show_line())
@@ -131,17 +154,40 @@ public partial class SemanticAnalyzer
                 // Return the function's return type
                 if (funcSymbol is FunctionSymbol func)
                 {
-                    return func.ReturnType;
+                    return SetResolvedType(node, func.ReturnType);
                 }
                 else if (funcSymbol is FunctionOverloadSet overloadSet &&
                          overloadSet.Overloads.Count > 0)
                 {
                     // TODO: Proper overload resolution based on argument types
                     // For now, return the first overload's return type
-                    return overloadSet.Overloads[index: 0].ReturnType;
+                    return SetResolvedType(node, overloadSet.Overloads[index: 0].ReturnType);
                 }
 
-                return funcSymbol.Type;
+                return SetResolvedType(node, funcSymbol.Type);
+            }
+        }
+
+        // Handle method calls with known return types (e.g., obj.to_uaddr(), obj.to_s64())
+        if (node.Callee is MemberExpression methodCall)
+        {
+            // Type check the object
+            var objectType = methodCall.Object.Accept(visitor: this) as TypeInfo;
+
+            // Check for known type conversion methods from Integral feature
+            TypeInfo? methodReturnType = GetKnownMethodReturnType(
+                objectType: objectType,
+                methodName: methodCall.PropertyName);
+
+            if (methodReturnType != null)
+            {
+                // Type check all arguments
+                foreach (Expression arg in node.Arguments)
+                {
+                    arg.Accept(visitor: this);
+                }
+
+                return SetResolvedType(node, methodReturnType);
             }
         }
 
@@ -157,8 +203,103 @@ public partial class SemanticAnalyzer
             arg.Accept(visitor: this);
         }
 
-        // TODO: Return function's actual return type based on signature
-        return functionType;
+        // If the callee is a callable type (Routine<(Args), Return>), extract the return type
+        if (functionType != null && functionType.Name == "Routine")
+        {
+            // Check if this is a Routine with generic arguments
+            if (functionType.IsGeneric && functionType.GenericArguments != null &&
+                functionType.GenericArguments.Count >= 2)
+            {
+                // The last generic argument is the return type
+                // Format: Routine<ArgsTuple, ReturnType>
+                return SetResolvedType(node, functionType.GenericArguments[index: functionType.GenericArguments.Count - 1]);
+            }
+
+            // Try parsing from FullName as fallback
+            TypeInfo? returnType = ExtractRoutineReturnType(routineType: functionType.FullName);
+            if (returnType != null)
+            {
+                return SetResolvedType(node, returnType);
+            }
+        }
+
+        // Return function's actual return type based on signature
+        return SetResolvedType(node, functionType);
+    }
+
+    /// <summary>
+    /// Extracts the return type from a Routine type string.
+    /// Parses formats like "Routine<(T), bool>" to extract "bool".
+    /// </summary>
+    private static TypeInfo? ExtractRoutineReturnType(string routineType)
+    {
+        // Format: Routine<(ArgTypes), ReturnType>
+        // Find the last comma followed by space and the return type
+        int lastComma = routineType.LastIndexOf(value: ", ");
+        if (lastComma < 0)
+        {
+            return null;
+        }
+
+        // Extract the return type (everything between last comma and closing >)
+        string remaining = routineType.Substring(startIndex: lastComma + 2);
+        if (remaining.EndsWith(value: ">"))
+        {
+            string returnTypeName = remaining.Substring(startIndex: 0, length: remaining.Length - 1);
+            return new TypeInfo(Name: returnTypeName, IsReference: false);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Gets the return type for known methods (type conversion, feature methods, etc.).
+    /// This handles methods that are not explicitly declared but are part of features/interfaces.
+    /// </summary>
+    /// <param name="objectType">Type of the object the method is called on</param>
+    /// <param name="methodName">Name of the method being called</param>
+    /// <returns>Return type if known, null otherwise</returns>
+    private TypeInfo? GetKnownMethodReturnType(TypeInfo? objectType, string methodName)
+    {
+        // Type conversion methods from Integral feature (and similar patterns)
+        // These return the target type with proper protocols
+        return methodName switch
+        {
+            // Integer conversion methods - use protocol-based types
+            "to_uaddr" => GetPrimitiveTypeInfo("uaddr"),
+            "to_saddr" => GetPrimitiveTypeInfo("saddr"),
+            "to_u8" => GetPrimitiveTypeInfo("u8"),
+            "to_u16" => GetPrimitiveTypeInfo("u16"),
+            "to_u32" => GetPrimitiveTypeInfo("u32"),
+            "to_u64" => GetPrimitiveTypeInfo("u64"),
+            "to_u128" => GetPrimitiveTypeInfo("u128"),
+            "to_s8" => GetPrimitiveTypeInfo("s8"),
+            "to_s16" => GetPrimitiveTypeInfo("s16"),
+            "to_s32" => GetPrimitiveTypeInfo("s32"),
+            "to_s64" => GetPrimitiveTypeInfo("s64"),
+            "to_s128" => GetPrimitiveTypeInfo("s128"),
+            // Float conversion methods
+            "to_f16" => GetPrimitiveTypeInfo("f16"),
+            "to_f32" => GetPrimitiveTypeInfo("f32"),
+            "to_f64" => GetPrimitiveTypeInfo("f64"),
+            "to_f128" => GetPrimitiveTypeInfo("f128"),
+            // Decimal conversion methods
+            "to_d32" => GetPrimitiveTypeInfo("d32"),
+            "to_d64" => GetPrimitiveTypeInfo("d64"),
+            "to_d128" => GetPrimitiveTypeInfo("d128"),
+            // Common utility methods
+            "len" or "length" or "count" => GetPrimitiveTypeInfo("uaddr"),
+            "is_empty" => GetPrimitiveTypeInfo("bool"),
+            "bytes" => GetPrimitiveTypeInfo("uaddr"), // MemorySize.bytes()
+            // Index resolution methods (BackIndex, Range)
+            "resolve" => GetPrimitiveTypeInfo("uaddr"), // BackIndex.resolve()
+            "resolve_start" => GetPrimitiveTypeInfo("uaddr"), // Range.resolve_start()
+            "resolve_end" => GetPrimitiveTypeInfo("uaddr"), // Range.resolve_end()
+            "get_step" => GetPrimitiveTypeInfo("uaddr"), // Range.get_step()
+            // String/Text methods
+            "to_text" => new TypeInfo(Name: "Text<letter>", IsReference: false),
+            _ => null
+        };
     }
 
     /// <summary>

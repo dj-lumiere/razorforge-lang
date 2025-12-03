@@ -550,6 +550,27 @@ routine s64.__create__!(from_text: Text<Letterlikes>) -> s64 {
     }
 }
 
+# From s8 - always fits, no check needed
+routine s64.__create__!(from: s8) -> s64 {
+    danger! {
+        return @intrinsic.sext<i8, i64>(from)
+    }
+}
+
+# From s16 - always fits, no check needed
+routine s64.__create__!(from: s16) -> s64 {
+    danger! {
+        return @intrinsic.sext<i16, i64>(from)
+    }
+}
+
+# From s32 - always fits, no check needed
+routine s64.__create__!(from: s32) -> s64 {
+    danger! {
+        return @intrinsic.sext<i32, i64>(from)
+    }
+}
+
 # From s128 - crashes if value out of s64 range
 routine s64.__create__!(from: s128) -> s64 {
     if not (S64_MIN <= from <= S64_MAX) {
@@ -599,6 +620,32 @@ routine s64.__create__!(from: u128) -> s64 {
     danger! {
         return @intrinsic.trunc<i128, i64>(from)
     }
+}
+
+# From floating point - truncates
+routine s64.__create__(from: f32) -> s64 {
+    danger! {
+        return @intrinsic.fptosi<float, i64>(from)
+    }
+}
+
+routine s64.__create__(from: f64) -> s64 {
+    danger! {
+        return @intrinsic.fptosi<double, i64>(from)
+    }
+}
+
+# From decimal - truncates
+routine s64.__create__(from: d32) -> s64 {
+    return from.to_s64()
+}
+
+routine s64.__create__(from: d64) -> s64 {
+    return from.to_s64()
+}
+
+routine s64.__create__(from: d128) -> s64 {
+    return from.to_s64()
 }
 
 # ============================================================================

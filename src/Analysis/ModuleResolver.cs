@@ -179,7 +179,9 @@ public class ModuleResolver
             }
 
             // Create module info
-            var moduleInfo = new ModuleInfo(ModulePath: importPath, FilePath: filePath, Ast: ast,
+            var moduleInfo = new ModuleInfo(ModulePath: importPath,
+                FilePath: filePath,
+                Ast: ast,
                 Dependencies: dependencies);
 
             // Cache it
@@ -243,6 +245,12 @@ public class ModuleResolver
     /// Gets all loaded module paths.
     /// </summary>
     public IReadOnlySet<string> LoadedModules => _loadedModules;
+
+    /// <summary>
+    /// Gets all cached module information including ASTs.
+    /// Used by code generator to compile imported module functions.
+    /// </summary>
+    public IReadOnlyDictionary<string, ModuleInfo> ModuleCache => _moduleCache;
 
     /// <summary>
     /// Clears the module cache.

@@ -1,0 +1,569 @@
+# RazorForge SortedDict<K, V> - B-tree based sorted dictionary
+# Entity type with heap allocation
+# O(log n) insert, delete, search
+# Keys are unique and always in sorted order
+#
+# Usage:
+#   let dict = SortedDict<s32, Text>()
+#   dict.insert(5, "five")
+#   dict.insert(1, "one")
+#   dict[3] = "three"
+#   let val = dict[1]     # "one"
+#   for (key, value) in dict.iter() {
+#       # Iterates in sorted key order
+#   }
+
+import memory/DynamicSlice
+import memory/MemorySize
+import errors/IndexOutOfBoundsError
+import core/Integral
+import core/BackIndex
+import Collections/List
+
+# B-tree order
+preset B_DICT: uaddr = 32uaddr
+
+# Key-value pair
+record KVPair<K, V> {
+    key: K
+    value: V
+}
+
+# B-tree node for SortedDict
+entity BTreeDictNode<K, V> {
+    entries: List<KVPair<K, V>>              # Key-value pairs in this node
+    children: List<BTreeDictNode<K, V>>      # Child pointers (empty for leaf)
+    is_leaf: bool
+}
+
+entity SortedDict<K, V> {
+    private root: BTreeDictNode<K, V>?
+    private count: uaddr
+}
+
+# ============================================================================
+# Node Constructors
+# ============================================================================
+
+routine BTreeDictNode<K, V>.__create__(is_leaf: bool) -> BTreeDictNode<K, V> {
+    return BTreeDictNode<K, V>(
+        entries: List<KVPair<K, V>>(),
+        children: List<BTreeDictNode<K, V>>(),
+        is_leaf: is_leaf
+    )
+}
+
+# ============================================================================
+# SortedDict Constructors
+# ============================================================================
+
+routine SortedDict<K, V>.__create__() -> SortedDict<K, V> {
+    return SortedDict<K, V>(
+        root: None,
+        count: 0uaddr
+    )
+}
+
+# ============================================================================
+# Core Operations
+# ============================================================================
+
+routine SortedDict<K, V>.count(me: SortedDict<K, V>) -> uaddr {
+    return me.count
+}
+
+routine SortedDict<K, V>.is_empty(me: SortedDict<K, V>) -> bool {
+    return me.count == 0uaddr
+}
+
+routine SortedDict<K, V>.clear(me: SortedDict<K, V>) {
+    me.root = None
+    me.count = 0uaddr
+}
+
+# ============================================================================
+# Search
+# ============================================================================
+
+routine SortedDict<K, V>.contains_key(me: SortedDict<K, V>, key: K) -> bool {
+    if me.root is None {
+        return false
+    }
+    return me.search_node(me.root!, key) is not None
+}
+
+routine SortedDict<K, V>.search_node(me: SortedDict<K, V>, node: BTreeDictNode<K, V>, key: K) -> V? {
+    var i = 0uaddr
+    while i < node.entries.count() and key > node.entries[i].key {
+        i = i + 1uaddr
+    }
+
+    if i < node.entries.count() and key == node.entries[i].key {
+        return node.entries[i].value
+    }
+
+    if node.is_leaf {
+        return None
+    }
+
+    return me.search_node(node.children[i], key)
+}
+
+routine SortedDict<K, V>.get!(me: SortedDict<K, V>, key: K) -> V {
+    if me.root is None {
+        absent
+    }
+    let result = me.search_node(me.root!, key)
+    if result is None {
+        absent
+    }
+    return result!
+}
+
+routine SortedDict<K, V>.get_or_default(me: SortedDict<K, V>, key: K, default_value: V) -> V {
+    if me.root is None {
+        return default_value
+    }
+    let result = me.search_node(me.root!, key)
+    if result is None {
+        return default_value
+    }
+    return result!
+}
+
+# ============================================================================
+# Indexing (by key)
+# ============================================================================
+
+routine SortedDict<K, V>.__getitem__!(me: SortedDict<K, V>, key: K) -> V {
+    return me.get!(key)
+}
+
+routine SortedDict<K, V>.__setitem__(me: SortedDict<K, V>, key: K, value: V) {
+    me.insert(key, value)
+}
+
+# ============================================================================
+# Insert
+# ============================================================================
+
+routine SortedDict<K, V>.insert(me: SortedDict<K, V>, key: K, value: V) -> bool {
+    # Returns true if new key inserted, false if key updated
+
+    if me.root is None {
+        me.root = BTreeDictNode<K, V>(is_leaf: true)
+        me.root!.entries.push(KVPair<K, V>(key: key, value: value))
+        me.count = 1uaddr
+        return true
+    }
+
+    # Check if key exists and update
+    let existing = me.find_and_update(me.root!, key, value)
+    if existing {
+        return false
+    }
+
+    # If root is full, split it
+    if me.root!.entries.count() >= B_DICT - 1uaddr {
+        let old_root = me.root!
+        let new_root = BTreeDictNode<K, V>(is_leaf: false)
+        new_root.children.push(old_root)
+        me.split_child(new_root, 0uaddr)
+        me.root = new_root
+    }
+
+    me.insert_non_full(me.root!, key, value)
+    me.count = me.count + 1uaddr
+    return true
+}
+
+routine SortedDict<K, V>.find_and_update(me: SortedDict<K, V>, node: BTreeDictNode<K, V>, key: K, value: V) -> bool {
+    var i = 0uaddr
+    while i < node.entries.count() and key > node.entries[i].key {
+        i = i + 1uaddr
+    }
+
+    if i < node.entries.count() and key == node.entries[i].key {
+        node.entries[i] = KVPair<K, V>(key: key, value: value)
+        return true
+    }
+
+    if node.is_leaf {
+        return false
+    }
+
+    return me.find_and_update(node.children[i], key, value)
+}
+
+routine SortedDict<K, V>.insert_non_full(me: SortedDict<K, V>, node: BTreeDictNode<K, V>, key: K, value: V) {
+    var i = node.entries.count()
+
+    if node.is_leaf {
+        while i > 0uaddr and key < node.entries[i - 1uaddr].key {
+            i = i - 1uaddr
+        }
+        let entries_copy = List<KVPair<K, V>>()
+        var j = 0uaddr
+        while j < i {
+            entries_copy.push(node.entries[j])
+            j = j + 1uaddr
+        }
+        entries_copy.push(KVPair<K, V>(key: key, value: value))
+        while j < node.entries.count() {
+            entries_copy.push(node.entries[j])
+            j = j + 1uaddr
+        }
+        node.entries = entries_copy
+    } else {
+        while i > 0uaddr and key < node.entries[i - 1uaddr].key {
+            i = i - 1uaddr
+        }
+
+        if node.children[i].entries.count() >= B_DICT - 1uaddr {
+            me.split_child(node, i)
+            if key > node.entries[i].key {
+                i = i + 1uaddr
+            }
+        }
+
+        me.insert_non_full(node.children[i], key, value)
+    }
+}
+
+routine SortedDict<K, V>.split_child(me: SortedDict<K, V>, parent: BTreeDictNode<K, V>, child_idx: uaddr) {
+    let child = parent.children[child_idx]
+    let mid = (B_DICT - 1uaddr) / 2uaddr
+
+    let new_node = BTreeDictNode<K, V>(is_leaf: child.is_leaf)
+
+    var i = mid + 1uaddr
+    while i < child.entries.count() {
+        new_node.entries.push(child.entries[i])
+        i = i + 1uaddr
+    }
+
+    if not child.is_leaf {
+        i = mid + 1uaddr
+        while i < child.children.count() {
+            new_node.children.push(child.children[i])
+            i = i + 1uaddr
+        }
+    }
+
+    let mid_entry = child.entries[mid]
+
+    let left_entries = List<KVPair<K, V>>()
+    i = 0uaddr
+    while i < mid {
+        left_entries.push(child.entries[i])
+        i = i + 1uaddr
+    }
+    child.entries = left_entries
+
+    if not child.is_leaf {
+        let left_children = List<BTreeDictNode<K, V>>()
+        i = 0uaddr
+        while i <= mid {
+            left_children.push(child.children[i])
+            i = i + 1uaddr
+        }
+        child.children = left_children
+    }
+
+    let new_entries = List<KVPair<K, V>>()
+    let new_children = List<BTreeDictNode<K, V>>()
+
+    i = 0uaddr
+    while i < child_idx {
+        new_entries.push(parent.entries[i])
+        new_children.push(parent.children[i])
+        i = i + 1uaddr
+    }
+    new_entries.push(mid_entry)
+    new_children.push(child)
+    new_children.push(new_node)
+    while i < parent.entries.count() {
+        new_entries.push(parent.entries[i])
+        i = i + 1uaddr
+    }
+    i = child_idx + 1uaddr
+    while i < parent.children.count() {
+        new_children.push(parent.children[i])
+        i = i + 1uaddr
+    }
+
+    parent.entries = new_entries
+    parent.children = new_children
+}
+
+# ============================================================================
+# Remove
+# ============================================================================
+
+routine SortedDict<K, V>.remove(me: SortedDict<K, V>, key: K) -> bool {
+    if me.root is None {
+        return false
+    }
+
+    if not me.contains_key(key) {
+        return false
+    }
+
+    me.remove_from_node(me.root!, key)
+    me.count = me.count - 1uaddr
+
+    if me.root!.entries.count() == 0uaddr and not me.root!.is_leaf {
+        me.root = me.root!.children[0]
+    }
+
+    if me.root!.entries.count() == 0uaddr {
+        me.root = None
+    }
+
+    return true
+}
+
+routine SortedDict<K, V>.remove_from_node(me: SortedDict<K, V>, node: BTreeDictNode<K, V>, key: K) {
+    var i = 0uaddr
+    while i < node.entries.count() and key > node.entries[i].key {
+        i = i + 1uaddr
+    }
+
+    if i < node.entries.count() and key == node.entries[i].key {
+        if node.is_leaf {
+            let new_entries = List<KVPair<K, V>>()
+            var j = 0uaddr
+            while j < node.entries.count() {
+                if j != i {
+                    new_entries.push(node.entries[j])
+                }
+                j = j + 1uaddr
+            }
+            node.entries = new_entries
+        } else {
+            let pred = me.get_predecessor(node, i)
+            node.entries[i] = pred
+            me.remove_from_node(node.children[i], pred.key)
+        }
+    } else {
+        if node.is_leaf {
+            return
+        }
+        me.remove_from_node(node.children[i], key)
+    }
+}
+
+routine SortedDict<K, V>.get_predecessor(me: SortedDict<K, V>, node: BTreeDictNode<K, V>, idx: uaddr) -> KVPair<K, V> {
+    var current = node.children[idx]
+    while not current.is_leaf {
+        current = current.children[current.children.count() - 1uaddr]
+    }
+    return current.entries[current.entries.count() - 1uaddr]
+}
+
+# ============================================================================
+# Keys and Values
+# ============================================================================
+
+routine SortedDict<K, V>.keys(me: SortedDict<K, V>) -> List<K> {
+    let result = List<K>(me.count)
+    if me.root is None {
+        return result
+    }
+    me.collect_keys(me.root!, result)
+    return result
+}
+
+routine SortedDict<K, V>.collect_keys(me: SortedDict<K, V>, node: BTreeDictNode<K, V>, result: List<K>) {
+    var i = 0uaddr
+    while i < node.entries.count() {
+        if not node.is_leaf {
+            me.collect_keys(node.children[i], result)
+        }
+        result.push(node.entries[i].key)
+        i = i + 1uaddr
+    }
+    if not node.is_leaf {
+        me.collect_keys(node.children[node.children.count() - 1uaddr], result)
+    }
+}
+
+routine SortedDict<K, V>.values(me: SortedDict<K, V>) -> List<V> {
+    let result = List<V>(me.count)
+    if me.root is None {
+        return result
+    }
+    me.collect_values(me.root!, result)
+    return result
+}
+
+routine SortedDict<K, V>.collect_values(me: SortedDict<K, V>, node: BTreeDictNode<K, V>, result: List<V>) {
+    var i = 0uaddr
+    while i < node.entries.count() {
+        if not node.is_leaf {
+            me.collect_values(node.children[i], result)
+        }
+        result.push(node.entries[i].value)
+        i = i + 1uaddr
+    }
+    if not node.is_leaf {
+        me.collect_values(node.children[node.entries.count()], result)
+    }
+}
+
+# ============================================================================
+# Min/Max Keys
+# ============================================================================
+
+routine SortedDict<K, V>.min_key!(me: SortedDict<K, V>) -> K {
+    if me.is_empty() {
+        absent
+    }
+    var node = me.root!
+    while not node.is_leaf {
+        node = node.children[0]
+    }
+    return node.entries[0].key
+}
+
+routine SortedDict<K, V>.max_key!(me: SortedDict<K, V>) -> K {
+    if me.is_empty() {
+        absent
+    }
+    var node = me.root!
+    while not node.is_leaf {
+        node = node.children[node.children.count() - 1uaddr]
+    }
+    return node.entries[node.entries.count() - 1uaddr].key
+}
+
+routine SortedDict<K, V>.first!(me: SortedDict<K, V>) -> KVPair<K, V> {
+    if me.is_empty() {
+        absent
+    }
+    var node = me.root!
+    while not node.is_leaf {
+        node = node.children[0]
+    }
+    return node.entries[0]
+}
+
+routine SortedDict<K, V>.last!(me: SortedDict<K, V>) -> KVPair<K, V> {
+    if me.is_empty() {
+        absent
+    }
+    var node = me.root!
+    while not node.is_leaf {
+        node = node.children[node.children.count() - 1uaddr]
+    }
+    return node.entries[node.entries.count() - 1uaddr]
+}
+
+# ============================================================================
+# Range Queries
+# ============================================================================
+
+routine SortedDict<K, V>.range(me: SortedDict<K, V>, min_key: K, max_key: K) -> List<KVPair<K, V>> {
+    let result = List<KVPair<K, V>>()
+    if me.root is None {
+        return result
+    }
+    me.range_collect(me.root!, min_key, max_key, result)
+    return result
+}
+
+routine SortedDict<K, V>.range_collect(me: SortedDict<K, V>, node: BTreeDictNode<K, V>, min_key: K, max_key: K, result: List<KVPair<K, V>>) {
+    var i = 0uaddr
+
+    while i < node.entries.count() {
+        if not node.is_leaf and (i == 0uaddr or node.entries[i - 1uaddr].key >= min_key) {
+            me.range_collect(node.children[i], min_key, max_key, result)
+        }
+
+        let entry = node.entries[i]
+        if entry.key >= min_key and entry.key <= max_key {
+            result.push(entry)
+        }
+
+        i = i + 1uaddr
+    }
+
+    if not node.is_leaf {
+        me.range_collect(node.children[node.children.count() - 1uaddr], min_key, max_key, result)
+    }
+}
+
+# ============================================================================
+# Iteration (in key order)
+# ============================================================================
+
+routine SortedDict<K, V>.iter(me: SortedDict<K, V>) -> SortedDictIterator<K, V> {
+    return SortedDictIterator<K, V>(
+        entries: me.to_list(),
+        index: 0uaddr
+    )
+}
+
+routine SortedDict<K, V>.to_list(me: SortedDict<K, V>) -> List<KVPair<K, V>> {
+    let result = List<KVPair<K, V>>(me.count)
+    if me.root is None {
+        return result
+    }
+    me.collect_inorder(me.root!, result)
+    return result
+}
+
+routine SortedDict<K, V>.collect_inorder(me: SortedDict<K, V>, node: BTreeDictNode<K, V>, result: List<KVPair<K, V>>) {
+    var i = 0uaddr
+    while i < node.entries.count() {
+        if not node.is_leaf {
+            me.collect_inorder(node.children[i], result)
+        }
+        result.push(node.entries[i])
+        i = i + 1uaddr
+    }
+    if not node.is_leaf {
+        me.collect_inorder(node.children[node.children.count() - 1uaddr], result)
+    }
+}
+
+record SortedDictIterator<K, V> {
+    entries: List<KVPair<K, V>>
+    index: uaddr
+}
+
+routine SortedDictIterator<K, V>.next(me: SortedDictIterator<K, V>) -> KVPair<K, V>? {
+    if me.index >= me.entries.count() {
+        return None
+    }
+    let entry = me.entries[me.index]
+    me.index = me.index + 1uaddr
+    return entry
+}
+
+# ============================================================================
+# Comparison
+# ============================================================================
+
+routine SortedDict<K, V>.__eq__(me: SortedDict<K, V>, other: SortedDict<K, V>) -> bool {
+    if me.count != other.count {
+        return false
+    }
+    let my_entries = me.to_list()
+    let other_entries = other.to_list()
+    var i = 0uaddr
+    while i < me.count {
+        if my_entries[i].key != other_entries[i].key {
+            return false
+        }
+        if my_entries[i].value != other_entries[i].value {
+            return false
+        }
+        i = i + 1uaddr
+    }
+    return true
+}
+
+routine SortedDict<K, V>.__ne__(me: SortedDict<K, V>, other: SortedDict<K, V>) -> bool {
+    return not (me == other)
+}

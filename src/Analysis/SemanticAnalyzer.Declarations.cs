@@ -24,7 +24,7 @@ public partial class SemanticAnalyzer
                     GenericParameters: funcDecl.GenericParameters);
                 _symbolTable.TryDeclare(symbol: funcSymbol);
             }
-            else if (declaration is StructDeclaration structDecl)
+            else if (declaration is RecordDeclaration structDecl)
             {
                 var interfaceNames = structDecl.Interfaces
                                               ?.Select(selector: i => i.Name)
@@ -34,8 +34,10 @@ public partial class SemanticAnalyzer
                     GenericParameters: structDecl.GenericParameters,
                     Interfaces: interfaceNames);
                 _symbolTable.TryDeclare(symbol: structSymbol);
+                // Cache field information for member access resolution
+                CacheTypeFields(typeName: structDecl.Name, members: structDecl.Members);
             }
-            else if (declaration is ClassDeclaration classDecl)
+            else if (declaration is EntityDeclaration classDecl)
             {
                 var classSymbol = new ClassSymbol(Name: classDecl.Name,
                     BaseClass: classDecl.BaseClass,
@@ -43,8 +45,10 @@ public partial class SemanticAnalyzer
                     Visibility: classDecl.Visibility,
                     GenericParameters: classDecl.GenericParameters);
                 _symbolTable.TryDeclare(symbol: classSymbol);
+                // Cache field information for member access resolution
+                CacheTypeFields(typeName: classDecl.Name, members: classDecl.Members);
             }
-            else if (declaration is FeatureDeclaration featureDecl)
+            else if (declaration is ProtocolDeclaration featureDecl)
             {
                 var featureSymbol = new FeatureSymbol(Name: featureDecl.Name,
                     Visibility: featureDecl.Visibility,
@@ -269,7 +273,7 @@ public partial class SemanticAnalyzer
     /// </summary>
     /// <param name="node">Class declaration node</param>
     /// <returns>Null</returns>
-    public object? VisitClassDeclaration(ClassDeclaration node)
+    public object? VisitEntityDeclaration(EntityDeclaration node)
     {
         // Enter entity scope
         _symbolTable.EnterScope();
@@ -298,6 +302,9 @@ public partial class SemanticAnalyzer
                 location: node.Location);
         }
 
+        // Cache field information for member access resolution
+        CacheTypeFields(typeName: node.Name, members: node.Members);
+
         return null;
     }
 
@@ -307,7 +314,7 @@ public partial class SemanticAnalyzer
     /// </summary>
     /// <param name="node">Struct declaration node</param>
     /// <returns>Null</returns>
-    public object? VisitStructDeclaration(StructDeclaration node)
+    public object? VisitRecordDeclaration(RecordDeclaration node)
     {
         // Similar to entity but with value semantics
         // Extract interface names for the symbol
@@ -326,6 +333,9 @@ public partial class SemanticAnalyzer
                 location: node.Location);
         }
 
+        // Cache field information for member access resolution
+        CacheTypeFields(typeName: node.Name, members: node.Members);
+
         return null;
     }
 
@@ -335,7 +345,7 @@ public partial class SemanticAnalyzer
     /// </summary>
     /// <param name="node">Menu declaration node</param>
     /// <returns>Null</returns>
-    public object? VisitMenuDeclaration(MenuDeclaration node)
+    public object? VisitChoiceDeclaration(ChoiceDeclaration node)
     {
         var menuSymbol = new MenuSymbol(Name: node.Name, Visibility: node.Visibility);
         if (!_symbolTable.TryDeclare(symbol: menuSymbol))
@@ -358,7 +368,6 @@ public partial class SemanticAnalyzer
         // Validation based on variant kind
         switch (node.Kind)
         {
-            case VariantKind.Chimera:
             case VariantKind.Mutant:
                 // TODO: Check if we're in a danger! block
                 // For now, we'll add a warning
@@ -411,7 +420,7 @@ public partial class SemanticAnalyzer
     /// </summary>
     /// <param name="node">Feature declaration node</param>
     /// <returns>Null</returns>
-    public object? VisitFeatureDeclaration(FeatureDeclaration node)
+    public object? VisitProtocolDeclaration(ProtocolDeclaration node)
     {
         var featureSymbol = new FeatureSymbol(Name: node.Name, Visibility: node.Visibility);
         if (!_symbolTable.TryDeclare(symbol: featureSymbol))
@@ -445,15 +454,32 @@ public partial class SemanticAnalyzer
     {
         try
         {
-            // Load the module and all its dependencies
+            // Load the module and all its dependencies (for transitive parsing)
+            // But only expose the directly imported module's symbols
             List<ModuleResolver.ModuleInfo> modules =
                 _moduleResolver.LoadModuleWithDependencies(importPath: node.ModulePath);
 
-            // Process each loaded module (dependencies first, then the requested module)
-            foreach (ModuleResolver.ModuleInfo moduleInfo in modules)
+            // Find the directly imported module (the last one in the list, or the one matching the import path)
+            ModuleResolver.ModuleInfo? directModule = modules.Find(
+                match: m => m.ModulePath == node.ModulePath);
+
+            if (directModule == null)
             {
-                ProcessImportedModule(moduleInfo: moduleInfo, importDecl: node);
+                AddError(message: $"Module '{node.ModulePath}' not found in loaded modules",
+                    location: node.Location);
+                return null;
             }
+
+            // Only process the directly imported module - transitive dependencies
+            // are parsed and available internally but NOT exposed to the importer
+            // This follows the design principle: "Transitive imports are not visible"
+            if (_processedModules.Contains(item: directModule.ModulePath))
+            {
+                return null; // Already processed, skip to avoid duplicate symbols
+            }
+
+            _processedModules.Add(item: directModule.ModulePath);
+            ProcessImportedModule(moduleInfo: directModule, importDecl: node);
 
             return null;
         }
@@ -471,6 +497,7 @@ public partial class SemanticAnalyzer
     private void ProcessImportedModule(ModuleResolver.ModuleInfo moduleInfo,
         ImportDeclaration importDecl)
     {
+        File.AppendAllText("debug.log", $"Processing module: {moduleInfo.ModulePath}\n");
         // Analyze the imported module's AST to extract symbols
         foreach (IAstNode declaration in moduleInfo.Ast.Declarations)
         {
@@ -502,7 +529,7 @@ public partial class SemanticAnalyzer
                         location: importDecl.Location);
                 }
             }
-            else if (declaration is ClassDeclaration classDecl)
+            else if (declaration is EntityDeclaration classDecl)
             {
                 // Create class/entity symbol
                 var classSymbol = new ClassSymbol(Name: classDecl.Name,
@@ -519,8 +546,11 @@ public partial class SemanticAnalyzer
                         $"Imported type '{classDecl.Name}' conflicts with existing declaration",
                         location: importDecl.Location);
                 }
+
+                // Cache field information for member access resolution
+                CacheTypeFields(typeName: classDecl.Name, members: classDecl.Members);
             }
-            else if (declaration is StructDeclaration structDecl)
+            else if (declaration is RecordDeclaration structDecl)
             {
                 // Create struct/record symbol with interfaces
                 var interfaceNames = structDecl.Interfaces
@@ -539,6 +569,9 @@ public partial class SemanticAnalyzer
                         $"Imported type '{structDecl.Name}' conflicts with existing declaration",
                         location: importDecl.Location);
                 }
+
+                // Cache field information for member access resolution
+                CacheTypeFields(typeName: structDecl.Name, members: structDecl.Members);
             }
             else if (declaration is VariantDeclaration variantDecl)
             {
@@ -605,7 +638,7 @@ public partial class SemanticAnalyzer
     /// </summary>
     /// <param name="node">Redefinition declaration node</param>
     /// <returns>Null</returns>
-    public object? VisitRedefinitionDeclaration(RedefinitionDeclaration node)
+    public object? VisitDefineDeclaration(RedefinitionDeclaration node)
     {
         // TODO: Handle method redefinition
         return null;
@@ -620,6 +653,68 @@ public partial class SemanticAnalyzer
     public object? VisitUsingDeclaration(UsingDeclaration node)
     {
         // TODO: Handle type alias
+        return null;
+    }
+
+    /// <summary>
+    /// Caches field type information for a type declaration.
+    /// Used by VisitMemberExpression to resolve field types.
+    /// </summary>
+    /// <param name="typeName">Name of the type being cached</param>
+    /// <param name="members">List of member declarations (fields and methods)</param>
+    private void CacheTypeFields(string typeName, List<Declaration> members)
+    {
+        if (_typeFieldCache.ContainsKey(key: typeName))
+        {
+            // Already cached - avoid duplicate processing
+            return;
+        }
+
+        var fieldTypes = new Dictionary<string, TypeInfo>();
+
+        foreach (Declaration member in members)
+        {
+            if (member is VariableDeclaration varDecl)
+            {
+                // This is a field declaration
+                TypeInfo? fieldType = varDecl.Type != null
+                    ? ResolveType(typeExpr: varDecl.Type)
+                    : null;
+
+                if (fieldType != null)
+                {
+                    fieldTypes[key: varDecl.Name] = fieldType;
+                }
+            }
+        }
+
+        _typeFieldCache[key: typeName] = fieldTypes;
+    }
+
+    /// <summary>
+    /// Looks up the type of a field on a given type.
+    /// </summary>
+    /// <param name="typeName">Name of the type to look up</param>
+    /// <param name="fieldName">Name of the field to find</param>
+    /// <returns>TypeInfo if field exists, null otherwise</returns>
+    public TypeInfo? LookupFieldType(string typeName, string fieldName)
+    {
+        // Strip generic arguments for lookup (e.g., List<T> -> List)
+        string baseTypeName = typeName;
+        int genericStart = typeName.IndexOf(value: '<');
+        if (genericStart > 0)
+        {
+            baseTypeName = typeName.Substring(startIndex: 0, length: genericStart);
+        }
+
+        if (_typeFieldCache.TryGetValue(key: baseTypeName, value: out Dictionary<string, TypeInfo>? fields))
+        {
+            if (fields.TryGetValue(key: fieldName, value: out TypeInfo? fieldType))
+            {
+                return fieldType;
+            }
+        }
+
         return null;
     }
 }
