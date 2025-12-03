@@ -157,3 +157,8 @@ message(STATUS "  LibTomMath (bigint):      ${HAVE_LIBTOMMATH}")
 message(STATUS "  MAPM (bigdecimal):        ${HAVE_MAPM}")
 message(STATUS "  Platform: ${CMAKE_SYSTEM_NAME}")
 message(STATUS "")
+
+#target_compile_options(razorforge PUBLIC
+#  -fPIC
+#  )
+
