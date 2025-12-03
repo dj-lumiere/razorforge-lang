@@ -1,0 +1,3 @@
+routine test_routine(mapper: Routine<(s32), bool>) -> bool {
+    return true
+}

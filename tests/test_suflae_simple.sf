@@ -1,0 +1,8 @@
+# Simple Suflae test without advanced types
+# Tests the check command with no main requirement
+
+routine add(a: s64, b: s64) -> s64:
+    return a + b
+
+routine multiply(x: s64, y: s64) -> s64:
+    return x * y

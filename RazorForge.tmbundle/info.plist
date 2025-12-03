@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+    <dict>
+        <key>name</key>
+        <string>RazorForge</string>
+        <key>uuid</key>
+        <string>E8B7F7D0-1234-5678-9ABC-DEF012345678</string>
+        <key>contactEmailRot13</key>
+        <string>contact@razorforge.dev</string>
+        <key>description</key>
+        <string>RazorForge language syntax highlighting</string>
+        <key>contactName</key>
+        <string>RazorForge Team</string>
+    </dict>
+</plist>

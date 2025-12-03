@@ -1,0 +1,9 @@
+# Test @native call syntax
+
+routine main() -> s32 {
+    danger! {
+        let ptr = @native.malloc(1024)
+        @native.free(ptr)
+    }
+    return 0
+}

@@ -1,0 +1,13 @@
+# Test type inference
+
+routine main() -> void
+{
+    # These should infer types from literals
+    let a = 5
+    let b = 3.14
+    let c = "hello"
+    let d = true
+
+    # This should infer from expression
+    let e = a + 10
+}

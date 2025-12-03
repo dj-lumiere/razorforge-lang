@@ -1,0 +1,61 @@
+# Test file for parser updates
+# Tests: loop, Type<T>.method(), vararg externals, named args, struct literals
+
+# External C function declarations with variadic support
+external("C") routine printf(fmt: text, ...) -> s32
+
+# Simple record for struct literal test
+record Point {
+    x: s64
+    y: s64
+}
+
+# Generic record for generic struct literal test
+record Pair<T> {
+    first: T
+    second: T
+}
+
+# Type-qualified method: Type<T>.method() syntax
+routine Pair<T>.sum(me: Pair<T>) -> T {
+    return me.first
+}
+
+# Simple loop test
+routine test_loop() {
+    var count: s64 = 0
+    loop {
+        count = count + 1
+        if count >= 5 {
+            break
+        }
+    }
+    printf("Loop count: %lld\n", count)
+}
+
+# Struct literal test (non-generic)
+routine test_struct_literal() -> Point {
+    return Point { x: 10, y: 20 }
+}
+
+# Named argument test
+routine greet(name: text, age: s32) {
+    printf("Hello %s, you are %d years old\n", name, age)
+}
+
+# Main entry point
+routine main() {
+    printf("Testing new features:\n")
+
+    # Test loop
+    test_loop()
+
+    # Test struct literal
+    let p = test_struct_literal()
+    printf("Point: x=%lld\n", p.x)
+
+    # Test named arguments
+    greet(name: "Alice", age: 30)
+
+    printf("All tests passed!\n")
+}

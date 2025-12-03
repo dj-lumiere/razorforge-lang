@@ -1,0 +1,368 @@
+# RazorForge Wide C String Type (cwstr)
+# Null-terminated wchar_t* wrapper for C FFI interop
+#
+# cwstr is a value type that wraps a raw pointer (uaddr) to a null-terminated
+# sequence of wide characters. It provides safe access to wide C strings
+# without copying unless explicitly requested.
+#
+# Platform differences:
+# - Windows: wchar_t is 16-bit (UCS-2/UTF-16LE)
+# - Unix/Linux: wchar_t is 32-bit (UTF-32)
+#
+# Key characteristics:
+# - Value semantics (no heap allocation for the wrapper itself)
+# - Wraps existing wide C string memory - does not own the memory by default
+# - Null-terminated (C convention)
+# - Platform-dependent encoding
+#
+# Memory ownership:
+# - cwstr(from_ptr: uaddr) - wraps existing memory, does NOT take ownership
+# - cwstr(from_utf16: Text<letter16>) - allocates NEW memory, caller owns it
+# - cwstr.copy() - allocates NEW memory, caller owns it
+#
+# For narrow character strings (char*), see cstr.rf
+
+import memory/DynamicSlice
+import memory/MemorySize
+import Collections/List
+import Text/Text
+import Text/letter16
+import Text/letter32
+
+# ============================================================================
+# External C Runtime Functions
+# ============================================================================
+
+external("C") routine rf_wcslen(str: uaddr) -> uaddr
+external("C") routine rf_wcscpy(dest: uaddr, src: uaddr) -> uaddr
+external("C") routine rf_wcscmp(s1: uaddr, s2: uaddr) -> s32
+
+# ============================================================================
+# Platform-Dependent Wide Character Type
+# ============================================================================
+
+# Wide character size in bytes (2 on Windows, 4 on Unix)
+@config(target="windows")
+preset cwchar_size: uaddr = 2uaddr
+
+@config(target="unix")
+preset cwchar_size: uaddr = 4uaddr
+
+# ============================================================================
+# cwstr Record Definition
+# ============================================================================
+
+# Wide C string record (null-terminated wchar_t*)
+# Value type wrapper around raw pointer - no heap allocation for wrapper
+record cwstr {
+    ptr: uaddr  # Raw pointer to null-terminated wide character sequence
+}
+
+# Null pointer constant for cwstr comparisons
+preset cwstr_null: cwstr = cwstr(ptr: 0uaddr)
+
+# ============================================================================
+# Constructors
+# ============================================================================
+
+# Create cwstr from raw pointer (wraps existing memory, does NOT copy)
+# WARNING: The pointed-to memory must remain valid for the lifetime of this cwstr
+routine cwstr.__create__(from_ptr: uaddr) -> cwstr {
+    return cwstr(ptr: from_ptr)
+}
+
+# Create cwstr from Text<letter16> (allocates NEW memory with null terminator)
+# Assumes Windows-style 16-bit wchar_t
+# The caller is responsible for freeing this memory when done
+routine cwstr.__create__(from_utf16: Text<letter16>) -> cwstr {
+    danger! {
+        let len = from_utf16.length()
+        let byte_len = (len + 1u64) * 2u64  # 2 bytes per u16 + null terminator
+        let buffer = DynamicSlice(MemorySize(byte_len))
+
+        var i: u64 = 0u64
+        loop {
+            if i >= len {
+                break
+            }
+            buffer.write<u16>!(i * 2u64, from_utf16[i].codepoint())
+            i = i + 1u64
+        }
+        # Null terminator (2 bytes)
+        buffer.write<u16>!(len * 2u64, 0u16)
+
+        return cwstr(ptr: buffer.snatch!(0u64))
+    }
+}
+
+# Create cwstr from Text<letter32> (encodes codepoints to UTF-16 with surrogates)
+# For Windows compatibility - encodes supplementary characters as surrogate pairs
+# The caller is responsible for freeing this memory when done
+routine cwstr.__create__(from_codepoints: Text<letter32>) -> cwstr {
+    danger! {
+        let len = from_codepoints.length()
+        # Worst case: each codepoint needs 2 code units (surrogate pair)
+        let max_units = len * 2u64
+        let byte_len = (max_units + 1u64) * 2u64
+        let buffer = DynamicSlice(MemorySize(byte_len))
+
+        var write_pos: u64 = 0u64
+        var i: u64 = 0u64
+        loop {
+            if i >= len {
+                break
+            }
+            let codepoint = from_codepoints[i].codepoint()
+
+            if codepoint <= 0xFFFFu32 {
+                # BMP character - single code unit
+                buffer.write<u16>!(write_pos * 2u64, u16!(codepoint))
+                write_pos = write_pos + 1u64
+            } else if codepoint <= 0x10FFFFu32 {
+                # Supplementary character - surrogate pair
+                let adjusted = codepoint - 0x10000u32
+                let high = u16!((adjusted >> 10u32) + 0xD800u32)
+                let low = u16!((adjusted & 0x3FFu32) + 0xDC00u32)
+                buffer.write<u16>!(write_pos * 2u64, high)
+                buffer.write<u16>!((write_pos + 1u64) * 2u64, low)
+                write_pos = write_pos + 2u64
+            } else {
+                # Invalid codepoint - use replacement character
+                buffer.write<u16>!(write_pos * 2u64, 0xFFFDu16)
+                write_pos = write_pos + 1u64
+            }
+
+            i = i + 1u64
+        }
+        # Null terminator (2 bytes)
+        buffer.write<u16>!(write_pos * 2u64, 0u16)
+
+        return cwstr(ptr: buffer.snatch!(0u64))
+    }
+}
+
+# Create cwstr from List<u16> (allocates NEW memory with null terminator)
+# Treats the list as raw UTF-16 code units
+# The caller is responsible for freeing this memory when done
+routine cwstr.__create__(from_units: List<u16>) -> cwstr {
+    danger! {
+        let len = from_units.len()
+        let byte_len = (len + 1u64) * 2u64
+        let buffer = DynamicSlice(MemorySize(byte_len))
+
+        var i: u64 = 0u64
+        loop {
+            if i >= len {
+                break
+            }
+            buffer.write<u16>!(i * 2u64, from_units[i])
+            i = i + 1u64
+        }
+        # Null terminator
+        buffer.write<u16>!(len * 2u64, 0u16)
+
+        return cwstr(ptr: buffer.snatch!(0u64))
+    }
+}
+
+# ============================================================================
+# Core Methods
+# ============================================================================
+
+# Get raw pointer value
+routine cwstr.raw(me: cwstr) -> uaddr {
+    return me.ptr
+}
+
+# Get length of wide C string in characters (excluding null terminator)
+# O(n) - must scan for null terminator
+routine cwstr.length(me: cwstr) -> uaddr {
+    danger! {
+        return rf_wcslen(me.ptr)
+    }
+}
+
+# Check if wide C string pointer is null
+routine cwstr.is_null(me: cwstr) -> bool {
+    return me.ptr == 0uaddr
+}
+
+# Check if wide C string is empty (null or zero-length)
+routine cwstr.is_empty(me: cwstr) -> bool {
+    return me.is_null() or me.length() == 0uaddr
+}
+
+# ============================================================================
+# Indexing (assumes 16-bit wchar_t - Windows style)
+# ============================================================================
+
+# Get code unit at index (no bounds checking)
+routine cwstr.__getitem__!(me: cwstr, index: uaddr) -> u16 {
+    if index >= me.length() {
+        throw IndexOutOfBoundsError()
+    }
+    danger! {
+        return read_as<u16>!(me.ptr + (index * 2uaddr))
+    }
+}
+
+# ============================================================================
+# Comparison
+# ============================================================================
+
+# Compare two wide C strings lexicographically
+# Returns: 0 if equal, negative if me < other, positive if me > other
+routine cwstr.compare(me: cwstr, other: cwstr) -> s32 {
+    danger! {
+        return rf_wcscmp(me.ptr, other.ptr)
+    }
+}
+
+# Equality check
+routine cwstr.__eq__(me: cwstr, other: cwstr) -> bool {
+    return me.compare(other) == 0s32
+}
+
+routine cwstr.__ne__(me: cwstr, other: cwstr) -> bool {
+    return me.compare(other) != 0s32
+}
+
+routine cwstr.__lt__(me: cwstr, other: cwstr) -> bool {
+    return me.compare(other) < 0s32
+}
+
+routine cwstr.__le__(me: cwstr, other: cwstr) -> bool {
+    return me.compare(other) <= 0s32
+}
+
+routine cwstr.__gt__(me: cwstr, other: cwstr) -> bool {
+    return me.compare(other) > 0s32
+}
+
+routine cwstr.__ge__(me: cwstr, other: cwstr) -> bool {
+    return me.compare(other) >= 0s32
+}
+
+# ============================================================================
+# Copying
+# ============================================================================
+
+# Copy wide C string to new allocated memory
+# The caller is responsible for freeing the returned memory
+routine cwstr.copy(me: cwstr) -> cwstr {
+    danger! {
+        let len = me.length()
+        let byte_len = (len + 1uaddr) * 2uaddr  # Assuming 16-bit wchar_t
+        let buffer = DynamicSlice(MemorySize(byte_len))
+        let dest = buffer.snatch!(0uaddr)
+        rf_wcscpy(dest, me.ptr)
+        return cwstr(ptr: dest)
+    }
+}
+
+# ============================================================================
+# Conversion to RazorForge Types
+# ============================================================================
+
+# Convert cwstr to Text<letter16> (copies data as raw UTF-16 code units)
+# Note: On Windows, this preserves the native UCS-2/UTF-16 encoding
+routine cwstr.to_text16(me: cwstr) -> Text<letter16> {
+    danger! {
+        let len = me.length()
+        if len == 0uaddr {
+            return Text<letter16>()
+        }
+
+        let list = List<letter16>(len)
+        var i: uaddr = 0uaddr
+        loop {
+            if i >= len {
+                break
+            }
+            let code_unit = read_as<u16>!(me.ptr + (i * 2uaddr))
+            list.push(letter16(codepoint: code_unit))
+            i = i + 1uaddr
+        }
+        return Text<letter16>(from_list: list)
+    }
+}
+
+# Convert cwstr to Text<letter32> (decodes UTF-16 surrogate pairs to codepoints)
+# Handles surrogate pairs correctly for supplementary characters
+routine cwstr.to_text32(me: cwstr) -> Text<letter32> {
+    danger! {
+        let len = me.length()
+        if len == 0uaddr {
+            return Text<letter32>()
+        }
+
+        let list = List<letter32>()
+        var i: uaddr = 0uaddr
+        loop {
+            if i >= len {
+                break
+            }
+            let high = read_as<u16>!(me.ptr + (i * 2uaddr))
+
+            # Check for high surrogate (U+D800 to U+DBFF)
+            if high >= 0xD800u16 and high <= 0xDBFFu16 and i + 1uaddr < len {
+                let low = read_as<u16>!(me.ptr + ((i + 1uaddr) * 2uaddr))
+                # Check for low surrogate (U+DC00 to U+DFFF)
+                if low >= 0xDC00u16 and low <= 0xDFFFu16 {
+                    # Valid surrogate pair - decode to codepoint
+                    let high_bits = (u32(high) - 0xD800u32) << 10u32
+                    let low_bits = u32(low) - 0xDC00u32
+                    let codepoint = high_bits | low_bits + 0x10000u32
+                    list.push(letter32(codepoint: codepoint))
+                    i = i + 2uaddr
+                } else {
+                    # Invalid low surrogate - use replacement character
+                    list.push(letter32(codepoint: 0xFFFDu32))
+                    i = i + 1uaddr
+                }
+            } else if high >= 0xDC00u16 and high <= 0xDFFFu16 {
+                # Orphan low surrogate - use replacement character
+                list.push(letter32(codepoint: 0xFFFDu32))
+                i = i + 1uaddr
+            } else {
+                # BMP character (not a surrogate)
+                list.push(letter32(codepoint: u32(high)))
+                i = i + 1uaddr
+            }
+        }
+        return Text<letter32>(from_list: list)
+    }
+}
+
+# Convert cwstr to List<u16> (copies raw code units)
+# Useful for binary manipulation or passing to APIs expecting raw data
+routine cwstr.to_units(me: cwstr) -> List<u16> {
+    danger! {
+        let len = me.length()
+        let list = List<u16>(len)
+        var i: uaddr = 0uaddr
+        loop {
+            if i >= len {
+                break
+            }
+            let code_unit = read_as<u16>!(me.ptr + (i * 2uaddr))
+            list.push(code_unit)
+            i = i + 1uaddr
+        }
+        return list
+    }
+}
+
+# ============================================================================
+# Pointer Arithmetic (Danger Zone)
+# ============================================================================
+
+# Get pointer offset by n wide characters
+routine cwstr.offset(me: cwstr, n: uaddr) -> cwstr {
+    return cwstr(ptr: me.ptr + (n * 2uaddr))  # Assuming 16-bit wchar_t
+}
+
+# Get pointer to substring starting at character index
+routine cwstr.from_index(me: cwstr, start: uaddr) -> cwstr {
+    return cwstr(ptr: me.ptr + (start * 2uaddr))  # Assuming 16-bit wchar_t
+}

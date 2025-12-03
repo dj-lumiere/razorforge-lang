@@ -1,0 +1,12 @@
+# Test named constructor arguments
+
+record Point {
+    x: s32
+    y: s32
+}
+
+routine main() -> s32 {
+    # Named arguments in constructor
+    let p = Point(x: 10, y: 20)
+    return p.x + p.y
+}

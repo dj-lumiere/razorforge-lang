@@ -1,0 +1,546 @@
+# RazorForge Console I/O Demonstration
+# Demonstrates all console input/output operations
+
+# ============================================================================
+# Basic Print Operations
+# ============================================================================
+
+routine test_basic_printing() {
+    Console.show_line("=== Basic Printing Operations ===")
+    Console.show_line()
+
+    # Print without newline
+    Console.show("Hello, ")
+    Console.show("World!")
+    Console.show_line()  # Print newline
+
+    # Print with newline
+    Console.show_line("This is a complete line")
+
+    Console.show_line()
+}
+
+# ============================================================================
+# Printing Different Types
+# ============================================================================
+
+routine test_type_printing() {
+    Console.show_line("=== Printing Different Types ===")
+    Console.show_line()
+
+    # Signed integers
+    Console.show("s8: ")
+    Console.show_line(42_s8)
+
+    Console.show("s16: ")
+    Console.show_line(1000_s16)
+
+    Console.show("s32: ")
+    Console.show_line(100000_s32)
+
+    Console.show("s64: ")
+    Console.show_line(9999999999_s64)
+
+    # Unsigned integers
+    Console.show("u8: ")
+    Console.show_line(255_u8)
+
+    Console.show("u16: ")
+    Console.show_line(65535_u16)
+
+    Console.show("u32: ")
+    Console.show_line(4294967295_u32)
+
+    Console.show("u64: ")
+    Console.show_line(18446744073709551615_u64)
+
+    # Floating point
+    Console.show("f32: ")
+    Console.show_line(3.14159_f32)
+
+    Console.show("f64: ")
+    Console.show_line(2.718281828_f64)
+
+    # Boolean
+    Console.show("true: ")
+    Console.show_line(true)
+
+    Console.show("false: ")
+    Console.show_line(false)
+
+    Console.show_line()
+}
+
+# ============================================================================
+# Input Operations
+# ============================================================================
+
+routine test_input_operations() {
+    Console.show_line("=== Input Operations Demo ===")
+    Console.show_line()
+
+    # Read integer
+    Console.show("Enter an integer (s32): ")
+    Console.flush()
+    let int_value = Console.read_s32()
+    Console.show("You entered: ")
+    Console.show_line(int_value)
+    Console.show_line()
+
+    # Read floating point
+    Console.show("Enter a decimal number (f64): ")
+    Console.flush()
+    let float_value = Console.read_f64()
+    Console.show("You entered: ")
+    Console.show_line(float_value)
+    Console.show_line()
+
+    # Read character
+    Console.show("Enter a single character: ")
+    Console.flush()
+    let char_value = Console.read_char()
+    Console.show("You entered: ")
+    Console.print_char(char_value)
+    Console.show_line()
+    Console.show_line()
+}
+
+# ============================================================================
+# Arithmetic Operations with User Input
+# ============================================================================
+
+routine test_arithmetic_demo() {
+    Console.show_line("=== Arithmetic Calculator ===")
+    Console.show_line()
+
+    Console.show("Enter first number: ")
+    Console.flush()
+    let a = Console.read_s64()
+
+    Console.show("Enter second number: ")
+    Console.flush()
+    let b = Console.read_s64()
+
+    Console.show_line()
+    Console.show_line("Results:")
+
+    Console.show(a)
+    Console.show(" + ")
+    Console.show(b)
+    Console.show(" = ")
+    Console.show_line(a + b)
+
+    Console.show(a)
+    Console.show(" - ")
+    Console.show(b)
+    Console.show(" = ")
+    Console.show_line(a - b)
+
+    Console.show(a)
+    Console.show(" * ")
+    Console.show(b)
+    Console.show(" = ")
+    Console.show_line(a * b)
+
+    when {
+        b != 0_s64 => {
+            Console.show(a)
+            Console.show(" / ")
+            Console.show(b)
+            Console.show(" = ")
+            Console.show_line(a / b)
+
+            Console.show(a)
+            Console.show(" % ")
+            Console.show(b)
+            Console.show(" = ")
+            Console.show_line(a % b)
+        },
+        _ => Console.show_line("Cannot divide by zero!")
+    }
+
+    Console.show_line()
+}
+
+# ============================================================================
+# Floating Point Math Demo
+# ============================================================================
+
+routine test_floating_point_demo() {
+    Console.show_line("=== Floating Point Math ===")
+    Console.show_line()
+
+    Console.show("Enter a number: ")
+    Console.flush()
+    let x = Console.read_f64()
+
+    Console.show_line()
+    Console.show_line("Mathematical operations:")
+
+    Console.show("Square root of ")
+    Console.show(x)
+    Console.show(": ")
+    Console.show_line(x.sqrt())
+
+    Console.show("Absolute value of ")
+    Console.show(x)
+    Console.show(": ")
+    Console.show_line(x.abs())
+
+    Console.show("Floor of ")
+    Console.show(x)
+    Console.show(": ")
+    Console.show_line(x.floor())
+
+    Console.show("Ceiling of ")
+    Console.show(x)
+    Console.show(": ")
+    Console.show_line(x.ceil())
+
+    Console.show("Rounded ")
+    Console.show(x)
+    Console.show(": ")
+    Console.show_line(x.round())
+
+    Console.show_line()
+}
+
+# ============================================================================
+# Number Guessing Game
+# ============================================================================
+
+routine number_guessing_game() {
+    Console.clear()
+    Console.show_line("╔════════════════════════════════════════╗")
+    Console.show_line("║    Number Guessing Game                ║")
+    Console.show_line("╚════════════════════════════════════════╝")
+    Console.show_line()
+
+    Console.show_line("I'm thinking of a number between 1 and 100")
+    Console.show_line("Can you guess it?")
+    Console.show_line()
+
+    # Secret number (in real game, use random number generator)
+    let secret: s32 = 42_s32
+    var attempts: s32 = 0_s32
+    var guess: s32 = 0_s32
+    var game_over: bool = false
+
+    while not game_over {
+        Console.show("Your guess: ")
+        Console.flush()
+
+        guess = Console.read_s32()
+        attempts = attempts + 1_s32
+
+        when {
+            guess < secret => {
+                Console.show_line("📉 Too low! Try a higher number.")
+            },
+            guess > secret => {
+                Console.show_line("📈 Too high! Try a lower number.")
+            },
+            _ => {
+                Console.show_line()
+                Console.show_line("🎉 Congratulations!")
+                Console.show("You found the number ")
+                Console.show(secret)
+                Console.show(" in ")
+                Console.show(attempts)
+                Console.show_line(" attempts!")
+                game_over = true
+            }
+        }
+
+        Console.show_line()
+    }
+}
+
+# ============================================================================
+# Interactive Menu System
+# ============================================================================
+
+routine show_menu() {
+    Console.clear()
+    Console.show_line("╔════════════════════════════════════════╗")
+    Console.show_line("║    RazorForge Console Demo Menu        ║")
+    Console.show_line("╚════════════════════════════════════════╝")
+    Console.show_line()
+    Console.show_line("1. Basic Printing Demo")
+    Console.show_line("2. Type Printing Demo")
+    Console.show_line("3. Input Operations Demo")
+    Console.show_line("4. Arithmetic Calculator")
+    Console.show_line("5. Floating Point Math")
+    Console.show_line("6. Number Guessing Game")
+    Console.show_line("7. Fibonacci Calculator")
+    Console.show_line("8. Prime Number Checker")
+    Console.show_line("0. Exit")
+    Console.show_line()
+    Console.show("Select an option (0-8): ")
+    Console.flush()
+}
+
+routine interactive_menu() {
+    var running: bool = true
+
+    while running {
+        show_menu()
+        let choice = Console.read_s32()
+        Console.show_line()
+
+        when choice {
+            1_s32 => test_basic_printing(),
+            2_s32 => test_type_printing(),
+            3_s32 => test_input_operations(),
+            4_s32 => test_arithmetic_demo(),
+            5_s32 => test_floating_point_demo(),
+            6_s32 => number_guessing_game(),
+            7_s32 => fibonacci_calculator(),
+            8_s32 => prime_checker(),
+            0_s32 => {
+                Console.show_line("Goodbye! Thanks for using RazorForge!")
+                running = false
+            },
+            _ => {
+                Console.show_line("❌ Invalid option! Please select 0-8.")
+            }
+        }
+
+        when running {
+            true => {
+                Console.show_line()
+                Console.show("Press Enter to continue...")
+                Console.flush()
+                let _ = Console.read_char()
+            },
+            _ => {}
+        }
+    }
+}
+
+# ============================================================================
+# Fibonacci Calculator
+# ============================================================================
+
+routine fibonacci_calculator() {
+    Console.show_line("=== Fibonacci Calculator ===")
+    Console.show_line()
+
+    Console.show("Enter n (0-92): ")
+    Console.flush()
+    let n = Console.read_s64()
+
+    when {
+        n < 0_s64 => {
+            Console.show_line("Error: n must be non-negative")
+        },
+        n > 92_s64 => {
+            Console.show_line("Error: n too large (max 92 for s64)")
+        },
+        _ => {
+            let result = fibonacci_s64(n)
+            Console.show("fibonacci(")
+            Console.show(n)
+            Console.show(") = ")
+            Console.show_line(result)
+
+            # Show the sequence
+            Console.show_line()
+            Console.show_line("Sequence:")
+            var i: s64 = 0_s64
+            while i <= n {
+                Console.show(fibonacci_s64(i))
+                when {
+                    i < n => Console.show(", "),
+                    _ => {}
+                }
+                i = i + 1_s64
+            }
+            Console.show_line()
+        }
+    }
+
+    Console.show_line()
+}
+
+# ============================================================================
+# Prime Number Checker
+# ============================================================================
+
+routine is_prime(n: s64) -> bool {
+    when {
+        n <= 1_s64 => false,
+        n <= 3_s64 => true,
+        n % 2_s64 == 0_s64 => false,
+        n % 3_s64 == 0_s64 => false,
+        _ => {
+            var i: s64 = 5_s64
+            var result: bool = true
+
+            while i * i <= n and result {
+                when {
+                    n % i == 0_s64 => result = false,
+                    n % (i + 2_s64) == 0_s64 => result = false,
+                    _ => {}
+                }
+                i = i + 6_s64
+            }
+
+            result
+        }
+    }
+}
+
+routine prime_checker() {
+    Console.show_line("=== Prime Number Checker ===")
+    Console.show_line()
+
+    Console.show("Enter a number: ")
+    Console.flush()
+    let n = Console.read_s64()
+
+    Console.show_line()
+    Console.show(n)
+
+    when is_prime(n) {
+        true => Console.show_line(" is PRIME! ✓"),
+        false => Console.show_line(" is NOT prime. ✗")
+    }
+
+    # Show prime factors if not prime
+    when {
+        not is_prime(n) and n > 1_s64 => {
+            Console.show_line()
+            Console.show_line("Prime factors:")
+
+            var num = n
+            var factor: s64 = 2_s64
+
+            while factor * factor <= num {
+                while num % factor == 0_s64 {
+                    Console.show(factor)
+                    Console.show(" ")
+                    num = num / factor
+                }
+                factor = factor + 1_s64
+            }
+
+            when {
+                num > 1_s64 => {
+                    Console.show(num)
+                    Console.show(" ")
+                },
+                _ => {}
+            }
+
+            Console.show_line()
+        },
+        _ => {}
+    }
+
+    Console.show_line()
+}
+
+# ============================================================================
+# Display Formatting Demo
+# ============================================================================
+
+routine test_table_formatting() {
+    Console.show_line("=== Table Formatting Demo ===")
+    Console.show_line()
+
+    # Print multiplication table
+    Console.show_line("Multiplication Table (1-10):")
+    Console.show_line()
+
+    # Header
+    Console.show("    ")
+    var col: s32 = 1_s32
+    while col <= 10_s32 {
+        Console.show(col)
+        Console.show("   ")
+        col = col + 1_s32
+    }
+    Console.show_line()
+    Console.show_line("--------------------------------------------")
+
+    # Table rows
+    var row: s32 = 1_s32
+    while row <= 10_s32 {
+        Console.show(row)
+        Console.show(" | ")
+
+        col = 1_s32
+        while col <= 10_s32 {
+            let product = row * col
+            Console.show(product)
+            Console.show("  ")
+            col = col + 1_s32
+        }
+
+        Console.show_line()
+        row = row + 1_s32
+    }
+
+    Console.show_line()
+}
+
+# ============================================================================
+# Progress Bar Demo
+# ============================================================================
+
+routine progress_bar_demo() {
+    Console.show_line("=== Progress Bar Demo ===")
+    Console.show_line()
+
+    Console.show_line("Simulating a task...")
+    Console.show_line()
+
+    var progress: s32 = 0_s32
+    while progress <= 100_s32 {
+        Console.show("\rProgress: [")
+
+        var i: s32 = 0_s32
+        while i < 50_s32 {
+            when {
+                i < (progress / 2_s32) => Console.print_char(61_u8),  # '=' character
+                _ => Console.print_char(32_u8)  # ' ' space
+            }
+            i = i + 1_s32
+        }
+
+        Console.show("] ")
+        Console.show(progress)
+        Console.show("%")
+        Console.flush()
+
+        # Simulate work (in real program, do actual work here)
+        progress = progress + 10_s32
+    }
+
+    Console.show_line()
+    Console.show_line()
+    Console.show_line("Task completed!")
+    Console.show_line()
+}
+
+# ============================================================================
+# Main Entry Point
+# ============================================================================
+
+routine main() {
+    # Run the interactive menu
+    interactive_menu()
+}
+
+# Alternative: Run all demos sequentially
+routine run_all_demos() {
+    test_basic_printing()
+    test_type_printing()
+    test_arithmetic_demo()
+    test_floating_point_demo()
+    test_table_formatting()
+    progress_bar_demo()
+
+    Console.show_line("All demos completed!")
+}

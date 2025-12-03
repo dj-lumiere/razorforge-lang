@@ -1,0 +1,249 @@
+# RazorForge C String Type (cstr)
+# Null-terminated char* wrapper for C FFI interop
+#
+# cstr is a value type that wraps a raw pointer (uaddr) to a null-terminated
+# sequence of bytes. It provides safe access to C strings without copying
+# unless explicitly requested.
+#
+# Key characteristics:
+# - Value semantics (no heap allocation for the wrapper itself)
+# - Wraps existing C string memory - does not own the memory by default
+# - Null-terminated (C convention)
+# - Encoding-agnostic (typically ASCII or UTF-8 in modern code)
+#
+# Memory ownership:
+# - cstr(from_ptr: uaddr) - wraps existing memory, does NOT take ownership
+# - cstr(from_text: Text<letter8>) - allocates NEW memory, caller owns it
+# - cstr.copy() - allocates NEW memory, caller owns it
+#
+# For wide character strings (wchar_t*), see cwstr.rf
+
+import memory/DynamicSlice
+import memory/MemorySize
+import Collections/List
+import Text/Text
+import Text/letter8
+
+# ============================================================================
+# cstr Record Definition
+# ============================================================================
+
+# C string record (null-terminated char*)
+# Value type wrapper around raw pointer - no heap allocation for wrapper
+record cstr {
+    ptr: uaddr  # Raw pointer to null-terminated byte sequence
+}
+
+# Null pointer constant for cstr comparisons
+preset cstr_null: cstr = cstr(ptr: 0uaddr)
+
+# ============================================================================
+# External C Runtime Functions
+# ============================================================================
+
+external("C") routine rf_strlen(str: cstr) -> uaddr
+external("C") routine rf_strcpy(dest: cstr, src: cstr) -> uaddr
+external("C") routine rf_strcmp(s1: cstr, s2: cstr) -> s32
+
+# ============================================================================
+# Constructors
+# ============================================================================
+
+# Create cstr from raw pointer (wraps existing memory, does NOT copy)
+# WARNING: The pointed-to memory must remain valid for the lifetime of this cstr
+routine cstr.__create__(from_ptr: uaddr) -> cstr {
+    return cstr(ptr: from_ptr)
+}
+
+# Create cstr from Text<letter8> (allocates NEW memory with null terminator)
+# The caller is responsible for freeing this memory when done
+routine cstr.__create__(from_text: Text<letter8>) -> cstr {
+    danger! {
+        let len = from_text.length()
+        let buffer = DynamicSlice(MemorySize(len + 1u64))
+
+        var i: u64 = 0u64
+        loop {
+            if i >= len {
+                break
+            }
+            buffer.write<u8>!(i, from_text[i].codepoint())
+            i = i + 1u64
+        }
+        # Null terminator
+        buffer.write<u8>!(len, 0u8)
+
+        return cstr(ptr: buffer.snatch!(0u64))
+    }
+}
+
+# Create cstr from List<u8> (allocates NEW memory with null terminator)
+# The caller is responsible for freeing this memory when done
+routine cstr.__create__(from_bytes: List<u8>) -> cstr {
+    danger! {
+        let len = from_bytes.len()
+        let buffer = DynamicSlice(MemorySize(len + 1u64))
+
+        var i: u64 = 0u64
+        loop {
+            if i >= len {
+                break
+            }
+            buffer.write<u8>!(i, from_bytes[i])
+            i = i + 1u64
+        }
+        # Null terminator
+        buffer.write<u8>!(len, 0u8)
+
+        return cstr(ptr: buffer.snatch!(0u64))
+    }
+}
+
+# ============================================================================
+# Core Methods
+# ============================================================================
+
+# Get raw pointer value
+routine cstr.raw(me: cstr) -> uaddr {
+    return me.ptr
+}
+
+# Get length of C string (excluding null terminator)
+# O(n) - must scan for null terminator
+routine cstr.length(me: cstr) -> uaddr {
+    danger! {
+        return rf_strlen(me)
+    }
+}
+
+# Check if C string pointer is null
+routine cstr.is_null(me: cstr) -> bool {
+    return me.ptr == 0uaddr
+}
+
+# Check if C string is empty (null or zero-length)
+routine cstr.is_empty(me: cstr) -> bool {
+    return me.is_null() or me.length() == 0uaddr
+}
+
+# ============================================================================
+# Indexing
+# ============================================================================
+
+# Get byte at index (no bounds checking in danger zone)
+routine cstr.__getitem__!(me: cstr, index: uaddr) -> u8 {
+    danger! {
+        return read_as<u8>!(me.ptr + index)
+    }
+}
+
+# ============================================================================
+# Comparison
+# ============================================================================
+
+# Compare two C strings lexicographically
+# Returns: 0 if equal, negative if me < other, positive if me > other
+routine cstr.compare(me: cstr, other: cstr) -> s32 {
+    danger! {
+        return rf_strcmp(me.ptr, other.ptr)
+    }
+}
+
+# Equality check
+routine cstr.__eq__(me: cstr, other: cstr) -> bool {
+    return me.compare(other) == 0s32
+}
+
+routine cstr.__ne__(me: cstr, other: cstr) -> bool {
+    return me.compare(other) != 0s32
+}
+
+routine cstr.__lt__(me: cstr, other: cstr) -> bool {
+    return me.compare(other) < 0s32
+}
+
+routine cstr.__le__(me: cstr, other: cstr) -> bool {
+    return me.compare(other) <= 0s32
+}
+
+routine cstr.__gt__(me: cstr, other: cstr) -> bool {
+    return me.compare(other) > 0s32
+}
+
+routine cstr.__ge__(me: cstr, other: cstr) -> bool {
+    return me.compare(other) >= 0s32
+}
+
+# ============================================================================
+# Copying
+# ============================================================================
+
+# Copy C string to new allocated memory
+# The caller is responsible for freeing the returned memory
+routine cstr.copy(me: cstr) -> cstr {
+    danger! {
+        let len = me.length()
+        let buffer = DynamicSlice(MemorySize(len + 1uaddr))
+        let dest = buffer.snatch!(0uaddr)
+        rf_strcpy(dest, me.ptr)
+        return cstr(ptr: dest)
+    }
+}
+
+# ============================================================================
+# Conversion to RazorForge Types
+# ============================================================================
+
+# Convert cstr to Text<letter8> (copies data, interprets as UTF-8)
+routine cstr.to_text(me: cstr) -> Text<letter8> {
+    danger! {
+        let len = me.length()
+        if len == 0uaddr {
+            return Text<letter8>()
+        }
+
+        let list = List<letter8>(len)
+        var i: uaddr = 0uaddr
+        loop {
+            if i >= len {
+                break
+            }
+            let byte_val = read_as<u8>!(me.ptr + i)
+            list.push(letter8(codepoint: byte_val))
+            i = i + 1uaddr
+        }
+        return Text<letter8>(from_list: list)
+    }
+}
+
+# Convert cstr to List<u8> (copies raw bytes, for binary data or legacy encodings)
+routine cstr.to_bytes(me: cstr) -> List<u8> {
+    danger! {
+        let len = me.length()
+        let list = List<u8>(len)
+        var i: uaddr = 0uaddr
+        loop {
+            if i >= len {
+                break
+            }
+            let byte_val = read_as<u8>!(me.ptr + i)
+            list.push(byte_val)
+            i = i + 1uaddr
+        }
+        return list
+    }
+}
+
+# ============================================================================
+# Pointer Arithmetic (Danger Zone)
+# ============================================================================
+
+# Get pointer offset by n bytes
+routine cstr.offset(me: cstr, n: uaddr) -> cstr {
+    return cstr(ptr: me.ptr + n)
+}
+
+# Get pointer to substring starting at index
+routine cstr.from_index(me: cstr, start: uaddr) -> cstr {
+    return cstr(ptr: me.ptr + start)
+}

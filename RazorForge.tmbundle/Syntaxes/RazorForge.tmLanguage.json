@@ -1,0 +1,177 @@
+{
+  "name": "RazorForge",
+  "scopeName": "source.razorforge",
+  "fileTypes": [
+    "rf",
+    "razorforge"
+  ],
+  "patterns": [
+    {
+      "comment": "Record type declaration",
+      "match": "\\b(record)\\s+([A-Z][a-zA-Z0-9_]*)(<[^>]+>)?",
+      "captures": {
+        "1": {
+          "name": "storage.type.record.razorforge"
+        },
+        "2": {
+          "name": "entity.name.type.record.razorforge"
+        },
+        "3": {
+          "name": "meta.generic.razorforge"
+        }
+      }
+    },
+    {
+      "comment": "Entity type declaration",
+      "match": "\\b(entity)\\s+([A-Z][a-zA-Z0-9_]*)(<[^>]+>)?",
+      "captures": {
+        "1": {
+          "name": "storage.type.entity.razorforge"
+        },
+        "2": {
+          "name": "entity.name.type.entity.razorforge"
+        },
+        "3": {
+          "name": "meta.generic.razorforge"
+        }
+      }
+    },
+    {
+      "comment": "Resident type declaration",
+      "match": "\\b(resident)\\s+([A-Z][a-zA-Z0-9_]*)(<[^>]+>)?",
+      "captures": {
+        "1": {
+          "name": "storage.type.resident.razorforge"
+        },
+        "2": {
+          "name": "entity.name.type.resident.razorforge"
+        },
+        "3": {
+          "name": "meta.generic.razorforge"
+        }
+      }
+    },
+    {
+      "comment": "Variant type declaration",
+      "match": "\\b(variant)\\s+([A-Z][a-zA-Z0-9_]*)(<[^>]+>)?",
+      "captures": {
+        "1": {
+          "name": "storage.type.variant.razorforge"
+        },
+        "2": {
+          "name": "entity.name.type.variant.razorforge"
+        },
+        "3": {
+          "name": "meta.generic.razorforge"
+        }
+      }
+    },
+    {
+      "comment": "Choice type declaration",
+      "match": "\\b(choice)\\s+([A-Z][a-zA-Z0-9_]*)(<[^>]+>)?",
+      "captures": {
+        "1": {
+          "name": "storage.type.choice.razorforge"
+        },
+        "2": {
+          "name": "entity.name.type.choice.razorforge"
+        },
+        "3": {
+          "name": "meta.generic.razorforge"
+        }
+      }
+    },
+    {
+      "comment": "Keywords",
+      "name": "keyword.control.razorforge",
+      "match": "\\b(routine|let|var|const|preeval|return|if|else|for|in|to|loop|break|continue|import|public|private|protected|danger|with|and|or|not|as|redefine|crash|external|me|auto|using|when|preset)\\b"
+    },
+    {
+      "comment": "Memory operations",
+      "name": "keyword.operator.memory.razorforge",
+      "match": "\\b(hijack|refer|reveal|share|watch|snatch|release|try_share|try_thread_share|thread_share|thread_watch|size|address|is_valid|unsafe_ptr|slice|resize|fill|copy_from|copy_from_stack|zero|seize|own)\\b(!)?",
+      "captures": {
+        "2": {
+          "name": "keyword.operator.bang.razorforge"
+        }
+      }
+    },
+    {
+      "comment": "Danger zone operations",
+      "name": "keyword.operator.danger.razorforge",
+      "match": "\\b(read_as|write_as|volatile_read|volatile_write|obtain_as|reveal_as|address_of|invalidate|read|write|heap_alloc|heap_free|stack_alloc|memory_copy|memory_fill|memory_zero|sizeof)\\b(!)?",
+      "captures": {
+        "2": {
+          "name": "keyword.operator.bang.razorforge"
+        }
+      }
+    },
+    {
+      "comment": "Built-in primitive types",
+      "name": "storage.type.primitive.razorforge",
+      "match": "\\b(s8|s16|s32|s64|s128|u8|u16|u32|u64|u128|f16|f32|f64|f128|d32|d64|d128|bool|Bool|uaddr|saddr|letter|cptr)\\b"
+    },
+    {
+      "comment": "User-defined types (PascalCase)",
+      "name": "entity.name.type.user.razorforge",
+      "match": "\\b[A-Z][a-zA-Z0-9_]*\\b"
+    },
+    {
+      "comment": "Function calls with !",
+      "name": "entity.name.function.razorforge",
+      "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)(!)?\\s*\\(",
+      "captures": {
+        "1": {
+          "name": "entity.name.function"
+        },
+        "2": {
+          "name": "keyword.operator.bang.razorforge"
+        }
+      }
+    },
+    {
+      "comment": "Integers",
+      "name": "constant.integers.razorforge",
+      "match": "\\b(0x[0-9a-fA-F]+|0b[01]+|0o[0-7]+|0q[0-3]+|[0-9]+)\\b"
+    },
+    {
+      "comment": "BinaryFloats",
+      "name": "constant.floats.binary.razorforge",
+      "match": "\\b(0x[0-9a-fA-F]+|0b[01]+|0o[0-7]+|0q[0-3]+|[0-9]+)\\b"
+    },
+    {
+      "comment": "DecimalFloats",
+      "name": "constant.floats.decimal.razorforge",
+      "match": "\\b(0x[0-9a-fA-F]+|0b[01]+|0o[0-7]+|0q[0-3]+|[0-9]+)\\b"
+    },
+    {
+      "comment": "Strings",
+      "name": "string.quoted.double.razorforge",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.razorforge",
+          "match": "\\\\."
+        }
+      ]
+    },
+    {
+      "comment": "Single line comments",
+      "name": "comment.line.hash.razorforge",
+      "match": "#.*$"
+    },
+    {
+      "comment": "Multiline function comments",
+      "name": "comment.block.documentation.razorforge",
+      "begin": "###",
+      "end": "###"
+    },
+    {
+      "comment": "Block comments",
+      "name": "comment.block.razorforge",
+      "begin": "/\\*",
+      "end": "\\*/"
+    }
+  ]
+}
