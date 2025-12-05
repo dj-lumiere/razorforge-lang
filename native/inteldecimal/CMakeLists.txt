@@ -69,6 +69,11 @@ if(EXISTS "${INTELDECIMAL_SRC_DIR}/bid_functions.h")
             -Wno-parentheses
             -Wno-unknown-pragmas
         )
+
+      target_compile_options(inteldecimal PUBLIC
+        -fPIC
+        )
+
     elseif(MSVC)
         target_compile_options(inteldecimal PRIVATE /W0)
     endif()

@@ -36,6 +36,12 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/bn_mp_init.c" OR
             target_compile_definitions(tommath PRIVATE _CRT_SECURE_NO_WARNINGS)
         endif()
 
+        if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        target_compile_options(tommath PRIVATE
+            -fPIC
+        )
+    endif()
+
         # Optimization for release builds
         if(CMAKE_BUILD_TYPE STREQUAL "Release")
             target_compile_definitions(tommath PRIVATE MP_NO_FILE)
