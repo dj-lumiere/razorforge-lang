@@ -2225,7 +2225,79 @@ let y = {
 
 ---
 
-### 5. Suflae `eternal` Keyword Support
+### 6. Ban In-Scope Method Declarations - ⏸️ **TODO**
+
+**Status:** ⏸️ **TODO** - Design decision confirmed, implementation needed
+
+**Problem:** Methods MUST be declared outside type scope. In-scope method declarations should be banned.
+
+**Design Decision:** All methods must use `routine TypeName.method_name()` syntax declared outside the type body. Methods inside entity/resident/record scope are compile errors.
+
+**Examples:**
+
+```razorforge
+# ✅ OK: Methods declared outside type scope
+public entity List<T> {
+    private var _buffer: pointer
+    local var _count: uaddr
+}
+
+routine List<T>.push(value: T) {
+    # Implementation
+}
+
+routine List<T>.pop!() -> T {
+    # Implementation
+}
+
+# ❌ CE: In-scope methods not allowed
+public entity List<T> {
+    private var _buffer: pointer
+
+    routine push(value: T) {  # ❌ Compile Error: Methods must be declared outside type scope
+        # ...
+    }
+
+    private routine internal_helper() {  # ❌ Compile Error: Methods must be declared outside type scope
+        # ...
+    }
+}
+```
+
+**Rationale:**
+
+1. **Consistency** - Internal methods and extension methods use identical syntax
+2. **Multi-file organization** - Methods can be naturally split across files in the same namespace
+3. **No distinction** - No syntactic difference between "internal" and "extension" methods
+4. **Cleaner type definitions** - Types show data structure clearly, methods are separate concerns
+5. **Simpler parser** - One syntax for methods, not two separate paths
+6. **Access control clarity** - Access modifiers on methods are unambiguous
+
+**Implementation Tasks:**
+
+- [ ] Update parser to reject method declarations inside type scope
+- [ ] Generate clear error message: "Methods must be declared outside type scope using 'routine TypeName.method_name()' syntax"
+- [ ] Apply to all type kinds (entity, resident, record)
+- [ ] Update both RazorForge and Suflae parsers
+- [ ] Add test cases for banned syntax
+
+**Error Messages:**
+
+```
+Parse error: Methods cannot be declared inside type scope
+Note: Use 'routine TypeName.method_name()' syntax outside the type definition
+```
+
+**Documentation:**
+
+- ✅ `wiki/RazorForge-Routines.md` - Methods section updated with ban explanation
+- ✅ `wiki/Suflae-Routines.md` - Methods section updated with ban explanation
+- ✅ `wiki/RazorForge-Code-Style.md` - Type and Method Declaration section added
+- ✅ `wiki/Suflae-Code-Style.md` - Type and Method Declaration section added
+
+---
+
+### 7. Suflae `eternal` Keyword Support
 
 **Change:** Suflae needs `eternal` keyword for application-scoped singleton actors.
 
