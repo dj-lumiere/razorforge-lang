@@ -624,8 +624,8 @@ public partial class SuflaeParser
 
                 return modifier switch
                 {
-                    "family" => VisibilityModifier.PublicFamily,
-                    "module" => VisibilityModifier.PublicModule,
+                    "family" => VisibilityModifier.Family,
+                    "module" => VisibilityModifier.Local,
                     _ => throw new ParseException(
                         message: $"Unknown visibility modifier: {modifier}")
                 };
@@ -634,14 +634,14 @@ public partial class SuflaeParser
             return VisibilityModifier.Public;
         }
 
-        if (Match(type: TokenType.PublicFamily))
+        if (Match(type: TokenType.Family))
         {
-            return VisibilityModifier.PublicFamily;
+            return VisibilityModifier.Family;
         }
 
-        if (Match(type: TokenType.PublicModule))
+        if (Match(type: TokenType.Local))
         {
-            return VisibilityModifier.PublicModule;
+            return VisibilityModifier.Local;
         }
 
         if (Match(type: TokenType.Private))

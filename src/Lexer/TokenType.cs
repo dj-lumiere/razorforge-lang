@@ -305,11 +305,11 @@ public enum TokenType
     /// <summary>Private access modifier keyword</summary>
     Private,
 
-    /// <summary>Public(family) access modifier keyword (`public(family)`)</summary>
-    PublicFamily,
+    /// <summary>family access modifier keyword (`family`)</summary>
+    Family,
 
-    /// <summary>Public(module) access modifier keyword (`public(module)`)</summary>
-    PublicModule,
+    /// <summary>local access modifier keyword (`local`)</summary>
+    Local,
 
     /// <summary>Public access modifier keyword</summary>
     Public,

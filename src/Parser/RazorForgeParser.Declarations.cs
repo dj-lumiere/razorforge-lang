@@ -187,14 +187,14 @@ public partial class RazorForgeParser
             return VisibilityModifier.Public;
         }
 
-        if (Match(type: TokenType.PublicFamily))
+        if (Match(type: TokenType.Family))
         {
-            return VisibilityModifier.PublicFamily;
+            return VisibilityModifier.Family;
         }
 
-        if (Match(type: TokenType.PublicModule))
+        if (Match(type: TokenType.Local))
         {
-            return VisibilityModifier.PublicModule;
+            return VisibilityModifier.Local;
         }
 
         if (Match(type: TokenType.Private))
