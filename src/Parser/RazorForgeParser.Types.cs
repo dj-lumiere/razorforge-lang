@@ -40,7 +40,7 @@ public partial class RazorForgeParser
         }
 
         // MyType - self type in protocols/methods (like Self in Rust)
-        if (Match(type: TokenType.SelfType))
+        if (Match(type: TokenType.MyType))
         {
             return new TypeExpression(Name: "MyType", GenericArguments: null, Location: location);
         }

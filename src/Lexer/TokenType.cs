@@ -287,8 +287,8 @@ public enum TokenType
     /// <summary>Choice declaration keyword (enum in both languages)</summary>
     Choice,
 
-    /// <summary>Chimera declaration keyword</summary>
-    Chimera,
+    /// <summary>Resident declaration keyword</summary>
+    Resident,
 
     /// <summary>Feature declaration keyword</summary>
     Protocol,
@@ -324,13 +324,13 @@ public enum TokenType
     TypeWise,
 
     /// <summary>Self reference keyword (me)</summary>
-    Self,
+    Me,
 
     /// <summary>Self type keyword (MyType) - the type of 'me' in protocols and methods</summary>
-    SelfType,
+    MyType,
 
-    /// <summary>Super/parent reference keyword</summary>
-    Super,
+    /// <summary>Parent reference keyword</summary>
+    Parent,
 
     /// <summary>From clause keyword for inheritance</summary>
     From,

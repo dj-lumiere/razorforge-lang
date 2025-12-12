@@ -123,7 +123,7 @@ public partial class RazorForgeParser
         }
 
         // Allow 'me' (Self token) as a valid identifier for method parameters
-        if (Match(type: TokenType.Self))
+        if (Match(type: TokenType.Me))
         {
             return "me";
         }

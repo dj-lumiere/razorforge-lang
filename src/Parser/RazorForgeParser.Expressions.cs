@@ -1026,8 +1026,8 @@ public partial class RazorForgeParser
             return ParseArrowLambdaExpression(location: location);
         }
 
-        // Self/me keyword - used for referencing the current instance
-        if (Match(type: TokenType.Self))
+        // me keyword - used for referencing the current instance
+        if (Match(type: TokenType.Me))
         {
             return new IdentifierExpression(Name: "me", Location: location);
         }

@@ -41,9 +41,9 @@ public class SuflaeTokenizer : BaseTokenizer
         [key: "public"] = TokenType.Public,
         [key: "global"] = TokenType.Global,
         [key: "external"] = TokenType.External,
-        [key: "me"] = TokenType.Self,
-        [key: "MyType"] = TokenType.SelfType,
-        [key: "parent"] = TokenType.Super,
+        [key: "me"] = TokenType.Me,
+        [key: "MyType"] = TokenType.MyType,
+        [key: "parent"] = TokenType.Parent,
         [key: "if"] = TokenType.If,
         [key: "elseif"] = TokenType.Elseif,
         [key: "else"] = TokenType.Else,
@@ -593,15 +593,16 @@ public class SuflaeTokenizer : BaseTokenizer
         base.ScanIdentifier();
 
         // Track definition keywords for script mode detection
-        if (Tokens.Count > 0)
+        if (Tokens.Count <= 0)
         {
-            TokenType lastToken = Tokens[^1].Type;
-            if (lastToken is TokenType.Routine or TokenType.Entity or TokenType.Record
-                or TokenType.Choice or TokenType.Chimera or TokenType.Variant or TokenType.Mutant
-                or TokenType.Protocol)
-            {
-                _hasDefinitions = true;
-            }
+            return;
+        }
+
+        TokenType lastToken = Tokens[^1].Type;
+        if (lastToken is TokenType.Routine or TokenType.Entity or TokenType.Record
+            or TokenType.Choice or TokenType.Protocol)
+        {
+            _hasDefinitions = true;
         }
     }
 

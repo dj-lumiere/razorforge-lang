@@ -326,7 +326,7 @@ public partial class RazorForgeParser
             do
             {
                 // Handle 'me' parameter without type (self reference)
-                if (Check(type: TokenType.Self))
+                if (Check(type: TokenType.Me))
                 {
                     Token selfToken = Advance();
                     TypeExpression? selfType = null;
@@ -724,7 +724,7 @@ public partial class RazorForgeParser
                     do
                     {
                         // Handle 'me' parameter without type (self reference)
-                        if (Check(type: TokenType.Self))
+                        if (Check(type: TokenType.Me))
                         {
                             Token selfToken = Advance();
                             TypeExpression? selfType = null;

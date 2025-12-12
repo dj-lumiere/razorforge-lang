@@ -15,8 +15,8 @@ public class RazorForgeTokenizer : BaseTokenizer
     private readonly Dictionary<string, TokenType> _keywords = new()
     {
         [key: "routine"] = TokenType.Routine,
+        [key: "resident"] = TokenType.Resident,
         [key: "choice"] = TokenType.Choice,
-        [key: "chimera"] = TokenType.Chimera,
         [key: "variant"] = TokenType.Variant,
         [key: "mutant"] = TokenType.Mutant,
         [key: "let"] = TokenType.Let,
@@ -29,9 +29,9 @@ public class RazorForgeTokenizer : BaseTokenizer
         [key: "public"] = TokenType.Public,
         [key: "global"] = TokenType.Global,
         [key: "external"] = TokenType.External,
-        [key: "me"] = TokenType.Self,
-        [key: "MyType"] = TokenType.SelfType,
-        [key: "parent"] = TokenType.Super,
+        [key: "me"] = TokenType.Me,
+        [key: "MyType"] = TokenType.MyType,
+        [key: "parent"] = TokenType.Parent,
         [key: "if"] = TokenType.If,
         [key: "elseif"] = TokenType.Elseif,
         [key: "else"] = TokenType.Else,
