@@ -408,10 +408,50 @@ public partial class RazorForgeParser
                 TokenType.Tilde))
         {
             Token op = PeekToken(offset: -1);
+            SourceLocation opLocation = GetLocation(token: op);
+
+            // Special handling for unary minus/plus on numeric literals
+            // This allows parsing negative min values like -9_223_372_036_854_775_808_s64
+            if ((op.Type == TokenType.Minus || op.Type == TokenType.Plus) &&
+                Check(TokenType.Integer, TokenType.S8Literal, TokenType.S16Literal,
+                      TokenType.S32Literal, TokenType.S64Literal, TokenType.S128Literal,
+                      TokenType.SyssintLiteral, TokenType.U8Literal, TokenType.U16Literal,
+                      TokenType.U32Literal, TokenType.U64Literal, TokenType.U128Literal,
+                      TokenType.SysuintLiteral, TokenType.Decimal, TokenType.F16Literal,
+                      TokenType.F32Literal, TokenType.F64Literal, TokenType.F128Literal,
+                      TokenType.D32Literal, TokenType.D64Literal, TokenType.D128Literal))
+            {
+                // Parse the literal
+                Expression literal = ParsePostfix();
+
+                // If it's a literal expression, apply the sign directly to the value
+                if (literal is LiteralExpression litExpr && litExpr.Value != null)
+                {
+                    if (op.Type == TokenType.Minus)
+                    {
+                        // Negate the value
+                        if (litExpr.Value is long longVal)
+                        {
+                            return new LiteralExpression(Value: -longVal,
+                                LiteralType: litExpr.LiteralType,
+                                Location: opLocation);
+                        }
+                        else if (litExpr.Value is double doubleVal)
+                        {
+                            return new LiteralExpression(Value: -doubleVal,
+                                LiteralType: litExpr.LiteralType,
+                                Location: opLocation);
+                        }
+                    }
+                    // Unary plus doesn't change the value, just return the literal
+                    return literal;
+                }
+            }
+
             Expression expr = ParseUnary();
             return new UnaryExpression(Operator: TokenToUnaryOperator(tokenType: op.Type),
                 Operand: expr,
-                Location: GetLocation(token: op));
+                Location: opLocation);
         }
 
         return ParsePostfix();
@@ -476,18 +516,20 @@ public partial class RazorForgeParser
                         IsMemoryOperation: isMemoryOperation,
                         Location: expr.Location);
                 }
-                else if (Match(type: TokenType.LeftBrace))
-                {
-                    // Struct literal: Type<T> { field: value, ... }
-                    string typeName = ((IdentifierExpression)expr).Name;
-                    List<(string Name, Expression Value)> fields = ParseStructLiteralFields();
-                    Consume(type: TokenType.RightBrace,
-                        errorMessage: "Expected '}' after struct literal fields");
-                    expr = new ConstructorExpression(TypeName: typeName,
-                        TypeArguments: typeArgs,
-                        Fields: fields,
-                        Location: expr.Location);
-                }
+                // DISABLED: RazorForge doesn't use brace syntax for struct literals
+                // Struct literals use TypeName(field: value) syntax, not TypeName { field: value }
+                // else if (Match(type: TokenType.LeftBrace))
+                // {
+                //     // Struct literal: Type<T> { field: value, ... }
+                //     string typeName = ((IdentifierExpression)expr).Name;
+                //     List<(string Name, Expression Value)> fields = ParseStructLiteralFields();
+                //     Consume(type: TokenType.RightBrace,
+                //         errorMessage: "Expected '}' after struct literal fields");
+                //     expr = new ConstructorExpression(TypeName: typeName,
+                //         TypeArguments: typeArgs,
+                //         Fields: fields,
+                //         Location: expr.Location);
+                // }
                 else
                 {
                     // Generic type reference without call
@@ -498,18 +540,20 @@ public partial class RazorForgeParser
                 }
             }
             // Struct literal for non-generic types: Type { field: value, ... }
-            else if (expr is IdentifierExpression identExpr2 &&
-                     char.IsUpper(c: identExpr2.Name[index: 0]) &&
-                     Match(type: TokenType.LeftBrace))
-            {
-                List<(string Name, Expression Value)> fields = ParseStructLiteralFields();
-                Consume(type: TokenType.RightBrace,
-                    errorMessage: "Expected '}' after struct literal fields");
-                expr = new ConstructorExpression(TypeName: identExpr2.Name,
-                    TypeArguments: null,
-                    Fields: fields,
-                    Location: expr.Location);
-            }
+            // DISABLED: This was too greedy and caused "N {" in "if x >= N {" to be parsed as struct literal
+            // Struct literals are now only parsed in ParsePrimary where we have better context
+            // else if (expr is IdentifierExpression identExpr2 &&
+            //          char.IsUpper(c: identExpr2.Name[index: 0]) &&
+            //          Match(type: TokenType.LeftBrace))
+            // {
+            //     List<(string Name, Expression Value)> fields = ParseStructLiteralFields();
+            //     Consume(type: TokenType.RightBrace,
+            //         errorMessage: "Expected '}' after struct literal fields");
+            //     expr = new ConstructorExpression(TypeName: identExpr2.Name,
+            //         TypeArguments: null,
+            //         Fields: fields,
+            //         Location: expr.Location);
+            // }
             // Throwable function call: identifier!(args) with named arguments
             else if (Check(type: TokenType.Bang) && PeekToken(offset: 1)
                         .Type == TokenType.LeftParen)
@@ -761,6 +805,16 @@ public partial class RazorForgeParser
                     LiteralType: token.Type,
                     Location: location);
             }
+            // Try parsing as ulong for values that overflow long but might be valid when negated
+            // (e.g., 9_223_372_036_854_775_808 which becomes -9_223_372_036_854_775_808 = long.MinValue)
+            else if (ulong.TryParse(s: cleanValue, result: out ulong ulongVal))
+            {
+                // Store as long (will overflow, but unary minus will fix it for min values)
+                // This is specifically for handling signed min values like s64.MIN
+                return new LiteralExpression(Value: unchecked((long)ulongVal),
+                    LiteralType: token.Type,
+                    Location: location);
+            }
 
             throw new ParseException(message: $"Invalid integer literal: {value}");
         }
@@ -978,11 +1032,19 @@ public partial class RazorForgeParser
             return new IdentifierExpression(Name: "me", Location: location);
         }
 
-        // Identifiers
+        // Identifiers (including keywords allowed as parameter/variable names)
         if (Match(TokenType.Identifier, TokenType.TypeIdentifier))
         {
             return new IdentifierExpression(Name: PeekToken(offset: -1)
                    .Text,
+                Location: location);
+        }
+
+        // Allow certain keywords to be used as identifiers in expressions
+        // (e.g., 'from' parameter name in conversion functions)
+        if (Match(TokenType.From, TokenType.To, TokenType.By, TokenType.In))
+        {
+            return new IdentifierExpression(Name: PeekToken(offset: -1).Text,
                 Location: location);
         }
 
@@ -1018,42 +1080,79 @@ public partial class RazorForgeParser
             return ParseNativeCall(location: location);
         }
 
-        // Conditional expression:
-        // - Classic syntax: if A then B else C
-        // - Block syntax: if A { B } else { C }
+        // Direct function call with @: @function_name(args)
+        // This is shorthand for calling native/external functions directly
+        if (Match(type: TokenType.At))
+        {
+            string functionName = ConsumeIdentifier(errorMessage: "Expected function name after '@'");
+
+            // Parse arguments: (arg1, arg2, ...)
+            Consume(type: TokenType.LeftParen,
+                errorMessage: "Expected '(' after function name");
+
+            var args = new List<Expression>();
+            if (!Check(type: TokenType.RightParen))
+            {
+                do
+                {
+                    args.Add(item: ParseExpression());
+                } while (Match(type: TokenType.Comma));
+            }
+
+            Consume(type: TokenType.RightParen,
+                errorMessage: "Expected ')' after function arguments");
+
+            // Treat as a native function call
+            return new NativeCallExpression(FunctionName: functionName,
+                Arguments: args,
+                Location: location);
+        }
+
+        // Conditional expression: if A then B else C
+        // NOTE: Block syntax (if A { B } else { C }) is NOT supported for inline conditionals
+        // NOTE: Nesting is NOT allowed (if A then (if B then C else D) else E)
         if (Match(type: TokenType.If))
         {
-            Expression condition = ParseExpression();
-
-            Expression thenExpr;
-            Expression elseExpr;
-
-            if (Match(type: TokenType.Then))
-            {
-                // Classic syntax: if A then B else C
-                thenExpr = ParseExpression();
-                Consume(type: TokenType.Else,
-                    errorMessage: "Expected 'else' in conditional expression");
-                elseExpr = ParseExpression();
-            }
-            else if (Check(type: TokenType.LeftBrace))
-            {
-                // Block syntax: if A { B } else { C }
-                thenExpr = ParseBlockExpression();
-                Consume(type: TokenType.Else,
-                    errorMessage: "Expected 'else' in conditional expression");
-                elseExpr = ParseBlockExpression();
-            }
-            else
+            // Check if we're already parsing an inline conditional (reject nesting)
+            if (_parsingInlineConditional)
             {
                 throw new ParseException(
-                    message: "Expected 'then' or '{' in conditional expression");
+                    message: "Nested inline conditionals are not allowed. Use statement-form 'if' or 'when' for complex conditional logic.");
             }
 
-            return new ConditionalExpression(Condition: condition,
-                TrueExpression: thenExpr,
-                FalseExpression: elseExpr,
-                Location: location);
+            Expression condition = ParseExpression();
+
+            // Only 'then' keyword is allowed for inline conditionals
+            if (!Match(type: TokenType.Then))
+            {
+                throw new ParseException(
+                    message: "Expected 'then' in inline conditional expression. Block syntax (if condition { ... }) is not supported for inline conditionals. Use statement-form 'if' for blocks.");
+            }
+
+            // Set flag to detect nesting
+            _parsingInlineConditional = true;
+
+            try
+            {
+                // Parse then expression (single expression only, no blocks)
+                Expression thenExpr = ParseExpression();
+
+                Consume(type: TokenType.Else,
+                    errorMessage: "Expected 'else' in conditional expression");
+
+                // Parse else expression (single expression only, no blocks)
+                Expression elseExpr = ParseExpression();
+
+                return new ConditionalExpression(Condition: condition,
+                    TrueExpression: thenExpr,
+                    FalseExpression: elseExpr,
+                    Location: location);
+            }
+            finally
+            {
+                // Reset flag
+                _parsingInlineConditional = false;
+            }
         }
 
         // List literal: [expr, expr, ...]

@@ -9,6 +9,6 @@ external routine generic_free<T>(ptr: pointer) -> void where T: record
 # External C function with multiple constraints
 external("C") routine generic_compare<T>(a: T, b: T) -> s32 where T follows Comparable
 
-routine main() -> s32 {
+routine start() {
     return 0
 }

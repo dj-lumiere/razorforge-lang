@@ -94,7 +94,7 @@ Circle follows Drawable:
         return f"Circle at ({me.center.x}, {me.center.y}) with radius {me.radius}"
 
 # Usage example
-routine main():
+routine start():
     # Entity usage
     var dog = Dog("Buddy", "Golden Retriever")
     show_line(dog.speak())

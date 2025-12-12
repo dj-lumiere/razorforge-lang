@@ -14,6 +14,6 @@ routine test_u64() -> u64 {
     return 12345678u64
 }
 
-routine main() -> i32 {
+routine start() {
     return 0
 }

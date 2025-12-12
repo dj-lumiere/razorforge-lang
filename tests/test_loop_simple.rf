@@ -1,7 +1,7 @@
 # Simple loop test
 external("C") routine printf(fmt: text, ...) -> s32
 
-routine main() {
+routine start() {
     var i: s64 = 0
 
     # Test loop with break

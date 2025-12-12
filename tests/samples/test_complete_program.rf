@@ -14,6 +14,6 @@ routine test_return_conversion() -> i8 {
     return 100i32
 }
 
-routine main() -> i32 {
+routine start() {
     return add(5i32, test_arithmetic())
 }

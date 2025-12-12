@@ -1,6 +1,6 @@
 # Test standalone when block
 
-routine main() -> s32 {
+routine start() {
     let a: s32 = 10
     let b: s32 = 0
     let result: s32 = 0

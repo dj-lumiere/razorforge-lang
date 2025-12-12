@@ -1,6 +1,6 @@
 # RazorForge Shared<T, Policy> - Thread-safe reference counting with locking policy
 # Supports Mutex, MultiReadLock, and RejectEdit policies
-
+namespace core
 record Shared<T, Policy> {
     private controller_address: uaddr
     private data_address: uaddr

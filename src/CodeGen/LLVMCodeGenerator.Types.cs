@@ -184,7 +184,34 @@ public partial class LLVMCodeGenerator
 
         // If it's not a temp variable, it might be a literal value
         // Try to infer type from the value itself (this is a simplified approach)
-        if (int.TryParse(s: value, result: out _))
+
+        // Check for floating-point hex literals
+        if (value.StartsWith("0xL"))
+        {
+            // fp128 hex literal
+            return new LLVMTypeInfo(LLVMType: "fp128",
+                IsUnsigned: false,
+                IsFloatingPoint: true,
+                RazorForgeType: "f128");
+        }
+        else if (value.StartsWith("0xH"))
+        {
+            // half (f16) hex literal
+            return new LLVMTypeInfo(LLVMType: "half",
+                IsUnsigned: false,
+                IsFloatingPoint: true,
+                RazorForgeType: "f16");
+        }
+        else if (value.StartsWith("0x"))
+        {
+            // double/float hex literal (64-bit format)
+            // Default to double
+            return new LLVMTypeInfo(LLVMType: "double",
+                IsUnsigned: false,
+                IsFloatingPoint: true,
+                RazorForgeType: "f64");
+        }
+        else if (int.TryParse(s: value, result: out _))
         {
             // It's a numeric literal, assume i32 for now
             return new LLVMTypeInfo(LLVMType: "i32",
@@ -334,6 +361,8 @@ public partial class LLVMCodeGenerator
             TokenType.U32Literal => "u32",
             TokenType.U64Literal => "u64",
             TokenType.U128Literal => "u128",
+            TokenType.SysuintLiteral => "uaddr",
+            TokenType.SyssintLiteral => "saddr",
 
             // Floating point literals
             TokenType.F16Literal => "f16",
@@ -349,6 +378,10 @@ public partial class LLVMCodeGenerator
             // Arbitrary precision types
             TokenType.Integer => "bigint", // Suflae arbitrary precision integer
             TokenType.Decimal => "decimal", // Suflae arbitrary precision decimal
+
+            // Boolean literals
+            TokenType.True => "bool",
+            TokenType.False => "bool",
 
             // Unknown token type is an error
             _ => throw CodeGenError.TypeResolutionFailed(
@@ -367,7 +400,8 @@ public partial class LLVMCodeGenerator
         return tokenType switch
         {
             TokenType.U8Literal or TokenType.U16Literal or TokenType.U32Literal
-                or TokenType.U64Literal or TokenType.U128Literal => true,
+                or TokenType.U64Literal or TokenType.U128Literal
+                or TokenType.SysuintLiteral => true,
             _ => false
         };
     }
@@ -421,6 +455,30 @@ public partial class LLVMCodeGenerator
     // Get bit width of an LLVM integer type
     private int GetIntegerBitWidth(string llvmType)
     {
+        // Handle record-wrapped primitives (e.g., %uaddr, %saddr, %u32, %s64)
+        // These are boxed primitive types that need to be treated as their underlying type
+        if (llvmType.StartsWith("%"))
+        {
+            string recordName = llvmType.Substring(1);
+            return recordName switch
+            {
+                "bool" => 1,
+                "s8" or "u8" => 8,
+                "s16" or "u16" => 16,
+                "s32" or "u32" => 32,
+                "s64" or "u64" => 64,
+                "s128" or "u128" => 128,
+                "uaddr" or "saddr" => _targetPlatform.GetPointerSizedIntType() == "i64" ? 64 : 32,
+                _ => throw CodeGenError.TypeResolutionFailed(
+                    typeName: llvmType,
+                    context: $"unknown record type in GetIntegerBitWidth (record-wrapped primitives must be handled specially)",
+                    file: _currentFileName,
+                    line: _currentLocation.Line,
+                    column: _currentLocation.Column,
+                    position: _currentLocation.Position)
+            };
+        }
+
         return llvmType switch
         {
             "i1" => 1,
@@ -447,5 +505,76 @@ public partial class LLVMCodeGenerator
             "half" or "float" or "double" or "fp128" => true,
             _ => false
         };
+    }
+
+    /// <summary>
+    /// Converts an LLVM struct type name back to RazorForge generic type syntax.
+    /// For example: "%BackIndex_uaddr" -> "BackIndex<uaddr>"
+    ///              "%Range_BackIndex_uaddr" -> "Range<BackIndex<uaddr>>"
+    /// </summary>
+    private string ConvertLLVMStructTypeToRazorForge(string llvmType)
+    {
+        // Remove leading % if present
+        string typeName = llvmType.StartsWith("%") ? llvmType[1..] : llvmType;
+
+        // Handle pointer types - strip the * suffix and add it back at the end
+        bool isPointer = typeName.EndsWith("*");
+        if (isPointer)
+        {
+            typeName = typeName.TrimEnd('*');
+        }
+
+        // If it doesn't contain underscore, it's not a generic type
+        if (!typeName.Contains('_'))
+        {
+            return isPointer ? typeName + "*" : typeName;
+        }
+
+        // Split by underscore and reconstruct as generic type
+        // e.g., "Range_BackIndex_uaddr" -> ["Range", "BackIndex", "uaddr"]
+        // This is tricky because we need to determine nesting level
+        // For now, use a simple heuristic: known type names as generic base types
+        string[] parts = typeName.Split('_');
+
+        // Check for known generic types with single type parameter
+        var knownGenericTypes = new HashSet<string>
+        {
+            "Range", "BackIndex", "Maybe", "Result", "Lookup", "List", "Set",
+            "Dict", "DynamicSlice", "StaticSlice", "ViewSlice", "Text"
+        };
+
+        // Build the type from parts
+        if (parts.Length >= 2 && knownGenericTypes.Contains(parts[0]))
+        {
+            string baseName = parts[0];
+            string[] typeArgs = parts[1..];
+
+            // Check if the type arguments themselves are generic types
+            // e.g., ["BackIndex", "uaddr"] should become "BackIndex<uaddr>"
+            string typeArg = BuildTypeArgFromParts(typeArgs, knownGenericTypes);
+            return $"{baseName}<{typeArg}>";
+        }
+
+        // Fallback: return as-is
+        return typeName;
+    }
+
+    /// <summary>
+    /// Helper to recursively build type arguments from parts.
+    /// </summary>
+    private string BuildTypeArgFromParts(string[] parts, HashSet<string> knownGenericTypes)
+    {
+        if (parts.Length == 0) return "";
+        if (parts.Length == 1) return parts[0];
+
+        if (knownGenericTypes.Contains(parts[0]))
+        {
+            string baseName = parts[0];
+            string innerArg = BuildTypeArgFromParts(parts[1..], knownGenericTypes);
+            return $"{baseName}<{innerArg}>";
+        }
+
+        // Not a generic type, join with underscores (shouldn't happen normally)
+        return string.Join("_", parts);
     }
 }

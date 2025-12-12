@@ -153,7 +153,7 @@ e    # Test snatch operation
 Main test runner
 @return Exit code (0 for success)
 ###
-routine main() -> s32 {
+routine start() {
     show_line("RazorForge Memory Slice Test Suite")
     show_line("==================================\n")
 

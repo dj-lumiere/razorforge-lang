@@ -1,7 +1,7 @@
 # Hello World example in RazorForge
 # Demonstrates basic syntax and routine structure
 
-routine main() {
+routine start() {
     # Basic variable declarations
     let message: Text = "Hello, RazorForge!"
     var count: u32 = 42

@@ -18,7 +18,7 @@ public class ParserTests
     private Program ParseCode(string code)
     {
         List<Token> tokens = Tokenizer.Tokenize(source: code, language: Language.RazorForge);
-        var parser = new RazorForgeParser(tokens: tokens);
+        var parser = new RazorForgeParser(tokens: tokens, fileName: "test.rf");
         return parser.Parse();
     }
 
@@ -38,7 +38,7 @@ public class ParserTests
     [Fact]
     public void TestSimpleRoutineDeclaration()
     {
-        string code = @"routine main() { }";
+        string code = @"routine start() { }";
         Program program = ParseCode(code: code);
 
         Assert.NotNull(@object: program);

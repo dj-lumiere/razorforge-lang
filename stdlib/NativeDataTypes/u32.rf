@@ -1,6 +1,6 @@
 # RazorForge u32 (unsigned 32-bit integer) native type implementation
 # Maps directly to LLVM i32 type using compiler intrinsics
-
+namespace core
 # Core u32 type definition - maps to LLVM i32
 record u32 {
     public value: LlvmNativeI32
@@ -227,21 +227,21 @@ routine u32.__mul_sat__(other: u32) -> u32 {
 routine u32.__add_checked__(other: u32) -> Maybe<u32> {
     danger! {
         let (result, overflow) = @intrinsic.add.overflow<i32>(me, other)
-        return if overflow { None } else { result }
+        return if overflow then None else result
     }
 }
 
 routine u32.__sub_checked__(other: u32) -> Maybe<u32> {
     danger! {
         let (result, overflow) = @intrinsic.sub.overflow<i32>(me, other)
-        return if overflow { None } else { result }
+        return if overflow then None else result
     }
 }
 
 routine u32.__mul_checked__(other: u32) -> Maybe<u32> {
     danger! {
         let (result, overflow) = @intrinsic.mul.overflow<i32>(me, other)
-        return if overflow { None } else { result }
+        return if overflow then None else result
     }
 }
 

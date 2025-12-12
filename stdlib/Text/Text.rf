@@ -12,24 +12,24 @@ import core/Integral
 import core/BackIndex
 import core/Range
 
-entity Text<LetterType> {
-    private letters: List<LetterType>  # Dynamic array of letters
+entity Text<T> {
+    private letters: List<T>  # Dynamic array of letters
 }
 
 # Constructors
 
-routine Text<LetterType>.__create__() -> Text<LetterType> {
+routine Text<T>.__create__() -> Text<T> {
     # Create empty text
     return Text<T>(letters: List<T>())
 }
 
-routine Text<LetterType>.__create__(from_list: List<LetterType>) -> Text<LetterType> {
+routine Text<T>.__create__(from_list: List<T>) -> Text<T> {
     # Create text from list of letters
     return Text<T>(letters: from_list)
 }
 
 
-routine Text<LetterType>.__create__(from_letter: LetterType) -> Text<LetterType> {
+routine Text<T>.__create__(from_letter: T) -> Text<T> {
     # Create text from single letter
     let list = List<T>()
     list.push(from_letter)
@@ -152,7 +152,7 @@ routine Text<T>.concat(me: Text<T>, other: Text<T>) -> Text<T> {
 routine Text<T>.slice(me: Text<T>, start: u64, end: u64) -> Text<T> {
     # Get substring [start, end) - creates NEW text
     if start >= end or end > me.length() {
-        crash("Invalid slice range")
+        stop!("Invalid slice range")
     }
 
     let result = List<T>()

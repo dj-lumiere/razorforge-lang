@@ -946,7 +946,7 @@ public partial class SemanticAnalyzer
 
         // Check declared types in symbol table
         Symbol? symbol = _symbolTable.Lookup(name: name);
-        if (symbol is TypeSymbol or StructSymbol or ClassSymbol or VariantSymbol)
+        if (symbol is TypeSymbol or RecordSymbol or EntitySymbol or VariantSymbol)
         {
             return true;
         }

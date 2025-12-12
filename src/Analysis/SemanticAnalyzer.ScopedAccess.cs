@@ -144,7 +144,7 @@ public partial class SemanticAnalyzer
     /// Creates a temporary Inspected&lt;T&gt; handle with shared read lock.
     /// IMPORTANT: Only works with Shared&lt;T, MultiReadLock&gt;, not Shared&lt;T, Mutex&gt;.
     /// </summary>
-    public object? VisitObservingStatement(ObservingStatement node)
+    public object? VisitInspectingStatement(InspectingStatement node)
     {
         // Evaluate the source expression to get its type
         var sourceType = node.Source.Accept(visitor: this) as TypeInfo;

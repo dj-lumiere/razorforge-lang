@@ -14,6 +14,7 @@ public partial class LLVMCodeGenerator
     /// <returns>A string containing the generated LLVM IR for the throw operation.</returns>
     public string VisitThrowStatement(ThrowStatement node)
     {
+        UpdateLocation(node.Location);
         // throw statement in failable function crashes the program
         // The try_/check_ variants transform this to return None/Error respectively
         _hasReturn = true;
@@ -260,6 +261,7 @@ public partial class LLVMCodeGenerator
     /// does not produce additional LLVM IR output beyond the stack trace emission.</returns>
     public string VisitAbsentStatement(AbsentStatement node)
     {
+        UpdateLocation(node.Location);
         // absent statement crashes the program with AbsentValueError
         // This is the expected behavior - absent indicates "not found" which is a crash condition
         _hasReturn = true;
@@ -280,6 +282,7 @@ public partial class LLVMCodeGenerator
     /// </summary>
     public string VisitPassStatement(PassStatement node)
     {
+        UpdateLocation(node.Location);
         // Pass is a no-op - just add a comment
         _output.AppendLine($"  ; pass (no-op)");
         return "";
@@ -287,12 +290,41 @@ public partial class LLVMCodeGenerator
 
     public string VisitWhenStatement(WhenStatement node)
     {
+        UpdateLocation(node.Location);
+
         // Check if this is a standalone when (no subject expression, just guards)
         // or a when with a subject expression to match against
+        // Parser uses Boolean True as a sentinel for standalone when
         bool isStandaloneWhen =
-            node.Expression is LiteralExpression lit && lit.Value is int i && i == 0;
+            node.Expression is LiteralExpression lit && lit.Value is bool b && b == true;
 
+        // Pre-allocate all labels to ensure they are generated in order
+        // For each clause we may need: thenLabel (for condition match) and nextLabel (for next clause)
+        // This prevents labels from being generated out of sequence
+        var thenLabels = new List<string>();
+        var nextLabels = new List<string>();
+
+        // Pre-allocate labels for all clauses
+        for (int labelIdx = 0; labelIdx < node.Clauses.Count; labelIdx++)
+        {
+            // Each expression pattern needs a thenLabel
+            if (labelIdx < node.Clauses.Count && node.Clauses[labelIdx].Pattern is ExpressionPattern)
+            {
+                thenLabels.Add(GetNextLabel());
+            }
+            else
+            {
+                thenLabels.Add(""); // Placeholder for non-expression patterns
+            }
+
+            // Each clause except the last needs a nextLabel
+            if (labelIdx < node.Clauses.Count - 1)
+            {
+                nextLabels.Add(GetNextLabel());
+            }
+        }
         string endLabel = GetNextLabel();
+        bool hasNonTerminatingPath = false; // Track if any clause doesn't terminate
 
         if (isStandaloneWhen)
         {
@@ -302,31 +334,121 @@ public partial class LLVMCodeGenerator
             {
                 WhenClause clause = node.Clauses[index: idx];
                 string nextLabel = idx < node.Clauses.Count - 1
-                    ? GetNextLabel()
+                    ? nextLabels[idx]
                     : endLabel;
+
+                // Debug output
+                _output.AppendLine(value: $"  ; Clause {idx}: Pattern type = {clause.Pattern?.GetType().Name ?? "NULL"}");
 
                 switch (clause.Pattern)
                 {
                     case WildcardPattern:
                         // Wildcard pattern - always matches (default case)
-                        clause.Body.Accept(visitor: this);
-                        _output.AppendLine(value: $"  br label %{endLabel}");
+                        // Check if body is an ExpressionStatement (expression used as value)
+                        // In this case, we should return the expression value
+                        if (clause.Body is ExpressionStatement wildcardExprStmt && _currentFunctionReturnType != null)
+                        {
+                            string bodyValue = wildcardExprStmt.Expression.Accept(visitor: this);
+
+                            // Check if the value type matches the expected return type
+                            LLVMTypeInfo valueTypeInfo = GetValueTypeInfo(value: bodyValue);
+
+                            if (valueTypeInfo.LLVMType != _currentFunctionReturnType)
+                            {
+                                // Need to cast the value to the return type
+                                string castResult = GetNextTemp();
+                                GenerateCastInstruction(result: castResult,
+                                    value: bodyValue,
+                                    fromType: valueTypeInfo,
+                                    toType: _currentFunctionReturnType);
+                                bodyValue = castResult;
+                            }
+
+                            _output.AppendLine(value: $"  ret {_currentFunctionReturnType} {bodyValue}");
+                            _blockTerminated = true;
+                            _hasReturn = true;
+                        }
+                        else
+                        {
+                            clause.Body.Accept(visitor: this);
+                        }
+
+                        if (!_blockTerminated)
+                        {
+                            _output.AppendLine(value: $"  br label %{endLabel}");
+                            hasNonTerminatingPath = true;
+                        }
+                        _blockTerminated = false; // Reset for next clause
                         break;
                     case ExpressionPattern exprPat:
                     {
                         // Expression pattern - evaluate the boolean condition
                         string condResult = exprPat.Expression.Accept(visitor: this);
-                        string thenLabel = GetNextLabel();
+                        string thenLabel = thenLabels[idx];
 
-                        // Convert to i1 if needed (non-zero = true)
-                        string condBool = GetNextTemp();
-                        _output.AppendLine(value: $"  {condBool} = icmp ne i32 {condResult}, 0");
+                        // If thenLabel wasn't pre-allocated (shouldn't happen), generate one now
+                        if (string.IsNullOrEmpty(thenLabel))
+                        {
+                            thenLabel = GetNextLabel();
+                            _output.AppendLine(value: $"  ; WARNING: thenLabel not pre-allocated for clause {idx}");
+                        }
+
+                        // Check if condition is already i1 (boolean) or needs conversion
+                        LLVMTypeInfo condTypeInfo = GetValueTypeInfo(value: condResult);
+                        string condBool;
+
+                        if (condTypeInfo.LLVMType == "i1")
+                        {
+                            // Already a boolean, use directly
+                            condBool = condResult;
+                        }
+                        else
+                        {
+                            // Convert to i1 (non-zero = true)
+                            condBool = GetNextTemp();
+                            _output.AppendLine(value: $"  {condBool} = icmp ne {condTypeInfo.LLVMType} {condResult}, 0");
+                        }
+
                         _output.AppendLine(
                             value: $"  br i1 {condBool}, label %{thenLabel}, label %{nextLabel}");
 
                         _output.AppendLine(value: $"{thenLabel}:");
-                        clause.Body.Accept(visitor: this);
-                        _output.AppendLine(value: $"  br label %{endLabel}");
+
+                        // Check if body is an ExpressionStatement (expression used as value)
+                        // In this case, we should return the expression value
+                        if (clause.Body is ExpressionStatement exprStmt && _currentFunctionReturnType != null)
+                        {
+                            string bodyValue = exprStmt.Expression.Accept(visitor: this);
+
+                            // Check if the value type matches the expected return type
+                            LLVMTypeInfo valueTypeInfo = GetValueTypeInfo(value: bodyValue);
+
+                            if (valueTypeInfo.LLVMType != _currentFunctionReturnType)
+                            {
+                                // Need to cast the value to the return type
+                                string castResult = GetNextTemp();
+                                GenerateCastInstruction(result: castResult,
+                                    value: bodyValue,
+                                    fromType: valueTypeInfo,
+                                    toType: _currentFunctionReturnType);
+                                bodyValue = castResult;
+                            }
+
+                            _output.AppendLine(value: $"  ret {_currentFunctionReturnType} {bodyValue}");
+                            _blockTerminated = true;
+                            _hasReturn = true;
+                        }
+                        else
+                        {
+                            clause.Body.Accept(visitor: this);
+                        }
+
+                        if (!_blockTerminated)
+                        {
+                            _output.AppendLine(value: $"  br label %{endLabel}");
+                            hasNonTerminatingPath = true;
+                        }
+                        _blockTerminated = false; // Reset for next clause
 
                         if (idx < node.Clauses.Count - 1)
                         {
@@ -337,10 +459,19 @@ public partial class LLVMCodeGenerator
                     }
                     default:
                     {
-                        // Unknown pattern type in standalone when - skip
+                        // Unknown pattern type in standalone when
+                        string patternType = clause.Pattern?.GetType().Name ?? "null";
+                        _output.AppendLine(value: $"  ; ERROR: Unsupported pattern type '{patternType}' in standalone when at clause {idx}");
+
+                        // Generate unconditional branch to next clause or end
                         if (idx < node.Clauses.Count - 1)
                         {
+                            _output.AppendLine(value: $"  br label %{nextLabel}");
                             _output.AppendLine(value: $"{nextLabel}:");
+                        }
+                        else
+                        {
+                            _output.AppendLine(value: $"  br label %{endLabel}");
                         }
 
                         break;
@@ -358,7 +489,7 @@ public partial class LLVMCodeGenerator
             {
                 WhenClause clause = node.Clauses[index: idx];
                 string nextLabel = idx < node.Clauses.Count - 1
-                    ? GetNextLabel()
+                    ? nextLabels[idx]
                     : endLabel;
 
                 switch (clause.Pattern)
@@ -366,14 +497,19 @@ public partial class LLVMCodeGenerator
                     case WildcardPattern:
                         // Wildcard pattern - always matches (default case)
                         clause.Body.Accept(visitor: this);
-                        _output.AppendLine(value: $"  br label %{endLabel}");
+                        if (!_blockTerminated)
+                        {
+                            _output.AppendLine(value: $"  br label %{endLabel}");
+                            hasNonTerminatingPath = true;
+                        }
+                        _blockTerminated = false; // Reset for next clause
                         break;
                     case LiteralPattern litPat:
                     {
                         // Literal pattern - compare subject to literal value
                         string litValue = litPat.Value.ToString() ?? "0";
                         string cmpResult = GetNextTemp();
-                        string thenLabel = GetNextLabel();
+                        string thenLabel = thenLabels[idx];
 
                         _output.AppendLine(
                             value:
@@ -383,7 +519,12 @@ public partial class LLVMCodeGenerator
 
                         _output.AppendLine(value: $"{thenLabel}:");
                         clause.Body.Accept(visitor: this);
-                        _output.AppendLine(value: $"  br label %{endLabel}");
+                        if (!_blockTerminated)
+                        {
+                            _output.AppendLine(value: $"  br label %{endLabel}");
+                            hasNonTerminatingPath = true;
+                        }
+                        _blockTerminated = false; // Reset for next clause
 
                         if (idx < node.Clauses.Count - 1)
                         {
@@ -404,7 +545,12 @@ public partial class LLVMCodeGenerator
                         _symbolTypes[key: idPat.Name] = subjectType.LLVMType;
 
                         clause.Body.Accept(visitor: this);
-                        _output.AppendLine(value: $"  br label %{endLabel}");
+                        if (!_blockTerminated)
+                        {
+                            _output.AppendLine(value: $"  br label %{endLabel}");
+                            hasNonTerminatingPath = true;
+                        }
+                        _blockTerminated = false; // Reset for next clause
 
                         if (idx < node.Clauses.Count - 1)
                         {
@@ -428,7 +574,17 @@ public partial class LLVMCodeGenerator
             }
         }
 
+        // Emit end label - may be unreachable if all clauses terminate
         _output.AppendLine(value: $"{endLabel}:");
+
+        // If all clauses terminated (ret/throw/etc), the end label is unreachable
+        // but LLVM still requires a valid terminator instruction
+        if (!hasNonTerminatingPath)
+        {
+            _output.AppendLine(value: "  unreachable");
+            _blockTerminated = true;
+        }
+
         return "";
     }
     /// <summary>

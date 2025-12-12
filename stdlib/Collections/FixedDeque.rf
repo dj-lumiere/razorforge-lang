@@ -280,7 +280,7 @@ routine FixedDeque<T, N>.swap!<I, J>(me: FixedDeque<T, N>, i: I, j: J)
     let idx_i = i.to_uaddr()
     let idx_j = j.to_uaddr()
     if idx_i >= me.count or idx_j >= me.count {
-        throw IndexOutOfBoundsError(index: if idx_i >= me.count { idx_i } else { idx_j }, count: me.count)
+        throw IndexOutOfBoundsError(index: if idx_i >= me.count then idx_i else idx_j, count: me.count)
     }
     let phys_i = me.physical_index(idx_i)
     let phys_j = me.physical_index(idx_j)

@@ -33,10 +33,12 @@ public partial class SemanticAnalyzer
             TokenType.U128Literal => GetPrimitiveTypeInfo("u128"),
             TokenType.SysuintLiteral => GetPrimitiveTypeInfo("uaddr"),
 
-            // Untyped integer: RazorForge defaults to s64, Suflae defaults to Integer (arbitrary precision)
-            TokenType.Integer => _language == Language.Suflae
-                ? new TypeInfo(Name: "Integer", IsReference: false)
-                : GetPrimitiveTypeInfo("s64"),
+            // BUGFIX 12.10: Untyped integer - use expected type if available and is integer type
+            TokenType.Integer => (_expectedType != null && IsIntegerType(_expectedType.Name))
+                ? _expectedType
+                : (_language == Language.Suflae
+                    ? new TypeInfo(Name: "Integer", IsReference: false)
+                    : GetPrimitiveTypeInfo("s64")),
 
             // Explicitly typed floating-point literals (same for both languages)
             TokenType.F16Literal => GetPrimitiveTypeInfo("f16"),
@@ -242,8 +244,49 @@ public partial class SemanticAnalyzer
     /// <returns>TypeInfo of the result</returns>
     public object? VisitBinaryExpression(BinaryExpression node)
     {
-        var leftType = node.Left.Accept(visitor: this) as TypeInfo;
-        var rightType = node.Right.Accept(visitor: this) as TypeInfo;
+        // BUGFIX 12.10: Infer integer literal types from context
+        // Check if we have untyped literals that need type inference
+        bool leftIsUntypedInt = IsUntypedIntegerLiteral(node.Left);
+        bool rightIsUntypedInt = IsUntypedIntegerLiteral(node.Right);
+
+        TypeInfo? leftType;
+        TypeInfo? rightType;
+
+        // Strategy: Visit the typed operand first to get its type, then use that as expected type for the untyped operand
+        if (leftIsUntypedInt && !rightIsUntypedInt)
+        {
+            // Right is typed, left is untyped - visit right first to get its type
+            rightType = node.Right.Accept(visitor: this) as TypeInfo;
+
+            // Set expected type for left operand if right is an integer type
+            var savedExpectedType = _expectedType;
+            if (rightType != null && IsIntegerType(rightType.Name))
+            {
+                _expectedType = rightType;
+            }
+            leftType = node.Left.Accept(visitor: this) as TypeInfo;
+            _expectedType = savedExpectedType;
+        }
+        else if (rightIsUntypedInt && !leftIsUntypedInt)
+        {
+            // Left is typed, right is untyped - visit left first to get its type
+            leftType = node.Left.Accept(visitor: this) as TypeInfo;
+
+            // Set expected type for right operand if left is an integer type
+            var savedExpectedType = _expectedType;
+            if (leftType != null && IsIntegerType(leftType.Name))
+            {
+                _expectedType = leftType;
+            }
+            rightType = node.Right.Accept(visitor: this) as TypeInfo;
+            _expectedType = savedExpectedType;
+        }
+        else
+        {
+            // Both are typed or both are untyped - visit both normally
+            leftType = node.Left.Accept(visitor: this) as TypeInfo;
+            rightType = node.Right.Accept(visitor: this) as TypeInfo;
+        }
 
         // Check for mixed-type arithmetic (REJECTED per user requirement)
         if (leftType != null && rightType != null && IsArithmeticOperator(op: node.Operator))
@@ -327,6 +370,15 @@ public partial class SemanticAnalyzer
             BinaryOperator.And or BinaryOperator.Or => true,
             _ => false
         };
+    }
+
+    /// <summary>
+    /// Checks if an expression is an untyped integer literal (would default to s64).
+    /// Used for type inference from context.
+    /// </summary>
+    private bool IsUntypedIntegerLiteral(Expression expr)
+    {
+        return expr is LiteralExpression literal && literal.LiteralType == TokenType.Integer;
     }
 
     private bool AreTypesCompatible(TypeInfo left, TypeInfo right)
@@ -739,7 +791,7 @@ public partial class SemanticAnalyzer
         }
 
         // Determine if this is a reference type (entity) or value type (record)
-        bool isReference = symbol is ClassSymbol;
+        bool isReference = symbol is EntitySymbol;
 
         return SetResolvedType(node, new TypeInfo(Name: typeName, IsReference: isReference));
     }

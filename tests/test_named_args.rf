@@ -5,7 +5,7 @@ record Point {
     y: s32
 }
 
-routine main() -> s32 {
+routine start() {
     # Named arguments in constructor
     let p = Point(x: 10, y: 20)
     return p.x + p.y

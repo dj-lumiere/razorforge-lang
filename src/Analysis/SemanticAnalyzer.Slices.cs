@@ -79,7 +79,7 @@ public partial class SemanticAnalyzer
             }
 
             // If it's a type (struct, class, variant), this is a constructor call
-            if (symbol is StructSymbol or ClassSymbol or VariantSymbol)
+            if (symbol is RecordSymbol or EntitySymbol or VariantSymbol)
             {
                 // Type check all arguments
                 foreach (Expression arg in node.Arguments)
@@ -88,7 +88,7 @@ public partial class SemanticAnalyzer
                 }
 
                 // Return the type being constructed
-                bool isReference = symbol is ClassSymbol;
+                bool isReference = symbol is EntitySymbol;
                 var resultType = new TypeInfo(Name: functionName, IsReference: isReference);
                 return SetResolvedType(node, resultType);
             }

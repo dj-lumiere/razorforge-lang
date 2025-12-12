@@ -6,6 +6,11 @@
 # to prevent silent overflow bugs in pointer/size calculations.
 # You must use explicit wrapping (+%, -%, etc.) or checked (+?, -?, etc.) variants.
 
+namespace core
+
+import Text/Text
+import FFI/cstr
+
 # Core uaddr type definition - maps to LLVM iptr/usize
 record uaddr {
     public value: LlvmNativePtrSizedUInt
@@ -51,61 +56,62 @@ routine uaddr.__mod_wrap__(other: uaddr) -> uaddr {
 # These return Maybe<uaddr> - None on overflow
 # ============================================================================
 
-routine uaddr.__add_checked__(other: uaddr) -> Maybe<uaddr> {
-    danger! {
-        let (result, overflow) = @intrinsic.add.overflow<uptr>(me, other)
-        return if overflow then None else result
-    }
-}
-
-routine uaddr.__sub_checked__(other: uaddr) -> Maybe<uaddr> {
-    danger! {
-        let (result, overflow) = @intrinsic.sub.overflow<uptr>(me, other)
-        return if overflow then None else result
-    }
-}
-
-routine uaddr.__mul_checked__(other: uaddr) -> Maybe<uaddr> {
-    danger! {
-        let (result, overflow) = @intrinsic.mul.overflow<uptr>(me, other)
-        return if overflow then None else result
-    }
-}
-
-routine uaddr.__floordiv_checked__(other: uaddr) -> Maybe<uaddr> {
-    if other == 0 {
-        return None
-    }
-    danger! {
-        return @intrinsic.udiv<uptr>(me, other)
-    }
-}
-
-routine uaddr.__mod_checked__(other: uaddr) -> Maybe<uaddr> {
-    if other == 0 {
-        return None
-    }
-    danger! {
-        return @intrinsic.urem<uptr>(me, other)
-    }
-}
-
-routine uaddr.__ashl_checked__(bits: u32) -> Maybe<uaddr> {
-    danger! {
-        # Check if shift would overflow (bits >= bit width or high bits would be lost)
-        let bit_width = @intrinsic.bitwidth<uptr>()
-        if bits >= bit_width {
-            return None
-        }
-        let result = @intrinsic.shl<uptr>(me, bits)
-        # Check if we can recover the original value by shifting back
-        let recovered = @intrinsic.lshr<uptr>(result, bits)
-        if recovered != me {
-            return None
-        }
-        return result
-    }
-}
+# TODO: These are commented out due to tuple destructuring not being fully supported in code generator
+# routine uaddr.__add_checked__(other: uaddr) -> Maybe<uaddr> {
+#     danger! {
+#         let (result, overflow) = @intrinsic.add.overflow<uptr>(me, other)
+#         return if overflow { None } else { result }
+#     }
+# }
+#
+# routine uaddr.__sub_checked__(other: uaddr) -> Maybe<uaddr> {
+#     danger! {
+#         let (result, overflow) = @intrinsic.sub.overflow<uptr>(me, other)
+#         return if overflow { None } else { result }
+#     }
+# }
+#
+# routine uaddr.__mul_checked__(other: uaddr) -> Maybe<uaddr> {
+#     danger! {
+#         let (result, overflow) = @intrinsic.mul.overflow<uptr>(me, other)
+#         return if overflow { None } else { result }
+#     }
+# }
+#
+# routine uaddr.__floordiv_checked__(other: uaddr) -> Maybe<uaddr> {
+#     if other == 0 {
+#         return None
+#     }
+#     danger! {
+#         return @intrinsic.udiv<uptr>(me, other)
+#     }
+# }
+#
+# routine uaddr.__mod_checked__(other: uaddr) -> Maybe<uaddr> {
+#     if other == 0 {
+#         return None
+#     }
+#     danger! {
+#         return @intrinsic.urem<uptr>(me, other)
+#     }
+# }
+#
+# routine uaddr.__ashl_checked__(bits: u32) -> Maybe<uaddr> {
+#     danger! {
+#         # Check if shift would overflow (bits >= bit width or high bits would be lost)
+#         let bit_width = @intrinsic.bitwidth<uptr>()
+#         if bits >= bit_width {
+#             return None
+#         }
+#         let result = @intrinsic.shl<uptr>(me, bits)
+#         # Check if we can recover the original value by shifting back
+#         let recovered = @intrinsic.lshr<uptr>(result, bits)
+#         if recovered != me {
+#             return None
+#         }
+#         return result
+#     }
+# }
 
 # ============================================================================
 # Shift Operations (<<<, >>>)
@@ -186,11 +192,17 @@ routine uaddr.__ge__(other: uaddr) -> bool {
 # ============================================================================
 
 routine uaddr.min(other: uaddr) -> uaddr {
-    return if me <= other then me else other
+    if me <= other {
+        return me
+    }
+    return other
 }
 
 routine uaddr.max(other: uaddr) -> uaddr {
-    return if me >= other then me else other
+    if me >= other {
+        return me
+    }
+    return other
 }
 
 routine uaddr.is_power_of_two() -> bool {
@@ -265,9 +277,10 @@ public routine uaddr(from: MemorySize) -> uaddr {
 # String Conversion
 # ============================================================================
 
-routine uaddr.to_text() -> Text {
+routine uaddr.to_text() -> Text<letter8> {
     danger! {
-        return @format_uaddr(me)
+        let ptr = @format_u64(me)
+        return Text<letter8>(ptr: cstr(ptr: ptr))
     }
 }
 
@@ -277,12 +290,5 @@ routine uaddr.to_text() -> Text {
 routine uaddr.__create__!(from_text: Text) -> uaddr {
     danger! {
         return @parse_uaddr(from_text)
-    }
-}
-
-# Safe constructor - returns Maybe<uaddr>
-routine uaddr.__create__?(from_text: Text) -> Maybe<uaddr> {
-    danger! {
-        return @try_parse_uaddr(from_text)
     }
 }

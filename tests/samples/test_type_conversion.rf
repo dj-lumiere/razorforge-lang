@@ -13,6 +13,6 @@ routine test_complex() -> i64 {
     return i64!(f32!(10i8).f64!())
 }
 
-routine main() -> i32 {
+routine start() {
     return 0
 }

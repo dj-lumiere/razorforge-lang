@@ -1,4 +1,4 @@
+namespace core
 record bool {
     private value: LlvmI1
-    
 }

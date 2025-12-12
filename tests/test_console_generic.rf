@@ -2,7 +2,7 @@
 
 import Console
 
-routine main() -> s32 {
+routine start() {
     # These would work once the types implement to_text8()
     # Console.show<s32>(42)
     # Console.show_line<s32>(100)

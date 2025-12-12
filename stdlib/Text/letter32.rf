@@ -10,7 +10,7 @@
 # For Windows API interop, use cwstr with Text<letter16>.
 #
 # For legacy 32-bit encodings, use List<u32> instead.
-
+namespace core
 import Text/LetterType
 import core/Integral
 

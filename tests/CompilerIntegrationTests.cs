@@ -38,7 +38,7 @@ public class CompilerIntegrationTests
     private Program ParseCode(string code)
     {
         List<Token> tokens = TokenizeCode(code: code);
-        var parser = new RazorForgeParser(tokens: tokens);
+        var parser = new RazorForgeParser(tokens: tokens, fileName: "test.rf");
         return parser.Parse();
     }
 
@@ -261,7 +261,7 @@ import system/console/show
 external routine heap_alloc!(bytes: uaddr) -> uaddr
 external routine heap_free!(address: uaddr)
 
-routine main() -> s32 {
+routine start() {
     var buffer = DynamicSlice(128)
 
     # Write some test data

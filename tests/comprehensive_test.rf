@@ -63,7 +63,7 @@ routine test_text_encoding() {
     print(formatted)
 }
 
-routine main() {
+routine start() {
     test_conditionals()
     test_comparisons()
     test_text_encoding()

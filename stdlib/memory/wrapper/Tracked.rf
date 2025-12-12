@@ -4,6 +4,7 @@
 # Zero-cost: Type parameter T encodes whether single or multi-threaded
 
 # Base generic record - works for Tracked<Retained<T>> (2 fields)
+namespace core
 record Tracked<T> {
     private controller_address: uaddr
     private data_address: uaddr

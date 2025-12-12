@@ -91,7 +91,7 @@ routine test_mixed():
 
     Console.show_line()
 
-routine main():
+routine start():
     Console.show_line("Suflae Arbitrary Precision Test")
     Console.show_line("================================")
     Console.show_line()

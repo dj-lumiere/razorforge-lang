@@ -11,7 +11,7 @@
 # letter8 is primarily for UTF-8 I/O and storage.
 #
 # For legacy encodings (Latin-1, etc.), use List<u8> instead.
-
+namespace core
 import Text/LetterType
 import core/Integral
 

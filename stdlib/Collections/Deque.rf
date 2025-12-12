@@ -161,11 +161,7 @@ routine Deque<T>.clear(me: Deque<T>) {
 # ============================================================================
 
 routine Deque<T>.grow(me: Deque<T>) {
-    let new_capacity = if me.capacity == 0uaddr {
-        4uaddr
-    } else {
-        me.capacity * 2uaddr
-    }
+    let new_capacity = if me.capacity == 0uaddr then 4uaddr else me.capacity * 2uaddr
     me.reserve(new_capacity)
 }
 

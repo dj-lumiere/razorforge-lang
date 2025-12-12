@@ -13,7 +13,7 @@ routine test_i8_constraints() -> i8 {
 }
 
 routine test_u16_constraints() -> u16 {
-    return 1000u16 // 13u16 + 77u16 % 5u16  
+    return 1000u16 // 13u16 + 77u16 % 5u16
 }
 
 routine test_float_constraints() -> f32 {
@@ -30,6 +30,6 @@ routine test_mixed_operations() -> i64 {
     return 9876i64 // 123i64 * 5i64 + 999i64 % 17i64
 }
 
-routine main() -> i32 {
+routine start() {
     return 42i32
 }

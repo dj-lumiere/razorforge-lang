@@ -251,6 +251,11 @@ public interface IAstVisitor<T>
     /// <returns>Result of visiting the assignment statement</returns>
     T VisitAssignmentStatement(AssignmentStatement node);
 
+    /// <summary>Visits a tuple destructuring statement node (let (a, b) = expr)</summary>
+    /// <param name="node">The tuple destructuring statement to visit</param>
+    /// <returns>Result of visiting the tuple destructuring statement</returns>
+    T VisitTupleDestructuringStatement(TupleDestructuringStatement node);
+
     /// <summary>Visits a return statement node (function return with optional value)</summary>
     /// <param name="node">The return statement to visit</param>
     /// <returns>Result of visiting the return statement</returns>
@@ -319,7 +324,7 @@ public interface IAstVisitor<T>
     /// <summary>Visits an inspecting statement node (thread-safe scoped read access)</summary>
     /// <param name="node">The inspecting statement to visit</param>
     /// <returns>Result of visiting the inspecting statement</returns>
-    T VisitObservingStatement(ObservingStatement node);
+    T VisitInspectingStatement(InspectingStatement node);
 
     /// <summary>Visits a seizing statement node (thread-safe scoped exclusive access)</summary>
     /// <param name="node">The seizing statement to visit</param>

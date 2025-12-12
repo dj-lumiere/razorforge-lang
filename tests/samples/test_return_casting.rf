@@ -18,6 +18,6 @@ routine test_u32_return() -> u32 {
     return 500u32 * 2u32
 }
 
-routine main() -> i32 {
+routine start() {
     return 0
 }

@@ -135,7 +135,7 @@ rider64.exe .
 ### RazorForge (`.rf`) - Rust/C-like
 
 ```razorforge
-routine main() {
+routine start() {
     Console.print_line("Hello, RazorForge!")
 
     let x: s64 = 42_s64
@@ -149,7 +149,7 @@ routine main() {
 ### Suflae (`.sf`) - Python-like
 
 ```python
-routine main():
+routine start():
     show_line("Hello, Suflae!")
 
     let x: s64 = 42_s64

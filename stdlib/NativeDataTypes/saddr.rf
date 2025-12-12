@@ -5,6 +5,9 @@
 # to prevent silent overflow bugs in pointer/offset calculations.
 # You must use explicit wrapping (+%, -%, etc.) or checked (+?, -?, etc.) variants.
 
+# TODO: Add "namespace core" once tuple destructuring is implemented in codegen
+# Currently blocked by functions using let (result, overflow) = @intrinsic.add.overflow<iptr>(...)
+namespace core
 # Core saddr type definition - maps to LLVM iptr/isize
 record saddr {
     public value: LlvmNativePtrSizedInt
@@ -296,12 +299,5 @@ routine saddr.to_text() -> Text {
 routine saddr.__create__!(from_text: Text) -> saddr {
     danger! {
         return @parse_saddr(from_text)
-    }
-}
-
-# Safe constructor - returns Maybe<saddr>
-routine saddr.__create__?(from_text: Text) -> Maybe<saddr> {
-    danger! {
-        return @try_parse_saddr(from_text)
     }
 }

@@ -24,6 +24,7 @@ public partial class LLVMCodeGenerator
     /// </summary>
     public string VisitViewingStatement(ViewingStatement node)
     {
+        UpdateLocation(node.Location);
         // Evaluate the source expression to get a pointer
         string sourcePtr = node.Source.Accept(visitor: this);
 
@@ -86,6 +87,7 @@ public partial class LLVMCodeGenerator
     /// </summary>
     public string VisitHijackingStatement(HijackingStatement node)
     {
+        UpdateLocation(node.Location);
         // Evaluate the source expression to get a pointer
         string sourcePtr = node.Source.Accept(visitor: this);
 
@@ -144,8 +146,9 @@ public partial class LLVMCodeGenerator
     /// 3. Execute body
     /// 4. Call runtime to release read lock
     /// </summary>
-    public string VisitObservingStatement(ObservingStatement node)
+    public string VisitInspectingStatement(InspectingStatement node)
     {
+        UpdateLocation(node.Location);
         // Evaluate the source (should be a Shared<T, Policy>)
         string sourcePtr = node.Source.Accept(visitor: this);
 
@@ -192,6 +195,7 @@ public partial class LLVMCodeGenerator
     /// </summary>
     public string VisitSeizingStatement(SeizingStatement node)
     {
+        UpdateLocation(node.Location);
         // Evaluate the source (should be a Shared<T, Policy>)
         string sourcePtr = node.Source.Accept(visitor: this);
 

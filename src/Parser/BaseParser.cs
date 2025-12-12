@@ -15,9 +15,10 @@ public abstract class BaseParser
     protected readonly List<CompileWarning> Warnings = new();
     public string fileName = "";
 
-    protected BaseParser(List<Token> tokens)
+    protected BaseParser(List<Token> tokens, string fileName)
     {
         Tokens = tokens;
+        this.fileName = fileName;
     }
 
     /// <summary>
@@ -349,7 +350,7 @@ public abstract class BaseParser
     protected SourceLocation GetLocation(Token token)
     {
         return new SourceLocation(
-            FileName: "",
+            FileName: fileName,
             Line: token.Line,
             Column: token.Column,
             Position: token.Position);

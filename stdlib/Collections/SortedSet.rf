@@ -33,7 +33,7 @@ entity BTreeSetNode<T> {
 }
 
 entity SortedSet<T> {
-    private root: BTreeSetNode<T>?
+    private root: BTreeSetNode<T>
     private count: uaddr
 }
 
@@ -186,8 +186,8 @@ routine SortedSet<T>.insert_non_full(me: SortedSet<T>, node: BTreeSetNode<T>, va
     }
 }
 
-routine SortedSet<T>.split_child(me: SortedSet<T>, parent: BTreeSetNode<T>, child_idx: uaddr) {
-    let child = parent.children[child_idx]
+routine SortedSet<T>.split_child(me: SortedSet<T>, parent_node: BTreeSetNode<T>, child_idx: uaddr) {
+    let child = parent_node.children[child_idx]
     let mid = (B - 1uaddr) / 2uaddr
 
     # Create new node for right half
@@ -242,25 +242,25 @@ routine SortedSet<T>.split_child(me: SortedSet<T>, parent: BTreeSetNode<T>, chil
 
     i = 0uaddr
     while i < child_idx {
-        new_keys.push(parent.keys[i])
-        new_children.push(parent.children[i])
+        new_keys.push(parent_node.keys[i])
+        new_children.push(parent_node.children[i])
         i = i + 1uaddr
     }
     new_keys.push(mid_key)
     new_children.push(child)
     new_children.push(new_node)
-    while i < parent.keys.count() {
-        new_keys.push(parent.keys[i])
+    while i < parent_node.keys.count() {
+        new_keys.push(parent_node.keys[i])
         i = i + 1uaddr
     }
     i = child_idx + 1uaddr
-    while i < parent.children.count() {
-        new_children.push(parent.children[i])
+    while i < parent_node.children.count() {
+        new_children.push(parent_node.children[i])
         i = i + 1uaddr
     }
 
-    parent.keys = new_keys
-    parent.children = new_children
+    parent_node.keys = new_keys
+    parent_node.children = new_children
 }
 
 routine SortedSet<T>.update_subtree_size(me: SortedSet<T>, node: BTreeSetNode<T>) {

@@ -37,7 +37,7 @@ entity BTreeDictNode<K, V> {
 }
 
 entity SortedDict<K, V> {
-    private root: BTreeDictNode<K, V>?
+    private root: BTreeDictNode<K, V>
     private count: uaddr
 }
 
@@ -89,7 +89,7 @@ routine SortedDict<K, V>.contains_key(me: SortedDict<K, V>, key: K) -> bool {
     if me.root is None {
         return false
     }
-    return me.search_node(me.root!, key) is not None
+    return me.search_node(me.root!, key) isnot None
 }
 
 routine SortedDict<K, V>.search_node(me: SortedDict<K, V>, node: BTreeDictNode<K, V>, key: K) -> V? {
@@ -230,8 +230,8 @@ routine SortedDict<K, V>.insert_non_full(me: SortedDict<K, V>, node: BTreeDictNo
     }
 }
 
-routine SortedDict<K, V>.split_child(me: SortedDict<K, V>, parent: BTreeDictNode<K, V>, child_idx: uaddr) {
-    let child = parent.children[child_idx]
+routine SortedDict<K, V>.split_child(me: SortedDict<K, V>, parent_node: BTreeDictNode<K, V>, child_idx: uaddr) {
+    let child = parent_node.children[child_idx]
     let mid = (B_DICT - 1uaddr) / 2uaddr
 
     let new_node = BTreeDictNode<K, V>(is_leaf: child.is_leaf)
@@ -275,25 +275,25 @@ routine SortedDict<K, V>.split_child(me: SortedDict<K, V>, parent: BTreeDictNode
 
     i = 0uaddr
     while i < child_idx {
-        new_entries.push(parent.entries[i])
-        new_children.push(parent.children[i])
+        new_entries.push(parent_node.entries[i])
+        new_children.push(parent_node.children[i])
         i = i + 1uaddr
     }
     new_entries.push(mid_entry)
     new_children.push(child)
     new_children.push(new_node)
-    while i < parent.entries.count() {
-        new_entries.push(parent.entries[i])
+    while i < parent_node.entries.count() {
+        new_entries.push(parent_node.entries[i])
         i = i + 1uaddr
     }
     i = child_idx + 1uaddr
-    while i < parent.children.count() {
-        new_children.push(parent.children[i])
+    while i < parent_node.children.count() {
+        new_children.push(parent_node.children[i])
         i = i + 1uaddr
     }
 
-    parent.entries = new_entries
-    parent.children = new_children
+    parent_node.entries = new_entries
+    parent_node.children = new_children
 }
 
 # ============================================================================

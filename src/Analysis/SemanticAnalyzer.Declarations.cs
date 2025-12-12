@@ -15,52 +15,80 @@ public partial class SemanticAnalyzer
     {
         foreach (IAstNode declaration in ast.Declarations)
         {
-            if (declaration is FunctionDeclaration funcDecl)
+            switch (declaration)
             {
-                var funcSymbol = new FunctionSymbol(Name: funcDecl.Name,
-                    Parameters: funcDecl.Parameters,
-                    ReturnType: ResolveType(typeExpr: funcDecl.ReturnType),
-                    Visibility: funcDecl.Visibility,
-                    GenericParameters: funcDecl.GenericParameters);
-                _symbolTable.TryDeclare(symbol: funcSymbol);
-            }
-            else if (declaration is RecordDeclaration structDecl)
-            {
-                var interfaceNames = structDecl.Interfaces
-                                              ?.Select(selector: i => i.Name)
-                                               .ToList();
-                var structSymbol = new StructSymbol(Name: structDecl.Name,
-                    Visibility: structDecl.Visibility,
-                    GenericParameters: structDecl.GenericParameters,
-                    Interfaces: interfaceNames);
-                _symbolTable.TryDeclare(symbol: structSymbol);
-                // Cache field information for member access resolution
-                CacheTypeFields(typeName: structDecl.Name, members: structDecl.Members);
-            }
-            else if (declaration is EntityDeclaration classDecl)
-            {
-                var classSymbol = new ClassSymbol(Name: classDecl.Name,
-                    BaseClass: classDecl.BaseClass,
-                    Interfaces: classDecl.Interfaces,
-                    Visibility: classDecl.Visibility,
-                    GenericParameters: classDecl.GenericParameters);
-                _symbolTable.TryDeclare(symbol: classSymbol);
-                // Cache field information for member access resolution
-                CacheTypeFields(typeName: classDecl.Name, members: classDecl.Members);
-            }
-            else if (declaration is ProtocolDeclaration featureDecl)
-            {
-                var featureSymbol = new FeatureSymbol(Name: featureDecl.Name,
-                    Visibility: featureDecl.Visibility,
-                    GenericParameters: featureDecl.GenericParameters);
-                _symbolTable.TryDeclare(symbol: featureSymbol);
-            }
-            else if (declaration is VariantDeclaration variantDecl)
-            {
-                var variantSymbol = new VariantSymbol(Name: variantDecl.Name,
-                    Visibility: variantDecl.Visibility,
-                    GenericParameters: variantDecl.GenericParameters);
-                _symbolTable.TryDeclare(symbol: variantSymbol);
+                case FunctionDeclaration funcDecl:
+                {
+                    var funcSymbol = new FunctionSymbol(Name: funcDecl.Name,
+                        Parameters: funcDecl.Parameters,
+                        ReturnType: ResolveType(typeExpr: funcDecl.ReturnType),
+                        Visibility: funcDecl.Visibility,
+                        GenericParameters: funcDecl.GenericParameters);
+                    _symbolTable.TryDeclare(symbol: funcSymbol);
+                    break;
+                }
+                case ExternalDeclaration externalDecl:
+                {
+                    // Handle external C function declarations
+                    TypeInfo? returnType = externalDecl.ReturnType != null
+                        ? ResolveTypeExpression(typeExpr: externalDecl.ReturnType)
+                        : new TypeInfo(Name: "void", IsReference: false);
+
+                    var funcSymbol = new FunctionSymbol(Name: externalDecl.Name,
+                        Parameters: externalDecl.Parameters,
+                        ReturnType: returnType,
+                        Visibility: VisibilityModifier.External,
+                        IsUsurping: false,
+                        GenericParameters: externalDecl.GenericParameters,
+                        GenericConstraints: new List<GenericConstraint>(),
+                        CallingConvention: externalDecl.CallingConvention,
+                        IsExternal: true);
+
+                    _symbolTable.TryDeclare(symbol: funcSymbol);
+                    break;
+                }
+                case RecordDeclaration recordDecl:
+                {
+                    var interfaceNames = recordDecl.Interfaces
+                                                  ?.Select(selector: i => i.Name)
+                                                   .ToList();
+                    var recordSymbol = new RecordSymbol(Name: recordDecl.Name,
+                        Visibility: recordDecl.Visibility,
+                        GenericParameters: recordDecl.GenericParameters,
+                        Interfaces: interfaceNames);
+                    _symbolTable.TryDeclare(symbol: recordSymbol);
+                    // Cache field information for member access resolution
+                    CacheTypeFields(typeName: recordDecl.Name, members: recordDecl.Members);
+                    break;
+                }
+                case EntityDeclaration entityDecl:
+                {
+                    var entitySymbol = new EntitySymbol(Name: entityDecl.Name,
+                        BaseClass: entityDecl.BaseClass,
+                        Interfaces: entityDecl.Interfaces,
+                        Visibility: entityDecl.Visibility,
+                        GenericParameters: entityDecl.GenericParameters);
+                    _symbolTable.TryDeclare(symbol: entitySymbol);
+                    // Cache field information for member access resolution
+                    CacheTypeFields(typeName: entityDecl.Name, members: entityDecl.Members);
+                    break;
+                }
+                case ProtocolDeclaration featureDecl:
+                {
+                    var featureSymbol = new ProtocolSymbol(Name: featureDecl.Name,
+                        Visibility: featureDecl.Visibility,
+                        GenericParameters: featureDecl.GenericParameters);
+                    _symbolTable.TryDeclare(symbol: featureSymbol);
+                    break;
+                }
+                case VariantDeclaration variantDecl:
+                {
+                    var variantSymbol = new VariantSymbol(Name: variantDecl.Name,
+                        Visibility: variantDecl.Visibility,
+                        GenericParameters: variantDecl.GenericParameters);
+                    _symbolTable.TryDeclare(symbol: variantSymbol);
+                    break;
+                }
             }
         }
     }
@@ -90,7 +118,17 @@ public partial class SemanticAnalyzer
                     location: node.Location);
             }
 
+            // BUGFIX 12.10: Set expected type from variable declaration for type inference
+            var savedExpectedType = _expectedType;
+            if (node.Type != null)
+            {
+                _expectedType = ResolveType(typeExpr: node.Type);
+            }
+
             var initType = node.Initializer.Accept(visitor: this) as TypeInfo;
+
+            // Restore expected type
+            _expectedType = savedExpectedType;
 
             // Validate type compatibility when explicit type is declared
             if (node.Type != null)
@@ -169,6 +207,42 @@ public partial class SemanticAnalyzer
                 message:
                 $"Function name '{node.Name}' uses reserved prefix 'find_'. This prefix is reserved for compiler-generated safe variants.",
                 location: node.Location);
+        }
+
+        // Check for reserved entry point names
+        // 'start!' is NEVER allowed - the entry point is always 'start' (always crash-capable)
+        if (node.Name == "start!")
+        {
+            AddError(
+                message:
+                "Function name 'start!' is not allowed. The entry point must be named 'start' (without !) " +
+                "as it is always crash-capable by default.",
+                location: node.Location);
+        }
+
+        // 'start' is reserved for the application entry point only
+        // Only a zero-parameter function in the global namespace can be named 'start'
+        if (node.Name == "start")
+        {
+            // If it has required parameters, it's not a valid entry point
+            if (node.Parameters.Any(p => p.DefaultValue == null))
+            {
+                AddError(
+                    message:
+                    "Function name 'start' is reserved for the application entry point. " +
+                    "Only a zero-parameter routine can be named 'start'. Use a different name for this function.",
+                    location: node.Location);
+            }
+
+            // If we're in a namespace (not global), reject it
+            if (_currentNamespace != null)
+            {
+                AddError(
+                    message:
+                    $"Entry point 'start' must be in the global namespace (project root files), " +
+                    $"not in namespace '{_currentNamespace}'. Use a different function name or move to a root file.",
+                    location: node.Location);
+            }
         }
 
         // Detect usurping functions that can return exclusive tokens (Hijacked<T>)
@@ -292,7 +366,7 @@ public partial class SemanticAnalyzer
         }
 
         // Add entity to symbol table
-        var classSymbol = new ClassSymbol(Name: node.Name,
+        var classSymbol = new EntitySymbol(Name: node.Name,
             BaseClass: node.BaseClass,
             Interfaces: node.Interfaces,
             Visibility: node.Visibility);
@@ -322,7 +396,7 @@ public partial class SemanticAnalyzer
                                 ?.Select(selector: i => i.Name)
                                  .ToList();
 
-        var structSymbol = new StructSymbol(Name: node.Name,
+        var structSymbol = new RecordSymbol(Name: node.Name,
             Visibility: node.Visibility,
             GenericParameters: node.GenericParameters,
             GenericConstraints: null,
@@ -422,7 +496,7 @@ public partial class SemanticAnalyzer
     /// <returns>Null</returns>
     public object? VisitProtocolDeclaration(ProtocolDeclaration node)
     {
-        var featureSymbol = new FeatureSymbol(Name: node.Name, Visibility: node.Visibility);
+        var featureSymbol = new ProtocolSymbol(Name: node.Name, Visibility: node.Visibility);
         if (!_symbolTable.TryDeclare(symbol: featureSymbol))
         {
             AddError(message: $"Feature '{node.Name}' is already declared",
@@ -497,7 +571,6 @@ public partial class SemanticAnalyzer
     private void ProcessImportedModule(ModuleResolver.ModuleInfo moduleInfo,
         ImportDeclaration importDecl)
     {
-        File.AppendAllText("debug.log", $"Processing module: {moduleInfo.ModulePath}\n");
         // Analyze the imported module's AST to extract symbols
         foreach (IAstNode declaration in moduleInfo.Ast.Declarations)
         {
@@ -532,7 +605,7 @@ public partial class SemanticAnalyzer
             else if (declaration is EntityDeclaration classDecl)
             {
                 // Create class/entity symbol
-                var classSymbol = new ClassSymbol(Name: classDecl.Name,
+                var classSymbol = new EntitySymbol(Name: classDecl.Name,
                     BaseClass: null,
                     Interfaces: new List<TypeExpression>(),
                     Visibility: classDecl.Visibility,
@@ -556,7 +629,7 @@ public partial class SemanticAnalyzer
                 var interfaceNames = structDecl.Interfaces
                                               ?.Select(selector: i => i.Name)
                                                .ToList();
-                var structSymbol = new StructSymbol(Name: structDecl.Name,
+                var structSymbol = new RecordSymbol(Name: structDecl.Name,
                     Visibility: structDecl.Visibility,
                     GenericParameters: structDecl.GenericParameters,
                     GenericConstraints: null,
@@ -576,7 +649,7 @@ public partial class SemanticAnalyzer
             else if (declaration is VariantDeclaration variantDecl)
             {
                 // Create variant symbol (chimera/variant/mutant)
-                var variantSymbol = new ClassSymbol(Name: variantDecl.Name,
+                var variantSymbol = new EntitySymbol(Name: variantDecl.Name,
                     BaseClass: null,
                     Interfaces: new List<TypeExpression>(),
                     Visibility: variantDecl.Visibility,
@@ -628,7 +701,9 @@ public partial class SemanticAnalyzer
     public object? VisitNamespaceDeclaration(NamespaceDeclaration node)
     {
         // Namespace declarations establish the module path for symbol resolution
-        // This is handled at a higher level during module loading
+        // Store the namespace so we can distinguish namespace functions from type methods
+        _currentNamespace = node.Path;
+        _symbolTable.RegisterNamespace(node.Path);
         return null;
     }
 

@@ -528,7 +528,7 @@ routine progress_bar_demo() {
 # Main Entry Point
 # ============================================================================
 
-routine main() {
+routine start() {
     # Run the interactive menu
     interactive_menu()
 }

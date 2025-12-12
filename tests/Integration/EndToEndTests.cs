@@ -34,7 +34,7 @@ public class EndToEndTests
         Assert.NotEmpty(collection: tokens);
 
         // Parse
-        var parser = new RazorForgeParser(tokens: tokens);
+        var parser = new RazorForgeParser(tokens: tokens, fileName: "test.rf");
         Program program = parser.Parse();
         Assert.NotNull(@object: program);
 
@@ -54,7 +54,7 @@ public class EndToEndTests
     public void TestHelloWorldProgram()
     {
         string code = @"
-routine main() -> s32 {
+routine start() {
     print(""Hello, World!"")
     return 0
 }";
@@ -79,7 +79,7 @@ routine factorial(n: s32) -> s32 {
         return n * factorial(n - 1)
 }
 
-routine main() -> s32 {
+routine start() {
     let result = factorial(5)
     print(f""Factorial of 5 is {result}"")
     return 0
@@ -105,7 +105,7 @@ routine fibonacci(n: s32) -> s32 {
         return fibonacci(n - 1) + fibonacci(n - 2)
 }
 
-routine main() -> s32 {
+routine start() {
     for i in 0 to 10:
         let fib = fibonacci(i)
         print(f""fib({i}) = {fib}"")
@@ -130,7 +130,7 @@ routine array_sum(arr: DynamicSlice, size: s32) -> s32 {
     return sum
 }
 
-routine main() -> s32 {
+routine start() {
     let numbers = DynamicSlice(10)
 
     # Initialize array
@@ -161,7 +161,7 @@ routine concatenate(a: Text, b: Text) -> Text {
     return a + b
 }
 
-routine main() -> s32 {
+routine start() {
     let greeting = ""Hello""
     let target = ""World""
     let message = concatenate(greeting, "" "") + target + ""!""
@@ -192,7 +192,7 @@ routine power(base: f64, exponent: s32) -> f64 {
         return base * power(base, exponent - 1)
 }
 
-routine main() -> s32 {
+routine start() {
     let base = 2.0
     for exp in 0 to 10:
         let result = power(base, exp)
@@ -231,7 +231,7 @@ routine memory_test() {
     print(f""Sum: {sum}"")
 }
 
-routine main() -> s32 {
+routine start() {
     memory_test()
     return 0
 }";
@@ -254,7 +254,7 @@ routine safe_divide(a: s32, b: s32) -> Option(s32) {
         return Some(a / b)
 }
 
-routine main() -> s32 {
+routine start() {
     let result1 = safe_divide(10, 2)
     let result2 = safe_divide(10, 0)
 
@@ -294,7 +294,7 @@ routine list_operations() {
     print(f""Sum: {sum}"")
 }
 
-routine main() -> s32 {
+routine start() {
     list_operations()
     return 0
 }";
@@ -317,7 +317,7 @@ routine worker(id: s32, data: ThreadShared(s32)) {
     print(f""Worker {id} finished"")
 }
 
-routine main() -> s32 {
+routine start() {
     let shared_counter = ThreadShared(s32)(0)
 
     # Spawn worker threads
@@ -362,7 +362,7 @@ routine unsafe_memory_operations() {
     }
 }
 
-routine main() -> s32 {
+routine start() {
     unsafe_memory_operations()
     return 0
 }";
@@ -398,7 +398,7 @@ routine overflow_demo() {
     print(f""Wrapped: {wrapped}, Saturated: {saturated}"")
 }
 
-routine main() -> s32 {
+routine start() {
     overflow_demo()
     return 0
 }";
@@ -436,7 +436,7 @@ routine calculator(op: Text, a: s32, b: s32) -> Result(s32, Text) {
         _: return Err(""Unknown operation"")
 }
 
-routine main() -> s32 {
+routine start() {
     let input_a = ""2""
     let input_b = ""3""
     let operation = ""+""
@@ -468,7 +468,7 @@ routine main() -> s32 {
     {
         // Test compilation of a large program
         string code = @"
-routine main() -> s32 {";
+routine start() {";
 
         // Generate a large function with many operations
         for (int i = 0; i < 100; i++)

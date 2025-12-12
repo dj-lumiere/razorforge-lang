@@ -21,6 +21,18 @@ public partial class LLVMCodeGenerator
     }
 
     /// <summary>
+    /// Checks if a type expression potentially references a generic type parameter.
+    /// This is used to skip functions with uninstantiated generic types during core prelude loading.
+    /// </summary>
+    /// <param name="type">The type expression to check</param>
+    /// <returns>True if the type might be a generic type parameter (single uppercase letter)</returns>
+    private bool IsPotentiallyGenericType(TypeExpression type)
+    {
+        // Common generic type parameter names are single uppercase letters: T, I, K, V, etc.
+        return type.Name.Length == 1 && char.IsUpper(type.Name[0]);
+    }
+
+    /// <summary>
     /// Sanitizes a type name for use in mangled names by replacing angle brackets and commas.
     /// For example, "BackIndex&lt;uaddr&gt;" becomes "BackIndex_uaddr"
     /// </summary>
@@ -41,7 +53,7 @@ public partial class LLVMCodeGenerator
     /// </summary>
     public string VisitEntityDeclaration(EntityDeclaration node)
     {
-        _currentLocation = node.Location;
+        UpdateLocation(node.Location);
         // Check if this is a generic entity
         if (node.GenericParameters != null && node.GenericParameters.Count > 0)
         {
@@ -64,7 +76,7 @@ public partial class LLVMCodeGenerator
     /// </summary>
     public string VisitRecordDeclaration(RecordDeclaration node)
     {
-        _currentLocation = node.Location;
+        UpdateLocation(node.Location);
         // Check if this is a generic record
         if (node.GenericParameters != null && node.GenericParameters.Count > 0)
         {
@@ -136,6 +148,42 @@ public partial class LLVMCodeGenerator
 
         _output.AppendLine();
 
+        // Track entity fields for constructor detection (LLVM types) - same as records
+        var fields = new List<(string Name, string Type)>();
+        for (int i = 0; i < fieldNames.Count; i++)
+        {
+            fields.Add(item: (fieldNames[index: i], fieldTypes[index: i]));
+        }
+        _recordFields[key: typeName] = fields;
+
+        // Track entity fields with RazorForge types for method lookup
+        var rfFields = new List<(string Name, string RfType)>();
+        foreach (Declaration member in node.Members)
+        {
+            if (member is not VariableDeclaration field)
+            {
+                continue;
+            }
+
+            if (field.Type != null)
+            {
+                string rfFieldType = GetFullTypeName(type: field.Type);
+                // Apply type substitutions to get the concrete RazorForge type
+                if (typeSubstitutions != null)
+                {
+                    foreach (var kvp in typeSubstitutions)
+                    {
+                        rfFieldType = System.Text.RegularExpressions.Regex.Replace(
+                            rfFieldType,
+                            $"\\b{System.Text.RegularExpressions.Regex.Escape(kvp.Key)}\\b",
+                            kvp.Value);
+                    }
+                }
+                rfFields.Add(item: (field.Name, rfFieldType));
+            }
+        }
+        _recordFieldsRfTypes[key: typeName] = rfFields;
+
         return "";
     }
 
@@ -195,14 +243,45 @@ public partial class LLVMCodeGenerator
 
         _output.AppendLine();
 
-        // Track record fields for constructor detection
+        // Track record fields for constructor detection (LLVM types)
         var fields = new List<(string Name, string Type)>();
         for (int i = 0; i < fieldNames.Count; i++)
         {
             fields.Add(item: (fieldNames[index: i], fieldTypes[index: i]));
         }
-
         _recordFields[key: typeName] = fields;
+
+        // Track record fields with RazorForge types for method lookup
+        var rfFields = new List<(string Name, string RfType)>();
+        foreach (Declaration member in node.Members)
+        {
+            if (member is not VariableDeclaration field)
+            {
+                continue;
+            }
+
+            if (field.Type != null)
+            {
+                string rfFieldType = GetFullTypeName(type: field.Type);
+                // Apply type substitutions to get the concrete RazorForge type
+                if (typeSubstitutions != null && rfFieldType.Contains('<') && rfFieldType.Contains('>'))
+                {
+                    foreach (var kvp in typeSubstitutions)
+                    {
+                        rfFieldType = System.Text.RegularExpressions.Regex.Replace(
+                            rfFieldType,
+                            $@"\b{kvp.Key}\b",
+                            kvp.Value);
+                    }
+                }
+                else if (typeSubstitutions != null && typeSubstitutions.TryGetValue(rfFieldType, out string? substituted))
+                {
+                    rfFieldType = substituted;
+                }
+                rfFields.Add((field.Name, rfFieldType));
+            }
+        }
+        _recordFieldsRfTypes[key: typeName] = rfFields;
 
         return "";
     }
@@ -236,18 +315,8 @@ public partial class LLVMCodeGenerator
         }
         _genericTypeInstantiations[key: recordName].Add(item: typeArguments);
 
-        // Immediately generate the type to ensure it's defined before being referenced
-        // Create type substitution map
-        var substitutions = new Dictionary<string, string>();
-        for (int i = 0;
-             i < Math.Min(val1: template.GenericParameters!.Count, val2: typeArguments.Count);
-             i++)
-        {
-            substitutions[key: template.GenericParameters[index: i]] = typeArguments[index: i];
-        }
-
-        // Generate the instantiated record type immediately
-        GenerateRecordType(node: template, typeSubstitutions: substitutions, mangledName: mangledName);
+        // Add to pending queue for generation at the right location in output
+        _pendingRecordInstantiations.Add(item: $"{recordName}|{string.Join(separator: ",", values: typeArguments)}");
 
         return mangledName;
     }
@@ -304,40 +373,48 @@ public partial class LLVMCodeGenerator
     private void GeneratePendingTypeInstantiations()
     {
         // Process pending record instantiations
-        foreach (string pending in _pendingRecordInstantiations)
+        // Keep processing until the queue is empty, since generating one type
+        // might trigger the need for dependent types
+        while (_pendingRecordInstantiations.Count > 0)
         {
-            string[] parts = pending.Split(separator: '|');
-            string recordName = parts[0];
-            var typeArguments = parts[1]
-                               .Split(separator: ',')
-                               .ToList();
+            // Process current batch
+            var batch = _pendingRecordInstantiations.ToList();
+            _pendingRecordInstantiations.Clear();
 
-            if (!_genericRecordTemplates.TryGetValue(key: recordName,
-                    value: out RecordDeclaration? template))
+            foreach (string pending in batch)
             {
-                continue;
+                string[] parts = pending.Split(separator: '|');
+                string recordName = parts[0];
+                var typeArguments = parts[1]
+                                   .Split(separator: ',')
+                                   .ToList();
+
+                if (!_genericRecordTemplates.TryGetValue(key: recordName,
+                        value: out RecordDeclaration? template))
+                {
+                    continue;
+                }
+
+                // Create type substitution map
+                var substitutions = new Dictionary<string, string>();
+                for (int i = 0;
+                     i < Math.Min(val1: template.GenericParameters!.Count, val2: typeArguments.Count);
+                     i++)
+                {
+                    substitutions[key: template.GenericParameters[index: i]] = typeArguments[index: i];
+                }
+
+                // Generate mangled name (sanitize nested generics)
+                var sanitizedArgs = typeArguments.Select(selector: SanitizeTypeNameForMangling);
+                string mangledName = $"{recordName}_{string.Join(separator: "_", values: sanitizedArgs)}";
+
+                // Generate the instantiated record type
+                // This might add more types to _pendingRecordInstantiations
+                GenerateRecordType(node: template,
+                    typeSubstitutions: substitutions,
+                    mangledName: mangledName);
             }
-
-            // Create type substitution map
-            var substitutions = new Dictionary<string, string>();
-            for (int i = 0;
-                 i < Math.Min(val1: template.GenericParameters!.Count, val2: typeArguments.Count);
-                 i++)
-            {
-                substitutions[key: template.GenericParameters[index: i]] = typeArguments[index: i];
-            }
-
-            // Generate mangled name
-            string mangledName =
-                $"{recordName}_{string.Join(separator: "_", values: typeArguments)}";
-
-            // Generate the instantiated record type
-            GenerateRecordType(node: template,
-                typeSubstitutions: substitutions,
-                mangledName: mangledName);
         }
-
-        _pendingRecordInstantiations.Clear();
 
         // Process pending entity instantiations
         foreach (string pending in _pendingEntityInstantiations)
@@ -363,9 +440,9 @@ public partial class LLVMCodeGenerator
                 substitutions[key: template.GenericParameters[index: i]] = typeArguments[index: i];
             }
 
-            // Generate mangled name
-            string mangledName =
-                $"{entityName}_{string.Join(separator: "_", values: typeArguments)}";
+            // Generate mangled name (sanitize nested generics)
+            var sanitizedArgs = typeArguments.Select(selector: SanitizeTypeNameForMangling);
+            string mangledName = $"{entityName}_{string.Join(separator: "_", values: sanitizedArgs)}";
 
             // Generate the instantiated entity type
             GenerateEntityType(node: template,
@@ -377,43 +454,43 @@ public partial class LLVMCodeGenerator
     }
     public string VisitChoiceDeclaration(ChoiceDeclaration node)
     {
-        _currentLocation = node.Location;
+        UpdateLocation(node.Location);
         return "";
     }
     public string VisitVariantDeclaration(VariantDeclaration node)
     {
-        _currentLocation = node.Location;
+        UpdateLocation(node.Location);
         return "";
     }
     public string VisitProtocolDeclaration(ProtocolDeclaration node)
     {
-        _currentLocation = node.Location;
+        UpdateLocation(node.Location);
         return "";
     }
     public string VisitImportDeclaration(ImportDeclaration node)
     {
-        _currentLocation = node.Location;
+        UpdateLocation(node.Location);
         return "";
     }
     public string VisitNamespaceDeclaration(NamespaceDeclaration node)
     {
-        _currentLocation = node.Location;
+        UpdateLocation(node.Location);
         // Namespace declarations are handled at a higher level for symbol resolution
         return "";
     }
     public string VisitDefineDeclaration(RedefinitionDeclaration node)
     {
-        _currentLocation = node.Location;
+        UpdateLocation(node.Location);
         return "";
     }
     public string VisitUsingDeclaration(UsingDeclaration node)
     {
-        _currentLocation = node.Location;
+        UpdateLocation(node.Location);
         return "";
     }
     public string VisitImplementationDeclaration(ImplementationDeclaration node)
     {
-        _currentLocation = node.Location;
+        UpdateLocation(node.Location);
         return "";
     }
 }

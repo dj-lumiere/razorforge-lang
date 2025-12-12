@@ -96,7 +96,7 @@ dotnet run -- compile examples/console_demo.rf
 Create `hello.rf`:
 
 ```razorforge
-routine main() {
+routine start() {
     Console.print_line("Hello, RazorForge!")
 
     let x: s64 = 42_s64
@@ -110,7 +110,7 @@ routine main() {
 Create `hello.sf`:
 
 ```python
-routine main():
+routine start():
     show_line("Hello, Suflae!")
 
     let x: s64 = 42_s64

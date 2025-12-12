@@ -1,10 +1,10 @@
 # RazorForge C Subsystem Memory Operations
 # Core external functions for danger! blocks and low-level memory management
 # These map directly to LLVM intrinsics and C runtime functions
-
+namespace core
 # Memory allocation operations (for danger zone)
-external("C") routine claim_dynamic(size: MemorySize) -> uaddr
-external("C") routine claim_temporary(size: MemorySize) -> uaddr
+external("C") routine claim_dynamic(bytes: uaddr) -> uaddr
+external("C") routine claim_temporary(bytes: uaddr) -> uaddr
 external("C") routine release_dynamic(address: uaddr)
 
 # Memory reading operations
@@ -26,6 +26,6 @@ external("C") routine reveal_as<U, T>(ptr: uaddr) -> U
 external("C") routine invalidate!(address: uaddr)
 
 # Memory utilities
-external("C") routine copy_memory(dest: uaddr, src: uaddr, size: MemorySize)
-external("C") routine zero_memory(address: uaddr, size: MemorySize)
-external("C") routine compare_memory(a: uaddr, b: uaddr, size: MemorySize) -> s32
+external("C") routine copy_memory(dest: uaddr, src: uaddr, bytes: uaddr)
+external("C") routine zero_memory(address: uaddr, bytes: uaddr)
+external("C") routine compare_memory(a: uaddr, b: uaddr, bytes: uaddr) -> s32

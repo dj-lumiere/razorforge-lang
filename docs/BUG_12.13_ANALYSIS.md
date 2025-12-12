@@ -138,7 +138,7 @@ routine TestType<T>.get_value(me: TestType<T>) -> T {
     return me.value
 }
 
-routine main() {
+routine start() {
     let instance: TestType<s64> = TestType<s64>(value: 42_s64)
     let result = instance.get_value()  # Should infer type as s64
 }
@@ -159,7 +159,7 @@ routine main() {
 ```razorforge
 import core/BackIndex
 
-routine main() {
+routine start() {
     let bi = BackIndex<uaddr>(offset: 5_uaddr)
     let result = bi.resolve(length: 10_uaddr)
 }

@@ -1,6 +1,6 @@
 # RazorForge u8 (unsigned 8-bit integer) native type implementation
 # Maps directly to LLVM i8 type using compiler intrinsics
-
+namespace core
 # Core u8 type definition - maps to LLVM i8
 record u8 {
     public value: LlvmNativeI8
@@ -105,21 +105,21 @@ routine u8.__mul_sat__(other: u8) -> u8 {
 routine u8.__add_checked__(other: u8) -> Maybe<u8> {
     danger! {
         let (result, overflow) = @intrinsic.add.overflow<i8>(me, other)
-        return if overflow then { None } else { result }
+        return if overflow then None else result
     }
 }
 
 routine u8.__sub_checked__(other: u8) -> Maybe<u8> {
     danger! {
         let (result, overflow) = @intrinsic.sub.overflow<i8>(me, other)
-        return if overflow then { None } else { result }
+        return if overflow then None else result
     }
 }
 
 routine u8.__mul_checked__(other: u8) -> Maybe<u8> {
     danger! {
         let (result, overflow) = @intrinsic.mul.overflow<i8>(me, other)
-        return if overflow then { None } else { result }
+        return if overflow then None else result
     }
 }
 

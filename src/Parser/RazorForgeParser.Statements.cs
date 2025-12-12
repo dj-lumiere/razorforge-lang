@@ -282,7 +282,8 @@ public partial class RazorForgeParser
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
 
         Expression? value = null;
-        if (!Check(type: TokenType.Newline) && !IsAtEnd)
+        // Check if there's a return value - if next token is a statement terminator or block end, there isn't one
+        if (!Check(type: TokenType.Newline) && !Check(type: TokenType.RightBrace) && !IsAtEnd)
         {
             value = ParseExpression();
         }
@@ -338,10 +339,19 @@ public partial class RazorForgeParser
             // Handle variable declarations inside blocks
             if (Match(TokenType.Var, TokenType.Let))
             {
-                VariableDeclaration varDecl = ParseVariableDeclaration();
-                // Wrap the variable declaration as a declaration statement
-                statements.Add(item: new DeclarationStatement(Declaration: varDecl,
-                    Location: varDecl.Location));
+                // Check if this is tuple destructuring: let (a, b) = expr
+                if (Check(type: TokenType.LeftParen))
+                {
+                    Statement tupleDestructuring = ParseTupleDestructuring();
+                    statements.Add(item: tupleDestructuring);
+                }
+                else
+                {
+                    VariableDeclaration varDecl = ParseVariableDeclaration();
+                    // Wrap the variable declaration as a declaration statement
+                    statements.Add(item: new DeclarationStatement(Declaration: varDecl,
+                        Location: varDecl.Location));
+                }
                 continue;
             }
 
@@ -442,7 +452,7 @@ public partial class RazorForgeParser
             Location: location);
     }
 
-    private ObservingStatement ParseObservingStatement()
+    private InspectingStatement ParseObservingStatement()
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
 
@@ -457,7 +467,7 @@ public partial class RazorForgeParser
 
         BlockStatement body = ParseBlockStatement();
 
-        return new ObservingStatement(Source: source,
+        return new InspectingStatement(Source: source,
             Handle: handle,
             Body: body,
             Location: location);
@@ -481,6 +491,58 @@ public partial class RazorForgeParser
         return new SeizingStatement(Source: source,
             Handle: handle,
             Body: body,
+            Location: location);
+    }
+
+    /// <summary>
+    /// Parses tuple destructuring: let (a, b) = expr or var (x: s32, y: s64) = tuple_expr
+    /// </summary>
+    private TupleDestructuringStatement ParseTupleDestructuring()
+    {
+        SourceLocation location = GetLocation(token: PeekToken(offset: -2)); // -2 because we already consumed 'let'/'var'
+        bool isMutable = PeekToken(offset: -2).Type == TokenType.Var;
+
+        Consume(type: TokenType.LeftParen, errorMessage: "Expected '(' for tuple destructuring");
+
+        var variables = new List<string>();
+        var types = new List<TypeExpression?>();
+
+        // Parse variable list: (a, b, c) or (a: Type1, b: Type2)
+        do
+        {
+            if (Match(type: TokenType.Newline))
+            {
+                continue; // Skip newlines in tuple destructuring
+            }
+
+            string varName = ConsumeIdentifier(errorMessage: "Expected variable name in tuple destructuring");
+            variables.Add(item: varName);
+
+            // Check for optional type annotation: varName: Type
+            TypeExpression? varType = null;
+            if (Match(type: TokenType.Colon))
+            {
+                varType = ParseType();
+            }
+            types.Add(item: varType);
+
+        } while (Match(type: TokenType.Comma));
+
+        Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after tuple variable list");
+
+        // Expect '='
+        Consume(type: TokenType.Assign, errorMessage: "Expected '=' in tuple destructuring");
+
+        // Parse the initializer expression
+        Expression initializer = ParseExpression();
+
+        ConsumeStatementTerminator();
+
+        return new TupleDestructuringStatement(
+            Variables: variables,
+            Types: types,
+            Initializer: initializer,
+            IsMutable: isMutable,
             Location: location);
     }
 }

@@ -185,7 +185,7 @@ routine test_memory_management() {
 Main test runner that exercises the complete compiler pipeline
 @return Exit code (0 for success, 1 for failure)
 ###
-routine main() -> s32 {
+routine start() {
     show_line("RazorForge Compiler Integration Test Suite")
     show_line("==========================================")
     show_line("Testing: Parser → AST → Semantic Analysis → LLVM IR → Native Runtime")

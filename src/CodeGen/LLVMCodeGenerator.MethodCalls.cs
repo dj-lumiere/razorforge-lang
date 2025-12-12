@@ -8,7 +8,7 @@ public partial class LLVMCodeGenerator
 {
     public string VisitGenericMethodCallExpression(GenericMethodCallExpression node)
     {
-        _currentLocation = node.Location;
+        UpdateLocation(node.Location);
         string resultTemp = GetNextTemp();
 
         // Check if this is a standalone danger zone function call or user-defined generic function
@@ -57,16 +57,16 @@ public partial class LLVMCodeGenerator
                 foreach (Expression arg in node.Arguments)
                 {
                     string argTemp = arg.Accept(visitor: this);
-                    if (!_tempTypes.TryGetValue(key: argTemp, value: out LLVMTypeInfo? ti))
+
+                    // Try to get type from _tempTypes first, otherwise use GetTypeInfo
+                    LLVMTypeInfo ti;
+                    if (!_tempTypes.TryGetValue(key: argTemp, value: out ti))
                     {
-                        throw CodeGenError.TypeResolutionFailed(
-                            typeName: argTemp,
-                            context: "could not determine type of argument in generic function call",
-                            file: _currentFileName,
-                            line: arg.Location.Line,
-                            column: arg.Location.Column,
-                            position: arg.Location.Position);
+                        // For literals and other expressions not tracked in _tempTypes,
+                        // get the type from the expression's semantic analysis result
+                        ti = GetTypeInfo(expr: arg);
                     }
+
                     argTemps.Add(item: argTemp);
                     argTypes.Add(item: ti.LLVMType);
                 }
@@ -83,12 +83,42 @@ public partial class LLVMCodeGenerator
                 return resultTemp;
             }
 
-            // Check for generic type constructor calls like Text<letter8>(ptr: ptr)
+            // Check for generic type constructor calls like Text<letter8>(ptr: ptr) or TestType<s64>(value: 42)
             // The function name (e.g., "Text") combined with type arguments makes a full type name
+            // CRITICAL: Use BuildFullTypeName to handle nested generics correctly
             string typeArgStr = string.Join(separator: ", ",
-                values: node.TypeArguments.Select(selector: t => t.Name));
+                values: node.TypeArguments.Select(selector: t => BuildFullTypeName(t)));
             string genericTypeName = $"{functionName}<{typeArgStr}>";
 
+            // Check if this is a generic record template defined in the current file
+            if (_genericRecordTemplates.ContainsKey(key: functionName))
+            {
+                // This is a constructor call for a generic record template (e.g., TestType<s64>(...))
+                // Need to instantiate the generic type and create the struct
+                var typeArgList = node.TypeArguments.Select(selector: t => BuildFullTypeName(t)).ToList();
+                string mangledName = InstantiateGenericRecord(recordName: functionName, typeArguments: typeArgList);
+
+                // Now generate struct initialization code
+                return HandleRecordConstructorCall(typeName: mangledName,
+                    arguments: node.Arguments,
+                    resultTemp: resultTemp);
+            }
+
+            // Check if this is a generic entity template defined in the current file or loaded modules
+            if (_genericEntityTemplates.ContainsKey(key: functionName))
+            {
+                // This is a constructor call for a generic entity template (e.g., Text<letter8>(...))
+                // Need to instantiate the generic type and create the entity
+                var typeArgList = node.TypeArguments.Select(selector: t => BuildFullTypeName(t)).ToList();
+                string mangledName = InstantiateGenericEntity(entityName: functionName, typeArguments: typeArgList);
+
+                // Now generate entity initialization code (heap-allocated entity)
+                return HandleEntityConstructorCall(typeName: mangledName,
+                    arguments: node.Arguments,
+                    resultTemp: resultTemp);
+            }
+
+            // Check for generic type constructors in loaded modules (stdlib types with __create__)
             if (TryHandleGenericTypeConstructor(typeName: genericTypeName,
                     arguments: node.Arguments,
                     resultTemp: resultTemp,
@@ -136,11 +166,13 @@ public partial class LLVMCodeGenerator
                                       .Accept(visitor: this);
                 string writeValueTemp = node.Arguments[index: 1]
                                             .Accept(visitor: this);
+                // Strip % prefix from temp name to avoid %ptr_%tmp -> invalid
+                string tempBaseName = resultTemp.TrimStart('%');
                 _output.AppendLine(
-                    handler: $"  %ptr_{resultTemp} = inttoptr i64 {addrTemp} to ptr");
+                    handler: $"  %ptr_{tempBaseName} = inttoptr i64 {addrTemp} to ptr");
                 _output.AppendLine(
                     handler:
-                    $"  store {llvmType} {writeValueTemp}, ptr %ptr_{resultTemp}, align {GetAlignment(typeName: typeArg.Name)}");
+                    $"  store {llvmType} {writeValueTemp}, ptr %ptr_{tempBaseName}, align {GetAlignment(typeName: typeArg.Name)}");
                 resultTemp = ""; // void return
                 break;
 
@@ -148,11 +180,12 @@ public partial class LLVMCodeGenerator
                 // read_as<T>!(address) - direct memory read from address
                 string readAddrTemp = node.Arguments[index: 0]
                                           .Accept(visitor: this);
+                string readTempBaseName = resultTemp.TrimStart('%');
                 _output.AppendLine(
-                    handler: $"  %ptr_{resultTemp} = inttoptr i64 {readAddrTemp} to ptr");
+                    handler: $"  %ptr_{readTempBaseName} = inttoptr i64 {readAddrTemp} to ptr");
                 _output.AppendLine(
                     handler:
-                    $"  {resultTemp} = load {llvmType}, ptr %ptr_{resultTemp}, align {GetAlignment(typeName: typeArg.Name)}");
+                    $"  {resultTemp} = load {llvmType}, ptr %ptr_{readTempBaseName}, align {GetAlignment(typeName: typeArg.Name)}");
                 _tempTypes[key: resultTemp] = new LLVMTypeInfo(
                     LLVMType: MapRazorForgeTypeToLLVM(razorForgeType: typeArg.Name),
                     IsUnsigned: false,
@@ -166,11 +199,12 @@ public partial class LLVMCodeGenerator
                                               .Accept(visitor: this);
                 string volWriteValueTemp = node.Arguments[index: 1]
                                                .Accept(visitor: this);
+                string volWriteTempBaseName = resultTemp.TrimStart('%');
                 _output.AppendLine(
-                    handler: $"  %ptr_{resultTemp} = inttoptr i64 {volWriteAddrTemp} to ptr");
+                    handler: $"  %ptr_{volWriteTempBaseName} = inttoptr i64 {volWriteAddrTemp} to ptr");
                 _output.AppendLine(
                     handler:
-                    $"  store volatile {llvmType} {volWriteValueTemp}, ptr %ptr_{resultTemp}, align {GetAlignment(typeName: typeArg.Name)}");
+                    $"  store volatile {llvmType} {volWriteValueTemp}, ptr %ptr_{volWriteTempBaseName}, align {GetAlignment(typeName: typeArg.Name)}");
                 resultTemp = ""; // void return
                 break;
 
@@ -178,11 +212,12 @@ public partial class LLVMCodeGenerator
                 // volatile_read<T>!(address) - volatile memory read from address
                 string volReadAddrTemp = node.Arguments[index: 0]
                                              .Accept(visitor: this);
+                string volReadTempBaseName = resultTemp.TrimStart('%');
                 _output.AppendLine(
-                    handler: $"  %ptr_{resultTemp} = inttoptr i64 {volReadAddrTemp} to ptr");
+                    handler: $"  %ptr_{volReadTempBaseName} = inttoptr i64 {volReadAddrTemp} to ptr");
                 _output.AppendLine(
                     handler:
-                    $"  {resultTemp} = load volatile {llvmType}, ptr %ptr_{resultTemp}, align {GetAlignment(typeName: typeArg.Name)}");
+                    $"  {resultTemp} = load volatile {llvmType}, ptr %ptr_{volReadTempBaseName}, align {GetAlignment(typeName: typeArg.Name)}");
                 _tempTypes[key: resultTemp] = new LLVMTypeInfo(
                     LLVMType: MapRazorForgeTypeToLLVM(razorForgeType: typeArg.Name),
                     IsUnsigned: false,
@@ -215,16 +250,16 @@ public partial class LLVMCodeGenerator
                         foreach (Expression arg in node.Arguments)
                         {
                             string argTemp = arg.Accept(visitor: this);
-                            if (!_tempTypes.TryGetValue(key: argTemp, value: out LLVMTypeInfo? ti))
+
+                            // Try to get type from _tempTypes first, otherwise use GetTypeInfo
+                            LLVMTypeInfo ti;
+                            if (!_tempTypes.TryGetValue(key: argTemp, value: out ti))
                             {
-                                throw CodeGenError.TypeResolutionFailed(
-                                    typeName: argTemp,
-                                    context: "could not determine type of argument in generic function call",
-                                    file: _currentFileName,
-                                    line: arg.Location.Line,
-                                    column: arg.Location.Column,
-                                    position: arg.Location.Position);
+                                // For literals and other expressions not tracked in _tempTypes,
+                                // get the type from the expression's semantic analysis result
+                                ti = GetTypeInfo(expr: arg);
                             }
+
                             argTemps.Add(item: argTemp);
                             argTypes.Add(item: ti.LLVMType);
                         }
@@ -294,16 +329,16 @@ public partial class LLVMCodeGenerator
                 foreach (Expression arg in node.Arguments)
                 {
                     string argTemp = arg.Accept(visitor: this);
-                    if (!_tempTypes.TryGetValue(key: argTemp, value: out LLVMTypeInfo? ti))
+
+                    // Try to get type from _tempTypes first, otherwise use GetTypeInfo
+                    LLVMTypeInfo ti;
+                    if (!_tempTypes.TryGetValue(key: argTemp, value: out ti))
                     {
-                        throw CodeGenError.TypeResolutionFailed(
-                            typeName: argTemp,
-                            context: "could not determine type of argument in method call",
-                            file: _currentFileName,
-                            line: arg.Location.Line,
-                            column: arg.Location.Column,
-                            position: arg.Location.Position);
+                        // For literals and other expressions not tracked in _tempTypes,
+                        // get the type from the expression's semantic analysis result
+                        ti = GetTypeInfo(expr: arg);
                     }
+
                     methodArgTemps.Add(item: argTemp);
                     methodArgTypes.Add(item: ti.LLVMType);
                 }
@@ -313,7 +348,7 @@ public partial class LLVMCodeGenerator
                         resultSelector: (temp, type) => $"{type} {temp}"));
 
                 // Determine return type from method signature
-                string methodReturnType = LookupMethodReturnType(objectTypeName: objectTypeName, methodName: methodMangledName);
+                (string methodReturnType, string rfReturnType) = LookupMethodReturnType(objectTypeName: objectTypeName, methodName: methodMangledName);
 
                 // Generate the call - static methods don't have an object parameter
                 if (staticTypeName != null)
@@ -338,14 +373,14 @@ public partial class LLVMCodeGenerator
 
     public string VisitGenericMemberExpression(GenericMemberExpression node)
     {
-        _currentLocation = node.Location;
+        UpdateLocation(node.Location);
         // TODO: Implement generic member access
         return GetNextTemp();
     }
 
     public string VisitMemoryOperationExpression(MemoryOperationExpression node)
     {
-        _currentLocation = node.Location;
+        UpdateLocation(node.Location);
         string objectTemp = node.Object.Accept(visitor: this);
         string resultTemp = GetNextTemp();
 
@@ -439,7 +474,7 @@ public partial class LLVMCodeGenerator
 
     public string VisitIntrinsicCallExpression(IntrinsicCallExpression node)
     {
-        _currentLocation = node.Location;
+        UpdateLocation(node.Location);
         string resultTemp = GetNextTemp();
         string intrinsicName = node.IntrinsicName;
 
@@ -511,7 +546,7 @@ public partial class LLVMCodeGenerator
 
     public string VisitNativeCallExpression(NativeCallExpression node)
     {
-        _currentLocation = node.Location;
+        UpdateLocation(node.Location);
         string resultTemp = GetNextTemp();
         string functionName = node.FunctionName;
 
@@ -538,6 +573,9 @@ public partial class LLVMCodeGenerator
         // Determine return type (default to i8* for pointer-returning functions, i64 otherwise)
         string returnType = DetermineNativeFunctionReturnType(functionName: functionName);
 
+        // Ensure the native function is declared before calling it
+        EnsureNativeFunctionDeclared(functionName, returnType, argTypes);
+
         if (returnType == "void")
         {
             _output.AppendLine(value: $"  call void @{functionName}({argsStr})");
@@ -547,6 +585,16 @@ public partial class LLVMCodeGenerator
         {
             _output.AppendLine(
                 value: $"  {resultTemp} = call {returnType} @{functionName}({argsStr})");
+
+            // Track the return type so it can be used in return statements and other expressions
+            // For format_ functions, we know they return text/strings (cstr)
+            string rfReturnType = functionName.StartsWith(value: "format_") ? "cstr" : "uaddr";
+            _tempTypes[key: resultTemp] = new LLVMTypeInfo(
+                LLVMType: returnType,
+                IsUnsigned: rfReturnType.StartsWith("u"),
+                IsFloatingPoint: returnType.Contains("float") || returnType.Contains("double"),
+                RazorForgeType: rfReturnType);
+
             return resultTemp;
         }
     }
@@ -571,13 +619,55 @@ public partial class LLVMCodeGenerator
         else if (expr is IdentifierExpression idExpr)
         {
             // Check if we know the type from symbol table
+            // Note: _symbolTypes stores LLVM types, not RazorForge types
             if (_symbolTypes.TryGetValue(key: idExpr.Name, value: out string? varType))
             {
-                if (varType == "uaddr" || varType.Contains(value: "*") || varType == "text" ||
-                    varType == "Text")
+                // varType is already an LLVM type, but we might need to handle special cases
+                // For pointer types or specific types that need mapping
+                if (varType == "i8*" || varType == "ptr" || varType.Contains("*"))
                 {
-                    return "i8*";
+                    return "ptr";
                 }
+
+                // For most types, the value in _symbolTypes is already the correct LLVM type
+                // (e.g., "fp128", "i64", "i32", "half", "float", "double")
+                return varType;
+            }
+        }
+
+        // Check if the expression has a resolved type (from semantic analysis)
+        if (expr.ResolvedType != null)
+        {
+            string typeName = expr.ResolvedType.Name;
+
+            // Map RazorForge types to LLVM types for native function calls
+            // For floating-point types, use the primitive LLVM type
+            string llvmType = typeName switch
+            {
+                "f16" => "half",
+                "f32" => "float",
+                "f64" => "double",
+                "f128" => "fp128",
+                "s8" => "i8",
+                "s16" => "i16",
+                "s32" => "i32",
+                "s64" => "i64",
+                "s128" => "i128",
+                "u8" => "i8",
+                "u16" => "i16",
+                "u32" => "i32",
+                "u64" => "i64",
+                "u128" => "i128",
+                "saddr" => "i64",
+                "uaddr" => "i64",
+                "bool" => "i1",
+                _ when typeName.Contains("*") || typeName == "text" || typeName == "Text" => "ptr",
+                _ => null
+            };
+
+            if (llvmType != null)
+            {
+                return llvmType;
             }
         }
 
@@ -587,6 +677,12 @@ public partial class LLVMCodeGenerator
 
     private string DetermineNativeFunctionReturnType(string functionName)
     {
+        // Format functions return string pointers
+        if (functionName.StartsWith(value: "format_"))
+        {
+            return "ptr";
+        }
+
         // Known return types for common native functions
         if (!functionName.StartsWith(value: "rf_bigint_") &&
             !functionName.StartsWith(value: "rf_bigdec_"))
@@ -647,7 +743,7 @@ public partial class LLVMCodeGenerator
 
     public string VisitDangerStatement(DangerStatement node)
     {
-        _currentLocation = node.Location;
+        UpdateLocation(node.Location);
         // Add comment to indicate unsafe block
         _output.AppendLine(value: "  ; === DANGER BLOCK START ===");
         node.Body.Accept(visitor: this);

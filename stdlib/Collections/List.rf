@@ -56,11 +56,7 @@ routine List<T>.push(me: List<T>, value: T) {
     # Append element to end - O(1) amortized
     if me.count >= me.capacity {
         # Need to grow - double capacity
-        let new_capacity = if me.capacity == 0u64 {
-            4u64  # Start with 4 elements
-        } else {
-            me.capacity * 2u64
-        }
+        let new_capacity = if me.capacity == 0u64 then 4u64 else me.capacity * 2u64  # Start with 4 elements
         me.reserve(new_capacity)
     }
 
@@ -244,10 +240,10 @@ routine List<T>.clear(me: List<T>) {
 # Iteration support (simplified - full version would use iterators)
 
 routine List<T>.iter(me: List<T>) -> ListIterator<T> {
-    return ListIterator<T> {
+    return ListIterator<T>(
         list: me,
         index: 0u64
-    }
+    )
 }
 
 record ListIterator<T> {
@@ -328,7 +324,7 @@ routine List<T>.select_many<U>(me: List<T>, selector: Routine<(T), List<U>>) -> 
 
 # Take first n elements
 routine List<T>.take(me: List<T>, count: u64) -> List<T> {
-    let n = if count < me.count() { count } else { me.count() }
+    let n = if count < me.count() then count else me.count()
     let result = List<T>(n)
     let i = 0u64
     while i < n {
@@ -355,7 +351,7 @@ routine List<T>.take_while(me: List<T>, predicate: Routine<(T), bool>) -> List<T
 
 # Skip first n elements
 routine List<T>.skip(me: List<T>, count: u64) -> List<T> {
-    let start = if count < me.count() { count } else { me.count() }
+    let start = if count < me.count() then count else me.count()
     let result = List<T>(me.count() - start)
     let i = start
     while i < me.count() {

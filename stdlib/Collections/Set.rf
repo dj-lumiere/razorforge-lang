@@ -37,7 +37,8 @@ routine Set<T>.__create__() -> Set<T> {
     # Initialize empty buckets
     var i = 0uaddr
     while i < SET_INITIAL_BUCKETS {
-        set.buckets.push(SortedSet<T>())
+        let empty_set = SortedSet<T>()
+        set.buckets.push(empty_set)
         i = i + 1uaddr
     }
     return set
@@ -45,14 +46,15 @@ routine Set<T>.__create__() -> Set<T> {
 
 routine Set<T>.__create__(capacity: uaddr) -> Set<T> {
     # Calculate bucket count for desired capacity
-    let bucket_count = if capacity < SET_INITIAL_BUCKETS { SET_INITIAL_BUCKETS } else { capacity }
+    let bucket_count = if capacity < SET_INITIAL_BUCKETS then SET_INITIAL_BUCKETS else capacity
     let set = Set<T>(
         buckets: List<SortedSet<T>>(bucket_count),
         count: 0uaddr
     )
     var i = 0uaddr
     while i < bucket_count {
-        set.buckets.push(SortedSet<T>())
+        let empty_set = SortedSet<T>()
+        set.buckets.push(empty_set)
         i = i + 1uaddr
     }
     return set
@@ -82,7 +84,8 @@ routine Set<T>.rehash(me: Set<T>) {
     me.buckets = List<SortedSet<T>>(new_bucket_count)
     var i = 0uaddr
     while i < new_bucket_count {
-        me.buckets.push(SortedSet<T>())
+        let empty_set = SortedSet<T>()
+        me.buckets.push(empty_set)
         i = i + 1uaddr
     }
     me.count = 0uaddr
@@ -191,8 +194,8 @@ routine Set<T>.intersection(me: Set<T>, other: Set<T>) -> Set<T> {
     let result = Set<T>()
 
     # Use smaller set for iteration
-    let smaller = if me.count < other.count { me } else { other }
-    let larger = if me.count < other.count { other } else { me }
+    let smaller = if me.count < other.count then me else other
+    let larger = if me.count < other.count then other else me
 
     var i = 0uaddr
     while i < smaller.buckets.count() {
@@ -292,8 +295,8 @@ routine Set<T>.is_superset(me: Set<T>, other: Set<T>) -> bool {
 
 routine Set<T>.is_disjoint(me: Set<T>, other: Set<T>) -> bool {
     # Check if no elements in common
-    let smaller = if me.count < other.count { me } else { other }
-    let larger = if me.count < other.count { other } else { me }
+    let smaller = if me.count < other.count then me else other
+    let larger = if me.count < other.count then other else me
 
     var i = 0uaddr
     while i < smaller.buckets.count() {

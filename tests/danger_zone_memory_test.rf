@@ -204,7 +204,7 @@ routine test_danger_slice_operations() {
 Main test runner
 @return Exit code (0 for success)
 ###
-routine main() -> s32 {
+routine start() {
     show_line("RazorForge Danger Zone Memory Test Suite")
     show_line("=======================================")
     show_line("WARNING: These tests use unsafe operations!")
@@ -218,5 +218,4 @@ routine main() -> s32 {
 
     show_line("All danger zone tests completed!")
     show_line("Note: In production code, avoid danger! blocks unless absolutely necessary.")
-    return 0
 }

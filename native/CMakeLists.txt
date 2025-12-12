@@ -56,6 +56,7 @@ add_library(razorforge_runtime SHARED
     runtime/decimal_functions.c
     runtime/bignum_functions.c
     runtime/f16_functions.c
+    runtime/text_functions.c
     runtime/types.h
 )
 

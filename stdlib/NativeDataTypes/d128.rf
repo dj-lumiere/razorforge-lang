@@ -1,7 +1,7 @@
 # RazorForge d128 (decimal128 floating point) native type implementation
 # IEEE 754-2008 decimal floating point with 34 significant digits
 # Uses Intel DFP library via external C functions
-
+namespace core
 import FFI/ctypes
 
 # Core d128 type definition - stored as 128-bit value in BID encoding
@@ -52,7 +52,7 @@ external routine d128_to_i64(low: u64, high: u64) -> s64
 # Constructors
 # ============================================================================
 
-routine d128.__create__!(from_text: Text<LetterType>) -> d128 {
+routine d128.__create__!(from_text: Text<letter8>) -> d128 {
     danger! {
         let cstr_val = from_text.to_cstr()
         return d128_from_string(cstr_val)
@@ -73,14 +73,14 @@ routine d128.__create__(from: f64) -> d128 {
 
 routine d128.__create__(from: d32) -> d128 {
     danger! {
-        let bits = @intrinsic.bitcast<d32, u32>(from)
+        let bits = from.to_bits()
         return rf_d32_to_d128(bits)
     }
 }
 
 routine d128.__create__(from: d64) -> d128 {
     danger! {
-        let bits = @intrinsic.bitcast<d64, u64>(from)
+        let bits = from.to_bits()
         return rf_d64_to_d128(bits)
     }
 }
@@ -162,7 +162,10 @@ routine d128.__truediv__(me: d128, other: d128) -> d128 {
 }
 
 routine d128.__neg__(me: d128) -> d128 {
-    return D128_ZERO - me
+    danger! {
+        let zero = D128_ZERO
+        return d128_sub(zero.low, zero.high, me.low, me.high)
+    }
 }
 
 # ============================================================================
@@ -250,11 +253,15 @@ routine d128.trunc(me: d128) -> d128 {
 # ============================================================================
 
 routine d128.min(me: d128, other: d128) -> d128 {
-    return if me <= other { me } else { other }
+    danger! {
+        return if d128_cmp(me.low, me.high, other.low, other.high) <= 0 then me else other
+    }
 }
 
 routine d128.max(me: d128, other: d128) -> d128 {
-    return if me >= other { me } else { other }
+    danger! {
+        return if d128_cmp(me.low, me.high, other.low, other.high) >= 0 then me else other
+    }
 }
 
 routine d128.clamp(me: d128, min_val: d128, max_val: d128) -> d128 {
@@ -262,22 +269,35 @@ routine d128.clamp(me: d128, min_val: d128, max_val: d128) -> d128 {
 }
 
 routine d128.is_positive(me: d128) -> bool {
-    return me > D128_ZERO
+    danger! {
+        let zero = D128_ZERO
+        return d128_cmp(me.low, me.high, zero.low, zero.high) > 0
+    }
 }
 
 routine d128.is_negative(me: d128) -> bool {
-    return me < D128_ZERO
+    danger! {
+        let zero = D128_ZERO
+        return d128_cmp(me.low, me.high, zero.low, zero.high) < 0
+    }
 }
 
 routine d128.is_zero(me: d128) -> bool {
-    return me == D128_ZERO
+    danger! {
+        let zero = D128_ZERO
+        return d128_cmp(me.low, me.high, zero.low, zero.high) == 0
+    }
 }
 
 routine d128.signum(me: d128) -> d128 {
-    when {
-        me > D128_ZERO => D128_ONE,
-        me < D128_ZERO => -D128_ONE,
-        _ => D128_ZERO
+    danger! {
+        let zero = D128_ZERO
+        let one = D128_ONE
+        when {
+            d128_cmp(me.low, me.high, zero.low, zero.high) > 0 => one,
+            d128_cmp(me.low, me.high, zero.low, zero.high) < 0 => d128_sub(zero.low, zero.high, one.low, one.high),
+            _ => zero
+        }
     }
 }
 
@@ -300,14 +320,14 @@ routine d128.to_f64(me: d128) -> f64 {
 routine d128.to_d32(me: d128) -> d32 {
     danger! {
         let result = rf_d128_to_d32(me.low, me.high)
-        return @intrinsic.bitcast<u32, d32>(result)
+        return d32.from_bits(result)
     }
 }
 
 routine d128.to_d64(me: d128) -> d64 {
     danger! {
         let result = rf_d128_to_d64(me.low, me.high)
-        return @intrinsic.bitcast<u64, d64>(result)
+        return d64.from_bits(result)
     }
 }
 

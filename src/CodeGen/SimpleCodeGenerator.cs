@@ -164,9 +164,40 @@ public class SimpleCodeGenerator : IAstVisitor<string>
         // Check if this is a generic function (has type parameters)
         if (node.GenericParameters != null && node.GenericParameters.Count > 0)
         {
+            // CRITICAL FIX: Filter out "generic parameters" that are actually part of the type name
+            // Example: `Text<letter8>.to_cstr` has genericParams=["letter8"] but letter8 is part of the type,
+            // not a type parameter. This happens because the parser can't distinguish between:
+            //   - `Text<T>.method` (generic method on generic type)
+            //   - `Text<letter8>.method` (specialized method on specialized type)
+            var actualGenericParams = new List<string>();
+            foreach (string param in node.GenericParameters)
+            {
+                int dotPos = node.Name.IndexOf('.');
+                if (dotPos > 0)
+                {
+                    string typePartOfName = node.Name.Substring(0, dotPos);
+                    if (!typePartOfName.Contains($"<{param}>"))
+                    {
+                        // This parameter is NOT in the type part, so it's a real generic parameter
+                        actualGenericParams.Add(param);
+                    }
+                }
+                else
+                {
+                    // No dot in name, this is a standalone generic function
+                    actualGenericParams.Add(param);
+                }
+            }
+
+            // If no actual generic parameters remain, treat as non-generic
+            if (actualGenericParams.Count == 0)
+            {
+                return GenerateFunctionCode(node: node, typeSubstitutions: null);
+            }
+
             // Store the template for later instantiation - don't generate code yet
             _genericFunctionTemplates[key: node.Name] = node;
-            string genericParams = string.Join(separator: ", ", values: node.GenericParameters);
+            string genericParams = string.Join(separator: ", ", values: actualGenericParams);
             WriteLine(text: $"; Generic function template: {node.Name}<{genericParams}>");
             WriteLine();
             return "";
@@ -435,6 +466,15 @@ public class SimpleCodeGenerator : IAstVisitor<string>
         string target = node.Target.Accept(visitor: this);
         string value = node.Value.Accept(visitor: this);
         WriteLine(text: $"{target} = {value}");
+        return "";
+    }
+
+    public string VisitTupleDestructuringStatement(TupleDestructuringStatement node)
+    {
+        string varList = string.Join(separator: ", ", values: node.Variables);
+        string initializer = node.Initializer.Accept(visitor: this);
+        string keyword = node.IsMutable ? "var" : "let";
+        WriteLine(text: $"{keyword} ({varList}) = {initializer}");
         return "";
     }
 
@@ -1063,7 +1103,7 @@ public class SimpleCodeGenerator : IAstVisitor<string>
     /// Generates C code for an inspecting statement (thread-safe read access).
     /// Acquires a read lock on the shared object.
     /// </summary>
-    public string VisitObservingStatement(ObservingStatement node)
+    public string VisitInspectingStatement(InspectingStatement node)
     {
         _output.AppendLine(
             handler: $"{GetIndent()}/* inspecting {node.Source} as {node.Handle} */");

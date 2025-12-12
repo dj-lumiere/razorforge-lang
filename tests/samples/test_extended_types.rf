@@ -35,6 +35,6 @@ routine test_f128_ops() -> f128 {
     return 100.0f128 / 3.0f128 * 2.0f128
 }
 
-routine main() -> i32 {
+routine start() {
     return 0
 }

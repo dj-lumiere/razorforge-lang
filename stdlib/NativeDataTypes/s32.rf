@@ -1,6 +1,6 @@
 # RazorForge s32 (signed 32-bit integer) native type implementation
 # Maps directly to LLVM i32 type and native machine integers
-
+namespace core
 # Core s32 type definition - maps to LLVM i32
 record s32 {
     public value: LlvmNativeI32
@@ -18,7 +18,7 @@ preset S32_ONE: s32 = 1_s32
 
 # Failable constructor from Text - called as s32!(text)
 # Compiler automatically generates try_s32.__create__(text) -> Maybe<s32>
-routine s32.__create__!(from_text: Text<LetterType>) -> s32 {
+routine s32.__create__!(from_text: Text<letter8>) -> s32 {
     danger! {
         return @parse_s32(from_text)
     }
@@ -228,21 +228,21 @@ routine s32.__mul_sat__(other: s32) -> s32 {
 routine s32.__add_checked__(other: s32) -> Maybe<s32> {
     danger! {
         let (result, overflow) = @intrinsic.add.overflow<i32>(me, other)
-        return if overflow { None } else { result }
+        return if overflow then None else result
     }
 }
 
 routine s32.__sub_checked__(other: s32) -> Maybe<s32> {
     danger! {
         let (result, overflow) = @intrinsic.sub.overflow<i32>(me, other)
-        return if overflow { None } else { result }
+        return if overflow then None else result
     }
 }
 
 routine s32.__mul_checked__(other: s32) -> Maybe<s32> {
     danger! {
         let (result, overflow) = @intrinsic.mul.overflow<i32>(me, other)
-        return if overflow { None } else { result }
+        return if overflow then None else result
     }
 }
 

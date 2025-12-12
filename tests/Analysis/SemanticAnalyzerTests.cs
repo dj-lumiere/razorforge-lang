@@ -24,7 +24,7 @@ public class SemanticAnalyzerTests
     private Program ParseCode(string code)
     {
         List<Token> tokens = Tokenizer.Tokenize(source: code, language: Language.RazorForge);
-        var parser = new RazorForgeParser(tokens: tokens);
+        var parser = new RazorForgeParser(tokens: tokens, fileName: "test.rf");
         return parser.Parse();
     }
 

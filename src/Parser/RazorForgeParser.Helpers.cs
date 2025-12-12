@@ -17,14 +17,15 @@ public partial class RazorForgeParser
         Consume(type: TokenType.Dot, errorMessage: "Expected '.' after '@intrinsic'");
 
         // Parse intrinsic operation name (can contain dots like "add.wrapping", "icmp.slt")
+        // Allow keywords as intrinsic names (e.g., @intrinsic.and, @intrinsic.or, @intrinsic.not)
         string intrinsicName =
-            ConsumeIdentifier(errorMessage: "Expected intrinsic operation name");
+            ConsumeIdentifier(errorMessage: "Expected intrinsic operation name", allowKeywords: true);
 
         // Handle dotted names like "add.wrapping" or "icmp.slt"
         while (Match(type: TokenType.Dot))
         {
             intrinsicName +=
-                "." + ConsumeIdentifier(errorMessage: "Expected identifier after '.'");
+                "." + ConsumeIdentifier(errorMessage: "Expected identifier after '.'", allowKeywords: true);
         }
 
         // Parse optional type arguments: <T> or <T, U>
@@ -113,7 +114,7 @@ public partial class RazorForgeParser
         }
     }
 
-    private string ConsumeIdentifier(string errorMessage)
+    private string ConsumeIdentifier(string errorMessage, bool allowKeywords = false)
     {
         if (Match(TokenType.Identifier, TokenType.TypeIdentifier))
         {
@@ -127,10 +128,22 @@ public partial class RazorForgeParser
             return "me";
         }
 
-        Token current = CurrentToken;
+        // Allow keywords as identifiers in specific contexts (intrinsic names, parameter names)
+        if (allowKeywords)
+        {
+            // Check if current token is a keyword (And, Or, Not, From, etc.)
+            Token current = CurrentToken;
+            if (Match(TokenType.And, TokenType.Or, TokenType.Not, TokenType.From, TokenType.In,
+                      TokenType.Is, TokenType.As, TokenType.To, TokenType.By))
+            {
+                return PeekToken(offset: -1).Text;
+            }
+        }
+
+        Token currentToken = CurrentToken;
         throw new ParseException(
             message:
-            $"{errorMessage}. Expected Identifier or TypeIdentifier, got {current.Type}.");
+            $"{errorMessage}. Expected Identifier or TypeIdentifier, got {currentToken.Type}.");
     }
 
     private SliceConstructorExpression ParseSliceConstructor()

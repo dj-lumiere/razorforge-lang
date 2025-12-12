@@ -273,7 +273,36 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
     {
         // Strip the ! suffix from the original name since try_ variants are not throwable
         string baseName = original.Name.TrimEnd(trimChar: '!');
-        string newName = $"try_{baseName}";
+
+        // Handle type-qualified methods (e.g., "s32.__add__" → "s32.try_add")
+        string newName;
+        if (baseName.Contains('.'))
+        {
+            // Split into type and method parts
+            int dotIndex = baseName.LastIndexOf('.');
+            string typePart = baseName.Substring(0, dotIndex);
+            string methodPart = baseName.Substring(dotIndex + 1);
+
+            // Strip dunder wrapper from method part only
+            // __add__ → add
+            if (methodPart.StartsWith("__") && methodPart.EndsWith("__"))
+            {
+                methodPart = methodPart[2..^2];
+            }
+
+            newName = $"{typePart}.try_{methodPart}";
+        }
+        else
+        {
+            // Strip dunder wrapper (__name__) for cleaner variant names
+            // __add__! → try_add (not try___add__)
+            if (baseName.StartsWith("__") && baseName.EndsWith("__"))
+            {
+                baseName = baseName[2..^2];
+            }
+
+            newName = $"try_{baseName}";
+        }
 
         // Wrap return type in Maybe<T>
         TypeExpression? newReturnType = original.ReturnType != null
@@ -367,7 +396,36 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
     {
         // Strip the ! suffix from the original name since check_ variants are not throwable
         string baseName = original.Name.TrimEnd(trimChar: '!');
-        string newName = $"check_{baseName}";
+
+        // Handle type-qualified methods (e.g., "s32.__add__" → "s32.check_add")
+        string newName;
+        if (baseName.Contains('.'))
+        {
+            // Split into type and method parts
+            int dotIndex = baseName.LastIndexOf('.');
+            string typePart = baseName.Substring(0, dotIndex);
+            string methodPart = baseName.Substring(dotIndex + 1);
+
+            // Strip dunder wrapper from method part only
+            // __add__ → add
+            if (methodPart.StartsWith("__") && methodPart.EndsWith("__"))
+            {
+                methodPart = methodPart[2..^2];
+            }
+
+            newName = $"{typePart}.check_{methodPart}";
+        }
+        else
+        {
+            // Strip dunder wrapper (__name__) for cleaner variant names
+            // __add__! → check_add (not check___add__)
+            if (baseName.StartsWith("__") && baseName.EndsWith("__"))
+            {
+                baseName = baseName[2..^2];
+            }
+
+            newName = $"check_{baseName}";
+        }
 
         // Wrap return type in Result<T>
         TypeExpression? newReturnType = original.ReturnType != null
@@ -455,7 +513,36 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
     {
         // Strip the ! suffix from the original name since find_ variants are not throwable
         string baseName = original.Name.TrimEnd(trimChar: '!');
-        string newName = $"find_{baseName}";
+
+        // Handle type-qualified methods (e.g., "s32.__add__" → "s32.find_add")
+        string newName;
+        if (baseName.Contains('.'))
+        {
+            // Split into type and method parts
+            int dotIndex = baseName.LastIndexOf('.');
+            string typePart = baseName.Substring(0, dotIndex);
+            string methodPart = baseName.Substring(dotIndex + 1);
+
+            // Strip dunder wrapper from method part only
+            // __add__ → add
+            if (methodPart.StartsWith("__") && methodPart.EndsWith("__"))
+            {
+                methodPart = methodPart[2..^2];
+            }
+
+            newName = $"{typePart}.find_{methodPart}";
+        }
+        else
+        {
+            // Strip dunder wrapper (__name__) for cleaner variant names
+            // __add__! → find_add (not find___add__)
+            if (baseName.StartsWith("__") && baseName.EndsWith("__"))
+            {
+                baseName = baseName[2..^2];
+            }
+
+            newName = $"find_{baseName}";
+        }
 
         // Wrap return type in Lookup<T>
         TypeExpression? newReturnType = original.ReturnType != null
@@ -600,6 +687,10 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
         return null;
     }
     public object? VisitAssignmentStatement(AssignmentStatement node)
+    {
+        return null;
+    }
+    public object? VisitTupleDestructuringStatement(TupleDestructuringStatement node)
     {
         return null;
     }
@@ -761,7 +852,7 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
     {
         return null;
     }
-    public object? VisitObservingStatement(ObservingStatement node)
+    public object? VisitInspectingStatement(InspectingStatement node)
     {
         return null;
     }

@@ -5,7 +5,7 @@ routine greet(name: Text) -> Text {
     return f"Hello, {name}!"
 }
 
-routine main() {
+routine start() {
     let message = greet("World")
     display_line(message)
     raise ProcessComplete()

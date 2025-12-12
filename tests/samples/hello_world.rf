@@ -190,7 +190,7 @@ record Buffer<T> {
 }
 
 # Usage example
-routine main() {
+routine start() {
     # Entity usage
     let dog = Dog("Buddy", "Golden Retriever")
     show_line(dog.speak())

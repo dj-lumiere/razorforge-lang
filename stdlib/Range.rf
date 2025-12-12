@@ -15,7 +15,7 @@
 #   list[^3 to ^1]       # last 3 elements
 #   list[5 downto 3]     # elements 5, 4, 3 in reverse order
 #   list[0 to 8 by 2]    # every other element (0, 2, 4, 6, 8)
-
+namespace core
 import core/Integral
 import core/BackIndex
 
@@ -39,7 +39,7 @@ routine Range<I>(start: I, end: I, ascending: bool) -> Range<I> {
 # Constructor with step (a to b by c or a downto b by c)
 routine Range<I>(start: I, end: I, step: uaddr, ascending: bool) -> Range<I> {
     if step == 0uaddr {
-        crash("Range step cannot be zero")
+        stop!("Range step cannot be zero")
     }
     return Range<I>(start: start, end: end, step: step, ascending: ascending)
 }

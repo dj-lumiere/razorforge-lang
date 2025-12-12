@@ -241,10 +241,11 @@ public abstract class BaseTokenizer
         }
         else
         {
-            // RazorForge defaults: s64 for integers, f64 for floats
+            // BUGFIX 12.10: Keep literals untyped for type inference
+            // Semantic analyzer will infer type from context or default to s64/f64 (RazorForge) or Integer/Decimal (Suflae)
             AddToken(type: isFloat
-                ? TokenType.F64Literal
-                : TokenType.S64Literal);
+                ? TokenType.Decimal  // Untyped float (will default to f64 in RazorForge, Decimal in Suflae)
+                : TokenType.Integer);  // Untyped integer (will infer from context or default to s64 in RazorForge, Integer in Suflae)
         }
     }
 
@@ -295,8 +296,8 @@ public abstract class BaseTokenizer
         }
         else
         {
-            // RazorForge default for unsuffixed hex/binary: s64
-            AddToken(type: TokenType.S64Literal);
+            // BUGFIX 12.10: Keep hex/binary literals untyped for type inference
+            AddToken(type: TokenType.Integer);
         }
     }
 

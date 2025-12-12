@@ -17,7 +17,7 @@ routine test_i64_ops() -> i64 {
     return 123456789i64 % 1000i64
 }
 
-# Unsigned integer arithmetic  
+# Unsigned integer arithmetic
 routine test_u8_ops() -> u8 {
     return 200u8 + 50u8
 }
@@ -61,6 +61,6 @@ routine test_multiply_variants() -> i16 {
     return 200i16 *^ 300i16  # Saturating multiply
 }
 
-routine main() -> i32 {
+routine start() {
     return 0
 }

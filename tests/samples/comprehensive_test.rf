@@ -77,6 +77,6 @@ routine test_modulo_variants() -> i8 {
     return 100i8 %! 7i8  // Unchecked modulo
 }
 
-routine main() -> i32 {
+routine start() {
     return 0
 }

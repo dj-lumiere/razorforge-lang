@@ -36,27 +36,31 @@ entity Dict<K, V> {
 # ============================================================================
 
 routine Dict<K, V>.__create__() -> Dict<K, V> {
+    let buckets = List<SortedDict<K, V>>(DICT_INITIAL_BUCKETS)
     let dict = Dict<K, V>(
-        buckets: List<SortedDict<K, V>>(DICT_INITIAL_BUCKETS),
+        buckets: buckets,
         count: 0uaddr
     )
     var i = 0uaddr
     while i < DICT_INITIAL_BUCKETS {
-        dict.buckets.push(SortedDict<K, V>())
+        let empty_dict = SortedDict<K, V>()
+        dict.buckets.push(empty_dict)
         i = i + 1uaddr
     }
     return dict
 }
 
 routine Dict<K, V>.__create__(capacity: uaddr) -> Dict<K, V> {
-    let bucket_count = if capacity < DICT_INITIAL_BUCKETS { DICT_INITIAL_BUCKETS } else { capacity }
+    let bucket_count = if capacity < DICT_INITIAL_BUCKETS then DICT_INITIAL_BUCKETS else capacity
+    let buckets = List<SortedDict<K, V>>(bucket_count)
     let dict = Dict<K, V>(
-        buckets: List<SortedDict<K, V>>(bucket_count),
+        buckets: buckets,
         count: 0uaddr
     )
     var i = 0uaddr
     while i < bucket_count {
-        dict.buckets.push(SortedDict<K, V>())
+        let empty_dict = SortedDict<K, V>()
+        dict.buckets.push(empty_dict)
         i = i + 1uaddr
     }
     return dict
@@ -83,7 +87,8 @@ routine Dict<K, V>.rehash(me: Dict<K, V>) {
     me.buckets = List<SortedDict<K, V>>(new_bucket_count)
     var i = 0uaddr
     while i < new_bucket_count {
-        me.buckets.push(SortedDict<K, V>())
+        let empty_dict = SortedDict<K, V>()
+        me.buckets.push(empty_dict)
         i = i + 1uaddr
     }
     me.count = 0uaddr
@@ -252,11 +257,11 @@ record DictIterator<K, V> {
     current_keys: List<K>
 }
 
-routine DictIterator<K, V>.next(me: DictIterator<K, V>) -> DictEntry<K, V>? {
+routine DictIterator<K, V>.next!(me: DictIterator<K, V>) -> DictEntry<K, V> {
     # Advance to next non-empty bucket if needed
     while me.entry_idx >= me.current_keys.count() {
         if me.bucket_idx >= me.dict.buckets.count() {
-            return None
+            absent
         }
         me.current_keys = me.dict.buckets[me.bucket_idx].keys()
         me.entry_idx = 0uaddr

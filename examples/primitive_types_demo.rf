@@ -459,7 +459,7 @@ routine test_mixed_type_conversions() {
 # Main Entry Point
 # ============================================================================
 
-routine main() {
+routine start() {
     Console.show_line("╔════════════════════════════════════════════════════╗")
     Console.show_line("║  RazorForge Primitive Types Demonstration         ║")
     Console.show_line("║  s64, u64, f64 with Intrinsic-Based Operations    ║")

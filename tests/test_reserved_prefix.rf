@@ -6,6 +6,6 @@ routine try_my_function() -> s32
     return 42
 }
 
-routine main() -> void
+routine start()
 {
 }

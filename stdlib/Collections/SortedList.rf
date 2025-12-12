@@ -29,7 +29,7 @@ entity BTreeListNode<T> {
 }
 
 entity SortedList<T> {
-    private root: BTreeListNode<T>?
+    private root: BTreeListNode<T>
     private count: uaddr
 }
 
@@ -199,8 +199,8 @@ routine SortedList<T>.insert_non_full(me: SortedList<T>, node: BTreeListNode<T>,
     }
 }
 
-routine SortedList<T>.split_child(me: SortedList<T>, parent: BTreeListNode<T>, child_idx: uaddr) {
-    let child = parent.children[child_idx]
+routine SortedList<T>.split_child(me: SortedList<T>, parent_node: BTreeListNode<T>, child_idx: uaddr) {
+    let child = parent_node.children[child_idx]
     let mid = (B_LIST - 1uaddr) / 2uaddr
 
     let new_node = BTreeListNode<T>(is_leaf: child.is_leaf)
@@ -252,25 +252,25 @@ routine SortedList<T>.split_child(me: SortedList<T>, parent: BTreeListNode<T>, c
 
     i = 0uaddr
     while i < child_idx {
-        new_keys.push(parent.keys[i])
-        new_children.push(parent.children[i])
+        new_keys.push(parent_node.keys[i])
+        new_children.push(parent_node.children[i])
         i = i + 1uaddr
     }
     new_keys.push(mid_key)
     new_children.push(child)
     new_children.push(new_node)
-    while i < parent.keys.count() {
-        new_keys.push(parent.keys[i])
+    while i < parent_node.keys.count() {
+        new_keys.push(parent_node.keys[i])
         i = i + 1uaddr
     }
     i = child_idx + 1uaddr
-    while i < parent.children.count() {
-        new_children.push(parent.children[i])
+    while i < parent_node.children.count() {
+        new_children.push(parent_node.children[i])
         i = i + 1uaddr
     }
 
-    parent.keys = new_keys
-    parent.children = new_children
+    parent_node.keys = new_keys
+    parent_node.children = new_children
 }
 
 routine SortedList<T>.update_subtree_size(me: SortedList<T>, node: BTreeListNode<T>) {

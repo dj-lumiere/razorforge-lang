@@ -100,6 +100,37 @@ public record AssignmentStatement(Expression Target, Expression Value, SourceLoc
 }
 
 /// <summary>
+/// Tuple destructuring statement: let (a, b, c) = expression
+/// Unpacks tuple values into multiple variables in a single declaration.
+/// </summary>
+/// <param name="Variables">List of variable names to bind (e.g., ["result", "overflow"])</param>
+/// <param name="Types">Optional type annotations for each variable (parallel to Variables)</param>
+/// <param name="Initializer">Expression that evaluates to a tuple value</param>
+/// <param name="IsMutable">true for 'var' (mutable), false for 'let' (immutable)</param>
+/// <param name="Location">Source location information</param>
+/// <remarks>
+/// Examples:
+/// <list type="bullet">
+/// <item>let (x, y) = point</item>
+/// <item>var (result, overflow) = @intrinsic.add.overflow&lt;i64&gt;(a, b)</item>
+/// <item>let (name: Text, age: s32) = person</item>
+/// </list>
+/// </remarks>
+public record TupleDestructuringStatement(
+    List<string> Variables,
+    List<TypeExpression?> Types,
+    Expression Initializer,
+    bool IsMutable,
+    SourceLocation Location) : Statement(Location: Location)
+{
+    /// <summary>Accepts a visitor for AST traversal and transformation</summary>
+    public override T Accept<T>(IAstVisitor<T> visitor)
+    {
+        return visitor.VisitTupleDestructuringStatement(node: this);
+    }
+}
+
+/// <summary>
 /// Return statement that exits from a function with an optional value.
 /// Used to terminate function execution and optionally return a result to the caller.
 /// </summary>
@@ -613,7 +644,7 @@ public record HijackingStatement(
 /// <item>Blocks seizing attempts until released</item>
 /// </list>
 /// </remarks>
-public record ObservingStatement(
+public record InspectingStatement(
     Expression Source,
     string Handle,
     BlockStatement Body,
@@ -622,7 +653,7 @@ public record ObservingStatement(
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
     public override T Accept<T>(IAstVisitor<T> visitor)
     {
-        return visitor.VisitObservingStatement(node: this);
+        return visitor.VisitInspectingStatement(node: this);
     }
 }
 

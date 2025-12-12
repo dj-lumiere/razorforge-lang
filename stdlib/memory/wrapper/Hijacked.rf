@@ -16,7 +16,7 @@
 # - Single-threaded: for multi-threaded use, see Seized<T>
 #
 # This type is a marker for the type system - the compiler handles all operations.
-
+namespace core
 record Hijacked<T> {
     private address: uaddr
 }

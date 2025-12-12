@@ -1,6 +1,6 @@
 # RazorForge u16 (unsigned 16-bit integer) native type implementation
 # Maps directly to LLVM i16 type using compiler intrinsics
-
+namespace core
 # Core u16 type definition - maps to LLVM i16
 record u16 {
     public value: LlvmNativeI16
@@ -197,21 +197,21 @@ routine u16.__mul_sat__(other: u16) -> u16 {
 routine u16.__add_checked__(other: u16) -> Maybe<u16> {
     danger! {
         let (result, overflow) = @intrinsic.add.overflow<i16>(me, other)
-        return if overflow { None } else { result }
+        return if overflow then None else result
     }
 }
 
 routine u16.__sub_checked__(other: u16) -> Maybe<u16> {
     danger! {
         let (result, overflow) = @intrinsic.sub.overflow<i16>(me, other)
-        return if overflow { None } else { result }
+        return if overflow then None else result
     }
 }
 
 routine u16.__mul_checked__(other: u16) -> Maybe<u16> {
     danger! {
         let (result, overflow) = @intrinsic.mul.overflow<i16>(me, other)
-        return if overflow { None } else { result }
+        return if overflow then None else result
     }
 }
 

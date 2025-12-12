@@ -44,7 +44,7 @@ public class RazorForgeCompilerService : IRazorForgeCompilerService
             List<Token> tokens = Tokenizer.Tokenize(source: code, language: Language.RazorForge);
 
             // Parse
-            var parser = new RazorForgeParser(tokens: tokens);
+            var parser = new RazorForgeParser(tokens: tokens, fileName: filePath);
             Program ast = parser.Parse();
 
             // Semantic analysis

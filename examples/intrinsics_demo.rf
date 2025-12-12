@@ -117,7 +117,7 @@ routine test_bitcast() {
 }
 
 # Main entry point
-routine main() {
+routine start() {
     Console.print_line("=== RazorForge Intrinsics Demo ===")
     Console.print_line("")
 

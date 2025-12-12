@@ -1,3 +1,4 @@
+namespace core
 record Retained<T> {
     private controller_address: uaddr
     private data_address: uaddr

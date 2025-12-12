@@ -31,7 +31,7 @@ public partial class LLVMCodeGenerator
     /// </remarks>
     public string VisitLambdaExpression(LambdaExpression node)
     {
-        _currentLocation = node.Location;
+        UpdateLocation(node.Location);
         // Generate unique lambda name
         string lambdaName = $"__lambda_{_lambdaCounter++}";
 
@@ -319,7 +319,7 @@ public partial class LLVMCodeGenerator
     /// </summary>
     public string VisitTypeConversionExpression(TypeConversionExpression node)
     {
-        _currentLocation = node.Location;
+        UpdateLocation(node.Location);
         string sourceValue = node.Expression.Accept(visitor: this);
         LLVMTypeInfo targetTypeInfo = GetTypeInfo(typeName: node.TargetType);
 

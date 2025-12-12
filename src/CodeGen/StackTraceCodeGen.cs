@@ -9,7 +9,7 @@ namespace Compilers.Shared.CodeGen;
 public class StackTraceCodeGen
 {
     private readonly SymbolTables _symbolTables;
-    private readonly StringBuilder _output;
+    private StringBuilder _output;
 
     /// <summary>
     /// Whether stack trace generation is enabled.
@@ -25,6 +25,14 @@ public class StackTraceCodeGen
     public StackTraceCodeGen(SymbolTables symbolTables, StringBuilder output)
     {
         _symbolTables = symbolTables;
+        _output = output;
+    }
+
+    /// <summary>
+    /// Sets the output StringBuilder. Used when swapping buffers for function generation.
+    /// </summary>
+    public void SetOutput(StringBuilder output)
+    {
         _output = output;
     }
 

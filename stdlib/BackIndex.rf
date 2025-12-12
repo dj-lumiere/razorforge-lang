@@ -7,8 +7,9 @@
 #   list[^1]     # last element
 #   list[^2]     # second-to-last
 #   text[^1]     # last character
-
+namespace core
 import core/Integral
+import NativeDataTypes/uaddr
 
 record BackIndex<I: Integral> {
     offset: I
@@ -23,7 +24,7 @@ routine BackIndex<I: Integral>(offset: I) -> BackIndex<I> {
 routine BackIndex<I: Integral>.resolve(me: BackIndex<I>, length: uaddr) -> uaddr {
     let offset_uaddr = me.offset.to_uaddr()
     if offset_uaddr > length {
-        crash("BackIndex out of bounds: ^" + offset_uaddr.to_text() + " for length " + length.to_text())
+        stop!("BackIndex out of bounds")
     }
     return length - offset_uaddr
 }

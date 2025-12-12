@@ -15,6 +15,8 @@ public class ModuleResolver
     private readonly Language _language;
     private readonly LanguageMode _mode;
     private readonly List<string> _searchPaths;
+    private readonly string? _stdlibPath;
+    private readonly string _projectRoot;
     private readonly HashSet<string> _loadedModules = new();
     private readonly HashSet<string> _loadingModules = new(); // For circular detection
     private readonly Dictionary<string, ModuleInfo> _moduleCache = new();
@@ -38,6 +40,8 @@ public class ModuleResolver
     {
         _language = language;
         _mode = mode;
+        _projectRoot = FindProjectRootInternal();
+        _stdlibPath = FindStdlibPath();
         _searchPaths = searchPaths ?? GetDefaultSearchPaths();
     }
 
@@ -48,42 +52,168 @@ public class ModuleResolver
     {
         var paths = new List<string>();
 
-        // Add stdlib directory
-        string? exeDir = Path.GetDirectoryName(path: System
-                                                    .Reflection.Assembly.GetExecutingAssembly()
-                                                    .Location);
+        // Add stdlib directory (already resolved by FindStdlibPath())
+        if (_stdlibPath != null)
+        {
+            paths.Add(item: _stdlibPath);
+        }
+
+        // Add project root directory
+        paths.Add(item: _projectRoot);
+
+        return paths;
+    }
+
+    /// <summary>
+    /// Finds the project root directory by looking for forge.toml or bake.toml.
+    /// Static helper method that doesn't depend on instance state.
+    /// </summary>
+    /// <returns>The project root directory path</returns>
+    private static string FindProjectRootInternal()
+    {
+        string? current = Directory.GetCurrentDirectory();
+
+        // Walk up the directory tree looking for forge.toml or bake.toml
+        while (current != null)
+        {
+            if (File.Exists(Path.Combine(current, "forge.toml")) ||
+                File.Exists(Path.Combine(current, "bake.toml")))
+            {
+                return current;
+            }
+
+            current = Directory.GetParent(current)?.FullName;
+        }
+
+        // Fallback to current directory if no TOML found
+        return Directory.GetCurrentDirectory();
+    }
+
+    /// <summary>
+    /// Finds the stdlib path using priority: TOML → Environment Variable → Default Location.
+    /// </summary>
+    /// <returns>The stdlib path, or null if not found</returns>
+    private string? FindStdlibPath()
+    {
+        // 1. Check TOML config (forge.toml or bake.toml)
+        string? tomlPath = GetStdlibPathFromToml();
+        if (tomlPath != null && Directory.Exists(tomlPath))
+        {
+            return Path.GetFullPath(tomlPath);
+        }
+
+        // 2. Check environment variable
+        string? envPath = Environment.GetEnvironmentVariable("RAZORFORGE_STDLIB_PATH");
+        if (envPath != null && Directory.Exists(envPath))
+        {
+            return Path.GetFullPath(envPath);
+        }
+
+        // 3. Default: relative to compiler executable
+        string? exeDir = Path.GetDirectoryName(
+            System.Reflection.Assembly.GetExecutingAssembly().Location);
+
         if (exeDir != null)
         {
-            // Try to find stdlib relative to executable
-            string stdlibPath = Path.Combine(path1: exeDir, path2: "stdlib");
-            if (Directory.Exists(path: stdlibPath))
+            // Try directly next to executable
+            string defaultPath = Path.Combine(exeDir, "stdlib");
+            if (Directory.Exists(defaultPath))
             {
-                paths.Add(item: stdlibPath);
+                return Path.GetFullPath(defaultPath);
             }
-            else
-            {
-                // Try parent directories (for development builds)
-                string? parent = Directory.GetParent(path: exeDir)
-                                         ?.FullName;
-                for (int i = 0; i < 5 && parent != null; i++)
-                {
-                    stdlibPath = Path.Combine(path1: parent, path2: "stdlib");
-                    if (Directory.Exists(path: stdlibPath))
-                    {
-                        paths.Add(item: stdlibPath);
-                        break;
-                    }
 
-                    parent = Directory.GetParent(path: parent)
-                                     ?.FullName;
+            // Try parent directories (for development builds)
+            string? parent = Directory.GetParent(exeDir)?.FullName;
+            for (int i = 0; i < 5 && parent != null; i++)
+            {
+                defaultPath = Path.Combine(parent, "stdlib");
+                if (Directory.Exists(defaultPath))
+                {
+                    return Path.GetFullPath(defaultPath);
                 }
+
+                parent = Directory.GetParent(parent)?.FullName;
             }
         }
 
-        // Add current directory
-        paths.Add(item: Directory.GetCurrentDirectory());
+        return null;
+    }
 
-        return paths;
+    /// <summary>
+    /// Gets the stdlib_path from forge.toml or bake.toml if specified.
+    /// </summary>
+    /// <returns>The stdlib path from TOML, or null if not specified</returns>
+    private string? GetStdlibPathFromToml()
+    {
+        // Find project root first
+        string projectRoot = FindProjectRootInternal();
+
+        // Look for forge.toml or bake.toml in project root
+        string forgeToml = Path.Combine(projectRoot, "forge.toml");
+        string bakeToml = Path.Combine(projectRoot, "bake.toml");
+
+        string? tomlFile = null;
+        if (File.Exists(forgeToml))
+        {
+            tomlFile = forgeToml;
+        }
+        else if (File.Exists(bakeToml))
+        {
+            tomlFile = bakeToml;
+        }
+
+        if (tomlFile == null)
+        {
+            return null;
+        }
+
+        // Parse TOML file for [build] stdlib_path setting
+        // TODO: Implement proper TOML parsing when we add TOML library
+        // For now, simple line-by-line parsing
+        try
+        {
+            var lines = File.ReadAllLines(tomlFile);
+            bool inBuildSection = false;
+
+            foreach (string line in lines)
+            {
+                string trimmed = line.Trim();
+
+                // Check for [build] section
+                if (trimmed == "[build]")
+                {
+                    inBuildSection = true;
+                    continue;
+                }
+
+                // Check for new section (exit [build])
+                if (trimmed.StartsWith("[") && trimmed.EndsWith("]"))
+                {
+                    inBuildSection = false;
+                    continue;
+                }
+
+                // Parse stdlib_path in [build] section
+                if (inBuildSection && trimmed.StartsWith("stdlib_path"))
+                {
+                    // Extract value: stdlib_path = "/path/to/stdlib"
+                    int equalsIndex = trimmed.IndexOf('=');
+                    if (equalsIndex >= 0)
+                    {
+                        string value = trimmed.Substring(equalsIndex + 1).Trim();
+                        // Remove quotes if present
+                        value = value.Trim('"', '\'');
+                        return value;
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Ignore TOML parsing errors, fall back to other methods
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -261,6 +391,86 @@ public class ModuleResolver
         _loadedModules.Clear();
         _loadingModules.Clear();
     }
+
+    /// <summary>
+    /// Adds a module to the cache. Used by CorePreludeLoader to register prelude modules.
+    /// </summary>
+    public void AddToCache(string moduleKey, ModuleInfo moduleInfo)
+    {
+        _moduleCache[moduleKey] = moduleInfo;
+        _loadedModules.Add(moduleKey);
+    }
+
+    /// <summary>
+    /// Determines if a file is part of the standard library.
+    /// </summary>
+    /// <param name="filePath">The absolute file path to check</param>
+    /// <returns>True if the file is in stdlib, false otherwise</returns>
+    public bool IsStdlibFile(string filePath)
+    {
+        if (_stdlibPath == null)
+        {
+            return false;
+        }
+
+        string normalizedFile = Path.GetFullPath(filePath);
+        string normalizedStdlib = Path.GetFullPath(_stdlibPath);
+
+        return normalizedFile.StartsWith(normalizedStdlib, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Infers the namespace from a file path for project files (non-stdlib).
+    /// Returns null for root-level project files (global namespace).
+    /// Uses forward slashes for namespace separators.
+    /// </summary>
+    /// <param name="filePath">The absolute file path</param>
+    /// <returns>The inferred namespace with forward slashes, or null for global namespace</returns>
+    public string? InferNamespaceFromPath(string filePath)
+    {
+        string normalizedFilePath = Path.GetFullPath(filePath);
+        string normalizedProjectRoot = Path.GetFullPath(_projectRoot);
+
+        // If file is not under project root, return null (global)
+        if (!normalizedFilePath.StartsWith(normalizedProjectRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        // Get the directory containing the file
+        string? fileDir = Path.GetDirectoryName(normalizedFilePath);
+        if (fileDir == null)
+        {
+            return null;
+        }
+
+        // If file is directly in project root, it's global namespace
+        if (string.Equals(fileDir, normalizedProjectRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        // Get the relative path from project root to file directory
+        string relativePath = Path.GetRelativePath(normalizedProjectRoot, fileDir);
+
+        // Convert backslashes to forward slashes for namespace
+        string namespacePath = relativePath.Replace(Path.DirectorySeparatorChar, '/');
+
+        // Normalize (remove leading/trailing slashes)
+        namespacePath = namespacePath.Trim('/');
+
+        return string.IsNullOrEmpty(namespacePath) ? null : namespacePath;
+    }
+
+    /// <summary>
+    /// Gets the stdlib path if available.
+    /// </summary>
+    public string? StdlibPath => _stdlibPath;
+
+    /// <summary>
+    /// Gets the project root directory.
+    /// </summary>
+    public string ProjectRoot => _projectRoot;
 }
 
 /// <summary>

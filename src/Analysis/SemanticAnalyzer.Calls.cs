@@ -62,7 +62,7 @@ public partial class SemanticAnalyzer
 
                 // Return the constructed type
                 Symbol? symbol = _symbolTable.Lookup(name: functionName);
-                bool isReference = symbol is ClassSymbol;
+                bool isReference = symbol is EntitySymbol;
                 var resultType = new TypeInfo(Name: functionName, IsReference: isReference);
                 return SetResolvedType(node, resultType);
             }
@@ -255,12 +255,28 @@ public partial class SemanticAnalyzer
     /// <summary>
     /// Gets the return type for known methods (type conversion, feature methods, etc.).
     /// This handles methods that are not explicitly declared but are part of features/interfaces.
+    ///
+    /// NEW (Bug 12.13 Fix): Now supports generic type template matching!
+    /// Can resolve methods on generic types like BackIndex&lt;I&gt;.resolve, List&lt;T&gt;.get, etc.
     /// </summary>
     /// <param name="objectType">Type of the object the method is called on</param>
     /// <param name="methodName">Name of the method being called</param>
     /// <returns>Return type if known, null otherwise</returns>
     private TypeInfo? GetKnownMethodReturnType(TypeInfo? objectType, string methodName)
     {
+        // STEP 1: Try generic type template matching first (Bug 12.13 fix)
+        // CRITICAL: Use FullName to get the complete generic type (e.g., "TestType<s64>")
+        // not just Name which gives only the base (e.g., "TestType")
+        if (objectType != null && !string.IsNullOrEmpty(objectType.FullName))
+        {
+            TypeInfo? genericMethodReturn = ResolveGenericMethodReturnType(objectType.FullName, methodName);
+            if (genericMethodReturn != null)
+            {
+                return genericMethodReturn;
+            }
+        }
+
+        // STEP 2: Fall back to hardcoded known methods for primitive types
         // Type conversion methods from Integral feature (and similar patterns)
         // These return the target type with proper protocols
         return methodName switch
@@ -291,15 +307,85 @@ public partial class SemanticAnalyzer
             "len" or "length" or "count" => GetPrimitiveTypeInfo("uaddr"),
             "is_empty" => GetPrimitiveTypeInfo("bool"),
             "bytes" => GetPrimitiveTypeInfo("uaddr"), // MemorySize.bytes()
-            // Index resolution methods (BackIndex, Range)
-            "resolve" => GetPrimitiveTypeInfo("uaddr"), // BackIndex.resolve()
-            "resolve_start" => GetPrimitiveTypeInfo("uaddr"), // Range.resolve_start()
-            "resolve_end" => GetPrimitiveTypeInfo("uaddr"), // Range.resolve_end()
-            "get_step" => GetPrimitiveTypeInfo("uaddr"), // Range.get_step()
             // String/Text methods
             "to_text" => new TypeInfo(Name: "Text<letter>", IsReference: false),
             _ => null
         };
+    }
+
+    /// <summary>
+    /// Resolves the return type of a method on a generic type by matching against templates.
+    /// This is the core of Bug 12.13 fix.
+    ///
+    /// Example:
+    /// - objectTypeName: "BackIndex&lt;uaddr&gt;"
+    /// - methodName: "resolve"
+    /// - Finds template: "BackIndex&lt;I&gt;.resolve" with return type "I"
+    /// - Substitutes: I → uaddr
+    /// - Returns: TypeInfo for "uaddr"
+    /// </summary>
+    private TypeInfo? ResolveGenericMethodReturnType(string objectTypeName, string methodName)
+    {
+        // Generate possible template candidates for this method
+        var candidates = GenericTypeResolver.GenerateTemplateCandidates(objectTypeName, methodName);
+
+        foreach (string candidate in candidates)
+        {
+            // Try to find this method in the symbol table
+            Symbol? methodSymbol = _symbolTable.Lookup(name: candidate);
+
+            if (methodSymbol is FunctionSymbol funcSymbol)
+            {
+                // Found a matching template! Now we need to:
+                // 1. Extract type parameters from the objectTypeName
+                // 2. Extract template parameters from the candidate
+                // 3. Create substitution map
+                // 4. Substitute in return type
+
+                // Extract the type part from the candidate (before the dot)
+                int dotIndex = candidate.LastIndexOf('.');
+                if (dotIndex > 0)
+                {
+                    string templateType = candidate.Substring(0, dotIndex);
+
+                    // Check if objectTypeName is an instance of this template
+                    if (GenericTypeResolver.IsInstanceOf(objectTypeName, templateType, out var typeParamMap))
+                    {
+                        // Perform type substitution on the return type
+                        TypeInfo substitutedReturnType = GenericTypeResolver.SubstituteTypeInfo(
+                            funcSymbol.ReturnType,
+                            typeParamMap);
+
+                        return substitutedReturnType;
+                    }
+                }
+
+                // If we found a non-generic match, return it directly
+                return funcSymbol.ReturnType;
+            }
+            else if (methodSymbol is FunctionOverloadSet overloadSet && overloadSet.Overloads.Count > 0)
+            {
+                // TODO: Proper overload resolution based on argument types
+                // For now, take the first overload and try to substitute
+                var firstOverload = overloadSet.Overloads[0];
+
+                // Extract type from candidate and try substitution
+                int dotIndex = candidate.LastIndexOf('.');
+                if (dotIndex > 0)
+                {
+                    string templateType = candidate.Substring(0, dotIndex);
+
+                    if (GenericTypeResolver.IsInstanceOf(objectTypeName, templateType, out var typeParamMap))
+                    {
+                        return GenericTypeResolver.SubstituteTypeInfo(firstOverload.ReturnType, typeParamMap);
+                    }
+                }
+
+                return firstOverload.ReturnType;
+            }
+        }
+
+        return null; // No matching method found
     }
 
     /// <summary>

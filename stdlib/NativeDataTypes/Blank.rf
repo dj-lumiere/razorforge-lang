@@ -1,5 +1,6 @@
 ### Blank - Unit type representing "completed with no value"
 ### Used for void failable functions: Maybe<Blank>, Result<Blank>, Lookup<Blank>
+namespace core
 record Blank {
     routine to_text(me) -> Text<letter32> {
         return "Blank"

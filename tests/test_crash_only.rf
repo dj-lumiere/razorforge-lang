@@ -21,7 +21,7 @@ routine safe_divide!(a: s32, b: s32) -> s32
     return a // b
 }
 
-routine main() -> void
+routine start()
 {
     let result: s32 = divide!(10, 2)
     let result2: s32 = safe_divide!(20, 4)

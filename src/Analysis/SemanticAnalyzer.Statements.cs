@@ -44,6 +44,40 @@ public partial class SemanticAnalyzer
     /// This difference reflects each language's memory management philosophy:
     /// explicit control vs automatic safety.
     /// </summary>
+    public object? VisitTupleDestructuringStatement(TupleDestructuringStatement node)
+    {
+        // Visit the initializer to get its type
+        var initializerType = node.Initializer.Accept(visitor: this) as TypeInfo;
+
+        // For now, we'll do basic validation
+        // TODO: Add proper tuple type checking when tuple types are implemented
+
+        // Register all variables in the symbol table
+        for (int i = 0; i < node.Variables.Count; i++)
+        {
+            string varName = node.Variables[index: i];
+            TypeExpression? declaredType = node.Types[index: i];
+
+            // If a type was declared, use it; otherwise use a placeholder
+            TypeInfo varType;
+            if (declaredType != null)
+            {
+                varType = ResolveType(typeExpr: declaredType);
+            }
+            else
+            {
+                // TODO: Infer type from tuple element
+                varType = new TypeInfo(Name: "unknown", IsReference: false);
+            }
+
+            // Register the variable in the symbol table
+            var varSymbol = new VariableSymbol(Name: varName, Type: varType, IsMutable: node.IsMutable, Visibility: VisibilityModifier.Private);
+            _symbolTable.TryDeclare(symbol: varSymbol);
+        }
+
+        return null;
+    }
+
     public object? VisitAssignmentStatement(AssignmentStatement node)
     {
         // Standard type compatibility checking
@@ -407,7 +441,7 @@ public partial class SemanticAnalyzer
             if (typeName != null)
             {
                 Symbol? symbol = _symbolTable.Lookup(name: typeName);
-                if (symbol is StructSymbol structSymbol)
+                if (symbol is RecordSymbol structSymbol)
                 {
                     if (!structSymbol.IsCrashable)
                     {

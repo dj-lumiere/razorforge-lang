@@ -5,7 +5,7 @@
 # - Unsigned: u8, u16, u32, u64, u128, uaddr
 #
 # This enables generic indexing and numeric operations.
-
+namespace core
 protocol Integral {
     # Convert to address-sized integers for indexing
     routine to_uaddr(me) -> uaddr

@@ -39,6 +39,6 @@ routine test_unsigned_complex() -> u64 {
     return 987654u64 // 321u64 * 3u64 + 111u64 % 7u64
 }
 
-routine main() -> i32 {
+routine start() {
     return 0
 }

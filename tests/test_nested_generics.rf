@@ -7,6 +7,6 @@ routine get_list_of_lists() -> List<List<s32>> {
 }
 
 # Main function
-routine main() -> s32 {
+routine start() {
     return 0
 }

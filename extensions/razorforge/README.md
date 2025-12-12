@@ -82,7 +82,7 @@ routine fibonacci(n: u32) -> u32 {
     return fibonacci(n - 1) + fibonacci(n - 2);
 }
 
-routine main() {
+routine start() {
     let result = fibonacci(10);
     // Result: 55
 }

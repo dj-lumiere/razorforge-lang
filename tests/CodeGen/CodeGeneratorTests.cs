@@ -29,7 +29,7 @@ public class CodeGeneratorTests
     private Program ParseAndAnalyze(string code)
     {
         List<Token> tokens = Tokenizer.Tokenize(source: code, language: Language.RazorForge);
-        var parser = new RazorForgeParser(tokens: tokens);
+        var parser = new RazorForgeParser(tokens: tokens, fileName: "test.rf");
         Program program = parser.Parse();
         _analyzer.Analyze(program: program);
         return program;
@@ -46,7 +46,7 @@ public class CodeGeneratorTests
     public void TestSimpleRoutineGeneration()
     {
         string code = @"
-routine main() -> s32 {
+routine start() {
     return 42
 }";
 
@@ -188,7 +188,7 @@ routine helper() -> s32 {
     return 42
 }
 
-routine main() -> s32 {
+routine start() {
     return helper()
 }";
 

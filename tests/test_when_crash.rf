@@ -1,6 +1,6 @@
 # Test when expression crash
 
-routine main() -> s32 {
+routine start() {
     let a: s32 = 10
     let b: s32 = 0
 

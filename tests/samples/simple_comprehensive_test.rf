@@ -50,6 +50,6 @@ routine test_saturate_mul() -> i16 {
     return 200i16 *^ 300i16
 }
 
-routine main() -> i32 {
+routine start() {
     return 0
 }

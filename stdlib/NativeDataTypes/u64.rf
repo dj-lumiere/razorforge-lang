@@ -1,6 +1,6 @@
 # RazorForge u64 (unsigned 64-bit integer) native type implementation
 # Maps directly to LLVM i64 type using compiler intrinsics
-
+namespace core
 # Core u64 type definition - maps to LLVM i64
 record u64 {
     public value: LlvmNativeI64
@@ -224,21 +224,21 @@ routine u64.__mul_sat__(other: u64) -> u64 {
 routine u64.__add_checked__(other: u64) -> Maybe<u64> {
     danger! {
         let (result, overflow) = @intrinsic.add.overflow<i64>(me, other)
-        return if overflow { None } else { result }
+        return if overflow then None else result
     }
 }
 
 routine u64.__sub_checked__(other: u64) -> Maybe<u64> {
     danger! {
         let (result, overflow) = @intrinsic.sub.overflow<i64>(me, other)
-        return if overflow { None } else { result }
+        return if overflow then None else result
     }
 }
 
 routine u64.__mul_checked__(other: u64) -> Maybe<u64> {
     danger! {
         let (result, overflow) = @intrinsic.mul.overflow<i64>(me, other)
-        return if overflow { None } else { result }
+        return if overflow then None else result
     }
 }
 

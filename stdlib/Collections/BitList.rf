@@ -105,11 +105,7 @@ routine BitList.push(me: BitList, value: bool) {
     # Append bit to end - O(1) amortized
     if me.count >= me.capacity {
         # Need to grow - double capacity (in bits)
-        let new_capacity = if me.capacity == 0u64 {
-            64u64  # Start with 64 bits (8 bytes)
-        } else {
-            me.capacity * 2u64
-        }
+        let new_capacity = if me.capacity == 0u64 then 64u64 else me.capacity * 2u64  # Start with 64 bits (8 bytes)
         me.reserve(new_capacity)
     }
 
@@ -214,7 +210,7 @@ routine BitList.set!<I>(me: BitList, index: I, value: bool)
 routine BitList.set_all(me: BitList, value: bool) {
     # Set all bits to the same value
     let byte_count = (me.count + 7u64) / 8u64
-    let fill_byte = if value { 0xFFu8 } else { 0x00u8 }
+    let fill_byte = if value then 0xFFu8 else 0x00u8
     me.data.fill!(fill_byte)
 }
 
@@ -293,7 +289,7 @@ routine BitList.none(me: BitList) -> bool {
 
 routine BitList.__and__(me: BitList, other: BitList) -> BitList {
     # Bitwise AND - returns new BitList with shorter length
-    let min_count = if me.count < other.count { me.count } else { other.count }
+    let min_count = if me.count < other.count then me.count else other.count
     var result = BitList(min_count)
 
     var i = 0u64
@@ -307,13 +303,13 @@ routine BitList.__and__(me: BitList, other: BitList) -> BitList {
 
 routine BitList.__or__(me: BitList, other: BitList) -> BitList {
     # Bitwise OR - returns new BitList with longer length
-    let max_count = if me.count > other.count { me.count } else { other.count }
+    let max_count = if me.count > other.count then me.count else other.count
     var result = BitList(max_count)
 
     var i = 0u64
     while i < max_count {
-        let a = if i < me.count { me.get_bit_internal(i) } else { false }
-        let b = if i < other.count { other.get_bit_internal(i) } else { false }
+        let a = if i < me.count then me.get_bit_internal(i) else false
+        let b = if i < other.count then other.get_bit_internal(i) else false
         result.push(a or b)
         i = i + 1u64
     }
@@ -322,14 +318,14 @@ routine BitList.__or__(me: BitList, other: BitList) -> BitList {
 
 routine BitList.__xor__(me: BitList, other: BitList) -> BitList {
     # Bitwise XOR - returns new BitList with longer length
-    let max_count = if me.count > other.count { me.count } else { other.count }
+    let max_count = if me.count > other.count then me.count else other.count
     var result = BitList(max_count)
 
     var i = 0u64
     while i < max_count {
-        let a = if i < me.count { me.get_bit_internal(i) } else { false }
-        let b = if i < other.count { other.get_bit_internal(i) } else { false }
-        result.push(a xor b)
+        let a = if i < me.count then me.get_bit_internal(i) else false
+        let b = if i < other.count then other.get_bit_internal(i) else false
+        result.push(a ^ b)
         i = i + 1u64
     }
     return result
@@ -352,10 +348,10 @@ routine BitList.__not__(me: BitList) -> BitList {
 # ============================================================================
 
 routine BitList.iter(me: BitList) -> BitListIterator {
-    return BitListIterator {
+    return BitListIterator(
         list: me,
         index: 0u64
-    }
+    )
 }
 
 record BitListIterator {
@@ -363,9 +359,9 @@ record BitListIterator {
     index: u64
 }
 
-routine BitListIterator.next(me: BitListIterator) -> bool? {
+routine BitListIterator.next!(me: BitListIterator) -> bool {
     if me.index >= me.list.count() {
-        return None
+        absent
     }
     let value = me.list.get!(me.index)
     me.index = me.index + 1u64

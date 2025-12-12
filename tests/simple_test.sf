@@ -1,2 +1,2 @@
-routine main():
+routine start():
     show("Hello, Suflae!")

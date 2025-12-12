@@ -1,6 +1,6 @@
 # RazorForge f128 (quadruple precision floating point) native type implementation
 # Maps directly to LLVM fp128 type using compiler intrinsics
-
+namespace core
 # Core f128 type definition - maps to LLVM fp128
 record f128 {
     public value: LlvmNativeFp128

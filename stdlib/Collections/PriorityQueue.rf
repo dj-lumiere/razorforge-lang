@@ -174,7 +174,7 @@ routine PriorityQueue<TElement, TPriority>.peek_entry!(me: PriorityQueue<TElemen
 routine PriorityQueue<TElement, TPriority>.push_all(me: PriorityQueue<TElement, TPriority>, elements: List<TElement>, priorities: List<TPriority>) {
     # Add multiple elements with their priorities
     var i = 0uaddr
-    let count = if elements.count() < priorities.count() { elements.count() } else { priorities.count() }
+    let count = if elements.count() < priorities.count() then elements.count() else priorities.count()
     while i < count {
         me.push(elements[i], priorities[i])
         i = i + 1uaddr

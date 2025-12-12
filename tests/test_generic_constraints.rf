@@ -30,6 +30,6 @@ protocol Comparable<T> where T follows Equatable {
     routine compare(other: T) -> s32
 }
 
-routine main() -> s32 {
+routine start() {
     return 0
 }

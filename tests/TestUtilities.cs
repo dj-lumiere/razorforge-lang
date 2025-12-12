@@ -29,7 +29,7 @@ public static class TestUtilities
     public static Program Parse(string code)
     {
         List<Token> tokens = Tokenize(code: code);
-        var parser = new RazorForgeParser(tokens: tokens);
+        var parser = new RazorForgeParser(tokens: tokens, fileName: "test.rf");
         return parser.Parse();
     }
 
@@ -118,7 +118,7 @@ routine {name}({parameters}){returnClause} {{
         return $@"
 {additionalRoutines}
 
-routine main() -> s32 {{
+routine start() {{
 {mainBody}
     return 0
 }}";
@@ -324,7 +324,7 @@ routine main() -> s32 {{
     public static class SamplePrograms
     {
         public static readonly string HelloWorld = @"
-routine main() -> s32 {
+routine start() {
     print(""Hello, World!"")
     return 0
 }";
@@ -337,7 +337,7 @@ routine factorial(n: s32) -> s32 {
         return n * factorial(n - 1)
 }
 
-routine main() -> s32 {
+routine start() {
     let result = factorial(5)
     print(f""Factorial of 5 is {result}"")
     return 0
@@ -360,7 +360,7 @@ routine fibonacci(n: s32) -> s32 {
     return result
 }
 
-routine main() -> s32 {
+routine start() {
     for i in 0 to 10:
         let fib = fibonacci(i)
         print(f""fib({i}) = {fib}"")
@@ -375,7 +375,7 @@ routine array_sum(arr: DynamicSlice, size: s32) -> s32 {
     return sum
 }
 
-routine main() -> s32 {
+routine start() {
     let numbers = DynamicSlice(10)
 
     for i in 0 to 10:
@@ -396,7 +396,7 @@ routine power(base: f64, exponent: s32) -> f64 {
         return base * power(base, exponent - 1)
 }
 
-routine main() -> s32 {
+routine start() {
     let base = 2.0
     for exp in 0 to 10:
         let result = power(base, exp)
@@ -412,7 +412,7 @@ routine safe_divide(a: s32, b: s32) -> Option(s32) {
         return Some(a / b)
 }
 
-routine main() -> s32 {
+routine start() {
     let result = safe_divide(10, 2)
     when result is Some(value):
         print(f""Result: {value}"")

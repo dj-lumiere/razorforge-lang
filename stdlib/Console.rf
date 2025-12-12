@@ -3,6 +3,8 @@
 # - show() / show_line() for stdout
 # - alert() / alert_line() for stderr
 
+namespace Console
+
 import Text/Text
 import FFI/cstr
 
@@ -31,7 +33,7 @@ external("C") routine rf_console_clear()
 routine Console.show(value: Text<letter8>) {
     let ptr = value.to_cstr()
     danger! {
-        rf_console_print_cstr(ptr)
+        rf_console_print_cstr(cstr(ptr: ptr))
     }
 }
 
@@ -54,19 +56,19 @@ routine Console.show<T>(value: T) {
 routine Console.show_line(value: Text<letter8>) {
     let ptr = value.to_cstr()
     danger! {
-        rf_console_print_line_cstr(ptr)
+        rf_console_print_line_cstr(cstr(ptr: ptr))
     }
 }
 
 # Generic show_line for any type that has a to_text() method
-routine Console.show_line<T>(value: T) {
-    let text_value: Text<letter32> = value.to_text()
-    let text8_value: Text<letter8> = text_value.to_8bit()
-    let ptr = text8_value.to_cstr()
-    danger! {
-        rf_console_print_line_cstr(ptr)
-    }
-}
+# routine Console.show_line<T>(value: T) {
+#     let text_value: Text<letter32> = value.to_text()
+#     let text8_value: Text<letter8> = text_value.to_8bit()
+#     let ptr = text8_value.to_cstr()
+#     danger! {
+#         rf_console_print_line_cstr(ptr)
+#     }
+# }
 
 # Empty line version
 routine Console.show_line() {
@@ -83,19 +85,19 @@ routine Console.show_line() {
 routine Console.alert(value: Text<letter8>) {
     let ptr = value.to_cstr()
     danger! {
-        rf_console_alert_cstr(ptr)
+        rf_console_alert_cstr(cstr(ptr: ptr))
     }
 }
 
 # Generic alert for any type that has a to_text() method
-routine Console.alert<T>(value: T) {
-    let text_value: Text<letter32> = value.to_text()
-    let text8_value: Text<letter8> = text_value.to_8bit()
-    let ptr = text8_value.to_cstr()
-    danger! {
-        rf_console_alert_cstr(ptr)
-    }
-}
+# routine Console.alert<T>(value: T) {
+#     let text_value: Text<letter32> = value.to_text()
+#     let text8_value: Text<letter8> = text_value.to_8bit()
+#     let ptr = text8_value.to_cstr()
+#     danger! {
+#         rf_console_alert_cstr(ptr)
+#     }
+# }
 
 # ============================================================================
 # Generic alert_line() - Standard Error with newline
@@ -105,19 +107,19 @@ routine Console.alert<T>(value: T) {
 routine Console.alert_line(value: Text<letter8>) {
     let ptr = value.to_cstr()
     danger! {
-        rf_console_alert_line_cstr(ptr)
+        rf_console_alert_line_cstr(cstr(ptr: ptr))
     }
 }
 
 # Generic alert_line for any type that has a to_text() method
-routine Console.alert_line<T>(value: T) {
-    let text_value: Text<letter32> = value.to_text()
-    let text8_value: Text<letter8> = text_value.to_8bit()
-    let ptr = text8_value.to_cstr()
-    danger! {
-        rf_console_alert_line_cstr(ptr)
-    }
-}
+# routine Console.alert_line<T>(value: T) {
+#     let text_value: Text<letter32> = value.to_text()
+#     let text8_value: Text<letter8> = text_value.to_8bit()
+#     let ptr = text8_value.to_cstr()
+#     danger! {
+#         rf_console_alert_line_cstr(ptr)
+#     }
+# }
 
 # Empty line version
 routine Console.alert_line() {

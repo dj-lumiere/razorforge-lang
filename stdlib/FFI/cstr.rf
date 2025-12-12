@@ -17,7 +17,7 @@
 # - cstr.copy() - allocates NEW memory, caller owns it
 #
 # For wide character strings (wchar_t*), see cwstr.rf
-
+# TODO: Add "namespace core" once Text<T> and List<T> dependencies are resolved
 import memory/DynamicSlice
 import memory/MemorySize
 import Collections/List
@@ -41,9 +41,9 @@ preset cstr_null: cstr = cstr(ptr: 0uaddr)
 # External C Runtime Functions
 # ============================================================================
 
-external("C") routine rf_strlen(str: cstr) -> uaddr
-external("C") routine rf_strcpy(dest: cstr, src: cstr) -> uaddr
-external("C") routine rf_strcmp(s1: cstr, s2: cstr) -> s32
+external("C") routine rf_strlen(str: uaddr) -> uaddr
+external("C") routine rf_strcpy(dest: uaddr, src: uaddr) -> uaddr
+external("C") routine rf_strcmp(s1: uaddr, s2: uaddr) -> s32
 
 # ============================================================================
 # Constructors
@@ -112,7 +112,7 @@ routine cstr.raw(me: cstr) -> uaddr {
 # O(n) - must scan for null terminator
 routine cstr.length(me: cstr) -> uaddr {
     danger! {
-        return rf_strlen(me)
+        return rf_strlen(me.ptr)
     }
 }
 

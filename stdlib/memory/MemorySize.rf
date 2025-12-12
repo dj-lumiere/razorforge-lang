@@ -1,3 +1,4 @@
+namespace core
 record MemorySize {
     private value: uaddr
 

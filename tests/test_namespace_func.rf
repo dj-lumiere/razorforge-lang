@@ -8,7 +8,7 @@ routine Math.add(a: s32, b: s32) -> s32 {
     return a + b
 }
 
-routine main() -> s32 {
+routine start() {
     Console.print(42)
     let result: s32 = Math.add(10, 20)
     return result

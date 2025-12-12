@@ -1,6 +1,7 @@
 # RazorForge d64 (decimal64 floating point) native type implementation
 # IEEE 754-2008 decimal floating point with 16 significant digits
 # Uses Intel DFP library via external C functions
+namespace core
 
 # Core d64 type definition - stored as 64-bit value in BID encoding
 record d64 {
@@ -44,7 +45,7 @@ external routine d64_to_i64(val: u64) -> s64
 # Constructors
 # ============================================================================
 
-routine d64.__create__!(from_text: Text<LetterType>) -> d64 {
+routine d64.__create__!(from_text: Text<letter8>) -> d64 {
     danger! {
         let cstr_val = from_text.to_cstr()
         let bits = d64_from_string(cstr_val)
@@ -167,7 +168,12 @@ routine d64.__truediv__(me: d64, other: d64) -> d64 {
 }
 
 routine d64.__neg__(me: d64) -> d64 {
-    return D64_ZERO - me
+    danger! {
+        let zero_bits = @intrinsic.bitcast<d64, u64>(D64_ZERO)
+        let me_bits = @intrinsic.bitcast<d64, u64>(me)
+        let result = d64_sub(zero_bits, me_bits)
+        return @intrinsic.bitcast<u64, d64>(result)
+    }
 }
 
 # ============================================================================
@@ -279,11 +285,19 @@ routine d64.trunc(me: d64) -> d64 {
 # ============================================================================
 
 routine d64.min(me: d64, other: d64) -> d64 {
-    return if me <= other { me } else { other }
+    danger! {
+        let a_bits = @intrinsic.bitcast<d64, u64>(me)
+        let b_bits = @intrinsic.bitcast<d64, u64>(other)
+        return (if d64_cmp(a_bits, b_bits) <= 0 then me else other)
+    }
 }
 
 routine d64.max(me: d64, other: d64) -> d64 {
-    return if me >= other { me } else { other }
+    danger! {
+        let a_bits = @intrinsic.bitcast<d64, u64>(me)
+        let b_bits = @intrinsic.bitcast<d64, u64>(other)
+        return (if d64_cmp(a_bits, b_bits) >= 0 then me else other)
+    }
 }
 
 routine d64.clamp(me: d64, min_val: d64, max_val: d64) -> d64 {
@@ -291,22 +305,39 @@ routine d64.clamp(me: d64, min_val: d64, max_val: d64) -> d64 {
 }
 
 routine d64.is_positive(me: d64) -> bool {
-    return me > D64_ZERO
+    danger! {
+        let me_bits = @intrinsic.bitcast<d64, u64>(me)
+        let zero_bits = @intrinsic.bitcast<d64, u64>(D64_ZERO)
+        return d64_cmp(me_bits, zero_bits) > 0
+    }
 }
 
 routine d64.is_negative(me: d64) -> bool {
-    return me < D64_ZERO
+    danger! {
+        let me_bits = @intrinsic.bitcast<d64, u64>(me)
+        let zero_bits = @intrinsic.bitcast<d64, u64>(D64_ZERO)
+        return d64_cmp(me_bits, zero_bits) < 0
+    }
 }
 
 routine d64.is_zero(me: d64) -> bool {
-    return me == D64_ZERO
+    danger! {
+        let me_bits = @intrinsic.bitcast<d64, u64>(me)
+        let zero_bits = @intrinsic.bitcast<d64, u64>(D64_ZERO)
+        return d64_cmp(me_bits, zero_bits) == 0
+    }
 }
 
 routine d64.signum(me: d64) -> d64 {
-    when {
-        me > D64_ZERO => D64_ONE,
-        me < D64_ZERO => -D64_ONE,
-        _ => D64_ZERO
+    danger! {
+        let me_bits = @intrinsic.bitcast<d64, u64>(me)
+        let zero_bits = @intrinsic.bitcast<d64, u64>(D64_ZERO)
+        let cmp = d64_cmp(me_bits, zero_bits)
+        when {
+            cmp > 0 => D64_ONE,
+            cmp < 0 => me.__neg__(),
+            _ => D64_ZERO
+        }
     }
 }
 

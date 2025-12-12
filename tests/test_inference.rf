@@ -1,6 +1,6 @@
 # Test type inference
 
-routine main() -> void
+routine start()
 {
     # These should infer types from literals
     let a = 5

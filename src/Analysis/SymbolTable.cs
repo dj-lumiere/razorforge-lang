@@ -26,6 +26,9 @@ public class SymbolTable
     /// <summary>Stack of scopes, with the topmost being the current scope</summary>
     private readonly Stack<Dictionary<string, Symbol>> _scopes;
 
+    /// <summary>Set of registered namespace names (module paths)</summary>
+    private readonly HashSet<string> _namespaces = new();
+
     /// <summary>
     /// Initializes a new symbol table with a global scope.
     /// </summary>
@@ -112,7 +115,7 @@ public class SymbolTable
                     existingTypeWithCtors.AddConstructor(constructor: newFunc);
                     return true;
                 }
-                else if (existing is StructSymbol or ClassSymbol or VariantSymbol or TypeSymbol)
+                else if (existing is RecordSymbol or EntitySymbol or VariantSymbol or TypeSymbol)
                 {
                     // Type symbol exists, convert to TypeWithConstructors
                     var typeWithCtors = new TypeWithConstructors(Name: symbol.Name,
@@ -124,7 +127,7 @@ public class SymbolTable
                 }
             }
             // Handle type symbol when constructors already exist
-            else if (symbol is StructSymbol or ClassSymbol or VariantSymbol or TypeSymbol)
+            else if (symbol is RecordSymbol or EntitySymbol or VariantSymbol or TypeSymbol)
             {
                 if (existing is FunctionSymbol existingFunc)
                 {
@@ -151,7 +154,7 @@ public class SymbolTable
                     // Type already registered with constructors - duplicate type declaration
                     return false;
                 }
-                else if (existing is StructSymbol or ClassSymbol or VariantSymbol or TypeSymbol)
+                else if (existing is RecordSymbol or EntitySymbol or VariantSymbol or TypeSymbol)
                 {
                     // Type already exists with same kind - silently ignore (redeclaration from import)
                     // This handles cases like letter8 being both a primitive and a stdlib record
@@ -221,6 +224,27 @@ public class SymbolTable
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Registers a namespace (module path) in the symbol table.
+    /// This allows distinguishing namespace-qualified functions from type methods.
+    /// </summary>
+    /// <param name="namespacePath">The namespace path (e.g., "Console", "Standard/IO")</param>
+    public void RegisterNamespace(string namespacePath)
+    {
+        _namespaces.Add(namespacePath);
+    }
+
+    /// <summary>
+    /// Checks if a given name is a registered namespace.
+    /// Used to distinguish "Console.show" (namespace function) from "s64.add" (type method).
+    /// </summary>
+    /// <param name="name">The name to check</param>
+    /// <returns>true if the name is a registered namespace, false otherwise</returns>
+    public bool IsNamespace(string name)
+    {
+        return _namespaces.Contains(name);
     }
 }
 
@@ -294,7 +318,7 @@ public record TypeWithConstructors(
 /// <summary>
 /// Entity symbol
 /// </summary>
-public record ClassSymbol(
+public record EntitySymbol(
     string Name,
     TypeExpression? BaseClass,
     List<TypeExpression> Interfaces,
@@ -310,7 +334,7 @@ public record ClassSymbol(
 /// <summary>
 /// Record symbol
 /// </summary>
-public record StructSymbol(
+public record RecordSymbol(
     string Name,
     VisibilityModifier Visibility,
     List<string>? GenericParameters = null,
@@ -347,7 +371,7 @@ public record VariantSymbol(
 /// <summary>
 /// Feature (trait/interface) symbol
 /// </summary>
-public record FeatureSymbol(
+public record ProtocolSymbol(
     string Name,
     VisibilityModifier Visibility,
     List<string>? GenericParameters = null,

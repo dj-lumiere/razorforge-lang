@@ -14,24 +14,18 @@ public partial class SuflaeParser : BaseParser
 
     private readonly Stack<int> _indentationStack = new();
     private int _currentIndentationLevel = 0;
-    private readonly string? _fileName;
+
+    private bool
+        _parsingInlineConditional = false; // Prevents nested inline conditionals (if-then-else expressions)
 
     #endregion
 
-    public SuflaeParser(List<Token> tokens, string? fileName = null) : base(tokens: tokens)
+    public SuflaeParser(List<Token> tokens, string? fileName = null) : base(tokens: tokens, fileName: fileName ?? "")
     {
         _indentationStack.Push(item: 0); // Base indentation level
-        _fileName = fileName;
     }
 
-    protected SourceLocation GetLocation(Token token)
-    {
-        return new SourceLocation(
-            FileName: _fileName ?? "",
-            Line: token.Line,
-            Column: token.Column,
-            Position: token.Position);
-    }
+
 
     public override Compilers.Shared.AST.Program Parse()
     {
@@ -65,8 +59,8 @@ public partial class SuflaeParser : BaseParser
                 Token errorToken = Position < Tokens.Count
                     ? Tokens[index: Position]
                     : Tokens[^1];
-                string location = _fileName != null
-                    ? $"[{_fileName}:{errorToken.Line}:{errorToken.Column}]"
+                string location = !string.IsNullOrEmpty(base.fileName)
+                    ? $"[{base.fileName}:{errorToken.Line}:{errorToken.Column}]"
                     : $"[{errorToken.Line}:{errorToken.Column}]";
                 Console.Error.WriteLine(value: $"Parse error{location}: {ex.Message}");
                 Synchronize();

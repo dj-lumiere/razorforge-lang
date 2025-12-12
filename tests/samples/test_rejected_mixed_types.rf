@@ -9,13 +9,13 @@ routine test_u32_i32() -> i32 {
 }
 
 routine test_f32_i32() -> f32 {
-    return 3.14f32 + 2i32  # Should be rejected  
+    return 3.14f32 + 2i32  # Should be rejected
 }
 
 routine test_same_types() -> i32 {
     return 10i32 + 20i32  # Should be OK
 }
 
-routine main() -> i32 {
+routine start() {
     return 0
 }

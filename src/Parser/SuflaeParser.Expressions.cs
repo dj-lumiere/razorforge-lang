@@ -658,19 +658,44 @@ public partial class SuflaeParser
         }
 
         // Conditional expression: if A then B else C
+        // NOTE: Nesting is NOT allowed (if A then (if B then C else D) else E)
         if (Match(type: TokenType.If))
         {
+            // Check if we're already parsing an inline conditional (reject nesting)
+            if (_parsingInlineConditional)
+            {
+                throw new ParseException(
+                    message: "Nested inline conditionals are not allowed. Use statement-form 'if' or 'when' for complex conditional logic.");
+            }
+
             Expression condition = ParseExpression();
             Consume(type: TokenType.Then,
                 errorMessage: "Expected 'then' in conditional expression");
-            Expression thenExpr = ParseExpression();
-            Consume(type: TokenType.Else,
-                errorMessage: "Expected 'else' in conditional expression");
-            Expression elseExpr = ParseExpression();
-            return new ConditionalExpression(Condition: condition,
-                TrueExpression: thenExpr,
-                FalseExpression: elseExpr,
-                Location: location);
+
+            // Set flag to detect nesting
+            _parsingInlineConditional = true;
+
+            try
+            {
+                // Parse then expression (single expression only, no blocks)
+                Expression thenExpr = ParseExpression();
+
+                Consume(type: TokenType.Else,
+                    errorMessage: "Expected 'else' in conditional expression");
+
+                // Parse else expression (single expression only, no blocks)
+                Expression elseExpr = ParseExpression();
+
+                return new ConditionalExpression(Condition: condition,
+                    TrueExpression: thenExpr,
+                    FalseExpression: elseExpr,
+                    Location: location);
+            }
+            finally
+            {
+                // Reset flag
+                _parsingInlineConditional = false;
+            }
         }
 
         // Intrinsic function call: @intrinsic.operation<T>(args)

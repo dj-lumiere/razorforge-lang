@@ -25,7 +25,7 @@ var text16 = t16"Hello in 16-bit"
 var text32 = t32"Hello in 32-bit"
 var formatted = f"x is {x}, y is {y}"
 
-routine main():
+routine start():
     show(message)
     show(formatted)
     show("Memory: " + memory_size)

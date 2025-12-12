@@ -13,7 +13,7 @@ routine test_i8_operations() -> i8 {
     return 100i8 // 7i8 + 15i8 % 4i8
 }
 
-# Float types: should use / (true division) 
+# Float types: should use / (true division)
 routine test_f32_true_div() -> f32 {
     return 17.0f32 / 3.0f32  # Should generate fdiv for float division
 }
@@ -27,6 +27,6 @@ routine test_complex_expr() -> i64 {
     return 1000i64 // 3i64 * 2i64 + 50i64 % 7i64
 }
 
-routine main() -> i32 {
+routine start() {
     return 0
 }

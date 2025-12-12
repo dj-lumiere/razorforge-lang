@@ -41,10 +41,10 @@ Source Code (.rf/.sf)
 
 **Compiler Entry Point:** `src/CLI/Program.cs:94` (Main method)
 
-**Language Entry Point:** `routine main()` - Returns `Blank` (no return type specified, no return statement needed)
+**Language Entry Point:** `routine start()` - Returns `Blank` (no return type specified, no return statement needed)
 
 ```razorforge
-routine main() {
+routine start() {
     Console.show_line("Hello, RazorForge!")
 }
 ```

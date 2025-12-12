@@ -27,7 +27,7 @@
 # - Can create inspecting block within seizing block (downgrade write to read)
 #
 # This type is a marker for the type system - the compiler handles lock operations.
-
+namespace core
 record Seized<T> {
     private address: uaddr
     private lock_guard: uaddr

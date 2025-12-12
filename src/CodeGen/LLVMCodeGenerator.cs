@@ -44,7 +44,7 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
 {
     #region field and property definitions
 
-    private readonly StringBuilder _output;
+    private StringBuilder _output;
     private readonly Language _language;
     private readonly LanguageMode _mode;
     private readonly TargetPlatform _targetPlatform;
@@ -89,6 +89,9 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
     // Maps record name to its field declarations (name, type)
     private readonly Dictionary<string, List<(string Name, string Type)>> _recordFields = new();
 
+    // Track RazorForge field types (before LLVM conversion) for method lookup
+    private readonly Dictionary<string, List<(string Name, string RfType)>> _recordFieldsRfTypes = new();
+
     // CompilerService intrinsic tracking
     private string? _currentFileName;
     private string? _currentFunctionName;
@@ -127,6 +130,10 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
 
     // Track generated imported module functions (non-generic)
     private readonly HashSet<string> _generatedFunctions = new();
+
+    // Track declared native functions to avoid duplicate declarations
+    private readonly HashSet<string> _declaredNativeFunctions = new();
+    private readonly List<string> _nativeFunctionDeclarations = new();
 
     // Current program being compiled (for looking up functions defined in current file)
     private AST.Program? _currentProgram;
@@ -246,6 +253,18 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
     }
 
     /// <summary>
+    /// Updates the current location tracking from an AST node's location.
+    /// This ensures error messages show the correct file and line number.
+    /// Should be called at the start of every Visit method.
+    /// </summary>
+    /// <param name="location">The source location from the AST node being processed</param>
+    private void UpdateLocation(SourceLocation location)
+    {
+        _currentLocation = location;
+        _currentFileName = location.FileName;
+    }
+
+    /// <summary>
     /// Retrieves the complete generated LLVM IR code as a string.
     /// </summary>
     /// <returns>Complete LLVM IR module including headers, declarations, and function definitions</returns>
@@ -298,13 +317,13 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
         _output.AppendLine(
             value: "declare i8* @__acrt_iob_func(i32)"); // Windows: get stdin/stdout/stderr
 
-        // Emit external function declarations from imported modules
-        EmitExternalDeclarationsFromSymbolTable();
-
         _output.AppendLine();
 
-        // Stack trace runtime support declarations
+        // Emit stack trace runtime declarations
         _stackTraceCodeGen?.EmitGlobalDeclarations();
+
+        // Emit external function declarations from imported modules
+        EmitExternalDeclarationsFromSymbolTable();
 
         // String constants for I/O operations and error messages
         _output.AppendLine(value: "; String constants");
@@ -360,6 +379,9 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
             }
         }
 
+        // Emit native function declarations collected during code generation
+        EmitNativeFunctionDeclarations();
+
         // Emit symbol tables for stack trace runtime support
         _stackTraceCodeGen?.EmitSymbolTables();
 
@@ -392,6 +414,199 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
     }
 
     /// <summary>
+    /// Finds a matching generic template for a method call on a generic type instance.
+    /// For example, given BackIndex<uaddr> and method offset_uaddr, finds BackIndex<I>.offset_uaddr
+    /// </summary>
+    /// <param name="instantiatedType">The concrete generic type (e.g., BackIndex<uaddr>)</param>
+    /// <param name="methodName">The method being called (e.g., offset_uaddr)</param>
+    /// <returns>The template key if found, null otherwise</returns>
+    private string? FindMatchingGenericTemplate(string instantiatedType, string methodName)
+    {
+        // Extract the base type name (e.g., BackIndex from BackIndex<uaddr>)
+        int anglePos = instantiatedType.IndexOf('<');
+        if (anglePos < 0) return null;
+
+        string baseTypeName = instantiatedType.Substring(0, anglePos);
+
+        // Look for templates that start with BaseType<
+        // The template will be something like "BackIndex<I>.offset_uaddr"
+        foreach (string templateKey in _genericFunctionTemplates.Keys)
+        {
+            if (templateKey.StartsWith($"{baseTypeName}<") &&
+                templateKey.Contains($".{methodName}"))
+            {
+                // Found a matching template
+                return templateKey;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Searches loaded modules for a generic method template matching the given instantiated type and method name.
+    /// This is used to find methods like Text&lt;T&gt;.to_cstr when called as Text&lt;letter8&gt;.to_cstr
+    /// </summary>
+    /// <param name="instantiatedType">The concrete generic type (e.g., Text&lt;letter8&gt;)</param>
+    /// <param name="methodName">The method being called (e.g., to_cstr)</param>
+    /// <returns>The template key if found (e.g., "Text&lt;T&gt;.to_cstr"), null otherwise</returns>
+    private string? FindGenericMethodInLoadedModules(string instantiatedType, string methodName)
+    {
+        if (_loadedModules == null) return null;
+
+        // Extract the base type name (e.g., Text from Text<letter8>)
+        int anglePos = instantiatedType.IndexOf('<');
+        if (anglePos < 0) return null;
+
+        string baseTypeName = instantiatedType.Substring(0, anglePos);
+
+        // Search through all loaded modules
+        foreach (var moduleEntry in _loadedModules.Values)
+        {
+            foreach (var decl in moduleEntry.Ast.Declarations)
+            {
+                // Check if this is a function declaration with a generic type
+                if (decl is FunctionDeclaration funcDecl)
+                {
+                    // Look for patterns like "Text<T>.to_cstr" or "List<T>.len"
+                    if (funcDecl.Name.StartsWith($"{baseTypeName}<") &&
+                        funcDecl.Name.Contains($".{methodName}"))
+                    {
+                        // Check if this function has any REAL generic parameters
+                        // (not just type specializations in the name)
+                        int actualGenericParamCount = 0;
+                        if (funcDecl.GenericParameters != null && funcDecl.GenericParameters.Count > 0)
+                        {
+                            // Apply same filtering logic as Visit FunctionDeclaration
+                            foreach (string param in funcDecl.GenericParameters)
+                            {
+                                int dotPos = funcDecl.Name.IndexOf('.');
+                                if (dotPos > 0)
+                                {
+                                    string typePartOfName = funcDecl.Name.Substring(0, dotPos);
+                                    if (!typePartOfName.Contains($"<{param}>"))
+                                    {
+                                        // This is a real type parameter
+                                        actualGenericParamCount++;
+                                    }
+                                }
+                                else
+                                {
+                                    actualGenericParamCount++;
+                                }
+                            }
+                        }
+
+                        // Only treat as generic template if it has actual generic parameters
+                        if (actualGenericParamCount > 0)
+                        {
+                            // Store the template if not already stored
+                            if (!_genericFunctionTemplates.ContainsKey(funcDecl.Name))
+                            {
+                                _genericFunctionTemplates[funcDecl.Name] = funcDecl;
+                            }
+                            return funcDecl.Name;
+                        }
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Extracts concrete type arguments from a generic type name.
+    /// For example, BackIndex<uaddr> returns ["uaddr"], List<Text<letter8>> returns ["Text<letter8>"]
+    /// </summary>
+    /// <param name="genericType">The generic type with concrete arguments (e.g., BackIndex<uaddr>)</param>
+    /// <returns>List of concrete type argument names</returns>
+    private List<string> ExtractTypeArguments(string genericType)
+    {
+        var typeArgs = new List<string>();
+
+        int start = genericType.IndexOf('<');
+        int end = genericType.LastIndexOf('>');
+
+        if (start < 0 || end < 0 || end <= start) return typeArgs;
+
+        // Extract the content between < and >
+        string argsStr = genericType.Substring(start + 1, end - start - 1);
+
+        // Split by comma, but handle nested generics carefully
+        int nestLevel = 0;
+        int argStart = 0;
+
+        for (int i = 0; i < argsStr.Length; i++)
+        {
+            char c = argsStr[i];
+            if (c == '<')
+            {
+                nestLevel++;
+            }
+            else if (c == '>')
+            {
+                nestLevel--;
+            }
+            else if (c == ',' && nestLevel == 0)
+            {
+                // Found a top-level comma - this separates type arguments
+                string arg = argsStr.Substring(argStart, i - argStart).Trim();
+                if (!string.IsNullOrEmpty(arg))
+                {
+                    typeArgs.Add(arg);
+                }
+                argStart = i + 1;
+            }
+        }
+
+        // Add the last argument
+        string lastArg = argsStr.Substring(argStart).Trim();
+        if (!string.IsNullOrEmpty(lastArg))
+        {
+            typeArgs.Add(lastArg);
+        }
+
+        return typeArgs;
+    }
+
+    /// <summary>
+    /// Gets the return type of a generic function by looking at the template and substituting type parameters.
+    /// For example, BackIndex<I>.resolve returns I, so BackIndex<uaddr>.resolve returns uaddr.
+    /// </summary>
+    /// <param name="templateKey">The template function key (e.g., BackIndex<I>.resolve)</param>
+    /// <param name="concreteTypeArgs">The concrete type arguments (e.g., ["uaddr"])</param>
+    /// <returns>The LLVM return type after type substitution</returns>
+    private string GetGenericFunctionReturnType(string templateKey, List<string> concreteTypeArgs)
+    {
+        if (!_genericFunctionTemplates.TryGetValue(templateKey, out FunctionDeclaration? template))
+        {
+            return "void";
+        }
+
+        if (template.ReturnType == null)
+        {
+            return "void";
+        }
+
+        string returnTypeName = template.ReturnType.Name;
+
+        // If the template has generic parameters, substitute them with concrete types
+        if (template.GenericParameters != null && template.GenericParameters.Count > 0)
+        {
+            for (int i = 0; i < template.GenericParameters.Count && i < concreteTypeArgs.Count; i++)
+            {
+                string genericParam = template.GenericParameters[i];
+                string concreteType = concreteTypeArgs[i];
+                returnTypeName = returnTypeName.Replace(genericParam, concreteType);
+            }
+        }
+
+        // Map the RazorForge type to LLVM type
+        return MapTypeToLLVM(returnTypeName);
+    }
+
+    /// <summary>
     /// Sanitizes a function name to be valid LLVM IR identifier.
     /// Removes or replaces characters that are not allowed in LLVM function names.
     /// </summary>
@@ -408,15 +623,42 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
     {
         string unprefixedName = name;
         bool isCrashable = name.EndsWith(value: '!');
+        bool isAbsentable = name.EndsWith(value: '?');
+
         if (isCrashable)
         {
             unprefixedName = unprefixedName[..^1];
         }
-
-        bool isDunder = name.StartsWith(value: "__") && name.EndsWith(value: "__");
-        if (isDunder)
+        else if (isAbsentable)
         {
-            unprefixedName = unprefixedName[2..^2];
+            unprefixedName = unprefixedName[..^1];
+        }
+
+        // Handle type-qualified methods (e.g., "s32.__add__" → "s32.add_dunder")
+        bool isDunder = false;
+        string typePrefix = "";
+        if (unprefixedName.Contains('.'))
+        {
+            int dotIndex = unprefixedName.LastIndexOf('.');
+            typePrefix = unprefixedName.Substring(0, dotIndex + 1); // Keep the dot
+            string methodPart = unprefixedName.Substring(dotIndex + 1);
+
+            // Check if method part is a dunder
+            if (methodPart.StartsWith("__") && methodPart.EndsWith("__"))
+            {
+                isDunder = true;
+                methodPart = methodPart[2..^2]; // Strip __ from both ends
+                unprefixedName = typePrefix + methodPart;
+            }
+        }
+        else
+        {
+            // Check if the entire name is a dunder (no type prefix)
+            isDunder = unprefixedName.StartsWith(value: "__") && unprefixedName.EndsWith(value: "__");
+            if (isDunder)
+            {
+                unprefixedName = unprefixedName[2..^2];
+            }
         }
 
         bool isTypeName = IsTypeName(name: unprefixedName);
@@ -444,8 +686,12 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
         {
             unprefixedName = $"{unprefixedName}_throwable";
         }
+        else if (isAbsentable)
+        {
+            unprefixedName = $"{unprefixedName}_absentable";
+        }
 
-        return name;
+        return unprefixedName;
     }
 
     /// <summary>
@@ -484,6 +730,14 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
     /// </remarks>
     private string MapTypeToLLVM(string rfType)
     {
+        // Check for pointer types (e.g., uaddr*, s32*)
+        if (rfType.EndsWith("*"))
+        {
+            // For pointer types, just return "ptr" in opaque pointer mode (LLVM 15+)
+            // The base type is only used for type checking at the RazorForge level
+            return "ptr";
+        }
+
         // Check for generic type syntax: TypeName<T1, T2, ...>
         if (rfType.Contains(value: '<') && rfType.Contains(value: '>'))
         {
@@ -492,48 +746,67 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
 
         return rfType switch
         {
-            // Signed integers - direct mapping to LLVM integer types
-            "s8" => "i8",
-            "s16" => "i16",
-            "s32" => "i32",
-            "s64" => "i64",
-            "s128" => "i128",
+            // LLVM Native types - direct mapping to LLVM primitives (used in stdlib)
+            "LlvmNativeI8" => "i8",
+            "LlvmNativeI16" => "i16",
+            "LlvmNativeI32" => "i32",
+            "LlvmNativeI64" => "i64",
+            "LlvmNativeI128" => "i128",
+            "LlvmNativeF16" => "half",
+            "LlvmNativeF32" => "float",
+            "LlvmNativeF64" => "double",
+            "LlvmNativeF128" => "fp128",
+            "LlvmNativePtr" => "ptr",
+            "LlvmNativePtrSizedInt" => _targetPlatform.GetPointerSizedIntType(),
+            "LlvmNativePtrSizedUInt" => _targetPlatform.GetPointerSizedIntType(), // Same as signed - LLVM doesn't distinguish
 
-            // Unsigned integers - use same LLVM type, track signedness separately
-            "u8" => "i8",
-            "u16" => "i16",
-            "u32" => "i32",
-            "u64" => "i64",
-            "u128" => "i128",
+            // Choice/Enum types - map to integers
+            // TODO: Generate proper choice type definitions and track them
+            "DataState" => "i8", // choice with 3 values (VALID, ABSENT, ERROR)
+            "DataHandle" => "%DataHandle", // record type
+
+            // Signed integers - map to record wrapper types (enforcing "everything is a record")
+            "s8" => "%s8",
+            "s16" => "%s16",
+            "s32" => "%s32",
+            "s64" => "%s64",
+            "s128" => "%s128",
+
+            // Unsigned integers - map to record wrapper types
+            "u8" => "%u8",
+            "u16" => "%u16",
+            "u32" => "%u32",
+            "u64" => "%u64",
+            "u128" => "%u128",
 
             // System-dependent integers (pointer-sized, architecture-dependent)
-            "saddr" or "iptr" => _targetPlatform
-               .GetPointerSizedIntType(), // signed pointer-sized - varies by architecture
-            "uaddr" or "uptr" => _targetPlatform
-               .GetPointerSizedIntType(), // unsigned pointer-sized - varies by architecture
+            // NOTE: saddr and uaddr are record types in stdlib, not primitives
+            "saddr" or "iptr" => "%saddr",
+            "uaddr" or "uptr" => "%uaddr",
 
-            // IEEE 754 floating point types
-            "f16" => "half", // 16-bit half precision
-            "f32" => "float", // 32-bit single precision
-            "f64" => "double", // 64-bit double precision
-            "f128" => "fp128", // 128-bit quad precision
+            // IEEE 754 floating point types - map to record wrapper types
+            "f16" => "%f16", // 16-bit half precision
+            "f32" => "%f32", // 32-bit single precision
+            "f64" => "%f64", // 64-bit double precision
+            "f128" => "%f128", // 128-bit quad precision
 
-            // Boolean type
-            "bool" => "i1", // Single bit boolean
+            // Boolean type - map to record wrapper type
+            "bool" => "%bool", // Boolean wrapper record
 
             // Void/Blank type
             "void" or "Blank" => "void", // No return value
 
             // Character types (RazorForge letter types)
-            "letter8" => "i8", // 8-bit UTF-8 code unit
-            "letter16" => "i16", // 16-bit UTF-16 code unit
-            "letter32" => "i32", // 32-bit Unicode codepoint (default letter type)
+            // Note: letter8/16/32 are records in stdlib with methods, not primitives.
+            // They fall through to MapUnknownTypeToLLVM which returns %letter8 etc.
+            // For primitive character values without methods, use u8/u16/u32 directly.
 
             // Text/String types - these are entities, not C strings!
             // Text<T> requires a type parameter and is handled by MapGenericTypeToLLVM
             // Plain "Text" defaults to Text<letter32> for convenience
             // TODO: It should be suflae only, razorforge should not do this.
-            "text" or "Text" => "%Text_letter32",
+            // Text is a pointer type (reference to heap-allocated string data)
+            "text" or "Text" => "ptr",
 
             // C FFI types - String type (record but commonly used)
             "cstr" => "%cstr", // C string wrapper record { ptr: uaddr }
@@ -579,6 +852,34 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
     /// </summary>
     private string MapUnknownTypeToLLVM(string rfType)
     {
+        // Handle LLVM primitive type markers (e.g., LlvmI1, LlvmNativeI64, LlvmNativePtrSizedUInt)
+        // These are used in stdlib record definitions to indicate the underlying LLVM type
+        if (rfType.StartsWith("Llvm"))
+        {
+            return rfType switch
+            {
+                "LlvmI1" => "i1",
+                "LlvmNativeI8" => "i8",
+                "LlvmNativeI16" => "i16",
+                "LlvmNativeI32" => "i32",
+                "LlvmNativeI64" => "i64",
+                "LlvmNativeI128" => "i128",
+                "LlvmNativePtrSizedInt" => _targetPlatform.GetPointerSizedIntType(),
+                "LlvmNativePtrSizedUInt" => _targetPlatform.GetPointerSizedIntType(),
+                "LlvmNativeHalf" => "half",
+                "LlvmNativeFloat" => "float",
+                "LlvmNativeDouble" => "double",
+                "LlvmNativeFp128" => "fp128",
+                "LlvmPtr" => "ptr",
+                _ => throw CodeGenError.UnknownType(
+                    typeName: rfType,
+                    file: _currentFileName,
+                    line: _currentLocation.Line,
+                    column: _currentLocation.Column,
+                    position: _currentLocation.Position)
+            };
+        }
+
         // Check if this is a registered record type
         if (_recordFields.ContainsKey(key: rfType))
         {
@@ -612,12 +913,77 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
                 position: _currentLocation.Position);
         }
 
+        // Try to find record in loaded modules before giving up
+        if (_loadedModules != null)
+        {
+            foreach (var (_, moduleInfo) in _loadedModules)
+            {
+                foreach (IAstNode decl in moduleInfo.Ast.Declarations)
+                {
+                    if (decl is RecordDeclaration recordDecl && recordDecl.Name == rfType)
+                    {
+                        // Found the record - generate it and return the type
+                        VisitRecordDeclaration(recordDecl);
+                        return $"%{rfType}";
+                    }
+                    if (decl is EntityDeclaration entityDecl && entityDecl.Name == rfType)
+                    {
+                        // Found the entity - generate it and return the type
+                        VisitEntityDeclaration(entityDecl);
+                        return $"%{rfType}";
+                    }
+                }
+            }
+        }
+
+        // Try to find a .rf file with the same name in the current file's directory
+        // This handles cases like letter8.rf referencing letter16 (sibling modules)
+        if (!string.IsNullOrEmpty(_currentFileName))
+        {
+            string? currentDir = Path.GetDirectoryName(_currentFileName);
+            if (currentDir != null)
+            {
+                string potentialFile = Path.Combine(currentDir, rfType + ".rf");
+                if (File.Exists(potentialFile))
+                {
+                    if (TryParseAndLoadRecordFromFile(potentialFile, rfType))
+                    {
+                        return $"%{rfType}";
+                    }
+                }
+            }
+        }
+
         // Unknown type - throw proper compile error instead of silently generating wrong code
         throw CodeGenError.UnknownType(typeName: rfType,
             file: _currentFileName,
             line: _currentLocation.Line,
             column: _currentLocation.Column,
             position: _currentLocation.Position);
+    }
+
+    /// <summary>
+    /// Builds the full type name from a TypeExpression, including generic arguments.
+    /// Examples:
+    /// - TypeExpression { Name: "s64" } → "s64"
+    /// - TypeExpression { Name: "TestType", GenericArguments: ["s64"] } → "TestType&lt;s64&gt;"
+    /// - TypeExpression { Name: "List", GenericArguments: ["List&lt;s32&gt;"] } → "List&lt;List&lt;s32&gt;&gt;"
+    /// </summary>
+    private string BuildFullTypeName(TypeExpression typeExpr)
+    {
+        if (typeExpr.GenericArguments == null || typeExpr.GenericArguments.Count == 0)
+        {
+            return typeExpr.Name;
+        }
+
+        // Recursively build generic argument strings
+        var argNames = new List<string>();
+        foreach (var arg in typeExpr.GenericArguments)
+        {
+            argNames.Add(BuildFullTypeName(arg));
+        }
+
+        return $"{typeExpr.Name}<{string.Join(", ", argNames)}>";
     }
 
     /// <summary>
@@ -682,8 +1048,13 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
         else
         {
             // Unknown generic type - crash instead of silently generating wrong code
-            throw new InvalidOperationException(
-                $"Unknown generic type '{baseName}' - not a registered generic record or entity");
+            throw CodeGenError.TypeResolutionFailed(
+                typeName: genericType,
+                context: $"unknown generic type '{baseName}' - not a registered generic record or entity",
+                file: _currentFileName,
+                line: _currentLocation.Line,
+                column: _currentLocation.Column,
+                position: _currentLocation.Position);
         }
 
         // Return as a pointer to the monomorphized struct
@@ -751,5 +1122,46 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Ensures a native function is declared before it's called.
+    /// Collects declarations to be emitted later at the module level.
+    /// </summary>
+    private void EnsureNativeFunctionDeclared(string functionName, string returnType, List<string> argTypes)
+    {
+        // Skip if already declared
+        if (_declaredNativeFunctions.Contains(functionName))
+        {
+            return;
+        }
+
+        // Mark as declared
+        _declaredNativeFunctions.Add(functionName);
+
+        // Build the declaration and collect it
+        string argsStr = string.Join(", ", argTypes);
+        string declaration = returnType == "void"
+            ? $"declare void @{functionName}({argsStr})"
+            : $"declare {returnType} @{functionName}({argsStr})";
+
+        _nativeFunctionDeclarations.Add(declaration);
+    }
+
+    /// <summary>
+    /// Emits all collected native function declarations.
+    /// Call this after processing the program but before emitting symbol tables.
+    /// </summary>
+    private void EmitNativeFunctionDeclarations()
+    {
+        if (_nativeFunctionDeclarations.Count > 0)
+        {
+            _output.AppendLine();
+            _output.AppendLine("; Native function declarations (auto-generated)");
+            foreach (string declaration in _nativeFunctionDeclarations)
+            {
+                _output.AppendLine(declaration);
+            }
+        }
     }
 }

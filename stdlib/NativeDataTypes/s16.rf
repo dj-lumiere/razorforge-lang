@@ -1,6 +1,6 @@
 # RazorForge s16 (signed 16-bit integer) native type implementation
 # Maps directly to LLVM i16 type using compiler intrinsics
-
+namespace core
 # Core s16 type definition - maps to LLVM i16
 record s16 {
     public value: LlvmNativeI16
@@ -112,21 +112,21 @@ routine s16.__mul_sat__(other: s16) -> s16 {
 routine s16.__add_checked__(other: s16) -> Maybe<s16> {
     danger! {
         let (result, overflow) = @intrinsic.add.overflow<i16>(me, other)
-        return if overflow { None } else { result }
+        return if overflow then None else result
     }
 }
 
 routine s16.__sub_checked__(other: s16) -> Maybe<s16> {
     danger! {
         let (result, overflow) = @intrinsic.sub.overflow<i16>(me, other)
-        return if overflow { None } else { result }
+        return if overflow then None else result
     }
 }
 
 routine s16.__mul_checked__(other: s16) -> Maybe<s16> {
     danger! {
         let (result, overflow) = @intrinsic.mul.overflow<i16>(me, other)
-        return if overflow { None } else { result }
+        return if overflow then None else result
     }
 }
 

@@ -106,7 +106,7 @@ routine test_system_sized_types() {
     let offset: saddr = -100saddr
 }
 
-routine main() -> s32 {
+routine start() {
     test_signed_integers()
     test_unsigned_integers()
     test_floating_point()

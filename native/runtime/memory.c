@@ -283,6 +283,25 @@ void debug_print_slice_info(uaddr address, uaddr bytes, uaddr length, const char
 }
 
 /*
+ * Compiler-generated function name aliases
+ * These match the names used in generated LLVM IR
+ */
+uaddr claim_dynamic(uaddr bytes)
+{
+    return heap_alloc(bytes);
+}
+
+void release_dynamic(uaddr address)
+{
+    heap_free(address);
+}
+
+uaddr resize_dynamic(uaddr address, uaddr new_bytes)
+{
+    return heap_realloc(address, new_bytes);
+}
+
+/*
  * Reference counting utilities
  */
 uaddr* create_ref_counter(uaddr initial_count)

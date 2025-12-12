@@ -1,6 +1,6 @@
 # Test arrow lambda syntax - parsing only test
 
-routine main() -> s32 {
+routine start() {
     # Test simple arrow lambda: x => expr
     let lambda1 = x => x * 2
 

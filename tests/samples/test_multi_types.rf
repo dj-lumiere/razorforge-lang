@@ -3,7 +3,7 @@ routine test_i8() -> i8 {
 }
 
 routine test_i16() -> i16 {
-    return 1000i16  
+    return 1000i16
 }
 
 routine test_i32() -> i32 {
@@ -14,6 +14,6 @@ routine test_i64() -> i64 {
     return 123456789i64
 }
 
-routine main() -> i32 {
+routine start() {
     return 0
 }

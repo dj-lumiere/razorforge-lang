@@ -40,6 +40,6 @@ routine test_constraints() -> i128 {
     return 9999i128 // 7i128 + 100i128 % 3i128
 }
 
-routine main() -> i32 {
+routine start() {
     return 0
 }

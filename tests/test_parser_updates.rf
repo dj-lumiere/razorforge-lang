@@ -44,7 +44,7 @@ routine greet(name: text, age: s32) {
 }
 
 # Main entry point
-routine main() {
+routine start() {
     printf("Testing new features:\n")
 
     # Test loop

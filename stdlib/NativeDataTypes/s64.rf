@@ -1,6 +1,12 @@
 # RazorForge s64 (signed 64-bit integer) native type implementation
 # Maps directly to LLVM i64 type using compiler intrinsics
 
+namespace core
+
+import ErrorHandling/Maybe
+import Text/Text
+import FFI/cstr
+
 # Core s64 type definition - maps to LLVM i64
 record s64 {
     private value: LlvmNativeI64
@@ -115,26 +121,41 @@ routine s64.__mul_sat__(other: s64) -> s64 {
 # Checked Arithmetic (+?, -?, *?) - returns Maybe<T>
 # ============================================================================
 
-routine s64.__add_checked__(other: s64) -> Maybe<s64> {
-    danger! {
-        let (result, overflow) = @intrinsic.add.overflow<i64>(me, other)
-        return if overflow { None } else { result }
-    }
-}
-
-routine s64.__sub_checked__(other: s64) -> Maybe<s64> {
-    danger! {
-        let (result, overflow) = @intrinsic.sub.overflow<i64>(me, other)
-        return if overflow { None } else { result }
-    }
-}
-
-routine s64.__mul_checked__(other: s64) -> Maybe<s64> {
-    danger! {
-        let (result, overflow) = @intrinsic.mul.overflow<i64>(me, other)
-        return if overflow { None } else { result }
-    }
-}
+# TODO: Implement tuple destructuring in code generator
+# These functions require tuple destructuring which isn't implemented yet
+# routine s64.__add_checked__(other: s64) -> Maybe<s64> {
+#     danger! {
+#         let (result, overflow) = @intrinsic.add.overflow<i64>(me, other)
+#         if overflow {
+#             return None
+#         } else {
+#             return result
+#         }
+#     }
+# }
+#
+# routine s64.__sub_checked__(other: s64) -> Maybe<s64> {
+#     danger! {
+#         let (result, overflow) = @intrinsic.sub.overflow<i64>(me, other)
+#         if overflow {
+#             return None
+#         } else {
+#             return result
+#         }
+#         }
+#     }
+# }
+#
+# routine s64.__mul_checked__(other: s64) -> Maybe<s64> {
+#     danger! {
+#         let (result, overflow) = @intrinsic.mul.overflow<i64>(me, other)
+#         if overflow {
+#             return None
+#         } else {
+#             return result
+#         }
+#     }
+# }
 
 # ============================================================================
 # Power Operations (**)
@@ -146,19 +167,18 @@ routine s64.__pow__!(exp: s64) -> s64 {
     danger! {
         var result: s64 = 1
         var base: s64 = me
-        var e: u32 = exp
         if me == 0 and exp == 0 {
             throw IndeterminateResultError()
         }
         if exp < 0 {
             return NegativeExponentError(exp)
         }
-        while e > 0 {
-            if (e & 1) == 1 {
+        while exp > 0 {
+            if (exp & 1) == 1 {
                 result = @intrinsic.mul<i64>(result, base)
             }
             base = @intrinsic.mul<i64>(base, base)
-            e = e >> 1
+            exp = exp >> 1
         }
         return result
     }
@@ -169,19 +189,18 @@ routine s64.__pow_wrap__!(exp: s64) -> s64 {
     danger! {
         var result: s64 = 1
         var base: s64 = me
-        var e: u32 = exp
         if me == 0 and exp == 0 {
             throw IndeterminateResultError()
         }
         if exp < 0 {
             return NegativeExponentError(exp)
         }
-        while e > 0 {
-            if (e & 1) == 1 {
+        while exp > 0 {
+            if (exp & 1) == 1 {
                 result = @intrinsic.mul.wrapping<i64>(result, base)
             }
             base = @intrinsic.mul.wrapping<i64>(base, base)
-            e = e >> 1
+            exp = exp >> 1
         }
         return result
     }
@@ -192,54 +211,54 @@ routine s64.__pow_sat__!(exp: s64) -> s64 {
     danger! {
         var result: s64 = 1
         var base: s64 = me
-        var e: u32 = exp
         if me == 0 and exp == 0 {
             throw IndeterminateResultError()
         }
         if exp < 0 {
             return NegativeExponentError(exp)
         }
-        while e > 0 {
-            if (e & 1) == 1 {
+        while exp > 0 {
+            if (exp & 1) == 1 {
                 result = @intrinsic.mul.saturating<i64>(result, base)
             }
             base = @intrinsic.mul.saturating<i64>(base, base)
-            e = e >> 1
+            exp = exp >> 1
         }
         return result
     }
 }
 
 # Checked power (**?) - returns Maybe<s64>
-routine s64.__pow_checked__(exp: s64) -> Maybe<s64> {
-    danger! {
-        var result: s64 = 1
-        var base: s64 = me
-        var e: u32 = exp
-        if exp < 0 {
-            return None
-        }
-        if me == 0 {
-            return None
-        }
-        while e > 0 {
-            if (e & 1) == 1 {
-                let (new_result, overflow) = @intrinsic.mul.overflow<i64>(result, base)
-                if overflow {
-                    return None
-                }
-                result = new_result
-            }
-            let (new_base, overflow) = @intrinsic.mul.overflow<i64>(base, base)
-            if overflow and e > 1 {
-                return None
-            }
-            base = new_base
-            e = e >> 1
-        }
-        return result
-    }
-}
+# TODO: Implement tuple destructuring in code generator
+# routine s64.__pow_checked__(exp: s64) -> Maybe<s64> {
+#     danger! {
+#         var result: s64 = 1
+#         var base: s64 = me
+#         var e: u32 = exp
+#         if exp < 0 {
+#             return None
+#         }
+#         if me == 0 {
+#             return None
+#         }
+#         while e > 0 {
+#             if (e & 1) == 1 {
+#                 let (new_result, overflow) = @intrinsic.mul.overflow<i64>(result, base)
+#                 if overflow {
+#                     return None
+#                 }
+#                 result = new_result
+#             }
+#             let (new_base, overflow) = @intrinsic.mul.overflow<i64>(base, base)
+#             if overflow and e > 1 {
+#                 return None
+#             }
+#             base = new_base
+#             e = e >> 1
+#         }
+#         return result
+#     }
+# }
 
 # ============================================================================
 # Bitwise Operations
@@ -368,11 +387,19 @@ routine s64.abs() -> s64 {
 }
 
 routine s64.min(other: s64) -> s64 {
-    return if me <= other then me else other
+    if me <= other {
+        return me
+    } else {
+        return other
+    }
 }
 
 routine s64.max(other: s64) -> s64 {
-    return if me >= other then me else other
+    if me >= other {
+        return me
+    } else {
+        return other
+    }
 }
 
 routine s64.clamp(min_val: s64, max_val: s64) -> s64 {
@@ -529,12 +556,13 @@ routine s64.is_power_of_two() -> bool {
 }
 
 # ============================================================================
-# String Conversion (placeholder - needs proper implementation)
+# String Conversion
 # ============================================================================
 
-routine s64.to_text() -> Text {
+routine s64.to_text() -> Text<letter8> {
     danger! {
-        return @format_s64(me)
+        let ptr = @format_s64(me)
+        return Text<letter8>(ptr: cstr(ptr: ptr))
     }
 }
 
@@ -542,13 +570,14 @@ routine s64.to_text() -> Text {
 # Checked Constructors (crash on overflow)
 # ============================================================================
 
+# TODO: Text<Letterlikes> requires Text to be loaded as a generic record template
 # Failable constructor from Text - called as s64!(text)
 # Compiler automatically generates try_s64.__create__(text) -> Maybe<s64>
-routine s64.__create__!(from_text: Text<Letterlikes>) -> s64 {
-    danger! {
-        return @parse_s64(from_text)
-    }
-}
+# routine s64.__create__!(from_text: Text<Letterlikes>) -> s64 {
+#     danger! {
+#         return @parse_s64(from_text)
+#     }
+# }
 
 # From s8 - always fits, no check needed
 routine s64.__create__!(from: s8) -> s64 {

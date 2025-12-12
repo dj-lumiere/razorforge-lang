@@ -19,7 +19,7 @@
 # - Use ONLY for FFI, low-level code, or unsafe optimizations
 #
 # This is the "escape hatch" for unsafe code - use with extreme caution!
-
+namespace core
 record Snatched<T> {
     public address: uaddr  # Public direct address access
 }

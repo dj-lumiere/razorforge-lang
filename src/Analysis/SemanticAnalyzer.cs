@@ -53,7 +53,7 @@ public partial class SemanticAnalyzer : IAstVisitor<object?>
     private readonly ModuleResolver _moduleResolver;
 
     /// <summary>Source file name for error reporting</summary>
-    private readonly string? _fileName;
+    public readonly string? _fileName;
 
     /// <summary>Tracks whether we're currently inside a danger block</summary>
     private bool _isInDangerMode = false;
@@ -98,6 +98,13 @@ public partial class SemanticAnalyzer : IAstVisitor<object?>
     private readonly HashSet<string> _processedModules = new();
 
     /// <summary>
+    /// Expected type context for type inference (e.g., inferring literal types from context).
+    /// When visiting an expression, this contains the expected type if known.
+    /// Used for Bug 12.10 fix: integer literal type inference.
+    /// </summary>
+    private TypeInfo? _expectedType = null;
+
+    /// <summary>
     /// Cache of type field declarations for member access resolution.
     /// Maps type name to a dictionary of field name -> field type info.
     /// Used by VisitMemberExpression to look up field types.
@@ -105,10 +112,23 @@ public partial class SemanticAnalyzer : IAstVisitor<object?>
     private readonly Dictionary<string, Dictionary<string, TypeInfo>> _typeFieldCache = new();
 
     /// <summary>
+    /// Current namespace for the file being analyzed.
+    /// Set by NamespaceDeclaration at the top of a file.
+    /// Used to distinguish namespace-qualified functions from type methods.
+    /// </summary>
+    private string? _currentNamespace = null;
+
+    /// <summary>
     /// Gets the symbol table containing all resolved symbols.
     /// Useful for code generation to access function and type information.
     /// </summary>
     public SymbolTable SymbolTable => _symbolTable;
+
+    /// <summary>
+    /// Gets the current namespace for the file being analyzed.
+    /// Returns null if no namespace is declared.
+    /// </summary>
+    public string? CurrentNamespace => _currentNamespace;
 
     /// <summary>
     /// Gets the loaded module information including ASTs.
@@ -158,6 +178,7 @@ public partial class SemanticAnalyzer : IAstVisitor<object?>
         _fileName = fileName;
 
         InitializeBuiltInTypes();
+        LoadCorePrelude(searchPaths);
     }
 
     /// <summary>
@@ -254,6 +275,9 @@ public partial class SemanticAnalyzer : IAstVisitor<object?>
     /// <returns>Null</returns>
     public object? VisitProgram(AST.Program node)
     {
+        // Validate namespace rules BEFORE processing declarations
+        ValidateNamespaceRules(node);
+
         // Load prelude modules (Maybe, Crashable, common error types)
         LoadPrelude();
 
@@ -262,7 +286,104 @@ public partial class SemanticAnalyzer : IAstVisitor<object?>
             declaration.Accept(visitor: this);
         }
 
+        // Validate entry point after processing all declarations
+        ValidateEntryPoint(node);
+
         return null;
+    }
+
+    /// <summary>
+    /// Validates that the program has a valid entry point named 'start'.
+    /// The entry point is always crash-capable (can use throw/absent without special attributes).
+    /// </summary>
+    /// <param name="node">The program node</param>
+    private void ValidateEntryPoint(AST.Program node)
+    {
+        // Look for a function named 'start'
+        var startFunction = node.Declarations
+            .OfType<FunctionDeclaration>()
+            .FirstOrDefault(f => f.Name == "start");
+
+        if (startFunction == null)
+        {
+            // No entry point found - this might be a library, so just warn
+            // (We could make this an error for executables vs libraries based on compilation mode)
+            return;
+        }
+
+        // Validate signature: start() should have no required parameters
+        if (startFunction.Parameters.Any(p => p.DefaultValue == null))
+        {
+            AddError(location: startFunction.Location,
+                message: "Entry point 'start()' must not have required parameters. All parameters must have default values.");
+        }
+
+        // Validate return type: start() should return Blank (void) or have no explicit return type
+        if (startFunction.ReturnType != null && startFunction.ReturnType is TypeExpression typeExpr)
+        {
+            string returnTypeName = typeExpr.Name;
+            if (returnTypeName != "Blank" && returnTypeName != "void")
+            {
+                AddError(location: startFunction.Location,
+                    message: $"Entry point 'start()' must return Blank or have no return type, found '{returnTypeName}'.");
+            }
+        }
+
+        // Note: start() is ALWAYS crash-capable, so using throw/absent is allowed without special attributes
+    }
+
+    /// <summary>
+    /// Validates namespace rules for the file being analyzed.
+    /// - Stdlib files MUST have explicit namespace declaration (compile error if missing)
+    /// - Project root files have global namespace (null) if no declaration
+    /// - Project subdirectory files get inferred namespace from path if no declaration
+    /// </summary>
+    /// <param name="node">The program node</param>
+    private void ValidateNamespaceRules(AST.Program node)
+    {
+        // Check if file has an explicit namespace declaration
+        var namespaceDecl = node.Declarations
+            .OfType<NamespaceDeclaration>()
+            .FirstOrDefault();
+
+        bool hasExplicitNamespace = namespaceDecl != null;
+
+        // Determine if this is a stdlib file
+        bool isStdlib = _fileName != null && _moduleResolver.IsStdlibFile(_fileName);
+
+        if (isStdlib)
+        {
+            // Stdlib files MUST have explicit namespace
+            if (!hasExplicitNamespace)
+            {
+                AddError(
+                    location: new SourceLocation(FileName: _fileName ?? "", Line: 1, Column: 1, Position: 0),
+                    message: $"Standard library file '{Path.GetFileName(_fileName)}' must declare an explicit namespace. " +
+                             "Add 'namespace YourNamespace' at the top of the file.");
+                return;
+            }
+
+            // Use the explicitly declared namespace
+            _currentNamespace = namespaceDecl!.Path;
+        }
+        else
+        {
+            // Project file
+            if (hasExplicitNamespace)
+            {
+                // Use the explicitly declared namespace
+                _currentNamespace = namespaceDecl!.Path;
+            }
+            else
+            {
+                // Infer namespace from file path
+                if (_fileName != null)
+                {
+                    _currentNamespace = _moduleResolver.InferNamespaceFromPath(_fileName);
+                }
+                // else: stays null (global namespace)
+            }
+        }
     }
 
     /// <summary>
@@ -331,11 +452,14 @@ public partial class SemanticAnalyzer : IAstVisitor<object?>
         {
             try
             {
-                ModuleResolver.ModuleInfo? moduleInfo =
-                    _moduleResolver.LoadModule(importPath: modulePath);
-                if (moduleInfo != null)
+                // Load module with all its transitive dependencies
+                // This ensures types like DataHandle (imported by Maybe) are available
+                List<ModuleResolver.ModuleInfo> modules =
+                    _moduleResolver.LoadModuleWithDependencies(importPath: modulePath);
+
+                // Register declarations from all loaded modules
+                foreach (ModuleResolver.ModuleInfo moduleInfo in modules)
                 {
-                    // Register all declarations from the prelude module
                     RegisterPreludeDeclarations(ast: moduleInfo.Ast);
                 }
             }
@@ -344,6 +468,35 @@ public partial class SemanticAnalyzer : IAstVisitor<object?>
                 // Silently ignore missing prelude modules during development
                 // In production, these should always exist
             }
+        }
+    }
+
+    /// <summary>
+    /// Loads the core prelude - all files that declare "namespace core".
+    /// These files are automatically available without explicit imports.
+    /// Includes primitive type wrappers (uaddr, saddr, s64, etc.), core protocols, and fundamental error types.
+    /// </summary>
+    private void LoadCorePrelude(List<string>? searchPaths)
+    {
+        // Find the stdlib path from search paths
+        string? stdlibPath = searchPaths?.FirstOrDefault();
+        if (stdlibPath == null)
+        {
+            // No stdlib path provided - core prelude won't be loaded
+            return;
+        }
+
+        var preludeLoader = new CorePreludeLoader(stdlibPath, _language);
+        var coreModules = preludeLoader.LoadCorePrelude();
+
+        // Register all core prelude modules into the module cache
+        foreach (var (moduleKey, moduleInfo) in coreModules)
+        {
+            // Add to module resolver's cache so they're available for imports
+            _moduleResolver.AddToCache(moduleKey, moduleInfo);
+
+            // Register all declarations from the core module into the symbol table
+            RegisterPreludeDeclarations(ast: moduleInfo.Ast);
         }
     }
 }

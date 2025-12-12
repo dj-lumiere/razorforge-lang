@@ -13,7 +13,7 @@ external("C") routine multiply(x: clong, y: clong) -> clong
 external routine strlen(s: uaddr) -> uaddr
 
 # Main function to test the FFI
-routine main() -> s32 {
+routine start() {
     # This is just a syntax test - we're not actually linking to real C functions
     # The important part is that it parses and generates LLVM IR correctly
     return 0s32

@@ -13,7 +13,7 @@
 # letter16 is primarily for Windows API interop via cwstr.
 #
 # For legacy 16-bit encodings, use List<u16> instead.
-
+namespace core
 import Text/LetterType
 import core/Integral
 

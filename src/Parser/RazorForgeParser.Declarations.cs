@@ -341,7 +341,8 @@ public partial class RazorForgeParser
                 }
                 else
                 {
-                    string paramName = ConsumeIdentifier(errorMessage: "Expected parameter name");
+                    // Allow keywords as parameter names (e.g., 'from' in conversion routines)
+                    string paramName = ConsumeIdentifier(errorMessage: "Expected parameter name", allowKeywords: true);
                     TypeExpression? paramType = null;
                     Expression? defaultValue = null;
 

@@ -107,7 +107,7 @@ routine atomic_increment(counter: AtomicCounter) -> s64 {
 }
 
 # Main demonstration routine
-routine main() -> s64 {
+routine start() {
     # s64 operations
     let large_number: s64 = 9_223_372_036_854_775_807  # s64.MAX
     let fib_result: s64 = calculate_fibonacci(20)
@@ -137,7 +137,7 @@ routine main() -> s64 {
     let dist_sq: f64 = distance_squared(point1, point2)
 
     # Return combined result as s64
-    return hash + mantissa + exponent + s64(from_f64: dot_product) + s64(from_f64: dist_sq)
+    let ans = hash + mantissa + exponent + s64(from_f64: dot_product) + s64(from_f64: dist_sq)
 }
 
 ###

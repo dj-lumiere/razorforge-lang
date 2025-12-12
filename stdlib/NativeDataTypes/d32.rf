@@ -1,7 +1,7 @@
 # RazorForge d32 (decimal32 floating point) native type implementation
 # IEEE 754-2008 decimal floating point with 7 significant digits
 # Uses Intel DFP library via external C functions
-
+namespace core
 import FFI/ctypes
 
 # Core d32 type definition - stored as 32-bit value in BID encoding
@@ -46,7 +46,7 @@ external routine rf_f64_to_d32(x: f64) -> u32
 # Constructors
 # ============================================================================
 
-routine d32.__create__!(from_text: Text<LetterType>) -> d32 {
+routine d32.__create__!(from_text: Text<letter8>) -> d32 {
     danger! {
         let cstr_val = from_text.to_cstr()
         let bits = d32_from_string(cstr_val)
@@ -165,7 +165,12 @@ routine d32.__truediv__(me: d32, other: d32) -> d32 {
 }
 
 routine d32.__neg__(me: d32) -> d32 {
-    return D32_ZERO - me
+    danger! {
+        let zero_bits = @intrinsic.bitcast<d32, u32>(D32_ZERO)
+        let me_bits = @intrinsic.bitcast<d32, u32>(me)
+        let result = d32_sub(zero_bits, me_bits)
+        return @intrinsic.bitcast<u32, d32>(result)
+    }
 }
 
 # ============================================================================
@@ -277,11 +282,19 @@ routine d32.trunc(me: d32) -> d32 {
 # ============================================================================
 
 routine d32.min(me: d32, other: d32) -> d32 {
-    return if me <= other { me } else { other }
+    danger! {
+        let a_bits = @intrinsic.bitcast<d32, u32>(me)
+        let b_bits = @intrinsic.bitcast<d32, u32>(other)
+        return (if d32_cmp(a_bits, b_bits) <= 0 then me else other)
+    }
 }
 
 routine d32.max(me: d32, other: d32) -> d32 {
-    return if me >= other { me } else { other }
+    danger! {
+        let a_bits = @intrinsic.bitcast<d32, u32>(me)
+        let b_bits = @intrinsic.bitcast<d32, u32>(other)
+        return (if d32_cmp(a_bits, b_bits) >= 0 then me else other)
+    }
 }
 
 routine d32.clamp(me: d32, min_val: d32, max_val: d32) -> d32 {
@@ -289,22 +302,39 @@ routine d32.clamp(me: d32, min_val: d32, max_val: d32) -> d32 {
 }
 
 routine d32.is_positive(me: d32) -> bool {
-    return me > D32_ZERO
+    danger! {
+        let me_bits = @intrinsic.bitcast<d32, u32>(me)
+        let zero_bits = @intrinsic.bitcast<d32, u32>(D32_ZERO)
+        return d32_cmp(me_bits, zero_bits) > 0
+    }
 }
 
 routine d32.is_negative(me: d32) -> bool {
-    return me < D32_ZERO
+    danger! {
+        let me_bits = @intrinsic.bitcast<d32, u32>(me)
+        let zero_bits = @intrinsic.bitcast<d32, u32>(D32_ZERO)
+        return d32_cmp(me_bits, zero_bits) < 0
+    }
 }
 
 routine d32.is_zero(me: d32) -> bool {
-    return me == D32_ZERO
+    danger! {
+        let me_bits = @intrinsic.bitcast<d32, u32>(me)
+        let zero_bits = @intrinsic.bitcast<d32, u32>(D32_ZERO)
+        return d32_cmp(me_bits, zero_bits) == 0
+    }
 }
 
 routine d32.signum(me: d32) -> d32 {
-    when {
-        me > D32_ZERO => D32_ONE,
-        me < D32_ZERO => -D32_ONE,
-        _ => D32_ZERO
+    danger! {
+        let me_bits = @intrinsic.bitcast<d32, u32>(me)
+        let zero_bits = @intrinsic.bitcast<d32, u32>(D32_ZERO)
+        let cmp = d32_cmp(me_bits, zero_bits)
+        when {
+            cmp > 0 => D32_ONE,
+            cmp < 0 => me.__neg__(),
+            _ => D32_ZERO
+        }
     }
 }
 

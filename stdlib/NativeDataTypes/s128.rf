@@ -1,6 +1,6 @@
 # RazorForge s128 (signed 128-bit integer) native type implementation
 # Maps directly to LLVM i128 type using compiler intrinsics
-
+namespace core
 # Core s128 type definition - maps to LLVM i128
 record s128 {
     public value: LlvmNativeI128
@@ -161,21 +161,21 @@ routine s128.__mul_sat__(other: s128) -> s128 {
 routine s128.__add_checked__(other: s128) -> Maybe<s128> {
     danger! {
         let (result, overflow) = @intrinsic.add.overflow<i128>(me, other)
-        return if overflow { None } else { result }
+        return if overflow then None else result
     }
 }
 
 routine s128.__sub_checked__(other: s128) -> Maybe<s128> {
     danger! {
         let (result, overflow) = @intrinsic.sub.overflow<i128>(me, other)
-        return if overflow { None } else { result }
+        return if overflow then None else result
     }
 }
 
 routine s128.__mul_checked__(other: s128) -> Maybe<s128> {
     danger! {
         let (result, overflow) = @intrinsic.mul.overflow<i128>(me, other)
-        return if overflow { None } else { result }
+        return if overflow then None else result
     }
 }
 

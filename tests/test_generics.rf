@@ -11,7 +11,7 @@ routine add_values<T>(a: T, b: T) -> T {
 }
 
 # Main function that calls generic functions with different types
-routine main() -> s32 {
+routine start() {
     # Test identity with different types
     let x: s32 = identity<s32>(42)
     let y: s32 = identity<s32>(10)

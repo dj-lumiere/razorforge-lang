@@ -17,7 +17,7 @@ import core/BackIndex
 # Fixed-capacity bit list with reference semantics
 # N bits stored inline, packed into bytes by compiler
 resident FixedBitList<N> {
-    private count: uaddr    # Current number of bits (0 to N)
+    count: uaddr    # Current number of bits (0 to N)
     # Bits stored inline by compiler - approximately (N + 7) / 8 bytes
 }
 

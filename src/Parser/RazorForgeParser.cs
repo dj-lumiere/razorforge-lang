@@ -11,27 +11,22 @@ public partial class RazorForgeParser : BaseParser
 {
     #region field and property definitions
 
-    private readonly string? _fileName;
+    
     private bool _inWhenPatternContext = false;
 
     private bool
         _inWhenClauseBody = false; // Prevents 'is' expression parsing in when clause bodies
 
+    private bool
+        _parsingInlineConditional = false; // Prevents nested inline conditionals (if-then-else expressions)
+
     #endregion
 
-    public RazorForgeParser(List<Token> tokens, string? fileName = null) : base(tokens: tokens)
+    public RazorForgeParser(List<Token> tokens, string? fileName = null) : base(tokens: tokens, fileName: fileName ?? "")
     {
-        _fileName = fileName;
     }
 
-    protected SourceLocation GetLocation(Token token)
-    {
-        return new SourceLocation(
-            FileName: _fileName ?? "",
-            Line: token.Line,
-            Column: token.Column,
-            Position: token.Position);
-    }
+
 
     public override Compilers.Shared.AST.Program Parse()
     {
@@ -58,8 +53,8 @@ public partial class RazorForgeParser : BaseParser
                 Token errorToken = Position < Tokens.Count
                     ? Tokens[index: Position]
                     : Tokens[^1];
-                string location = _fileName != null
-                    ? $"[{_fileName}:{errorToken.Line}:{errorToken.Column}]"
+                string location = !string.IsNullOrEmpty(base.fileName)
+                    ? $"[{base.fileName}:{errorToken.Line}:{errorToken.Column}]"
                     : $"[{errorToken.Line}:{errorToken.Column}]";
                 Console.Error.WriteLine(value: $"Parse error{location}: {ex.Message}");
                 Synchronize();

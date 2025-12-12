@@ -1,6 +1,6 @@
 # RazorForge f64 (double precision floating point) native type implementation
 # Maps directly to LLVM double type using compiler intrinsics
-
+namespace core
 # Core f64 type definition - maps to LLVM double
 record f64 {
     public value: LlvmNativeDouble

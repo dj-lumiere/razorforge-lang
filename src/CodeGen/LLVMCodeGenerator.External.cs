@@ -6,6 +6,7 @@ public partial class LLVMCodeGenerator
 {
     public string VisitExternalDeclaration(ExternalDeclaration node)
     {
+        UpdateLocation(node.Location);
         string sanitizedName = SanitizeFunctionName(name: node.Name);
 
         // Skip if already declared in boilerplate
@@ -17,7 +18,7 @@ public partial class LLVMCodeGenerator
         // Generate external function declaration
         string paramTypes = string.Join(separator: ", ",
             values: node.Parameters.Select(selector: p =>
-                MapRazorForgeTypeToLLVM(razorForgeType: p.Type?.Name ?? "void")));
+                p.Type != null ? MapRazorForgeTypeToLLVM(razorForgeType: p.Type.Name) : "i8*"));
 
         // Add variadic marker if needed
         if (node.IsVariadic)
@@ -27,9 +28,15 @@ public partial class LLVMCodeGenerator
                 : paramTypes + ", ...";
         }
 
-        string returnType = node.ReturnType != null
-            ? MapRazorForgeTypeToLLVM(razorForgeType: node.ReturnType.Name)
-            : "void";
+        string returnType;
+        if (node.ReturnType == null || node.ReturnType.Name == "void")
+        {
+            returnType = "void";
+        }
+        else
+        {
+            returnType = MapRazorForgeTypeToLLVM(razorForgeType: node.ReturnType.Name);
+        }
 
         // Map calling convention to LLVM calling convention attribute
         string callingConventionAttr =
@@ -88,31 +95,83 @@ public partial class LLVMCodeGenerator
         };
     }
 
+    /// <summary>
+    /// Ensures a record type is defined in the output before it's used.
+    /// This searches for the record definition in loaded modules and emits it if not already done.
+    /// </summary>
+    private void EnsureRecordTypeIsDefined(string typeName)
+    {
+        // Check if already emitted
+        if (_emittedTypes.Contains(typeName))
+        {
+            return;
+        }
+
+        // Search for the record declaration in loaded modules
+        if (_loadedModules != null)
+        {
+            foreach (var (_, moduleInfo) in _loadedModules)
+            {
+                foreach (IAstNode decl in moduleInfo.Ast.Declarations)
+                {
+                    if (decl is RecordDeclaration recordDecl && recordDecl.Name == typeName)
+                    {
+                        // Found it - generate the type definition
+                        // For non-generic records, this will emit the type immediately
+                        if (recordDecl.GenericParameters == null || recordDecl.GenericParameters.Count == 0)
+                        {
+                            VisitRecordDeclaration(recordDecl);
+                        }
+                        return;
+                    }
+                }
+            }
+        }
+
+        // If we get here, the type wasn't found - it might be a built-in or will be defined later
+        // Don't throw an error, just continue
+    }
+
     private string MapRazorForgeTypeToLLVM(string razorForgeType)
     {
         return razorForgeType switch
         {
-            "s8" => "i8",
-            "s16" => "i16",
-            "s32" => "i32",
-            "s64" => "i64",
-            "s128" => "i128",
-            "u8" => "i8",
-            "u16" => "i16",
-            "u32" => "i32",
-            "u64" => "i64",
-            "u128" => "i128",
-            "uaddr" or "saddr" or "iptr" or "uptr" => _targetPlatform
-               .GetPointerSizedIntType(), // Architecture-dependent pointer-sized integers
-            "f16" => "half",
-            "f32" => "float",
-            "f64" => "double",
-            "f128" => "fp128",
-            "bool" => "i1",
+            // LLVM types (when used directly in intrinsics) - pass through
+            "i1" => "i1",
+            "i8" => "i8",
+            "i16" => "i16",
+            "i32" => "i32",
+            "i64" => "i64",
+            "i128" => "i128",
+            "half" => "half",
+            "float" => "float",
+            "double" => "double",
+            "fp128" => "fp128",
+            "ptr" => "ptr",
+
+            // RazorForge types - all map to their record wrapper types
+            // This enforces the "everything is a record" philosophy
+            "s8" => "%s8",
+            "s16" => "%s16",
+            "s32" => "%s32",
+            "s64" => "%s64",
+            "s128" => "%s128",
+            "u8" => "%u8",
+            "u16" => "%u16",
+            "u32" => "%u32",
+            "u64" => "%u64",
+            "u128" => "%u128",
+            "saddr" or "iptr" => "%saddr",
+            "uptr" => "%uaddr", // uptr stays as record
+            "f16" => "%f16",
+            "f32" => "%f32",
+            "f64" => "%f64",
+            "f128" => "%f128",
+            "bool" => "%bool",
             "letter" => "i32", // UTF-32
-            "text" => "ptr",
+            "Text" => "ptr",
             "DynamicSlice" or "TemporarySlice" => "ptr",
-            "void" => "void",
+            "Blank" => "void",
 
             // C FFI types - Character types
             "cchar" or "cschar" => "i8",
@@ -142,7 +201,12 @@ public partial class LLVMCodeGenerator
             // C string type (null-terminated char pointer)
             "cstr" => "i8*",
 
-            _ => "ptr" // Default to pointer for unknown types (including cptr<T>)
+            // Address types when used as C pointers
+            "uaddr" => "i8*", // When uaddr is used as C pointer (for strlen, strcpy, etc.)
+
+            _ => razorForgeType.StartsWith("c") || razorForgeType.Contains("<")
+                ? "ptr"  // C FFI types and generic types default to pointer
+                : $"%{razorForgeType}" // User-defined record/entity types use struct syntax
         };
     }
 
@@ -598,6 +662,7 @@ public partial class LLVMCodeGenerator
     /// </summary>
     public string VisitPresetDeclaration(PresetDeclaration node)
     {
+        UpdateLocation(node.Location);
         string sanitizedName = SanitizeFunctionName(name: node.Name);
         string llvmType = MapRazorForgeTypeToLLVM(razorForgeType: node.Type.Name);
 
@@ -607,7 +672,24 @@ public partial class LLVMCodeGenerator
         _globalConstants.Add(item: node.Name); // Mark as global constant
 
         // Determine the appropriate zero/null value for the type
-        string zeroValue = llvmType.EndsWith(value: "*") || llvmType == "ptr" ? "null" : "0";
+        string zeroValue;
+        if (llvmType.EndsWith(value: "*") || llvmType == "ptr")
+        {
+            zeroValue = "null";
+        }
+        else if (llvmType is "half" or "float" or "double" or "fp128")
+        {
+            zeroValue = "0.0";
+        }
+        else if (llvmType.StartsWith("%") && !llvmType.EndsWith("*"))
+        {
+            // Struct/record types need zeroinitializer
+            zeroValue = "zeroinitializer";
+        }
+        else
+        {
+            zeroValue = "0";
+        }
 
         // Evaluate the value expression for the constant
         // For simple literals, we can emit them directly
@@ -619,8 +701,192 @@ public partial class LLVMCodeGenerator
             {
                 value = "null";
             }
-            _output.AppendLine(
-                handler: $"@{sanitizedName} = constant {llvmType} {value}");
+
+            // Handle floating-point constants - ensure proper format for LLVM
+            if (llvmType is "fp128" or "half" or "float" or "double")
+            {
+                if (literal.Value is double or decimal or float or int or long)
+                {
+                    double doubleValue = Convert.ToDouble(literal.Value);
+
+                    // Use hex format for all floating-point types for maximum compatibility
+                    long bits = BitConverter.DoubleToInt64Bits(doubleValue);
+
+                    if (llvmType == "fp128")
+                    {
+                        // fp128 uses 0xL prefix
+                        value = $"0xL{bits:X16}";
+                    }
+                    else if (llvmType == "half")
+                    {
+                        // half uses 0xH prefix
+                        // Need to convert double to half-precision
+                        ushort halfBits = (ushort)((bits >> 48) & 0xFFFF);
+                        value = $"0xH{halfBits:X4}";
+                    }
+                    else if (llvmType == "float")
+                    {
+                        // For float, we need to ensure proper formatting
+                        // Convert to float first, then format appropriately
+                        float floatValue = (float)doubleValue;
+
+                        // Special case handling for special values
+                        if (float.IsPositiveInfinity(floatValue))
+                        {
+                            value = "0x7F800000";
+                        }
+                        else if (float.IsNegativeInfinity(floatValue))
+                        {
+                            value = "0xFF800000";
+                        }
+                        else if (float.IsNaN(floatValue))
+                        {
+                            value = "0x7FC00000";
+                        }
+                        else if (floatValue == 0.0f)
+                        {
+                            value = "0.0";
+                        }
+                        else
+                        {
+                            // LLVM IR hex floats are always 64-bit (double precision)
+                            // For float, we need to convert to double first
+                            double asDouble = (double)floatValue;
+                            ulong doubleBits = (ulong)BitConverter.DoubleToInt64Bits(asDouble);
+                            value = $"0x{doubleBits:X16}";
+                        }
+                    }
+                    else // double
+                    {
+                        // For double, similar handling
+                        if (double.IsPositiveInfinity(doubleValue))
+                        {
+                            value = "0x7FF0000000000000";
+                        }
+                        else if (double.IsNegativeInfinity(doubleValue))
+                        {
+                            value = "0xFFF0000000000000";
+                        }
+                        else if (double.IsNaN(doubleValue))
+                        {
+                            value = "0x7FF8000000000000";
+                        }
+                        else if (doubleValue == 0.0)
+                        {
+                            value = "0.0";
+                        }
+                        else
+                        {
+                            // Use IEEE 754 hexadecimal format for reliability
+                            ulong doubleBits = (ulong)bits;
+                            value = $"0x{doubleBits:X16}";
+                        }
+                    }
+                }
+            }
+
+            // For record types, wrap the primitive value in a struct literal
+            if (llvmType.StartsWith("%") && !llvmType.EndsWith("*") && llvmType != "ptr")
+            {
+                // Ensure the record type is defined before we use it in a constant
+                // This is necessary because constants are emitted early in the code generation
+                string recordTypeName = llvmType.Substring(1); // Remove the % prefix
+                EnsureRecordTypeIsDefined(recordTypeName);
+
+                // Check if this record has multiple fields
+                bool isMultiField = _recordFields.ContainsKey(recordTypeName) &&
+                                   _recordFields[recordTypeName].Count > 1;
+
+                // If using zeroinitializer OR if it's a multi-field record, emit it directly
+                if (value == "zeroinitializer" || isMultiField)
+                {
+                    _output.AppendLine(
+                        handler: $"@{sanitizedName} = constant {llvmType} zeroinitializer");
+                }
+                else
+                {
+                    // Wrap the primitive value in a struct literal (single-field records only)
+                    // Check the actual field type from record fields
+                    string fieldType;
+                    if (_recordFields.TryGetValue(recordTypeName, out var fields) && fields.Count > 0)
+                    {
+                        fieldType = fields[0].Type;
+                    }
+                    else
+                    {
+                        // Fallback: infer from type name
+                        fieldType = InferPrimitiveTypeFromRecordName(llvmType);
+                    }
+
+                    // For field types that are themselves record types (like %u32), use zeroinitializer
+                    if (fieldType.StartsWith("%") && !fieldType.EndsWith("*") && fieldType != "ptr")
+                    {
+                        _output.AppendLine(
+                            handler: $"@{sanitizedName} = constant {llvmType} {{ {fieldType} zeroinitializer }}");
+                        return "";
+                    }
+
+                    string primitiveType = fieldType;
+
+                    // For floating-point record types, we need to convert the value to hex format
+                    // if it's not already in the correct format
+                    if (primitiveType is "fp128" or "half" or "float" or "double" &&
+                        !value.StartsWith("0x") && value != "0.0" &&
+                        literal.Value is double or decimal or float or int or long)
+                    {
+                        double doubleValue = Convert.ToDouble(literal.Value);
+                        long bits = BitConverter.DoubleToInt64Bits(doubleValue);
+
+                        if (primitiveType == "fp128")
+                        {
+                            value = $"0xL{bits:X16}";
+                        }
+                        else if (primitiveType == "half")
+                        {
+                            ushort halfBits = (ushort)((bits >> 48) & 0xFFFF);
+                            value = $"0xH{halfBits:X4}";
+                        }
+                        else if (primitiveType == "float")
+                        {
+                            float floatValue = (float)doubleValue;
+                            if (float.IsPositiveInfinity(floatValue))
+                                value = "0x7F800000";
+                            else if (float.IsNegativeInfinity(floatValue))
+                                value = "0xFF800000";
+                            else if (float.IsNaN(floatValue))
+                                value = "0x7FC00000";
+                            else
+                            {
+                                double asDouble = (double)floatValue;
+                                ulong doubleBits = (ulong)BitConverter.DoubleToInt64Bits(asDouble);
+                                value = $"0x{doubleBits:X16}";
+                            }
+                        }
+                        else // double
+                        {
+                            if (double.IsPositiveInfinity(doubleValue))
+                                value = "0x7FF0000000000000";
+                            else if (double.IsNegativeInfinity(doubleValue))
+                                value = "0xFFF0000000000000";
+                            else if (double.IsNaN(doubleValue))
+                                value = "0x7FF8000000000000";
+                            else
+                            {
+                                ulong doubleBits = (ulong)bits;
+                                value = $"0x{doubleBits:X16}";
+                            }
+                        }
+                    }
+
+                    _output.AppendLine(
+                        handler: $"@{sanitizedName} = constant {llvmType} {{ {primitiveType} {value} }}");
+                }
+            }
+            else
+            {
+                _output.AppendLine(
+                    handler: $"@{sanitizedName} = constant {llvmType} {value}");
+            }
         }
         else
         {

@@ -2,7 +2,7 @@
 
 import Test/SimpleModule
 
-routine main() -> s32 {
+routine start() {
     let result: s32 = add(10, 20)
     return result
 }
