@@ -322,7 +322,6 @@ public abstract class BaseParser
                 case TokenType.Entity:
                 case TokenType.Record:
                 case TokenType.Choice:
-                case TokenType.Chimera:
                 case TokenType.Variant:
                 case TokenType.Mutant:
                 case TokenType.Protocol:

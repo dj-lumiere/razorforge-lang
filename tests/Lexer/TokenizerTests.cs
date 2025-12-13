@@ -240,7 +240,6 @@ public class TokenizerTests
             ("entity", TokenType.Entity),
             ("record", TokenType.Record),
             ("choice", TokenType.Choice),
-            ("chimera", TokenType.Chimera),
             ("variant", TokenType.Variant),
             ("mutant", TokenType.Mutant),
             ("danger", TokenType.Danger),
