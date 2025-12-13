@@ -243,7 +243,208 @@ routine show<T: Printable>(value: T) {
 
 ---
 
-## 2. Native Runtime Library (BLOCKING EXECUTION)
+## 2. Method Mutation Inference (CRITICAL FOR TOKEN SYSTEM)
+
+**Priority:** 🔴 **CRITICAL** (blocks token API design)
+
+**Status:** ❌ **NOT STARTED**
+
+### Overview
+
+The token system (`Viewed<T>`, `Hijacked<T>`, `Inspected<T>`, `Seized<T>`) requires the compiler to know which methods mutate `me` (self-modifying) and which don't. This enables:
+
+1. **No API duplication** - Single method works with both readonly and mutable tokens
+2. **Automatic token propagation** - Return types adapt based on receiver token type
+3. **No const correctness** - No viral annotation spreading through call chains
+
+### The Problem
+
+Without knowing which methods mutate, we face three bad options:
+- **API fragmentation**: Different methods available on `Viewed<T>` vs `Hijacked<T>`
+- **API duplication**: `get()`/`get_mut()` pattern everywhere
+- **Runtime failures**: All methods compile but some panic at runtime
+
+### The Solution: Automatic Inference
+
+**Compiler automatically infers** which methods mutate by analyzing:
+1. **Direct field writes** - `me.field = value` (cheap, AST walk)
+2. **Call graph** - If A calls mutating B, then A is mutating (topological sort)
+3. **Cross-module caching** - Store inference results in compiled artifacts
+
+**No manual annotations needed!** Methods just work.
+
+### Example Behavior
+
+```razorforge
+entity Counter {
+    var value: s32
+}
+
+# Compiler infers: NOT mutating (only reads)
+routine Counter.get_value() -> s32 {
+    return me.value
+}
+
+# Compiler infers: mutating (writes field)
+routine Counter.increment() {
+    me.value += 1
+}
+
+# Compiler infers: mutating (calls mutating method)
+routine Counter.double_increment() {
+    me.increment()  # Calls mutating method, so this is mutating too
+    me.increment()
+}
+
+# Usage with tokens
+let counter = Counter(value: 0)
+
+viewing counter as v {
+    show(v.get_value())  # ✅ Works - non-mutating method
+    v.increment()        # ❌ Compile error: increment() is mutating
+}
+
+hijacking counter as h {
+    h.increment()        # ✅ Works - all methods available
+    show(h.get_value())  # ✅ Works - non-mutating methods also work
+}
+```
+
+### Automatic Return Type Adaptation
+
+Methods returning `T` automatically wrap based on receiver:
+
+```razorforge
+entity List<T> {
+    var _buffer: pointer
+}
+
+routine List<T>.get!(index: uaddr) -> T {
+    danger! { return @load(_buffer, index) }
+}
+
+# Single method definition, but return type adapts:
+viewing list as v {
+    let item = v.get!(0)  # item is Viewed<T> (readonly propagates)
+}
+
+hijacking list as l {
+    let item = l.get!(0)  # item is Hijacked<T> (mutable propagates)
+}
+```
+
+### Implementation Requirements
+
+**Analysis Phase (Semantic Analyzer):**
+
+1. **Direct mutation detection** (O(method body size))
+   ```csharp
+   // Detect field writes in method bodies
+   private bool CheckForFieldMutations(RoutineDeclaration routine)
+   {
+       // Walk AST, look for BinaryExpression with = operator where left is FieldAccess
+   }
+   ```
+
+2. **Call graph construction** (O(methods + calls))
+   ```csharp
+   // Build who-calls-whom graph
+   private Dictionary<string, HashSet<string>> BuildCallGraph()
+   {
+       // For each method, track which methods it calls
+   }
+   ```
+
+3. **Transitive propagation** (O(call graph size))
+   ```csharp
+   // Topological sort + marking
+   private void PropagateNutationInfo(Dictionary<string, HashSet<string>> callGraph)
+   {
+       // If method calls mutating method, mark as mutating
+   }
+   ```
+
+4. **Metadata caching**
+   ```csharp
+   // Store in TypeInfo or separate dictionary
+   public Dictionary<string, bool> MethodMutationInfo = new();
+
+   // Cache in compiled artifacts for cross-module use
+   ```
+
+**Code Generation Phase:**
+
+1. **Token type enforcement**
+   ```csharp
+   // When generating method call on Viewed<T> or Inspected<T>
+   if (receiverIsReadonly && methodIsMutating)
+   {
+       Error("Cannot call mutating method through readonly token");
+   }
+   ```
+
+2. **Return type wrapping**
+   ```csharp
+   // When method returns T and receiver is Viewed<T>
+   // Wrap return value in Viewed<T>
+   ```
+
+### Performance Impact
+
+| Analysis               | Complexity                    | Cost Estimate      |
+|------------------------|-------------------------------|--------------------|
+| Direct mutation detect | O(method bodies)              | ~2-5% compile time |
+| Call graph build       | O(methods + calls)            | ~1-2% compile time |
+| Transitive propagation | O(call graph)                 | ~1-2% compile time |
+| **Total**              | Similar to type inference     | **~5-10% total**   |
+
+**Space cost:** 1 bit per method (mutating: yes/no)
+
+### Files To Modify
+
+**New File:**
+- `src/Analysis/MutationAnalyzer.cs` - Core analysis logic
+
+**Modified Files:**
+- `src/Analysis/SemanticAnalyzer.cs` - Integrate mutation analysis pass
+- `src/Analysis/TypeInfo.cs` - Add mutation info storage
+- `src/CodeGen/LLVMCodeGenerator.Expressions.cs` - Token type enforcement
+- `src/CodeGen/LLVMCodeGenerator.MethodCalls.cs` - Return type wrapping
+
+### Benefits
+
+✅ **No const correctness** - No viral annotations spreading
+✅ **No API duplication** - Single `get()` method, no `get_mut()`
+✅ **No API fragmentation** - Different enforcement, not different APIs
+✅ **Compile-time safe** - Errors at call site, not runtime
+✅ **Automatic propagation** - Return types adapt based on receiver
+✅ **Developer friendly** - Just write methods normally
+✅ **Separate compilation** - Cached in module metadata
+
+### Trade-offs
+
+⚠️ **Not visible in source** - Mutation status only in IDE/docs/errors
+⚠️ **Compilation cost** - Adds ~5-10% to compile time
+⚠️ **Cross-module metadata** - Need to store/load inference results
+
+### Next Steps
+
+1. Implement `MutationAnalyzer.cs` with direct mutation detection
+2. Add call graph construction
+3. Add transitive propagation
+4. Integrate into semantic analysis pass
+5. Add token type enforcement in code generation
+6. Add return type wrapping for token propagation
+7. Test with stdlib types (List, Text, etc.)
+8. Document in wiki how inference works
+
+**See Also:**
+- [RazorForge Memory Model](../wiki/RazorForge-Memory-Model.md) - Token types
+- [RazorForge Routines](../wiki/RazorForge-Routines.md) - Method declarations
+
+---
+
+## 3. Native Runtime Library (BLOCKING EXECUTION)
 
 **Priority:** 🔴 **HIGH** (but doesn't block development)
 
