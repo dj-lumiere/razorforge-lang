@@ -1,6 +1,6 @@
 # RazorForge Compiler TODO
 
-**Last Updated:** 2025-12-13
+**Last Updated:** 2025-12-14
 
 This document tracks compiler features needed for RazorForge and Suflae. For standard library implementation tasks,
 see [STDLIB_TODO.md](STDLIB_TODO.md).
@@ -251,7 +251,8 @@ routine show<T: Printable>(value: T) {
 
 ### Overview
 
-The token system (`Viewed<T>`, `Hijacked<T>`, `Inspected<T>`, `Seized<T>`) requires the compiler to know which methods mutate `me` (self-modifying) and which don't. This enables:
+The token system (`Viewed<T>`, `Hijacked<T>`, `Inspected<T>`, `Seized<T>`) requires the compiler to know which methods
+mutate `me` (self-modifying) and which don't. This enables:
 
 1. **No API duplication** - Single method works with both readonly and mutable tokens
 2. **Automatic token propagation** - Return types adapt based on receiver token type
@@ -260,6 +261,7 @@ The token system (`Viewed<T>`, `Hijacked<T>`, `Inspected<T>`, `Seized<T>`) requi
 ### The Problem
 
 Without knowing which methods mutate, we face three bad options:
+
 - **API fragmentation**: Different methods available on `Viewed<T>` vs `Hijacked<T>`
 - **API duplication**: `get()`/`get_mut()` pattern everywhere
 - **Runtime failures**: All methods compile but some panic at runtime
@@ -267,6 +269,7 @@ Without knowing which methods mutate, we face three bad options:
 ### The Solution: Automatic Inference
 
 **Compiler automatically infers** which methods mutate by analyzing:
+
 1. **Direct field writes** - `me.field = value` (cheap, AST walk)
 2. **Call graph** - If A calls mutating B, then A is mutating (topological sort)
 3. **Cross-module caching** - Store inference results in compiled artifacts
@@ -391,21 +394,23 @@ hijacking list as l {
 
 ### Performance Impact
 
-| Analysis               | Complexity                    | Cost Estimate      |
-|------------------------|-------------------------------|--------------------|
-| Direct mutation detect | O(method bodies)              | ~2-5% compile time |
-| Call graph build       | O(methods + calls)            | ~1-2% compile time |
-| Transitive propagation | O(call graph)                 | ~1-2% compile time |
-| **Total**              | Similar to type inference     | **~5-10% total**   |
+| Analysis               | Complexity                | Cost Estimate      |
+|------------------------|---------------------------|--------------------|
+| Direct mutation detect | O(method bodies)          | ~2-5% compile time |
+| Call graph build       | O(methods + calls)        | ~1-2% compile time |
+| Transitive propagation | O(call graph)             | ~1-2% compile time |
+| **Total**              | Similar to type inference | **~5-10% total**   |
 
 **Space cost:** 1 bit per method (mutating: yes/no)
 
 ### Files To Modify
 
 **New File:**
+
 - `src/Analysis/MutationAnalyzer.cs` - Core analysis logic
 
 **Modified Files:**
+
 - `src/Analysis/SemanticAnalyzer.cs` - Integrate mutation analysis pass
 - `src/Analysis/TypeInfo.cs` - Add mutation info storage
 - `src/CodeGen/LLVMCodeGenerator.Expressions.cs` - Token type enforcement
@@ -439,12 +444,413 @@ hijacking list as l {
 8. Document in wiki how inference works
 
 **See Also:**
+
 - [RazorForge Memory Model](../wiki/RazorForge-Memory-Model.md) - Token types
 - [RazorForge Routines](../wiki/RazorForge-Routines.md) - Method declarations
 
 ---
 
-## 3. Native Runtime Library (BLOCKING EXECUTION)
+## 3. Iterator Permission Inference (R/RW Detection)
+
+**Priority:** 🟡 **HIGH** (depends on Method Mutation Inference)
+
+**Status:** ❌ **NOT STARTED**
+
+**Depends On:** #2 Method Mutation Inference (uses same analysis)
+
+### Overview
+
+Iterators have three permission levels: **R** (read-only), **RW** (read-write), and **RWS** (consuming). The compiler
+can automatically infer R vs RW based on mutation analysis, while RWS must be explicit (via `.consume()`).
+
+### The Three Permission Levels
+
+| Permission | Meaning                       | Can Read | Can Mutate Elements | Can Modify Structure |
+|------------|-------------------------------|----------|---------------------|----------------------|
+| **R**      | Read-only                     | ✅        | ❌                   | ❌                    |
+| **RW**     | Read-write (structure locked) | ✅        | ✅                   | ❌                    |
+| **RWS**    | Consuming (empties container) | ✅        | ✅                   | ✅                    |
+
+### Base Cases for Inference
+
+The inference system requires explicit base cases to bootstrap from:
+
+**1. Field operations (implicit):**
+
+- Field read (`me.value`) → R (non-mutating)
+- Field write (`me.value = x`) → RW (mutating)
+
+**2. Token operations (implicit):**
+
+- `.view()` → R
+- `.hijack()` → RW
+- `.consume()` → RWS (always explicit, never inferred)
+
+**3. Structural operations (inferred from DynamicSlice modifications):**
+
+- Modifies `DynamicSlice` control structures (pointer, size, capacity) → structural
+- Only reads/writes data within existing allocation → non-structural
+- Analysis similar to mutation inference (no manual annotations)
+
+**4. Propagation (inferred from base cases):**
+
+- Calls RW method → caller becomes RW
+- Calls R method → doesn't affect caller's mutation status
+- Calls structural method on `me` → caller becomes structural
+
+### What Can Be Inferred
+
+**✅ R vs RW - Automatic Inference:**
+
+The compiler can determine if an iterator is R or RW by analyzing whether the iterator's methods mutate the yielded
+elements:
+
+```razorforge
+entity List<T> {
+    private var _buffer: pointer
+    private var _count: uaddr
+}
+
+# Compiler infers iterator permission based on what Iterator<T> methods do
+routine List<T>.iter() -> Iterator<T> {
+    return Iterator(buffer: me._buffer, count: me._count)
+}
+
+# If Iterator<T>.next() and related methods:
+# - Only read yielded elements → R iterator
+# - Can mutate yielded elements → RW iterator
+```
+
+**❌ RWS - Must Be Explicit:**
+
+RWS permission cannot be inferred because:
+
+1. **Different semantics** - RWS transfers ownership, R/RW borrow
+2. **Different yield type** - RWS yields owned `T`, R/RW yield tokens
+3. **Destructive** - RWS empties the container
+4. **Safety** - Don't want accidental consuming iteration
+
+```razorforge
+# RWS must be explicit via .consume()
+for item in list.consume() {
+    transfer(item)  # item is owned T
+}
+# list is now deadref
+```
+
+### Token → Iterator Permission Mapping
+
+```razorforge
+# R - Read-only iteration
+viewing list as v {
+    for item in v { ... }  # Compiler ensures: item is Viewed<T>
+}
+
+# RW - Read-write iteration (structure locked)
+hijacking list as h {
+    for item in h { ... }  # Compiler ensures: item is Hijacked<T>
+    # h.push(x)  # ❌ Compile error - structure modification banned during RW iteration
+}
+
+# RWS - Explicit consuming iteration
+for item in list.consume() {
+    process(item)  # item is owned T
+}
+```
+
+### Structure Modification Detection
+
+The compiler must detect and ban structure-modifying operations during R/RW iteration using automatic structural
+inference.
+
+**Base Case: DynamicSlice Modification Analysis**
+
+The compiler automatically infers which methods are structural by analyzing whether they modify `DynamicSlice` control
+structures (pointer, size, capacity) rather than just writing data within the existing allocation.
+
+```razorforge
+entity List<T> {
+    private var _buffer: DynamicSlice  # Heap allocation control structure
+    private var _count: uaddr
+}
+
+# Compiler infers: STRUCTURAL (modifies DynamicSlice metadata)
+routine List<T>.push(value: T) {
+    # Potentially resizes _buffer, changes _count
+    # Modifies DynamicSlice control structure → structural
+}
+
+# Compiler infers: STRUCTURAL (modifies DynamicSlice metadata)
+routine List<T>.pop!() -> T {
+    # Removes element, changes _count, potentially shrinks _buffer
+    # Modifies DynamicSlice control structure → structural
+}
+
+# Compiler infers: STRUCTURAL (modifies DynamicSlice metadata)
+routine List<T>.remove(index: uaddr) -> T {
+    # Removes element, shifts data, changes structure
+    # Modifies DynamicSlice control structure → structural
+}
+
+# Compiler infers: NON-STRUCTURAL (only reads data)
+routine List<T>.__getitem__(index: uaddr) -> T {
+    danger! {
+        return me._buffer.read_as<T>(offset: index)
+    }
+    # Only reads from existing allocation → non-structural
+}
+
+# Compiler infers: NON-STRUCTURAL (only writes data)
+routine List<T>.__setitem__(index: uaddr, value: T) {
+    danger! {
+        me._buffer.write_as<T>(offset: index, value: value)
+    }
+    # Only writes to existing allocation → non-structural
+}
+```
+
+**Inference process:**
+
+The compiler performs structural analysis similar to mutation inference:
+
+1. **Direct analysis** - Does the method modify `DynamicSlice` fields (_buffer, size, capacity)?
+2. **Call graph analysis** - Does the method call structural methods on `me`?
+3. **Transitive propagation** - Structural property flows through the call chain
+
+**Important:** Conditional branches don't matter - if *any* code path performs structural modifications, the entire
+method is structural. This ensures safety across all possible execution paths.
+
+```razorforge
+routine List<T>.maybe_push(value: T, condition: bool) {
+    if condition {
+        me.push(value)  # Structural operation in conditional branch
+    }
+    # Entire method is structural - cannot be called on tokens
+}
+```
+
+**Detection and enforcement:**
+
+```razorforge
+# Structural operations BANNED for ALL tokens (Hijacked/Seized)
+hijacking list as h {
+    h[0] = new_value     # ✅ OK - __setitem__ inferred as non-structural
+    h.push(new_item)     # ❌ Compile error: structural operation not allowed on tokens
+    h.pop()              # ❌ Compile error: structural operation not allowed on tokens
+}
+
+seizing shared_list as s {
+    s[0] = new_value  # ✅ OK - __setitem__ inferred as non-structural
+    s.push(new_item)  # ❌ Compile error: structural operation not allowed on tokens
+}
+
+# ✅ Use owned container for structural modification
+list.push(new_item)
+list.pop()
+
+# ✅ For shared: extract to get ownership first
+let extracted = shared_list.extract()
+extracted.push(new_item)  # Now OK - you have ownership
+```
+
+**Why ban for all tokens:**
+
+1. **Memory management base case** - Structural operations modify DynamicSlice control structures (allocation/
+   deallocation)
+2. **Ownership semantics** - `push(item)` transfers ownership, not just mutation
+3. **Tokens are borrows** - Temporary access for reading/writing elements, not managing allocations
+4. **Consistency** - Same rules for Hijacked (single-threaded) and Seized (multi-threaded)
+5. **Prevents bad designs** - Concurrent push/pop would be a design smell
+
+**Why automatic inference:**
+
+- ✅ Consistent with mutation inference - same analysis approach
+- ✅ No manual annotations - compiler detects DynamicSlice modifications automatically
+- ✅ No viral annotations - developers write natural code
+- ✅ Self-evident semantics - operations that resize allocations are clearly structural
+- ✅ No false positives - based on actual memory management operations
+
+### Implementation Requirements
+
+**Phase 1: Leverage Mutation Inference (from #2)**
+
+Iterator permission inference reuses the mutation analysis infrastructure:
+
+```csharp
+// In MutationAnalyzer.cs (from #2)
+public enum IteratorPermission
+{
+    ReadOnly,      // R - yields Viewed<T>
+    ReadWrite,     // RW - yields Hijacked<T>
+    Consuming      // RWS - yields owned T (explicit only)
+}
+
+public IteratorPermission InferIteratorPermission(TypeInfo iteratorType)
+{
+    // Analyze iterator's methods (next, has_next, etc.)
+    // If any method mutates yielded elements → ReadWrite
+    // Otherwise → ReadOnly
+    // Note: Consuming is NEVER inferred, must be explicit
+}
+```
+
+**Phase 2: Structural Mutation Detection**
+
+```csharp
+// Add to MutationAnalyzer.cs
+public bool IsStructuralMutation(RoutineDeclaration routine)
+{
+    // Infer structural operations by analyzing DynamicSlice modifications
+    // Similar to mutation inference approach
+    // IMPORTANT: Checks ALL code paths - conditionals don't matter
+
+    // Base case 1: Direct DynamicSlice field modifications (anywhere in body)
+    var assignsToSlice = routine.Body
+        .DescendantsAndSelf()  // Walks entire AST, including conditional branches
+        .OfType<AssignmentExpression>()
+        .Any(assign => assign.Target is FieldAccess fa &&
+                       fa.Field.Type is DynamicSliceType);
+
+    if (assignsToSlice)
+        return true;
+
+    // Base case 2: Calls to allocator/reallocation functions (anywhere in body)
+    var callsAllocator = routine.Body
+        .DescendantsAndSelf()  // Walks entire AST, including conditional branches
+        .OfType<CallExpression>()
+        .Any(call => IsMemoryManagementCall(call));
+
+    if (callsAllocator)
+        return true;
+
+    // Transitive case: Calls structural methods on me (anywhere in body)
+    var callsStructural = routine.Body
+        .DescendantsAndSelf()  // Walks entire AST, including conditional branches
+        .OfType<CallExpression>()
+        .Where(call => call.Receiver is MeExpression)
+        .Any(call => IsStructuralMutation(call.Method));
+
+    return callsStructural;
+}
+
+private bool IsMemoryManagementCall(CallExpression call)
+{
+    // Check for allocator, resize, grow, shrink, etc.
+    return call.Method.Name is "allocate" or "resize" or "grow" or "shrink" or "deallocate";
+}
+```
+
+**Phase 3: Token Type Checking**
+
+```csharp
+// In SemanticAnalyzer.cs or CodeGenerator.cs
+// When calling method on a token (Viewed/Hijacked/Inspected/Seized)
+if (IsTokenType(receiverType) && IsStructuralMutation(method))
+{
+    Error($"Cannot call structural method '{method.Name}' on token {receiverType}");
+    Note("Structural operations modify DynamicSlice control structures - use owned container");
+}
+
+private bool IsTokenType(string typeName)
+{
+    return typeName.StartsWith("Viewed<") ||
+           typeName.StartsWith("Hijacked<") ||
+           typeName.StartsWith("Inspected<") ||
+           typeName.StartsWith("Seized<");
+}
+```
+
+### Example Behavior
+
+```razorforge
+entity List<T> {
+    private var _buffer: DynamicSlice
+    private var _count: uaddr
+}
+
+# Compiler infers: NOT mutating (only reads)
+routine List<T>.iter() -> Iterator<T> { ... }
+
+let list: List<Counter> = build_list()
+
+# Iterator inferred as R (yields Viewed<Counter>)
+viewing list as v {
+    for counter in v {
+        show(counter.get_value())  # ✅ Non-mutating only
+        # counter.increment()       # ❌ Compile error
+    }
+}
+
+# Iterator inferred as RW (yields Hijacked<Counter>)
+hijacking list as h {
+    for counter in h {
+        counter.increment()  # ✅ Can mutate elements
+    }
+    # h.push(x)  # ❌ Compile error - structural operation not allowed on tokens
+}
+
+# ✅ Use owned for structural modification
+list.push(x)
+list.pop()
+```
+
+### Performance Impact
+
+| Analysis                   | Complexity                   | Cost Estimate                    |
+|----------------------------|------------------------------|----------------------------------|
+| Iterator permission        | O(iterator methods)          | Negligible (reuses)              |
+| Structural mutation detect | O(method body) per method    | ~5-10% (same as mutation infer)  |
+| Token type checking        | O(1) per call                | Negligible (type check)          |
+| **Total**                  | Reuses #2 analysis framework | **~5-10% (same as mutation)**    |
+
+**Note:** Most work is already done by Method Mutation Inference (#2). Structural inference follows the same
+call-graph analysis pattern, just tracking DynamicSlice modifications instead of general mutations.
+
+### Files To Modify
+
+**Modified Files:**
+
+- `src/Analysis/MutationAnalyzer.cs` - Add `InferIteratorPermission()` and `IsStructuralMutation()` with DynamicSlice
+  analysis
+- `src/Analysis/SemanticAnalyzer.cs` - Add token type checking for structural methods
+- `src/CodeGen/LLVMCodeGenerator.Expressions.cs` - Enforce structural operation ban on tokens
+
+### Benefits
+
+✅ **Automatic R/RW detection** - No manual iterator annotations
+✅ **Automatic structural inference** - Compiler detects DynamicSlice modifications
+✅ **Structure safety** - Structural methods banned on all tokens
+✅ **Clear semantics** - Tokens = borrows, owned = structural modifications (memory management)
+✅ **Consistent** - Same rules for single-threaded and multi-threaded
+✅ **Explicit consuming** - RWS must use `.consume()` (no accidents)
+✅ **Reuses infrastructure** - Leverages mutation inference framework from #2
+✅ **No viral annotations** - Developers write natural code, compiler figures it out
+
+### Trade-offs
+
+⚠️ **RWS is verbose** - Must explicitly call `.consume()` (but this is intentional for safety)
+⚠️ **Less flexible** - Cannot modify structure through tokens (but this enforces ownership semantics)
+
+### Next Steps
+
+1. Wait for #2 (Method Mutation Inference) to be implemented
+2. Add `InferIteratorPermission()` to `MutationAnalyzer.cs`
+3. Add `IsStructuralMutation()` with DynamicSlice modification analysis (similar to mutation inference)
+4. Add token type checking in semantic analyzer
+5. Enforce structural operation ban on all tokens (Viewed/Hijacked/Inspected/Seized)
+6. Test with stdlib containers (List, Dict, etc.)
+7. Document in wiki (already done - see below)
+
+**See Also:**
+
+- [RazorForge Memory Model - Iteration](../wiki/RazorForge-Memory-Model.md#iteration-and-iterator-permissions-single-threaded) -
+  Single-threaded iterators
+- [RazorForge Concurrency Model - Iteration](../wiki/RazorForge-Concurrency-Model.md#iteration-and-iterator-permissions-multi-threaded) -
+  Multi-threaded iterators
+
+---
+
+## 4. Native Runtime Library (BLOCKING EXECUTION)
 
 **Priority:** 🔴 **HIGH** (but doesn't block development)
 
@@ -572,52 +978,207 @@ documentation
 
 ## 4. Protocol System (MEDIUM-HIGH PRIORITY)
 
-**Priority:** 🟠 **MEDIUM-HIGH** (needed for constraints)
+**Priority:** 🟠 **MEDIUM-HIGH** (needed for constraints and code reuse)
 
 **Status:** ⏳ **INFRASTRUCTURE EXISTS, IMPLEMENTATION INCOMPLETE**
+
+**Updated:** 2025-12-14
 
 ### Current State
 
 - `WellKnownProtocols` class defines standard protocols
 - `TypeInfo.Protocols` tracks protocol membership
 - Primitive types have correct protocols assigned
-- **Missing:** Protocol declarations, implementation checking, constraint validation
+- **Missing:** Protocol declarations, fields (mixins), default implementations, mutation annotations, implementation checking
 
-### Needed Parser Features
+### Protocol Design Overview
+
+Protocols in RazorForge are **both contracts and mixins**:
+- **Contract:** Define abstract methods that must be implemented
+- **Mixin:** Provide fields (state) and default implementations (behavior)
+- **Mutation annotations:** Methods declare their category (`@readonly`, `@writable`, or structural)
+
+See [RazorForge-Protocols.md](../wiki/RazorForge-Protocols.md) for complete specification.
+
+### Syntax Examples
 
 ```razorforge
-# Protocol declaration
-protocol Printable {
-    routine to_text() -> Text<letter32>
+# Protocol with fields, abstract methods, and annotations
+protocol Container<T> {
+    # Fields - provide state (mixin pattern)
+    public private(set) var count: uaddr
+    public private(set) var capacity: uaddr
+
+    # Abstract methods - no body, must implement
+    @readonly
+    routine get!(me, index: uaddr) -> T
+
+    # Defaults to structural (no annotation)
+    routine push(me, value: T)
+
+    # Type-level method - Me as receiver
+    routine Me.__create__() -> Me
 }
 
-# Protocol implementation
-record Point follows Printable, Hashable {
-    x: f32
-    y: f32
-
-    routine to_text() -> Text<letter32> { ... }
-    routine hash() -> u64 { ... }
+# Default implementations outside protocol block (saves indentation)
+@readonly
+routine Container<T>.is_empty(me) -> bool {
+    return me.count == 0
 }
+
+@readonly
+routine Container<T>.first(me) -> Maybe<T> {
+    if me.count > 0 {
+        return me.get!(0)
+    }
+    return None
+}
+
+# Implementation
+entity List<T> follows Container<T> {
+    private var _buffer: DynamicSlice
+    # Inherits: public private(set) var count: uaddr
+    # Inherits: public private(set) var capacity: uaddr
+}
+
+# Must implement abstract methods
+@readonly
+routine List<T>.get!(index: uaddr) -> T {
+    return me._buffer.read_as<T>(offset: index)
+}
+
+routine List<T>.push(value: T) {
+    # Implementation
+}
+
+# Inherits is_empty(), first() defaults
+# Can optionally override for efficiency
 
 # Generic constraints
-routine show<T: Printable>(value: T) { ... }
+routine find_max<T follows Comparable>(items: List<T>) -> Maybe<T> {
+    # ...
+}
 ```
+
+### Key Design Decisions
+
+1. **Mutation Annotations (Part of Contract):**
+   - `@readonly` - read-only, works with `Viewed<T>` tokens
+   - `@writable` - mutates in-place, requires `Hijacked<T>` tokens
+   - (no annotation) - **defaults to structural** (requires ownership)
+   - Compiler verifies implementations match protocol contract
+
+2. **Protocol Structure:**
+   - Fields inside protocol block (provide state)
+   - Abstract signatures inside protocol block (no body)
+   - Default implementations **outside** protocol block (saves indentation for 80-char limit)
+
+3. **Type Reference:**
+   - `me` (lowercase) - instance reference
+   - `Me` (capitalized) - type placeholder (like `Self` in Rust)
+   - Type-level methods: `routine Me.__create__() -> Me`
+
+4. **Field Inheritance:**
+   - Types implementing protocols inherit protocol fields
+   - Enables true mixin pattern with state + behavior
 
 ### Implementation Tasks
 
-- [ ] Parse `protocol` keyword and declaration syntax
+**Parser:**
+- [ ] Parse `protocol` keyword and block structure
+- [ ] Parse protocol fields (same as entity/record fields)
+- [ ] Parse abstract method signatures (no body)
+- [ ] Parse mutation annotations: `@readonly`, `@writable`
 - [ ] Parse `follows` keyword in type declarations
-- [ ] Parse `<T: Protocol>` constraint syntax
-- [ ] Parse `where T: T follows Protocol` clauses
-- [ ] Semantic analysis: Verify protocol methods are implemented
-- [ ] Semantic analysis: Check constraints during generic instantiation
-- [ ] Code generation: Generate protocol witness tables (if needed)
+- [ ] Parse `<T follows Protocol>` constraint syntax
+- [ ] Parse `Me` as type placeholder (distinct from `me`)
+- [ ] Parse default implementations outside protocol block: `routine ProtocolName<T>.method(...)`
 
-**Files:**
+**Semantic Analysis:**
+- [ ] Track protocol declarations in symbol table
+- [ ] Track protocol fields and their access modifiers
+- [ ] Track abstract vs default methods
+- [ ] Store mutation annotations (`@readonly`, `@writable`, structural)
+- [ ] Verify implementations provide all abstract methods
+- [ ] Verify implementation mutation categories match protocol contract:
+  - Implementation inferred as `@readonly` ✅ matches protocol `@readonly`
+  - Implementation inferred as `@writable` ❌ error if protocol is `@readonly`
+  - Implementation inferred as structural ❌ error if protocol is `@readonly` or `@writable`
+- [ ] Inherit protocol fields into implementing types
+- [ ] Inherit default implementations
+- [ ] Allow implementations to override defaults
+- [ ] Check generic constraints during instantiation
+- [ ] Resolve `Me` to concrete type in implementations
 
+**Code Generation:**
+- [ ] Generate fields from protocol in implementing types
+- [ ] Generate default method implementations (monomorphize if generic)
+- [ ] Generate protocol witness tables (if using vtable approach)
+- [ ] Handle mutation category enforcement at call sites
+
+**Integration with Mutation Inference:**
+- [ ] Protocol methods: Use declared annotations (`@readonly`, `@writable`, structural)
+- [ ] Implementation methods: Infer category using existing mutation analyzer (see #2)
+- [ ] Verification: Check inferred category ≤ declared category (readonly < writable < structural)
+
+### Example: Mutation Verification
+
+```razorforge
+protocol Cacheable<T> {
+    @readonly
+    routine get_cached(me, key: Text) -> T
+}
+
+entity Expensive follows Cacheable<f64> {
+    var cache: Dict<Text, f64>
+}
+
+# Implementation - compiler infers @readonly
+routine Expensive.get_cached(key: Text) -> f64 {
+    return me.cache.get(key)  # Only reads → inferred @readonly ✅ matches
+}
+
+# ERROR CASE:
+routine Expensive.get_cached(key: Text) -> f64 {
+    me.cache.clear()  # Mutates! → inferred @writable
+    return 0.0
+}
+# ❌ Compiler error: Implementation is @writable but protocol requires @readonly
+```
+
+### Files to Modify/Create
+
+**Parser:**
 - `src/Parser/RazorForgeParser.cs` - Add protocol parsing
+- `src/AST/ProtocolDeclaration.cs` (NEW) - AST node for protocols
+- `src/AST/ProtocolMethodDeclaration.cs` (NEW) - AST node for protocol methods
+
+**Semantic Analysis:**
 - `src/Analysis/SemanticAnalyzer.Declarations.cs` - Protocol validation
+- `src/Analysis/ProtocolVerifier.cs` (NEW) - Verify implementations match contracts
+- `src/Analysis/MutationAnalyzer.cs` - Integrate with protocol mutation checking
+
+**Code Generation:**
+- `src/CodeGen/LLVMCodeGenerator.Protocols.cs` (NEW) - Protocol code generation
+- `src/CodeGen/LLVMCodeGenerator.cs` - Integrate protocol methods and fields
+
+### Priority Order
+
+1. **Parser support** (basic protocol declarations)
+2. **Abstract methods** (contract verification)
+3. **Mutation annotations** (integrate with mutation inference #2)
+4. **Protocol fields** (mixin pattern)
+5. **Default implementations** (code reuse)
+6. **Generic constraints** (type safety)
+
+**Depends on:**
+- #2 (Method Mutation Inference) - needed for implementation verification
+- #3 (Structural Detection) - needed for verifying structural methods
+
+**See Also:**
+- [RazorForge-Protocols.md](../wiki/RazorForge-Protocols.md) - Complete specification
+- [COMPILER_TODO.md #2](#2-method-mutation-inference-critical-for-token-system) - Mutation inference
+- [COMPILER_TODO.md #3](#3-iterator-permission-inference-rw-detection) - Structural detection
 
 ---
 
@@ -748,9 +1309,9 @@ Line 2 continues on same output line."
 
 **String Literal Types:**
 
-| Type | Newlines | Escape Sequences | Backslash Continuation |
-|------|----------|------------------|------------------------|
-| `"..."` | Preserved as `\n` | Interpreted | **TO IMPLEMENT** |
+| Type     | Newlines          | Escape Sequences    | Backslash Continuation |
+|----------|-------------------|---------------------|------------------------|
+| `"..."`  | Preserved as `\n` | Interpreted         | **TO IMPLEMENT**       |
 | `r"..."` | Preserved as `\n` | **NOT** interpreted | N/A (raw = no escapes) |
 
 **Implementation Tasks:**
@@ -896,18 +1457,18 @@ let msg2 = dedent("
 
 - [ ] **Add to stdlib:** Implement as `Text.dedent(me: Text) -> Text` in `stdlib/Text/Text.rf`
 - [ ] **Algorithm:**
-  1. Split string into lines
-  2. Find minimum leading whitespace (ignoring empty lines)
-  3. Remove that amount of whitespace from each line
-  4. Strip leading/trailing blank lines
-  5. Join lines back together
+    1. Split string into lines
+    2. Find minimum leading whitespace (ignoring empty lines)
+    3. Remove that amount of whitespace from each line
+    4. Strip leading/trailing blank lines
+    5. Join lines back together
 - [ ] **Test cases:**
-  - Empty string
-  - Single line
-  - Multiple lines with same indentation
-  - Multiple lines with different indentation
-  - Lines with tabs vs spaces
-  - Blank lines (should be ignored when finding common indent)
+    - Empty string
+    - Single line
+    - Multiple lines with same indentation
+    - Multiple lines with different indentation
+    - Lines with tabs vs spaces
+    - Blank lines (should be ignored when finding common indent)
 
 **Alternative Design - String Literal Syntax:**
 
@@ -934,6 +1495,7 @@ let msg = """
 ```
 
 **Recommendation:** Start with **function approach** (Option A) as it's:
+
 - More explicit
 - Can be called on any string (not just literals)
 - Easier to implement (no parser changes)
@@ -2009,6 +2571,7 @@ fixes - choose based on immediate needs.
 These are fundamental language design changes that must be implemented to match the finalized language specification.
 
 **Completion Summary:**
+
 - ✅ Item 1: Entry point `main` → `start` (COMPLETE)
 - ✅ Item 2: Reserved names & namespace rules (COMPLETE)
 - ✅ Item 3: Crashable entry point design (COMPLETE)
@@ -2096,12 +2659,12 @@ routine start() {
 
 **Namespace Rules for Entry Point:**
 
-| File Location | Namespace | `start()` Allowed? |
-|--------------|-----------|-------------------|
-| `myproject/main.rf` | Global (no namespace decl) | ✅ YES |
-| `myproject/app.rf` | Global (no namespace decl) | ✅ YES |
-| `myproject/src/core.rf` | Implicit `src` namespace | ❌ NO |
-| With `namespace foo` | Explicit `foo` namespace | ❌ NO |
+| File Location           | Namespace                  | `start()` Allowed? |
+|-------------------------|----------------------------|--------------------|
+| `myproject/main.rf`     | Global (no namespace decl) | ✅ YES              |
+| `myproject/app.rf`      | Global (no namespace decl) | ✅ YES              |
+| `myproject/src/core.rf` | Implicit `src` namespace   | ❌ NO               |
+| With `namespace foo`    | Explicit `foo` namespace   | ❌ NO               |
 
 **Completed Tasks:**
 
@@ -2124,6 +2687,7 @@ routine start() {
 **Design Decision:** NO `@crash_only` attribute needed. The entry point `start()` is **ALWAYS crash-capable** by design.
 
 **Rationale:**
+
 - Simpler mental model (no need to remember `start()` vs `@crash_only routine start!()`)
 - Matches user expectations (where else would crashes go at the top level?)
 - Aligns with other languages (main() can return errors/panic)
@@ -2217,15 +2781,15 @@ routine init() {
 
 **Namespace Rules Table:**
 
-| File Location | Explicit `namespace` | Actual Namespace | Notes |
-|--------------|----------------------|------------------|-------|
-| `stdlib/Collections/List.rf` | None | ❌ **CE** | Stdlib MUST have namespace |
-| `stdlib/Collections/List.rf` | `namespace Collections` | `Collections` | ✅ Required |
-| `myproject/main.rf` | None | Global (null) | ✅ Root file |
-| `myproject/app.rf` | `namespace myapp` | `myapp` | ✅ Explicit override |
-| `myproject/src/core.rf` | None | `src` | ✅ Inferred from path |
-| `myproject/lib/utils.rf` | None | `lib/utils` | ✅ Inferred from path |
-| `myproject/src/foo.rf` | `namespace bar` | `bar` | ✅ Explicit override |
+| File Location                | Explicit `namespace`    | Actual Namespace | Notes                      |
+|------------------------------|-------------------------|------------------|----------------------------|
+| `stdlib/Collections/List.rf` | None                    | ❌ **CE**         | Stdlib MUST have namespace |
+| `stdlib/Collections/List.rf` | `namespace Collections` | `Collections`    | ✅ Required                 |
+| `myproject/main.rf`          | None                    | Global (null)    | ✅ Root file                |
+| `myproject/app.rf`           | `namespace myapp`       | `myapp`          | ✅ Explicit override        |
+| `myproject/src/core.rf`      | None                    | `src`            | ✅ Inferred from path       |
+| `myproject/lib/utils.rf`     | None                    | `lib/utils`      | ✅ Inferred from path       |
+| `myproject/src/foo.rf`       | `namespace bar`         | `bar`            | ✅ Explicit override        |
 
 **Stdlib Path Resolution (Priority Order):**
 
@@ -2274,13 +2838,14 @@ routine process() {
 - [x] Add `InferNamespaceFromPath()` with forward slash conversion
 - [x] Parser already supports forward slashes in namespace declarations
 - [x] Add namespace validation in `SemanticAnalyzer`:
-  - Stdlib files without namespace → CE
-  - Project files without namespace → infer from path
-  - Root files → global namespace
+    - Stdlib files without namespace → CE
+    - Project files without namespace → infer from path
+    - Root files → global namespace
 
 **Files Modified:**
 
-- ✅ `src/Analysis/ModuleResolver.cs:15-470` - Stdlib path resolution, IsStdlibFile(), InferNamespaceFromPath(), FindProjectRoot()
+- ✅ `src/Analysis/ModuleResolver.cs:15-470` - Stdlib path resolution, IsStdlibFile(), InferNamespaceFromPath(),
+  FindProjectRoot()
 - ✅ `src/Analysis/SemanticAnalyzer.cs:276-387` - ValidateNamespaceRules() implementation
 
 ---
@@ -2291,7 +2856,8 @@ routine process() {
 
 **Problem:** Once a module is imported, external code should NOT be able to add to that module's namespace.
 
-**Design Decision:** Modules should be **closed** - you cannot declare `namespace X` if module `X` is imported from stdlib or another package.
+**Design Decision:** Modules should be **closed** - you cannot declare `namespace X` if module `X` is imported from
+stdlib or another package.
 
 **Examples:**
 
@@ -2330,17 +2896,18 @@ routine main_helper() {
 
 1. **Prevent namespace pollution** - External code cannot inject into stdlib or third-party namespaces
 2. **Clear module boundaries** - Each module owns its namespace exclusively
-3. **Extension methods still work** - You can still add methods to types from any namespace, but cannot declare new types/functions in imported namespaces
+3. **Extension methods still work** - You can still add methods to types from any namespace, but cannot declare new
+   types/functions in imported namespaces
 4. **Consistent with `public(module)` access** - Module-scoped privacy already treats modules as boundaries
 
 **Rules:**
 
-| Scenario | Namespace Declaration | Result |
-|----------|----------------------|--------|
-| Own module/local file | `namespace myapp` | ✅ OK |
-| Stdlib module imported | `namespace Collections` | ❌ CE: Cannot extend imported namespace |
-| Third-party imported | `namespace external` | ❌ CE: Cannot extend imported namespace |
-| Extension method | `routine List.my_method()` | ✅ OK (methods, not namespace) |
+| Scenario               | Namespace Declaration      | Result                                 |
+|------------------------|----------------------------|----------------------------------------|
+| Own module/local file  | `namespace myapp`          | ✅ OK                                   |
+| Stdlib module imported | `namespace Collections`    | ❌ CE: Cannot extend imported namespace |
+| Third-party imported   | `namespace external`       | ❌ CE: Cannot extend imported namespace |
+| Extension method       | `routine List.my_method()` | ✅ OK (methods, not namespace)          |
 
 **Implementation Tasks:**
 
@@ -2415,6 +2982,7 @@ let y = {
 - ✅ `src/Parser/SuflaeParser.Expressions.cs:660-699` - Enforced restrictions
 
 **Stdlib Files Updated:**
+
 - ✅ `stdlib/Collections/BitList.rf` - Converted all inline conditionals to new syntax
 - ✅ `stdlib/Collections/Dict.rf` - Updated
 - ✅ `stdlib/Collections/Set.rf` - Updated
@@ -2432,7 +3000,8 @@ let y = {
 
 **Problem:** Methods MUST be declared outside type scope. In-scope method declarations should be banned.
 
-**Design Decision:** All methods must use `routine TypeName.method_name()` syntax declared outside the type body. Methods inside entity/resident/record scope are compile errors.
+**Design Decision:** All methods must use `routine TypeName.method_name()` syntax declared outside the type body.
+Methods inside entity/resident/record scope are compile errors.
 
 **Examples:**
 
@@ -2477,7 +3046,8 @@ public entity List<T> {
 **Implementation Tasks:**
 
 - [ ] Update parser to reject method declarations inside type scope
-- [ ] Generate clear error message: "Methods must be declared outside type scope using 'routine TypeName.method_name()' syntax"
+- [ ] Generate clear error message: "Methods must be declared outside type scope using 'routine TypeName.method_name()'
+  syntax"
 - [ ] Apply to all type kinds (entity, resident, record)
 - [ ] Update both RazorForge and Suflae parsers
 - [ ] Add test cases for banned syntax
