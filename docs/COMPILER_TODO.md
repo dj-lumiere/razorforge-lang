@@ -2,1876 +2,896 @@
 
 **Last Updated:** 2025-12-14
 
-This document tracks compiler features needed for RazorForge and Suflae. For standard library implementation tasks,
-see [STDLIB_TODO.md](STDLIB_TODO.md).
+This document tracks compiler features needed for RazorForge and Suflae. For standard library implementation tasks, see [STDLIB_TODO.md](STDLIB_TODO.md).
 
 ---
 
-## 🎉 Generics Implementation - ✅ CORE FUNCTIONALITY COMPLETE!
+## IMMEDIATE PRIORITIES
 
-**Status:** ✅ **MAJOR MILESTONE ACHIEVED (2025-12-04)** - Basic generics fully working!
+### 1. Generic Record Instantiation (BLOCKING STDLIB)
+**Status:** 🔴 **CRITICAL** - Generic methods work, but generic type instantiation is fragile
 
-**What This Means:** RazorForge now has working generics for most use cases:
-
-- ✅ Can use generic types: `List<T>`, `Text<T>`, custom `MyType<T>`
-- ✅ Can call generic methods: `instance.get_value()` on `MyType<s64>`
-- ✅ Can instantiate generic types: `TestType<s64>(value: 42)`
-- ✅ Type-safe compilation with full type checking
-- ✅ **Stdlib development unblocked!**
-
-**See:** [GENERICS_STATUS.md](GENERICS_STATUS.md) for comprehensive analysis of the generics implementation.
-
-### What Works ✅
-
-1. **Generic function monomorphization** - `identity<T>`, `swap<T>` work
-2. **Namespace-qualified generic methods** - `Console.show<T>` parses correctly
-3. **Nested generic type parsing** - `List<List<s32>>`, `Range<BackIndex<uaddr>>` parse correctly
-4. **Generic function templates** - Stored and deferred correctly
-5. **✨ Generic type instantiation** - `TestType<s64>(...)` works! (NEW)
-6. **✨ Generic method calls** - `instance.method()` works! (NEW)
-7. **✨ Template matching** - Concrete types match templates automatically (NEW)
-
-### Remaining Generics Work (Non-Critical)
-
-#### 1. Generic Method Template Matching (Bug 12.13) - **✅ FULLY COMPLETE!**
-
-**Status:** ✅ **FULLY RESOLVED (2025-12-04)** - End-to-end generics working!
-
-**See:** [BUG_12.13_ANALYSIS.md](BUG_12.13_ANALYSIS.md) for comprehensive analysis.
-
-**What Now Works:** Methods on generic types compile and execute correctly!
-
-```razorforge
-record TestType<T> {
-    value: T
-}
-
-routine TestType<T>.get_value(me: TestType<T>) -> T {
-    return me.value
-}
-
-routine start() {
-    let instance: TestType<s64> = TestType<s64>(value: 42_s64)  # ✅ Works!
-    let result: s64 = instance.get_value()  # ✅ Works!
-}
-```
-
-**Result:** `✅ Compilation successful!`
-
-**Complete Implementation (7 components):**
-
-1. ✅ **Template Matching System** - `src/Analysis/GenericTypeResolver.cs` (NEW FILE, 256 lines)
-    - Pattern matching: extracts base names and type arguments
-    - Instance matching: `TestType<s64>` → `TestType<T>` with `{T: "s64"}`
-    - Type substitution: replaces template parameters with concrete types
-    - Candidate generation: searches for method templates in symbol table
-
-2. ✅ **Semantic Analyzer** - `src/Analysis/SemanticAnalyzer.Calls.cs:271`
-    - Fixed to use `FullName` (e.g., "TestType<s64>") instead of `Name` (e.g., "TestType")
-    - Correctly resolves method return types through template substitution
-
-3. ✅ **BuildFullTypeName Helper** - `src/CodeGen/LLVMCodeGenerator.cs:822-844`
-    - Recursively constructs full generic type names from TypeExpression AST nodes
-    - Handles nested generics: `List<List<s32>>`
-
-4. ✅ **Variable Type Tracking** - `src/CodeGen/LLVMCodeGenerator.Expressions.cs:29-71`
-    - Stores full generic type names (not just base names) in symbol table
-    - Preserves type arguments through code generation
-
-5. ✅ **Generic Constructor Calls** - `src/CodeGen/LLVMCodeGenerator.MethodCalls.cs:93-105`
-    - Handles `TestType<s64>(...)` constructor syntax
-    - Instantiates generic records and creates structs
-
-6. ✅ **Generic Method Resolution** - `src/CodeGen/LLVMCodeGenerator.Expressions.cs:937-995`
-    - Uses `ResolvedType.FullName` to preserve generic type info
-    - Finds and instantiates generic method templates before calling
-
-7. ✅ **Type Substitution in Functions** - `src/CodeGen/LLVMCodeGenerator.Functions.cs:98-120`
-    - Applies type parameter substitutions to receiver types
-    - Correctly generates `me: TestType<s64>` from template `me: TestType<T>`
-
-**Files Modified:**
-
-- ✅ `src/Analysis/GenericTypeResolver.cs` - NEW FILE (complete template system)
-- ✅ `src/Analysis/SemanticAnalyzer.Calls.cs` - Use FullName for matching
-- ✅ `src/CodeGen/LLVMCodeGenerator.cs` - Added BuildFullTypeName()
-- ✅ `src/CodeGen/LLVMCodeGenerator.Expressions.cs` - Multiple full-type tracking fixes
-- ✅ `src/CodeGen/LLVMCodeGenerator.MethodCalls.cs` - Generic constructor handling
-- ✅ `src/CodeGen/LLVMCodeGenerator.Functions.cs` - Type substitution in parameters
-
-**Impact:**
-
-- ✅ Can write, type-check, AND COMPILE generic code end-to-end
-- ✅ Generic records work: `TestType<s64>`, `TestType<Text>`, etc.
-- ✅ Generic methods work: `instance.get_value()` on `TestType<s64>`
-- ✅ Generic constructors work: `TestType<s64>(value: 42)`
-- ✅ Template matching works: automatic resolution of concrete types to templates
-- ✅ Stdlib generic types should now work: `Range<T>`, `BackIndex<I>`, etc.
-- ✅ **STDLIB DEVELOPMENT FULLY UNBLOCKED**
-
----
-
-#### 2. Generic Record/Entity Instantiation - **SECOND PRIORITY**
-
-**Problem:** Generic types are not fully instantiated.
-
-```razorforge
-record List<T> {
-    data: DynamicSlice
-    length: uaddr
-}
-
-let list: List<s32> = List<s32>()  # Partially works but fragile
-```
+**Problem:** Struct definitions generated immediately without dependency ordering. Cannot handle recursive types or complex instantiation patterns.
 
 **Root Cause:**
-
-- Struct definitions generated immediately, not deferred
 - No dependency ordering (must generate `Node<T>` before `List<Node<T>>`)
 - Circular dependencies not handled (`Node<T>` contains `Node<T>`)
 - Fields may reference types that don't exist yet
 
-**Solution Needed:**
-
-1. Two-pass generation: collect all needed instantiations first
-2. Build dependency graph (topological sort)
+**Concrete Tasks:**
+1. Implement two-pass generation: collect all needed instantiations first
+2. Build dependency graph and perform topological sort
 3. Handle recursive types with forward declarations
 4. Generate all struct definitions before any functions
 
-**Files:**
-
+**Files to Modify:**
 - `src/CodeGen/LLVMCodeGenerator.Declarations.cs` - `InstantiateGenericRecord()` line ~245
 - `src/CodeGen/LLVMCodeGenerator.Declarations.cs` - `InstantiateGenericEntity()` line ~290
 
----
-
-#### 3. Generic Function Overload Resolution - **THIRD PRIORITY**
-
-**Problem:** Cannot choose between generic and non-generic versions.
-
-```razorforge
-routine Console.show(value: Text<letter8>) {
-    # Non-generic version
-}
-
-routine Console.show<T>(value: T) {
-    # Generic version - CANNOT COEXIST!
-}
-
-Console.show(42)  # Which one to call?
-```
-
-**Solution Needed:**
-
-1. Type inference: Deduce `T=s32` from argument
-2. Constraint checking: Verify `s32` implements required protocols
-3. Specificity rules: Prefer non-generic over generic when both match
-4. Generate meaningful errors for ambiguous calls
-
-**Files:**
-
-- `src/CodeGen/LLVMCodeGenerator.MethodCalls.cs` - `VisitCallExpression()`
-- Need new: `ResolveOverload()` method
+**Estimated Effort:** 2-3 weeks
 
 ---
 
-#### 4. Generic Constraints - **FOURTH PRIORITY**
-
-**Problem:** Cannot express type requirements.
-
-```razorforge
-routine max<T: Comparable>(a: T, b: T) -> T {
-    # Need to ensure T has comparison operators
-}
-
-routine show<T: Printable>(value: T) {
-    # Need to ensure T has to_text() method
-}
-```
-
-**Solution Needed:**
-
-1. Parser: Recognize `<T: Protocol>` syntax
-2. Parser: Handle `where T: T follows Protocol` clauses
-3. Semantic Analyzer: Validate constraints during instantiation
-4. Code Generator: Check protocol membership before generating code
-
-**Files:**
-
-- `src/Parser/RazorForgeParser.cs` - Extend generic parameter parsing
-- `src/Analysis/SemanticAnalyzer.Declarations.cs` - Constraint validation
-
----
-
-### Implementation Roadmap
-
-**✅ COMPLETED (2025-12-04): Bug 12.13 - Full Generic Method Template Matching**
-
-- [x] Created `GenericTypeResolver.cs` with pattern matching utilities
-- [x] Implemented template candidate generation
-- [x] Implemented type parameter substitution
-- [x] Fixed `GetKnownMethodReturnType()` to use `FullName`
-- [x] Fixed variable type tracking to preserve generic arguments
-- [x] Fixed generic constructor calls in code generator
-- [x] Fixed generic method resolution in code generator
-- [x] Fixed type substitution in function parameter generation
-- [x] Test with simple generic types - PASSING ✅
-- [x] End-to-end compilation test - PASSING ✅
-
-**Next Priority: Generic Record Instantiation (Item #2 above)**
-
-- [ ] Implement two-pass struct generation
-- [ ] Build type dependency graph
-- [ ] Topological sort for generation order
-- [ ] Handle recursive types (forward declarations)
-- [ ] Test with `List<T>`, `Node<T>`, nested types
-
-**Future Work: Overload Resolution (Item #3 above)**
-
-- [ ] Implement type inference for generic calls
-- [ ] Implement specificity ranking (non-generic > generic)
-- [ ] Handle multiple generic candidates
-- [ ] Test with `Console.show<T>` vs `Console.show(Text)`
-
-**Future Work: Generic Constraints (Item #4 above)**
-
-- [ ] Parse `<T: Protocol>` syntax
-- [ ] Parse `where` clauses
-- [ ] Validate constraints during instantiation
-- [ ] Generate constraint violation errors
-- [ ] Test with `max<T: Comparable>`, `sort<T: Comparable>`
-
----
-
-## 2. Method Mutation Inference (CRITICAL FOR TOKEN SYSTEM)
-
-**Priority:** 🔴 **CRITICAL** (blocks token API design)
-
-**Status:** ❌ **NOT STARTED**
-
-### Overview
-
-The token system (`Viewed<T>`, `Hijacked<T>`, `Inspected<T>`, `Seized<T>`) requires the compiler to know which methods
-mutate `me` (self-modifying) and which don't. This enables:
-
-1. **No API duplication** - Single method works with both readonly and mutable tokens
-2. **Automatic token propagation** - Return types adapt based on receiver token type
-3. **No const correctness** - No viral annotation spreading through call chains
-
-### The Problem
-
-Without knowing which methods mutate, we face three bad options:
-
-- **API fragmentation**: Different methods available on `Viewed<T>` vs `Hijacked<T>`
-- **API duplication**: `get()`/`get_mut()` pattern everywhere
-- **Runtime failures**: All methods compile but some panic at runtime
-
-### The Solution: Automatic Inference
-
-**Compiler automatically infers** which methods mutate by analyzing:
-
-1. **Direct field writes** - `me.field = value` (cheap, AST walk)
-2. **Call graph** - If A calls mutating B, then A is mutating (topological sort)
-3. **Cross-module caching** - Store inference results in compiled artifacts
-
-**No manual annotations needed!** Methods just work.
-
-### Example Behavior
-
-```razorforge
-entity Counter {
-    var value: s32
-}
-
-# Compiler infers: NOT mutating (only reads)
-routine Counter.get_value() -> s32 {
-    return me.value
-}
-
-# Compiler infers: mutating (writes field)
-routine Counter.increment() {
-    me.value += 1
-}
-
-# Compiler infers: mutating (calls mutating method)
-routine Counter.double_increment() {
-    me.increment()  # Calls mutating method, so this is mutating too
-    me.increment()
-}
-
-# Usage with tokens
-let counter = Counter(value: 0)
-
-viewing counter as v {
-    show(v.get_value())  # ✅ Works - non-mutating method
-    v.increment()        # ❌ Compile error: increment() is mutating
-}
-
-hijacking counter as h {
-    h.increment()        # ✅ Works - all methods available
-    show(h.get_value())  # ✅ Works - non-mutating methods also work
-}
-```
-
-### Automatic Return Type Adaptation
-
-Methods returning `T` automatically wrap based on receiver:
-
-```razorforge
-entity List<T> {
-    var _buffer: pointer
-}
-
-routine List<T>.get!(index: uaddr) -> T {
-    danger! { return @load(_buffer, index) }
-}
-
-# Single method definition, but return type adapts:
-viewing list as v {
-    let item = v.get!(0)  # item is Viewed<T> (readonly propagates)
-}
-
-hijacking list as l {
-    let item = l.get!(0)  # item is Hijacked<T> (mutable propagates)
-}
-```
-
-### Implementation Requirements
-
-**Analysis Phase (Semantic Analyzer):**
-
-1. **Direct mutation detection** (O(method body size))
-   ```csharp
-   // Detect field writes in method bodies
-   private bool CheckForFieldMutations(RoutineDeclaration routine)
-   {
-       // Walk AST, look for BinaryExpression with = operator where left is FieldAccess
-   }
-   ```
-
-2. **Call graph construction** (O(methods + calls))
-   ```csharp
-   // Build who-calls-whom graph
-   private Dictionary<string, HashSet<string>> BuildCallGraph()
-   {
-       // For each method, track which methods it calls
-   }
-   ```
-
-3. **Transitive propagation** (O(call graph size))
-   ```csharp
-   // Topological sort + marking
-   private void PropagateNutationInfo(Dictionary<string, HashSet<string>> callGraph)
-   {
-       // If method calls mutating method, mark as mutating
-   }
-   ```
-
-4. **Metadata caching**
-   ```csharp
-   // Store in TypeInfo or separate dictionary
-   public Dictionary<string, bool> MethodMutationInfo = new();
-
-   // Cache in compiled artifacts for cross-module use
-   ```
-
-**Code Generation Phase:**
-
-1. **Token type enforcement**
-   ```csharp
-   // When generating method call on Viewed<T> or Inspected<T>
-   if (receiverIsReadonly && methodIsMutating)
-   {
-       Error("Cannot call mutating method through readonly token");
-   }
-   ```
-
-2. **Return type wrapping**
-   ```csharp
-   // When method returns T and receiver is Viewed<T>
-   // Wrap return value in Viewed<T>
-   ```
-
-### Performance Impact
-
-| Analysis               | Complexity                | Cost Estimate      |
-|------------------------|---------------------------|--------------------|
-| Direct mutation detect | O(method bodies)          | ~2-5% compile time |
-| Call graph build       | O(methods + calls)        | ~1-2% compile time |
-| Transitive propagation | O(call graph)             | ~1-2% compile time |
-| **Total**              | Similar to type inference | **~5-10% total**   |
-
-**Space cost:** 1 bit per method (mutating: yes/no)
-
-### Files To Modify
-
-**New File:**
-
-- `src/Analysis/MutationAnalyzer.cs` - Core analysis logic
-
-**Modified Files:**
-
-- `src/Analysis/SemanticAnalyzer.cs` - Integrate mutation analysis pass
-- `src/Analysis/TypeInfo.cs` - Add mutation info storage
-- `src/CodeGen/LLVMCodeGenerator.Expressions.cs` - Token type enforcement
-- `src/CodeGen/LLVMCodeGenerator.MethodCalls.cs` - Return type wrapping
-
-### Benefits
-
-✅ **No const correctness** - No viral annotations spreading
-✅ **No API duplication** - Single `get()` method, no `get_mut()`
-✅ **No API fragmentation** - Different enforcement, not different APIs
-✅ **Compile-time safe** - Errors at call site, not runtime
-✅ **Automatic propagation** - Return types adapt based on receiver
-✅ **Developer friendly** - Just write methods normally
-✅ **Separate compilation** - Cached in module metadata
-
-### Trade-offs
-
-⚠️ **Not visible in source** - Mutation status only in IDE/docs/errors
-⚠️ **Compilation cost** - Adds ~5-10% to compile time
-⚠️ **Cross-module metadata** - Need to store/load inference results
-
-### Next Steps
-
-1. Implement `MutationAnalyzer.cs` with direct mutation detection
-2. Add call graph construction
-3. Add transitive propagation
-4. Integrate into semantic analysis pass
-5. Add token type enforcement in code generation
-6. Add return type wrapping for token propagation
-7. Test with stdlib types (List, Text, etc.)
-8. Document in wiki how inference works
-
-**See Also:**
-
-- [RazorForge Memory Model](../wiki/RazorForge-Memory-Model.md) - Token types
-- [RazorForge Routines](../wiki/RazorForge-Routines.md) - Method declarations
-
----
-
-## 3. Iterator Permission Inference (R/RW Detection)
-
-**Priority:** 🟡 **HIGH** (depends on Method Mutation Inference)
-
-**Status:** ❌ **NOT STARTED**
-
-**Depends On:** #2 Method Mutation Inference (uses same analysis)
-
-### Overview
-
-Iterators have three permission levels: **R** (read-only), **RW** (read-write), and **RWS** (consuming). The compiler
-can automatically infer R vs RW based on mutation analysis, while RWS must be explicit (via `.consume()`).
-
-### The Three Permission Levels
-
-| Permission | Meaning                       | Can Read | Can Mutate Elements | Can Modify Structure |
-|------------|-------------------------------|----------|---------------------|----------------------|
-| **R**      | Read-only                     | ✅        | ❌                   | ❌                    |
-| **RW**     | Read-write (structure locked) | ✅        | ✅                   | ❌                    |
-| **RWS**    | Consuming (empties container) | ✅        | ✅                   | ✅                    |
-
-### Base Cases for Inference
-
-The inference system requires explicit base cases to bootstrap from:
-
-**1. Field operations (implicit):**
-
-- Field read (`me.value`) → R (non-mutating)
-- Field write (`me.value = x`) → RW (mutating)
-
-**2. Token operations (implicit):**
-
-- `.view()` → R
-- `.hijack()` → RW
-- `.consume()` → RWS (always explicit, never inferred)
-
-**3. Structural operations (inferred from DynamicSlice modifications):**
-
-- Modifies `DynamicSlice` control structures (pointer, size, capacity) → structural
-- Only reads/writes data within existing allocation → non-structural
-- Analysis similar to mutation inference (no manual annotations)
-
-**4. Propagation (inferred from base cases):**
-
-- Calls RW method → caller becomes RW
-- Calls R method → doesn't affect caller's mutation status
-- Calls structural method on `me` → caller becomes structural
-
-### What Can Be Inferred
-
-**✅ R vs RW - Automatic Inference:**
-
-The compiler can determine if an iterator is R or RW by analyzing whether the iterator's methods mutate the yielded
-elements:
-
-```razorforge
-entity List<T> {
-    private var _buffer: pointer
-    private var _count: uaddr
-}
-
-# Compiler infers iterator permission based on what Iterator<T> methods do
-routine List<T>.iter() -> Iterator<T> {
-    return Iterator(buffer: me._buffer, count: me._count)
-}
-
-# If Iterator<T>.next() and related methods:
-# - Only read yielded elements → R iterator
-# - Can mutate yielded elements → RW iterator
-```
-
-**❌ RWS - Must Be Explicit:**
-
-RWS permission cannot be inferred because:
-
-1. **Different semantics** - RWS transfers ownership, R/RW borrow
-2. **Different yield type** - RWS yields owned `T`, R/RW yield tokens
-3. **Destructive** - RWS empties the container
-4. **Safety** - Don't want accidental consuming iteration
-
-```razorforge
-# RWS must be explicit via .consume()
-for item in list.consume() {
-    transfer(item)  # item is owned T
-}
-# list is now deadref
-```
-
-### Token → Iterator Permission Mapping
-
-```razorforge
-# R - Read-only iteration
-viewing list as v {
-    for item in v { ... }  # Compiler ensures: item is Viewed<T>
-}
-
-# RW - Read-write iteration (structure locked)
-hijacking list as h {
-    for item in h { ... }  # Compiler ensures: item is Hijacked<T>
-    # h.push(x)  # ❌ Compile error - structure modification banned during RW iteration
-}
-
-# RWS - Explicit consuming iteration
-for item in list.consume() {
-    process(item)  # item is owned T
-}
-```
-
-### Structure Modification Detection
-
-The compiler must detect and ban structure-modifying operations during R/RW iteration using automatic structural
-inference.
-
-**Base Case: DynamicSlice Modification Analysis**
-
-The compiler automatically infers which methods are structural by analyzing whether they modify `DynamicSlice` control
-structures (pointer, size, capacity) rather than just writing data within the existing allocation.
-
-```razorforge
-entity List<T> {
-    private var _buffer: DynamicSlice  # Heap allocation control structure
-    private var _count: uaddr
-}
-
-# Compiler infers: STRUCTURAL (modifies DynamicSlice metadata)
-routine List<T>.push(value: T) {
-    # Potentially resizes _buffer, changes _count
-    # Modifies DynamicSlice control structure → structural
-}
-
-# Compiler infers: STRUCTURAL (modifies DynamicSlice metadata)
-routine List<T>.pop!() -> T {
-    # Removes element, changes _count, potentially shrinks _buffer
-    # Modifies DynamicSlice control structure → structural
-}
-
-# Compiler infers: STRUCTURAL (modifies DynamicSlice metadata)
-routine List<T>.remove(index: uaddr) -> T {
-    # Removes element, shifts data, changes structure
-    # Modifies DynamicSlice control structure → structural
-}
-
-# Compiler infers: NON-STRUCTURAL (only reads data)
-routine List<T>.__getitem__(index: uaddr) -> T {
-    danger! {
-        return me._buffer.read_as<T>(offset: index)
-    }
-    # Only reads from existing allocation → non-structural
-}
-
-# Compiler infers: NON-STRUCTURAL (only writes data)
-routine List<T>.__setitem__(index: uaddr, value: T) {
-    danger! {
-        me._buffer.write_as<T>(offset: index, value: value)
-    }
-    # Only writes to existing allocation → non-structural
-}
-```
-
-**Inference process:**
-
-The compiler performs structural analysis similar to mutation inference:
-
-1. **Direct analysis** - Does the method modify `DynamicSlice` fields (_buffer, size, capacity)?
-2. **Call graph analysis** - Does the method call structural methods on `me`?
-3. **Transitive propagation** - Structural property flows through the call chain
-
-**Important:** Conditional branches don't matter - if *any* code path performs structural modifications, the entire
-method is structural. This ensures safety across all possible execution paths.
-
-```razorforge
-routine List<T>.maybe_push(value: T, condition: bool) {
-    if condition {
-        me.push(value)  # Structural operation in conditional branch
-    }
-    # Entire method is structural - cannot be called on tokens
-}
-```
-
-**Detection and enforcement:**
-
-```razorforge
-# Structural operations BANNED for ALL tokens (Hijacked/Seized)
-hijacking list as h {
-    h[0] = new_value     # ✅ OK - __setitem__ inferred as non-structural
-    h.push(new_item)     # ❌ Compile error: structural operation not allowed on tokens
-    h.pop()              # ❌ Compile error: structural operation not allowed on tokens
-}
-
-seizing shared_list as s {
-    s[0] = new_value  # ✅ OK - __setitem__ inferred as non-structural
-    s.push(new_item)  # ❌ Compile error: structural operation not allowed on tokens
-}
-
-# ✅ Use owned container for structural modification
-list.push(new_item)
-list.pop()
-
-# ✅ For shared: extract to get ownership first
-let extracted = shared_list.extract()
-extracted.push(new_item)  # Now OK - you have ownership
-```
-
-**Why ban for all tokens:**
-
-1. **Memory management base case** - Structural operations modify DynamicSlice control structures (allocation/
-   deallocation)
-2. **Ownership semantics** - `push(item)` transfers ownership, not just mutation
-3. **Tokens are borrows** - Temporary access for reading/writing elements, not managing allocations
-4. **Consistency** - Same rules for Hijacked (single-threaded) and Seized (multi-threaded)
-5. **Prevents bad designs** - Concurrent push/pop would be a design smell
-
-**Why automatic inference:**
-
-- ✅ Consistent with mutation inference - same analysis approach
-- ✅ No manual annotations - compiler detects DynamicSlice modifications automatically
-- ✅ No viral annotations - developers write natural code
-- ✅ Self-evident semantics - operations that resize allocations are clearly structural
-- ✅ No false positives - based on actual memory management operations
-
-### Implementation Requirements
-
-**Phase 1: Leverage Mutation Inference (from #2)**
-
-Iterator permission inference reuses the mutation analysis infrastructure:
-
-```csharp
-// In MutationAnalyzer.cs (from #2)
-public enum IteratorPermission
-{
-    ReadOnly,      // R - yields Viewed<T>
-    ReadWrite,     // RW - yields Hijacked<T>
-    Consuming      // RWS - yields owned T (explicit only)
-}
-
-public IteratorPermission InferIteratorPermission(TypeInfo iteratorType)
-{
-    // Analyze iterator's methods (next, has_next, etc.)
-    // If any method mutates yielded elements → ReadWrite
-    // Otherwise → ReadOnly
-    // Note: Consuming is NEVER inferred, must be explicit
-}
-```
-
-**Phase 2: Structural Mutation Detection**
-
-```csharp
-// Add to MutationAnalyzer.cs
-public bool IsStructuralMutation(RoutineDeclaration routine)
-{
-    // Infer structural operations by analyzing DynamicSlice modifications
-    // Similar to mutation inference approach
-    // IMPORTANT: Checks ALL code paths - conditionals don't matter
-
-    // Base case 1: Direct DynamicSlice field modifications (anywhere in body)
-    var assignsToSlice = routine.Body
-        .DescendantsAndSelf()  // Walks entire AST, including conditional branches
-        .OfType<AssignmentExpression>()
-        .Any(assign => assign.Target is FieldAccess fa &&
-                       fa.Field.Type is DynamicSliceType);
-
-    if (assignsToSlice)
-        return true;
-
-    // Base case 2: Calls to allocator/reallocation functions (anywhere in body)
-    var callsAllocator = routine.Body
-        .DescendantsAndSelf()  // Walks entire AST, including conditional branches
-        .OfType<CallExpression>()
-        .Any(call => IsMemoryManagementCall(call));
-
-    if (callsAllocator)
-        return true;
-
-    // Transitive case: Calls structural methods on me (anywhere in body)
-    var callsStructural = routine.Body
-        .DescendantsAndSelf()  // Walks entire AST, including conditional branches
-        .OfType<CallExpression>()
-        .Where(call => call.Receiver is MeExpression)
-        .Any(call => IsStructuralMutation(call.Method));
-
-    return callsStructural;
-}
-
-private bool IsMemoryManagementCall(CallExpression call)
-{
-    // Check for allocator, resize, grow, shrink, etc.
-    return call.Method.Name is "allocate" or "resize" or "grow" or "shrink" or "deallocate";
-}
-```
-
-**Phase 3: Token Type Checking**
-
-```csharp
-// In SemanticAnalyzer.cs or CodeGenerator.cs
-// When calling method on a token (Viewed/Hijacked/Inspected/Seized)
-if (IsTokenType(receiverType) && IsStructuralMutation(method))
-{
-    Error($"Cannot call structural method '{method.Name}' on token {receiverType}");
-    Note("Structural operations modify DynamicSlice control structures - use owned container");
-}
-
-private bool IsTokenType(string typeName)
-{
-    return typeName.StartsWith("Viewed<") ||
-           typeName.StartsWith("Hijacked<") ||
-           typeName.StartsWith("Inspected<") ||
-           typeName.StartsWith("Seized<");
-}
-```
-
-### Example Behavior
-
-```razorforge
-entity List<T> {
-    private var _buffer: DynamicSlice
-    private var _count: uaddr
-}
-
-# Compiler infers: NOT mutating (only reads)
-routine List<T>.iter() -> Iterator<T> { ... }
-
-let list: List<Counter> = build_list()
-
-# Iterator inferred as R (yields Viewed<Counter>)
-viewing list as v {
-    for counter in v {
-        show(counter.get_value())  # ✅ Non-mutating only
-        # counter.increment()       # ❌ Compile error
-    }
-}
-
-# Iterator inferred as RW (yields Hijacked<Counter>)
-hijacking list as h {
-    for counter in h {
-        counter.increment()  # ✅ Can mutate elements
-    }
-    # h.push(x)  # ❌ Compile error - structural operation not allowed on tokens
-}
-
-# ✅ Use owned for structural modification
-list.push(x)
-list.pop()
-```
-
-### Performance Impact
-
-| Analysis                   | Complexity                   | Cost Estimate                    |
-|----------------------------|------------------------------|----------------------------------|
-| Iterator permission        | O(iterator methods)          | Negligible (reuses)              |
-| Structural mutation detect | O(method body) per method    | ~5-10% (same as mutation infer)  |
-| Token type checking        | O(1) per call                | Negligible (type check)          |
-| **Total**                  | Reuses #2 analysis framework | **~5-10% (same as mutation)**    |
-
-**Note:** Most work is already done by Method Mutation Inference (#2). Structural inference follows the same
-call-graph analysis pattern, just tracking DynamicSlice modifications instead of general mutations.
-
-### Files To Modify
-
-**Modified Files:**
-
-- `src/Analysis/MutationAnalyzer.cs` - Add `InferIteratorPermission()` and `IsStructuralMutation()` with DynamicSlice
-  analysis
-- `src/Analysis/SemanticAnalyzer.cs` - Add token type checking for structural methods
-- `src/CodeGen/LLVMCodeGenerator.Expressions.cs` - Enforce structural operation ban on tokens
-
-### Benefits
-
-✅ **Automatic R/RW detection** - No manual iterator annotations
-✅ **Automatic structural inference** - Compiler detects DynamicSlice modifications
-✅ **Structure safety** - Structural methods banned on all tokens
-✅ **Clear semantics** - Tokens = borrows, owned = structural modifications (memory management)
-✅ **Consistent** - Same rules for single-threaded and multi-threaded
-✅ **Explicit consuming** - RWS must use `.consume()` (no accidents)
-✅ **Reuses infrastructure** - Leverages mutation inference framework from #2
-✅ **No viral annotations** - Developers write natural code, compiler figures it out
-
-### Trade-offs
-
-⚠️ **RWS is verbose** - Must explicitly call `.consume()` (but this is intentional for safety)
-⚠️ **Less flexible** - Cannot modify structure through tokens (but this enforces ownership semantics)
-
-### Next Steps
-
-1. Wait for #2 (Method Mutation Inference) to be implemented
-2. Add `InferIteratorPermission()` to `MutationAnalyzer.cs`
-3. Add `IsStructuralMutation()` with DynamicSlice modification analysis (similar to mutation inference)
-4. Add token type checking in semantic analyzer
-5. Enforce structural operation ban on all tokens (Viewed/Hijacked/Inspected/Seized)
-6. Test with stdlib containers (List, Dict, etc.)
-7. Document in wiki (already done - see below)
-
-**See Also:**
-
-- [RazorForge Memory Model - Iteration](../wiki/RazorForge-Memory-Model.md#iteration-and-iterator-permissions-single-threaded) -
-  Single-threaded iterators
-- [RazorForge Concurrency Model - Iteration](../wiki/RazorForge-Concurrency-Model.md#iteration-and-iterator-permissions-multi-threaded) -
-  Multi-threaded iterators
-
----
-
-## 4. Native Runtime Library (BLOCKING EXECUTION)
-
-**Priority:** 🔴 **HIGH** (but doesn't block development)
-
-**Status:** ❌ **NOT STARTED**
-
-The compiler generates valid LLVM IR but cannot link executables due to missing native functions.
-
-**Error:**
-
-```
-Clang error: clang: error: linker command failed with exit code 1120
-```
+### 2. Native Runtime Library (BLOCKING EXECUTION)
+**Status:** 🔴 **HIGH** - Valid LLVM IR generated but cannot link executables
 
 **Missing Functions:**
-
 - Text formatting: `format_s64`, `format_s32`, `format_f64`, etc.
 - Stack trace runtime: `__rf_init_symbol_tables`, `__rf_stack_push`, `__rf_stack_pop`
 - Console I/O: `rf_console_print_cstr`, `rf_console_get_line`, etc.
 - Memory management: `rf_memory_alloc`, `rf_memory_free`, `rf_memory_copy`
 
-**Next Steps:**
-
+**Concrete Tasks:**
 1. Create `native/runtime.c` with implementations
 2. Update build system to compile and link runtime.c
 3. Test end-to-end: source → IR → executable → run
 
 **Files:**
-
 - `native/runtime.c` (create)
 - `native/build.sh` (update)
 - Build system integration
 
 ---
 
-## 3. Module System & Core Prelude (MEDIUM PRIORITY)
+### 3. Method Mutation Inference (CRITICAL FOR TOKEN SYSTEM)
+**Status:** 🔴 **CRITICAL** - Blocks token API design
 
-**Priority:** 🟡 **MEDIUM**
+**Why Critical:** Token system (`Viewed<T>`, `Hijacked<T>`, `Inspected<T>`, `Seized<T>`) requires knowing which methods mutate `me`. Without this:
+- API fragmentation (different methods on `Viewed<T>` vs `Hijacked<T>`)
+- API duplication (`get()`/`get_mut()` pattern everywhere)
+- Runtime failures (all methods compile but some panic)
 
-**Status:** ⏳ **PARTIALLY IMPLEMENTED** (parsing works, resolution doesn't)
-
-### Current State
-
-- `import` statement parsing works
-- Modules not resolved or loaded
-- Symbol table not populated from imports
-- **Core prelude not implemented** - needs automatic loading
-
-### Design Decisions (Finalized)
-
-1. **Search Order:** `stdlib/` → project root → external packages
-2. **Import Style:** Unqualified access - `import Collections/List` lets you use `List<T>` directly
-3. **Selective Imports:** `import Collections/{List, Dict}`
-4. **Namespace Declaration:** `namespace MyNamespace` overrides folder path
-5. **Implicit Namespaces:** No namespace declaration = file path becomes namespace
-6. **Core Prelude:** `core` namespace automatically loaded in every file (no import needed)
-7. **Loading Strategy:** Eager - load all transitive imports before semantic analysis
-
-### Core Prelude Auto-Loading (NEW FEATURE)
-
-**Requirement:** All files in `stdlib/core/` namespace must be automatically loaded without requiring import.
-
-**Core namespace contents (all marked with `namespace core`):**
-
-- **Primitives:** s8-s128, u8-u128, saddr, uaddr, f16-f128, d32-d128, bool, Blank
-- **Letters:** letter8, letter16, letter32
-- **Error handling:** Maybe, Result, Lookup, Crashable, Error
-- **Memory:** DynamicSlice, MemorySize
-- **FFI:** cstr, cint, etc.
-- **Utilities:** BackIndex, Range, Duration, Integral (protocol)
-
-**Implementation needs:**
-
-```csharp
-// In SemanticAnalyzer initialization
-private void LoadCorePrelude()
-{
-    // Automatically load all files in stdlib/core/ namespace
-    var coreFiles = Directory.GetFiles(stdlibPath + "/core", "*.rf", SearchOption.AllDirectories);
-    foreach (var file in coreFiles)
-    {
-        var module = LoadModule(file);
-        // Add to symbol table without requiring import
-    }
-}
-```
-
-**Usage example:**
-
-```razorforge
-# No import needed for core types!
-routine start() {
-    let x: s64 = 42                    # ✅ core - always available
-    let maybe: Maybe<u64> = Some(100)  # ✅ core - always available
-    let slice: DynamicSlice = ...      # ✅ core - always available
-
-    # But non-core types still need imports
-    import Console                     # ❌ Not core - must import
-    Console.show("Hello!")
-}
-```
-
-### Implementation Tasks
-
-- [ ] **Core Prelude Loader** - Auto-load all `stdlib/core/` files at startup
-- [ ] **Implicit Namespace Detection** - If no `namespace` declaration, use file path
-- [ ] **ModuleResolver** - Resolve import paths to file paths
-- [ ] **Stdlib Search Hierarchy** - `--stdlib` flag → source dir → compiler dir → env var
-- [ ] **ModuleCache** - Track loaded modules to avoid re-parsing
-- [ ] **Symbol Table Population** - Add imported symbols to scope
-- [ ] **Collision Detection** - Error on duplicate names
-- [ ] **Transitive Loading** - Load dependencies recursively
-- [ ] **Circular Import Detection** - Track import stack
+**Concrete Tasks:**
+1. Implement `MutationAnalyzer.cs` with direct mutation detection (field writes)
+2. Add call graph construction
+3. Add transitive propagation (if A calls mutating B, then A is mutating)
+4. Integrate into semantic analysis pass
+5. Add token type enforcement in code generation
+6. Add return type wrapping for token propagation
 
 **Files:**
+- `src/Analysis/MutationAnalyzer.cs` (NEW FILE)
+- `src/Analysis/SemanticAnalyzer.cs` - Integrate mutation analysis
+- `src/Analysis/TypeInfo.cs` - Add mutation info storage
+- `src/CodeGen/LLVMCodeGenerator.Expressions.cs` - Token enforcement
+- `src/CodeGen/LLVMCodeGenerator.MethodCalls.cs` - Return type wrapping
 
-- `src/ModuleSystem/ModuleResolver.cs` (create/enhance)
-- `src/ModuleSystem/CorePreludeLoader.cs` (create)
-- `src/ModuleSystem/ModuleCache.cs` (create)
-- `src/Analysis/SemanticAnalyzer.cs` - Integrate module resolution and core prelude
-
-**See Also:** [Modules-and-Imports.md](../wiki/Modules-and-Imports.md) for complete Namespace-as-a-Module (NaaM)
-documentation
+**See Also:** [RazorForge Memory Model](../wiki/RazorForge-Memory-Model.md), [RazorForge Routines](../wiki/RazorForge-Routines.md)
 
 ---
 
-## 4. Protocol System (MEDIUM-HIGH PRIORITY)
+### 4. Crashable Function Tracking & Variant Generation (CRITICAL FOR ERROR HANDLING)
+**Status:** 🔴 **NOT IMPLEMENTED** - Blocks error handling system
 
-**Priority:** 🟠 **MEDIUM-HIGH** (needed for constraints and code reuse)
+**Problem:** No tracking of which functions can crash (use `!` suffix). No auto-generation of error-handling variants.
 
+**The Four Function Types:**
+
+| Type | Naming | Who Writes | Behavior | Example |
+|------|--------|------------|----------|---------|
+| **1. Crashable** | `foo!()` | User | Crashes on error/absent | `read_file!(path) -> Text` |
+| **2. Try** | `try_foo()` | Compiler | Returns `T?` (None on error/absent) | `try_read_file(path) -> Text?` |
+| **3. Check** | `check_foo()` | Compiler | Returns `Result<T>` (error info) | `check_read_file(path) -> Result<Text>` |
+| **4. Find** | `find_foo()` | Compiler | Returns `Lookup<T>` (error/absent/value) | `find_get_user(id) -> Lookup<User>` |
+
+**Auto-Generation Rules:**
+
+The compiler generates variants based on what keywords appear in the `!` function body:
+
+| `throw` in body? | `absent` in body? | Compiler generates |
+|------------------|-------------------|--------------------|
+| ❌ No | ❌ No | **Compile Error** - `!` functions must have `throw` or `absent` |
+| ❌ No | ✅ Yes | `try_` only |
+| ✅ Yes | ❌ No | `try_`, `check_` |
+| ✅ Yes | ✅ Yes | `try_`, `find_` |
+
+**Examples for Each Rule:**
+
+```razorforge
+# Rule 1: No throw, no absent → Compile Error
+routine calculate!(a: s32, b: s32) -> s32 {
+    return a + b  # ❌ ERROR: No throw or absent in ! function
+}
+
+# Rule 2: absent only (no throw) → Generates try_ only
+routine get_item!(id: u64) -> Item {
+    unless storage.has(id) {
+        absent  # Only absent, no throw
+    }
+    return storage.get(id)
+}
+# Compiler generates: try_get_item() -> Item?
+# User wrote: get_item!() -> Item (crashes with AbsentValueError)
+
+# Rule 3: throw only (no absent) → Generates try_, check_
+routine process_data!(input: Text<letter32>) -> Data {
+    if input.is_empty() {
+        throw ValidationError(message: "Empty input")
+    }
+    return Data(input)
+}
+# Compiler generates:
+#   try_process_data() -> Data?
+#   check_process_data() -> Result<Data>
+# User wrote: process_data!() -> Data (crashes on throw)
+
+# Rule 4: BOTH throw AND absent → Generates try_, find_
+routine get_user!(id: u64) -> User {
+    if id == 0 {
+        throw ValidationError(message: "Invalid ID")
+    }
+    unless database.has(id) {
+        absent  # Has both throw and absent → generates find_
+    }
+    return database.get(id)
+}
+# Compiler generates:
+#   try_get_user() -> User?
+#   find_get_user() -> Lookup<User>
+# User wrote: get_user!() -> User (crashes on throw or absent)
+```
+
+**Critical Insight - Body Transformation:**
+
+When generating non-crashable variants, statements are transformed as follows:
+- `check_` variant (returns `Result<T>`): `throw E` → `return E`, `return V` → `return V`
+- `try_` variant (returns `T?`): `throw E` → `return None`, `absent` → `return None`, `return V` → `return V`
+- `find_` variant (returns `Lookup<T>`): `throw E` → `return E`, `absent` → `return None`, `return V` → `return V`
+
+**Current Issues:**
+- ❌ No detection of `!` function calls
+- ❌ No enforcement that non-`!` functions can't call `!` functions directly
+- ❌ No auto-generation of `try_`, `check_`, and `find_` variants
+- ❌ No body transformation (`throw`/`absent` → return conversion)
+- ❌ No detection of `throw` and `absent` keywords in function bodies
+- ❌ No validation of `@crash_only` attribute
+- ❌ No tracking of which variant is being called
+
+**Concrete Tasks:**
+
+1. **Detect keywords in `!` function bodies:**
+   - Walk AST to find `throw` statements
+   - Walk AST to find `absent` statements
+   - Validate: `!` functions MUST have at least one `throw` or `absent`
+   - Store keyword presence in function metadata
+
+2. **Track function error category in AST/symbol table:**
+   - Detect `!` suffix on function name (user-written crashable)
+   - Store generated variant types: `try_`, `check_`, `find_`
+   - Store in `FunctionInfo` with enum: `Crashable | TryVariant | CheckVariant | FindVariant`
+
+3. **Call site validation:**
+   - Detect calls to `!` functions
+   - Enforce: only callable from other `!` functions or with explicit `try_`/`check_`/`find_` prefix
+   - Generate error: "Cannot call crashable function 'foo!' from non-crashable context. Use try_foo(), check_foo(), or find_foo()"
+
+4. **Auto-generate variants with body transformation:**
+   - From `foo!(x: T) -> U`, generate 1-2 variants based on body content:
+     - `try_foo(x: T) -> U?` - ALWAYS generated
+     - `check_foo(x: T) -> Result<U>` - if body has `throw` but NOT `absent`
+     - `find_foo(x: T) -> Lookup<U>` - if body has BOTH `throw` AND `absent`
+   - Store all versions in symbol table
+   - Mark generated functions as compiler-generated (cannot be manually written)
+
+5. **Body transformation algorithm:**
+   ```
+   For try_ variant (returns T?):
+   - Walk AST of ! function body
+   - Replace: throw <expr> → return None
+   - Replace: absent → return None
+   - Replace: return <expr> → return <expr>
+   - Replace calls to other ! functions: foo!(x) → try_foo(x)?
+
+   For check_ variant (returns Result<T>):
+   - Walk AST of ! function body
+   - Replace: throw <expr> → return <expr>
+   - Replace: return <expr> → return <expr>
+   - Replace calls to other ! functions: foo!(x) → check_foo(x)?
+
+   For find_ variant (returns Lookup<T>):
+   - Walk AST of ! function body
+   - Replace: throw <expr> → return <expr>
+   - Replace: absent → return None
+   - Replace: return <expr> → return <expr>
+   - Replace calls to other ! functions: foo!(x) → find_foo(x)?
+   ```
+
+6. **Validate `@crash_only` attribute:**
+   - Only allowed on `start!` function
+   - Required if `start` has `!` suffix
+   - Enables crashable calls in entry point without transformation
+
+7. **Transitive analysis:**
+   - If function A calls crashable function B without try_/check_/find_ prefix, then A must be crashable
+   - Build call graph and propagate crashability
+
+**Example Enforcement:**
+```razorforge
+# User writes crashable function with throw only
+routine parse_config!(path: Text<letter32>) -> Config {
+    let data = read_file!(path)  # ✅ OK - parse_config! is crashable
+    unless data.contains("version") {
+        throw ConfigError(message: "Missing version field")
+    }
+    return Config.deserialize!(data)  # ✅ OK
+}
+
+# Non-crashable function cannot call ! directly
+routine safe_parse(path: Text<letter32>) -> Config? {
+    let data = read_file!(path)  # ❌ ERROR: Cannot call crashable function
+    # Fix: use try_ variant
+    let data = try_read_file(path)?  # ✅ OK - returns Text? (None on error)
+    return try_Config_deserialize(data)?  # ✅ OK
+}
+
+# Compiler auto-generates try_ and check_ (because body has throw but no absent):
+routine try_parse_config(path: Text<letter32>) -> Config? {
+    let data = try_read_file(path)?  # Transformed: read_file! → try_read_file
+    unless data.contains("version") {
+        return None  # Transformed: throw → return None
+    }
+    return try_Config_deserialize(data)?  # Transformed
+}
+
+routine check_parse_config(path: Text<letter32>) -> Result<Config> {
+    let data = check_read_file(path)?  # Transformed: read_file! → check_read_file
+    unless data.contains("version") {
+        return ConfigError(message: "Missing version field")  # Transformed: throw E → return E
+    }
+    return check_Config_deserialize(data)?  # Transformed
+}
+
+# Example with both throw AND absent → generates try_ and find_
+routine get_user!(id: u64) -> User {
+    if id == 0 {
+        throw ValidationError(message: "Invalid ID")
+    }
+    unless database.has(id) {
+        absent  # Has both throw and absent
+    }
+    return database.get(id)
+}
+
+# Compiler auto-generates:
+routine try_get_user(id: u64) -> User? {
+    if id == 0 {
+        return None  # throw → None
+    }
+    unless database.has(id) {
+        return None  # absent → None
+    }
+    return database.get(id)
+}
+
+routine find_get_user(id: u64) -> Lookup<User> {
+    if id == 0 {
+        return ValidationError(message: "Invalid ID")  # throw E → return E
+    }
+    unless database.has(id) {
+        return None  # absent → None
+    }
+    return database.get(id)
+}
+```
+
+**Files:**
+- `src/Analysis/CrashableAnalyzer.cs` (NEW FILE - detect `throw`/`absent` in bodies, validation)
+- `src/Analysis/FunctionVariantGenerator.cs` (NEW FILE - auto-gen try_/check_/find_ with body transform)
+- `src/AST/ASTTransformer.cs` (NEW FILE - throw/absent → return conversion)
+- `src/Analysis/SemanticAnalyzer.cs` - Integrate crashable validation
+- `src/Analysis/SymbolTable.cs` - Add function variant enum: Crashable | TryVariant | CheckVariant | FindVariant
+- `src/CodeGen/LLVMCodeGenerator.Functions.cs` - Generate all variants (1 user + 1-2 generated)
+- `src/Parser/RazorForgeParser.cs` - Parse `@crash_only` attribute, `throw` and `absent` statements
+
+**LSP Integration:**
+The LSP should track and visualize all four function types:
+- Color-code by error handling: `!` functions in red, `check_` in yellow, `try_` in blue, `find_` in purple
+- Show in hover: "Crashable function", "Auto-generated try_ variant from foo!", etc.
+- Diagnostic: Highlight crashable calls in non-crashable contexts
+- Quick fix: "Replace with try_foo()", "Replace with check_foo()", or "Replace with find_foo()"
+
+**See Also:** [RazorForge Error Handling](../wiki/RazorForge-Error-Handling.md)
+
+---
+
+## CORE FEATURES STATUS
+
+### Generics
+**Status:** ✅ **CORE FUNCTIONALITY COMPLETE** (2025-12-04)
+
+**What Works:**
+- ✅ Generic function monomorphization (`identity<T>`, `swap<T>`)
+- ✅ Namespace-qualified generic methods (`Console.show<T>`)
+- ✅ Nested generic types (`List<List<s32>>`, `Range<BackIndex<uaddr>>`)
+- ✅ Generic type instantiation (`TestType<s64>(...)`)
+- ✅ Generic method calls (`instance.method()`)
+- ✅ Template matching (concrete types match templates automatically)
+- ✅ End-to-end compilation with full type checking
+
+**Remaining Work:**
+1. **Generic Record Instantiation** (See Immediate Priorities #1)
+2. **Generic Function Overload Resolution** - Cannot choose between generic and non-generic versions
+3. **Generic Constraints** - Cannot express type requirements (`<T: Comparable>`)
+
+**See:** [GENERICS_STATUS.md](GENERICS_STATUS.md), [BUG_12.13_ANALYSIS.md](BUG_12.13_ANALYSIS.md)
+
+---
+
+### Type System
+**Status:** ⏳ **PARTIALLY IMPLEMENTED**
+
+**Working:**
+- ✅ Record wrapper architecture ("everything is a record")
+- ✅ Extract-operate-wrap pattern consistently applied
+- ✅ Multi-field struct handling
+- ✅ Nested record types (e.g., `%d32 = type { %u32 }` where `%u32 = type { i32 }`)
+- ✅ Type conversion and casting with auto-cast for variable initialization
+- ✅ Floating-point type detection and operations
+
+**Missing:**
+- ❌ Optional field syntax (`field: Type?`) - Parser rejects `?` in field declarations (Bug 12.17)
+- ❌ Type constructor calls - `saddr(me)` generates function call instead of type conversion (Bug 12.7)
+- ❌ Integer literal type inference - Literals don't respect expected type context (Bug 12.10)
+- ❌ Function return type tracking - Defaults to i32 instead of actual return type (Bug 12.11)
+
+---
+
+### Module System & Core Prelude
+**Status:** ✅ **CORE PRELUDE WORKING** | ⏳ **MODULE IMPORTS BROKEN**
+
+**Working:**
+- ✅ Core prelude auto-loading (`namespace core` files loaded automatically)
+- ✅ Primitive types always available (s8-s128, u8-u128, f16-f128, d32-d128, bool)
+- ✅ Error types always available (Maybe, Result, Lookup, DataHandle, DataState)
+- ✅ Memory types always available (DynamicSlice, MemorySize, BackIndex, Range)
+- ✅ Transitive dependency loading for core modules
+
+**Broken:**
+- ❌ Import statements fail to resolve modules even with `--stdlib` flag (Bug 12.15)
+- ❌ Module resolver not finding stdlib files
+- ❌ Selective imports not working (`import Collections/{List, Dict}`)
+
+**Design Decisions (Finalized):**
+1. **Search Order:** `stdlib/` → project root → external packages
+2. **Import Style:** Unqualified access - `import Collections/List` → use `List<T>` directly
+3. **Core Prelude:** `core` namespace automatically loaded (no import needed)
+4. **Loading Strategy:** Eager - load all transitive imports before semantic analysis
+
+**Implementation Tasks:**
+- [ ] Fix module path resolution (Bug 12.15)
+- [ ] Implement selective imports
+- [ ] Add circular import detection
+- [ ] Add collision detection for duplicate names
+
+**Files:**
+- `src/Analysis/ModuleResolver.cs` - Fix path resolution
+- `src/Analysis/CorePreludeLoader.cs` - ✅ Complete
+- `src/Analysis/SemanticAnalyzer.cs` - Fix import processing
+
+**See Also:** [Modules-and-Imports.md](../wiki/Modules-and-Imports.md)
+
+---
+
+### Protocol System
 **Status:** ⏳ **INFRASTRUCTURE EXISTS, IMPLEMENTATION INCOMPLETE**
 
-**Updated:** 2025-12-14
-
-### Current State
-
+**Current State:**
 - `WellKnownProtocols` class defines standard protocols
 - `TypeInfo.Protocols` tracks protocol membership
 - Primitive types have correct protocols assigned
-- **Missing:** Protocol declarations, fields (mixins), default implementations, mutation annotations, implementation checking
 
-### Protocol Design Overview
+**Missing:**
+- ❌ Protocol declarations (parser support for `protocol` keyword)
+- ❌ Protocol fields (mixin pattern)
+- ❌ Default implementations
+- ❌ Mutation annotations (`@readonly`, `@writable`, structural)
+- ❌ Implementation checking and verification
+- ❌ Generic constraints (`<T: Protocol>`)
 
-Protocols in RazorForge are **both contracts and mixins**:
-- **Contract:** Define abstract methods that must be implemented
-- **Mixin:** Provide fields (state) and default implementations (behavior)
-- **Mutation annotations:** Methods declare their category (`@readonly`, `@writable`, or structural)
+**Key Design Points:**
+- Protocols are both contracts AND mixins (provide fields + default implementations)
+- Mutation annotations are part of contract
+- Default implementations declared OUTSIDE protocol block (saves indentation)
+- `Me` (capitalized) as type placeholder, `me` (lowercase) as instance reference
 
-See [RazorForge-Protocols.md](../wiki/RazorForge-Protocols.md) for complete specification.
+**Implementation Priority:**
+1. Parser support (protocol declarations)
+2. Abstract methods (contract verification)
+3. Mutation annotations (integrate with #3 mutation inference)
+4. Protocol fields (mixin pattern)
+5. Default implementations
+6. Generic constraints
 
-### Syntax Examples
+**Depends On:**
+- Method Mutation Inference (Immediate Priorities #3)
+- Iterator Permission Inference (for structural detection)
 
-```razorforge
-# Protocol with fields, abstract methods, and annotations
-protocol Container<T> {
-    # Fields - provide state (mixin pattern)
-    public private(set) var count: uaddr
-    public private(set) var capacity: uaddr
-
-    # Abstract methods - no body, must implement
-    @readonly
-    routine get!(me, index: uaddr) -> T
-
-    # Defaults to structural (no annotation)
-    routine push(me, value: T)
-
-    # Type-level method - Me as receiver
-    routine Me.__create__() -> Me
-}
-
-# Default implementations outside protocol block (saves indentation)
-@readonly
-routine Container<T>.is_empty(me) -> bool {
-    return me.count == 0
-}
-
-@readonly
-routine Container<T>.first(me) -> Maybe<T> {
-    if me.count > 0 {
-        return me.get!(0)
-    }
-    return None
-}
-
-# Implementation
-entity List<T> follows Container<T> {
-    private var _buffer: DynamicSlice
-    # Inherits: public private(set) var count: uaddr
-    # Inherits: public private(set) var capacity: uaddr
-}
-
-# Must implement abstract methods
-@readonly
-routine List<T>.get!(index: uaddr) -> T {
-    return me._buffer.read_as<T>(offset: index)
-}
-
-routine List<T>.push(value: T) {
-    # Implementation
-}
-
-# Inherits is_empty(), first() defaults
-# Can optionally override for efficiency
-
-# Generic constraints
-routine find_max<T follows Comparable>(items: List<T>) -> Maybe<T> {
-    # ...
-}
-```
-
-### Key Design Decisions
-
-1. **Mutation Annotations (Part of Contract):**
-   - `@readonly` - read-only, works with `Viewed<T>` tokens
-   - `@writable` - mutates in-place, requires `Hijacked<T>` tokens
-   - (no annotation) - **defaults to structural** (requires ownership)
-   - Compiler verifies implementations match protocol contract
-
-2. **Protocol Structure:**
-   - Fields inside protocol block (provide state)
-   - Abstract signatures inside protocol block (no body)
-   - Default implementations **outside** protocol block (saves indentation for 80-char limit)
-
-3. **Type Reference:**
-   - `me` (lowercase) - instance reference
-   - `Me` (capitalized) - type placeholder (like `Self` in Rust)
-   - Type-level methods: `routine Me.__create__() -> Me`
-
-4. **Field Inheritance:**
-   - Types implementing protocols inherit protocol fields
-   - Enables true mixin pattern with state + behavior
-
-### Implementation Tasks
-
-**Parser:**
-- [ ] Parse `protocol` keyword and block structure
-- [ ] Parse protocol fields (same as entity/record fields)
-- [ ] Parse abstract method signatures (no body)
-- [ ] Parse mutation annotations: `@readonly`, `@writable`
-- [ ] Parse `follows` keyword in type declarations
-- [ ] Parse `<T follows Protocol>` constraint syntax
-- [ ] Parse `Me` as type placeholder (distinct from `me`)
-- [ ] Parse default implementations outside protocol block: `routine ProtocolName<T>.method(...)`
-
-**Semantic Analysis:**
-- [ ] Track protocol declarations in symbol table
-- [ ] Track protocol fields and their access modifiers
-- [ ] Track abstract vs default methods
-- [ ] Store mutation annotations (`@readonly`, `@writable`, structural)
-- [ ] Verify implementations provide all abstract methods
-- [ ] Verify implementation mutation categories match protocol contract:
-  - Implementation inferred as `@readonly` ✅ matches protocol `@readonly`
-  - Implementation inferred as `@writable` ❌ error if protocol is `@readonly`
-  - Implementation inferred as structural ❌ error if protocol is `@readonly` or `@writable`
-- [ ] Inherit protocol fields into implementing types
-- [ ] Inherit default implementations
-- [ ] Allow implementations to override defaults
-- [ ] Check generic constraints during instantiation
-- [ ] Resolve `Me` to concrete type in implementations
-
-**Code Generation:**
-- [ ] Generate fields from protocol in implementing types
-- [ ] Generate default method implementations (monomorphize if generic)
-- [ ] Generate protocol witness tables (if using vtable approach)
-- [ ] Handle mutation category enforcement at call sites
-
-**Integration with Mutation Inference:**
-- [ ] Protocol methods: Use declared annotations (`@readonly`, `@writable`, structural)
-- [ ] Implementation methods: Infer category using existing mutation analyzer (see #2)
-- [ ] Verification: Check inferred category ≤ declared category (readonly < writable < structural)
-
-### Example: Mutation Verification
-
-```razorforge
-protocol Cacheable<T> {
-    @readonly
-    routine get_cached(me, key: Text) -> T
-}
-
-entity Expensive follows Cacheable<f64> {
-    var cache: Dict<Text, f64>
-}
-
-# Implementation - compiler infers @readonly
-routine Expensive.get_cached(key: Text) -> f64 {
-    return me.cache.get(key)  # Only reads → inferred @readonly ✅ matches
-}
-
-# ERROR CASE:
-routine Expensive.get_cached(key: Text) -> f64 {
-    me.cache.clear()  # Mutates! → inferred @writable
-    return 0.0
-}
-# ❌ Compiler error: Implementation is @writable but protocol requires @readonly
-```
-
-### Files to Modify/Create
-
-**Parser:**
-- `src/Parser/RazorForgeParser.cs` - Add protocol parsing
-- `src/AST/ProtocolDeclaration.cs` (NEW) - AST node for protocols
-- `src/AST/ProtocolMethodDeclaration.cs` (NEW) - AST node for protocol methods
-
-**Semantic Analysis:**
-- `src/Analysis/SemanticAnalyzer.Declarations.cs` - Protocol validation
-- `src/Analysis/ProtocolVerifier.cs` (NEW) - Verify implementations match contracts
-- `src/Analysis/MutationAnalyzer.cs` - Integrate with protocol mutation checking
-
-**Code Generation:**
-- `src/CodeGen/LLVMCodeGenerator.Protocols.cs` (NEW) - Protocol code generation
-- `src/CodeGen/LLVMCodeGenerator.cs` - Integrate protocol methods and fields
-
-### Priority Order
-
-1. **Parser support** (basic protocol declarations)
-2. **Abstract methods** (contract verification)
-3. **Mutation annotations** (integrate with mutation inference #2)
-4. **Protocol fields** (mixin pattern)
-5. **Default implementations** (code reuse)
-6. **Generic constraints** (type safety)
-
-**Depends on:**
-- #2 (Method Mutation Inference) - needed for implementation verification
-- #3 (Structural Detection) - needed for verifying structural methods
-
-**See Also:**
-- [RazorForge-Protocols.md](../wiki/RazorForge-Protocols.md) - Complete specification
-- [COMPILER_TODO.md #2](#2-method-mutation-inference-critical-for-token-system) - Mutation inference
-- [COMPILER_TODO.md #3](#3-iterator-permission-inference-rw-detection) - Structural detection
+**See Also:** [RazorForge-Protocols.md](../wiki/RazorForge-Protocols.md)
 
 ---
 
-## 5. Missing Parser Features (MEDIUM PRIORITY)
+### Memory Model & Tokens
+**Status:** ⏳ **DESIGN COMPLETE, INFERENCE MISSING**
 
-**Priority:** 🟡 **MEDIUM**
+**Token Types:** `Viewed<T>` (readonly), `Hijacked<T>` (mutable), `Inspected<T>` (shared readonly), `Seized<T>` (shared mutable)
 
-### 5.1 External Declarations (FFI)
+**Blocking Issue:** Requires Method Mutation Inference (Immediate Priorities #3)
 
+**Additional Work Needed:**
+- Iterator Permission Inference (R/RW/RWS detection)
+- Structural operation detection (DynamicSlice modifications)
+- Token type enforcement at call sites
+- Return type wrapping for token propagation
+
+**See Also:** [RazorForge Memory Model](../wiki/RazorForge-Memory-Model.md)
+
+---
+
+## FUTURE WORK (Lower Priority)
+
+### Parser Features
+
+#### External Declarations (FFI)
 ```razorforge
 external("C") routine printf(format: cstr, ...) -> cint
-external("C") routine malloc(size: uaddr) -> uaddr
 ```
-
 **Tasks:**
+- [ ] Parse `external` keyword with calling convention
+- [ ] Parse variadic `...` parameter
+- [ ] Handle function signature without body
 
-- [ ] Parse `external` keyword with calling convention string
-- [ ] Parse function signature without body
-- [ ] Handle variadic `...` parameter
+---
 
-### 5.2 Preset (Compile-Time Constants)
-
+#### Preset (Compile-Time Constants)
 ```razorforge
 preset PI: f64 = 3.14159265359
-preset MAX_SIZE: uaddr = 1024
 ```
-
 **Tasks:**
-
 - [ ] Parse `preset` keyword
 - [ ] Store in symbol table as compile-time constant
 - [ ] Inline at use sites
 
-### 5.3 Common (Static Methods)
+---
 
+#### Common (Static Methods)
 ```razorforge
 record Point {
-    common routine origin() -> Point {
-        return Point(x: 0.0, y: 0.0)
-    }
+    common routine origin() -> Point { ... }
 }
 ```
-
 **Tasks:**
-
 - [ ] Parse `common` modifier before `routine`
 - [ ] Mark as static/class-level in AST
-- [ ] Code generation: Don't require receiver
+- [ ] Code generation without receiver
 
-### 5.4 Inheritance Control Keywords
+---
 
+#### Inheritance Control
 ```razorforge
 sealed entity FinalClass { ... }
-
 entity Animal {
     open routine speak() -> Text { ... }
 }
-
 entity Dog from Animal {
     override routine speak() -> Text { ... }
 }
 ```
-
 **Tasks:**
-
 - [ ] Add `open`, `sealed`, `override` to lexer
 - [ ] Parse modifiers in correct positions
 - [ ] Validate override relationships
 
-### 5.5 Scoped Access Syntax
+---
 
+#### Scoped Access Syntax
 ```razorforge
 hijacking doc as d { d.edit() }
 viewing doc as d { print(d.title) }
 seizing mutex as m { m.value = 10 }
 ```
-
 **Tasks:**
-
 - [ ] Parse `hijacking`, `viewing`, `seizing`, `inspecting`, `using`
 - [ ] Parse `as` binding
-- [ ] Semantic analysis: Verify access semantics
-- [ ] Code generation: Generate locking/unlocking code
-
-**Files:**
-
-- `src/Lexer/Lexer.cs` - Add keywords
-- `src/Parser/RazorForgeParser.cs` - Parse syntax
-
-### 5.6 String Literal Enhancements
-
-**Status:** ⏳ **PARTIALLY IMPLEMENTED** (regular and raw strings work, backslash continuation missing)
-
-#### Current State
-
-- ✅ Regular multi-line strings: `"Line 1\nLine 2"` (newlines become `\n`)
-- ✅ Raw strings: `r"C:\Users\Path"` (no escape interpretation)
-- ❌ **Backslash continuation:** `"Long text \<newline>continues"` - **NOT IMPLEMENTED**
-
-#### Backslash Continuation (NEEDED for 80-char line limit)
-
-**Purpose:** Allow long strings to span multiple source lines without introducing newlines in the result.
-
-**Syntax:**
-
-```razorforge
-# ✅ Backslash at end of line - removes newline and leading whitespace
-let error = "Error: The connection to the database failed \
-because the credentials provided were invalid or the \
-server is offline."
-# Result: "Error: The connection to the database failed because the credentials provided were invalid or the server is offline."
-
-# ✅ Space before \ is preserved
-let msg = "Word1 \
-Word2"
-# Result: "Word1 Word2"
-
-# ❌ No space before \ - words run together
-let bad = "Word1\
-Word2"
-# Result: "Word1Word2"
-
-# ✅ Works with escape sequences
-let formatted = "Line 1.\t\
-Line 2 continues on same output line."
-# Result: "Line 1.\tLine 2 continues on same output line."
-```
-
-**String Literal Types:**
-
-| Type     | Newlines          | Escape Sequences    | Backslash Continuation |
-|----------|-------------------|---------------------|------------------------|
-| `"..."`  | Preserved as `\n` | Interpreted         | **TO IMPLEMENT**       |
-| `r"..."` | Preserved as `\n` | **NOT** interpreted | N/A (raw = no escapes) |
-
-**Implementation Tasks:**
-
-- [ ] **Lexer:** Detect `\` followed by newline in string literals
-- [ ] **Lexer:** Remove the `\`, newline, and leading whitespace from next line
-- [ ] **Lexer:** Join string segments into single token
-- [ ] **Parser:** No changes needed (single token from lexer)
-- [ ] **Code Generation:** No changes needed (already handles string literals)
-- [ ] **Test:** Various continuation scenarios (middle of string, multiple continuations, with escapes)
-
-**Example Implementation (Lexer pseudocode):**
-
-```csharp
-private string ProcessStringLiteral(char quote, bool isRaw)
-{
-    StringBuilder result = new StringBuilder();
-
-    while (CurrentChar != quote)
-    {
-        if (CurrentChar == '\\' && !isRaw)
-        {
-            char next = PeekChar();
-
-            if (next == '\n')  // Backslash continuation
-            {
-                Advance();  // Skip \
-                Advance();  // Skip \n
-
-                // Skip leading whitespace on next line
-                while (CurrentChar == ' ' || CurrentChar == '\t')
-                    Advance();
-
-                continue;  // Don't append anything
-            }
-            else  // Regular escape sequence
-            {
-                result.Append(ProcessEscapeSequence());
-            }
-        }
-        else
-        {
-            result.Append(CurrentChar);
-            Advance();
-        }
-    }
-
-    return result.ToString();
-}
-```
-
-**Files:**
-
-- `src/Lexer/BaseTokenizer.cs` - Implement backslash continuation in string literal tokenization
-
-**See Also:**
-
-- [RazorForge Code Style - Line Length Limit](../wiki/RazorForge-Code-Style.md#line-length-limit)
-- [Suflae Code Style - Line Length Limit](../wiki/Suflae-Code-Style.md#line-length-limit)
-
-### 5.7 `dedent()` Built-in Function
-
-**Status:** ❌ **NOT IMPLEMENTED**
-
-**Purpose:** Strip common leading whitespace from multi-line strings to allow indented string literals in source code.
-
-**Use Case:**
-
-```razorforge
-routine show_help() {
-    # String is indented for code readability, but we want to strip the indentation
-    let message = dedent("
-        Welcome to RazorForge!
-
-        This is a multi-line help message.
-        Each line is indented in the source code for readability.
-
-        Commands:
-          build  - Build the project
-          run    - Run the project
-          test   - Run tests
-        ")
-
-    show(message)
-}
-
-# Output (leading indentation stripped, but internal indentation preserved):
-# Welcome to RazorForge!
-#
-# This is a multi-line help message.
-# Each line is indented in the source code for readability.
-#
-# Commands:
-#   build  - Build the project
-#   run    - Run the project
-#   test   - Run tests
-```
-
-**Behavior:**
-
-1. Find the common leading whitespace across all non-empty lines
-2. Remove that common whitespace from each line
-3. Preserve relative indentation (e.g., the "build/run/test" lines stay indented)
-4. Remove leading and trailing blank lines
-
-**Example:**
-
-```razorforge
-# Source code (indented for readability)
-let sql = dedent("
-    SELECT users.name, orders.total
-    FROM users
-    JOIN orders ON users.id = orders.user_id
-    WHERE orders.status = 'completed'
-    ORDER BY orders.total DESC
-    ")
-
-# Result (common leading whitespace removed):
-# "SELECT users.name, orders.total
-# FROM users
-# JOIN orders ON users.id = orders.user_id
-# WHERE orders.status = 'completed'
-# ORDER BY orders.total DESC"
-```
-
-**Comparison with Backslash Continuation:**
-
-```razorforge
-# Backslash continuation - manual line breaking, no indentation
-let msg1 = "This is a long message that \
-spans multiple lines in source code."
-
-# dedent() - preserves structure, strips common indentation
-let msg2 = dedent("
-    This is a long message that
-    spans multiple lines in source code.
-    ")
-
-# Both produce same result, but dedent() is more readable for multi-line text
-```
-
-**Implementation Tasks:**
-
-- [ ] **Add to stdlib:** Implement as `Text.dedent(me: Text) -> Text` in `stdlib/Text/Text.rf`
-- [ ] **Algorithm:**
-    1. Split string into lines
-    2. Find minimum leading whitespace (ignoring empty lines)
-    3. Remove that amount of whitespace from each line
-    4. Strip leading/trailing blank lines
-    5. Join lines back together
-- [ ] **Test cases:**
-    - Empty string
-    - Single line
-    - Multiple lines with same indentation
-    - Multiple lines with different indentation
-    - Lines with tabs vs spaces
-    - Blank lines (should be ignored when finding common indent)
-
-**Alternative Design - String Literal Syntax:**
-
-Could also implement as a string literal prefix (like raw strings):
-
-```razorforge
-# Option A: Function (more flexible)
-let msg = dedent("
-    Line 1
-    Line 2
-    ")
-
-# Option B: Literal prefix (more concise, but less flexible)
-let msg = d"
-    Line 1
-    Line 2
-    "
-
-# Option C: Triple-quote syntax (Python-like)
-let msg = """
-    Line 1
-    Line 2
-    """
-```
-
-**Recommendation:** Start with **function approach** (Option A) as it's:
-
-- More explicit
-- Can be called on any string (not just literals)
-- Easier to implement (no parser changes)
-- Can be added to stdlib without compiler changes
-
-**Files:**
-
-- `stdlib/Text/Text.rf` - Add `dedent()` method
-- Test file for `dedent()` functionality
-
-**See Also:**
-
-- Python's `textwrap.dedent()`
-- Kotlin's `trimIndent()`
-- Rust's indoc crate
+- [ ] Semantic analysis: verify access semantics
+- [ ] Code generation: generate locking/unlocking
 
 ---
 
-## 6. Lambda Code Generation (MEDIUM PRIORITY)
+#### String Literal Enhancements
 
-**Priority:** 🟡 **MEDIUM**
+**Status:** ⏳ **PARTIALLY IMPLEMENTED** (regular and raw strings work)
 
+**Missing:**
+- ❌ Backslash continuation - `"Long text \<newline>continues"` (needed for 80-char limit)
+- ❌ `dedent()` function - Strip common leading whitespace from multi-line strings
+
+**Backslash Continuation:**
+```razorforge
+let error = "Error: The connection failed \
+because the credentials were invalid."
+# Result: "Error: The connection failed because the credentials were invalid."
+```
+
+**Tasks:**
+- [ ] Lexer: Detect `\` followed by newline
+- [ ] Lexer: Remove `\`, newline, and leading whitespace from next line
+- [ ] Test with various scenarios
+
+**dedent() Function:**
+```razorforge
+let message = dedent("
+    Welcome to RazorForge!
+    Commands:
+      build  - Build project
+      run    - Run project
+    ")
+```
+
+**Tasks:**
+- [ ] Implement in stdlib: `Text.dedent(me: Text) -> Text`
+- [ ] Algorithm: find min indent, strip from all lines
+- [ ] Test cases for edge cases
+
+**Files:**
+- `src/Lexer/BaseTokenizer.cs` - Backslash continuation
+- `stdlib/Text/Text.rf` - dedent() method
+
+**See Also:** [Code Style - Line Length Limit](../wiki/RazorForge-Code-Style.md#line-length-limit)
+
+---
+
+### Lambda Code Generation
 **Status:** ⏳ **PARSING WORKS, CODEGEN INCOMPLETE**
 
-### Current State
+**Current State:**
+- ✅ Arrow lambda parsing: `x => x * 2`, `(a, b) => a + b`
+- ✅ AST nodes created correctly
+- ❌ Code generation not implemented
 
-- Arrow lambda parsing works: `x => x * 2`, `(a, b) => a + b` (parentheses optional for single param)
-- AST nodes created correctly
-- Code generation not implemented
-
-### Language Design Restriction
-
-**⚠️ IMPORTANT**: Multiline lambdas are **BANNED** in both RazorForge and Suflae.
+**Language Restriction:** ⚠️ Multiline lambdas are BANNED (use named functions instead)
 
 ```razorforge
-# ✅ OK: Single expression lambdas
-let double = x => x * 2                # Parentheses optional for single param
-let sum = (a, b) => a + b              # Parentheses required for multiple params
-let result = list.select(x => x * 2)  # Clean and concise
+# ✅ OK
+let double = x => x * 2
+let sum = (a, b) => a + b
+let result = list.select(x => x * 2)
 
-# ❌ BANNED: Multiline lambdas
+# ❌ BANNED
 let compute = x => {
     let temp = x * 2
     temp + 1
 }
 ```
 
-**Rationale**: Multiline lambdas add complexity without clear benefits. Use named functions for multi-statement logic.
-
-### Needed
-
-```razorforge
-let double = x => x * 2
-let result = list.select(x => x * 2)
-```
-
 **Tasks:**
-
 - [ ] Generate function pointer type for lambda
 - [ ] Create anonymous function in LLVM IR
 - [ ] Handle captures (closure semantics)
-- [ ] Implement `Routine<(T), U>` type properly
-- [ ] Enforce single-expression restriction in parser (reject block syntax)
+- [ ] Implement `Routine<(T), U>` type
+- [ ] Enforce single-expression restriction in parser
 
 **Files:**
-
 - `src/CodeGen/LLVMCodeGenerator.Expressions.cs` - `VisitLambdaExpression()`
-- `src/Parser/RazorForgeParser.Expressions.cs` - Add lambda block syntax validation
+- `src/Parser/RazorForgeParser.Expressions.cs` - Validate no block syntax
 
 ---
 
-## 7. Known Code Generation Bugs
+### Auto-Generated Methods for Data Types
 
-### 7.1 Type Constructor Calls (Bug 12.7) - OPEN
+Compiler should auto-generate default methods for:
+
+**Record:**
+- `to_text()`, `to_debug()`, `memory_size()`, `hash()`, `==`, `!=`, `is`, `isnot`
+
+**Entity:**
+- `to_text()`, `to_debug()`, `memory_size()`, `id()`, `copy()`, `==`, `!=`, `===`, `!==`
+
+**Choice:**
+- `to_text()`, `hash()`, `to_integer()`, `all_cases()`, `from_text()`, `==`, `!=`
+
+**Variant:**
+- `to_debug()`, `hash()`, `is_<case>()`, `try_get_<case>()`, `==`, `!=`
+
+**Files:**
+- `src/CodeGen/LLVMCodeGenerator.Declarations.cs` - Add auto-generation logic
+
+---
+
+### Language Design Changes (TODO)
+
+#### 1. Entry Point: `main` → `start`
+**Status:** ⏸️ **TODO** - Design decision confirmed, implementation needed
+
+**Change:** Rename entry point function from `main` to `start`
+
+**Rationale:**
+- Consistency with Suflae (`routine start()`)
+- Avoid confusion with C's `main()`
+- More intuitive for modern language
+
+**Tasks:**
+- [ ] Update compiler to look for `start()` instead of `main()`
+- [ ] Update all examples and documentation
+- [ ] Add migration note for existing code
+
+---
+
+#### 2. Reserve `start` and `start!` as Keywords
+**Status:** ⏸️ **TODO**
+
+**Restriction:** Prevent user code from defining routines named `start` or `start!` (except entry points)
+
+**Tasks:**
+- [ ] Add semantic check: reject `start`/`start!` declarations outside entry point
+- [ ] Generate clear error message
+- [ ] Allow in entry point file only
+
+---
+
+#### 3. `@crash_only` Attribute for `start!`
+**Status:** ⏸️ **TODO**
+
+**Requirement:** Crashable entry points must use `@crash_only` attribute
 
 ```razorforge
-routine u8.to_saddr(me: u8) -> saddr {
-    return saddr(me)  # Generated as function call, not type conversion!
+@crash_only
+routine start!() {
+    let file = open_file!("data.txt")  # Can use crashable calls
 }
 ```
 
-**Generated (wrong):**
+**Tasks:**
+- [ ] Parse `@crash_only` attribute
+- [ ] Validate only on `start!` functions
+- [ ] Enable crashable calls in attributed functions
+- [ ] Error if `start!` missing attribute
 
-```llvm
-%tmp2 = call i32 @saddr(i8 %me)  ; Function doesn't exist!
+---
+
+#### 4. Inline Conditional Restrictions
+**Status:** ✅ **COMPLETE** (2025-12-08)
+
+**Restrictions:**
+- ❌ No block syntax in inline conditionals
+- ❌ No nested inline conditionals
+
+```razorforge
+# ✅ OK
+let x = if count > 0 then "items" else "empty"
+
+# ❌ CE: Cannot use blocks
+let y = if cond then { compute() } else { default() }
+
+# ❌ CE: Cannot nest
+let z = if a then (if b then 1 else 2) else 3
 ```
 
-**Expected:**
+**Completed:**
+- [x] Parser restrictions enforced
+- [x] Clear compile errors generated
+- [ ] Documentation updates (pending)
 
-```llvm
-%tmp2 = sext i8 %me to i64
+---
+
+#### 5. Ban In-Scope Method Declarations
+**Status:** ⏸️ **TODO** - Design decision confirmed
+
+**Restriction:** Methods MUST be declared outside type scope
+
+```razorforge
+# ✅ OK
+public entity List<T> {
+    private var _buffer: pointer
+}
+
+routine List<T>.push(value: T) {
+    # Implementation
+}
+
+# ❌ CE: In-scope methods not allowed
+public entity List<T> {
+    routine push(value: T) {  # Error!
+        # ...
+    }
+}
 ```
 
+**Rationale:**
+- Consistency (internal and extension methods use same syntax)
+- Multi-file organization (methods can be split across files)
+- Cleaner type definitions
+- Simpler parser
+
+**Tasks:**
+- [ ] Update parser to reject in-scope method declarations
+- [ ] Generate clear error message
+- [ ] Apply to entity/resident/record
+- [ ] Update documentation
+
+---
+
+#### 6. Suflae `eternal` Keyword
+**Status:** ⏸️ **TODO** (Suflae only)
+
+**Feature:** Application-scoped singleton actors
+
+```suflae
+# start.sf
+eternal AppCore:
+    logger: Logger
+    config: Config
+    metrics: Metrics
+
+routine start():
+    AppCore.logger = Logger()
+    # ...
+```
+
+**Requirements:**
+- Start file only
+- Single declaration per application
+- Actor semantics (message passing)
+- Immortal lifetime (never GC'd)
+
+**Tasks:**
+- [ ] Add `eternal` keyword to Suflae lexer
+- [ ] Parse `eternal TypeName:` syntax
+- [ ] Validate rules (single, start file only)
+- [ ] Generate actor wrapper code
+- [ ] Make globally accessible
+
+**Files:**
+- `src/Lexer/SuflaeLexer.cs`
+- `src/Parser/SuflaeParser.cs`
+- `src/Analysis/SemanticAnalyzer.cs`
+- `src/CodeGen/SuflaeCodeGenerator.cs`
+
+**See:** [Suflae Eternal](../wiki/Suflae-Eternal.md), [Resident vs Eternal](../wiki/Resident-vs-Eternal.md)
+
+---
+
+## KNOWN BUGS
+
+### Bug 12.7: Type Constructor Calls
+```razorforge
+routine u8.to_saddr(me: u8) -> saddr {
+    return saddr(me)  # Generates function call instead of type conversion!
+}
+```
 **Fix:** Detect type constructor calls and generate appropriate conversion intrinsics.
 
 ---
 
-### 7.2 Integer Literal Type Inference (Bug 12.10) - OPEN
-
+### Bug 12.10: Integer Literal Type Inference
 ```razorforge
 routine double_it(x: s32) -> s32 {
     return x * 2  # Error: s32 * s64 (literal defaults to s64)
 }
 ```
-
 **Fix:** Propagate expected type to literal expressions during semantic analysis.
 
 ---
 
-### 7.3 Function Call Return Type (Bug 12.11) - OPEN
-
+### Bug 12.11: Function Call Return Type
 ```razorforge
 routine get_value() -> s64 { return 42 }
 let x: s64 = get_value()  # Type mismatch: expected s64, got i32
 ```
-
-**Fix:** Look up actual return type from function signature, don't default to i32.
+**Fix:** Look up actual return type from function signature.
 
 ---
 
-### 7.4 Dunder Method Variant Names (Bug 12.12) - OPEN
-
+### Bug 12.12: Dunder Method Variant Names
 ```razorforge
 routine s32.__add__!(other: s32) -> s32 { ... }
 # Should generate: try_add, check_add
 # Currently generates: try___add__, check___add__
 ```
-
 **Fix:** Strip `__` prefix/suffix before adding variant prefix.
 
 ---
 
-### 7.5 Error Location Tracking (Bug 12.14) - OPEN
+### Bug 12.14: Error Location Tracking
+**Status:** ✅ **FIXED** (2025-12-08)
 
-**Problem:** Error messages show wrong file and line numbers, referencing intermediate output files instead of source
-files.
-
-**Example:**
-
-```
-Error at playground/main.rf:27:46
-```
-
-But `main.rf` only has 9 lines! The error is actually referencing the SimpleCodeGenerator output file (`main.out`).
-
-**Root Cause:**
-
-- `_currentFileName` and `_currentLocation` in code generator are set once at start
-- Not updated when processing imported modules or different AST nodes
-- Error reporting uses these stale values
-
-**Solution:**
-
-- Track file/line info from AST node locations (`node.Location`)
-- Update `_currentFileName` and `_currentLocation` when processing each node
-- Use AST node location info in all error messages
-
-**Files:**
-
-- `src/CodeGen/LLVMCodeGenerator.cs` - Error reporting methods
-- All `LLVMCodeGenerator.*.cs` partial class files - Update location tracking
+Error messages now show correct file and line numbers using AST node locations.
 
 ---
 
-### 7.6 Optional Field Syntax (Bug 12.17) - OPEN
+### Bug 12.15: Module Resolution
+**Problem:** Import statements fail to resolve modules even with `--stdlib` flag.
 
-**Problem:** Parser rejects `?` syntax for optional/nullable fields in entity and record declarations.
+```razorforge
+import Console  # Error: Module not found
+```
 
-**Example:**
+**Fix:** Debug `ModuleResolver.cs` path resolution and stdlib flag handling.
+
+**Files:**
+- `src/Analysis/ModuleResolver.cs`
+- `src/CLI/Program.cs`
+- `src/Analysis/SemanticAnalyzer.Declarations.cs`
+
+---
+
+### Bug 12.16: Pointer Type in Binary Expressions
+**Status:** ✅ **FIXED** (2025-12-04)
+
+Added pointer type detection before calling `GetIntegerBitWidth()`.
+
+---
+
+### Bug 12.17: Optional Field Syntax
+**Problem:** Parser rejects `?` syntax for optional fields.
 
 ```razorforge
 entity SortedDict<K, V> {
-    private root: BTreeDictNode<K, V>?  # Parse error: Expected Greater, got Question
-    private count: uaddr
-}
-
-entity SortedSet<T> {
-    private root: BTreeSetNode<T>?  # Parse error: Expected Greater, got Question
-    private count: uaddr
+    private root: BTreeDictNode<K, V>?  # Parse error!
 }
 ```
 
-**Current Behavior:**
-
-- Parser fails with "Unexpected token: Question" when `?` appears after type in field declarations
-- Forces developers to work around by removing `?` and handling null checks manually
-
-**Expected Behavior:**
-
-- `?` suffix should indicate optional/nullable field
-- Parser should accept `Type?` syntax in field declarations
-- Type system should track nullability information
-- Code generator should handle nullable field semantics
-
-**Root Cause:**
-
-- Parser's field declaration parsing doesn't recognize `?` as a valid type suffix
-- Type expression parsing may need enhancement to support optional type modifier
-
-**Solution Needed:**
-
-1. Extend `ParseTypeExpression()` to recognize and parse `?` suffix for optional types
-2. Add `IsOptional` flag to `TypeExpression` AST node
-3. Update semantic analyzer to track nullability in type information
-4. Update code generator to handle nullable field semantics (pointer vs value, null checks)
-
-**Impact:**
-
-- Currently blocks expressive nullable field declarations
-- Developers must use workarounds (e.g., separate boolean flag, or accepting that `None` is valid)
-- Entity references are implicitly nullable, but explicit `?` syntax would be clearer
-
-**Workaround:**
-
-- Remove `?` from field declarations
-- Entity references are nullable by default without explicit `?`
-- Use `is None` checks to test for null values
+**Fix:** Extend `ParseTypeExpression()` to recognize `?` suffix.
 
 **Files:**
+- `src/Parser/RazorForgeParser.Expressions.cs`
+- `src/AST/ASTNode.cs` - Add `IsOptional` flag
+- `src/Analysis/SemanticAnalyzer.Types.cs`
+- `src/CodeGen/LLVMCodeGenerator.Types.cs`
 
-- `src/Parser/RazorForgeParser.Expressions.cs` - Type expression parsing
-- `src/AST/ASTNode.cs` - Add `IsOptional` to TypeExpression
-- `src/Analysis/SemanticAnalyzer.Types.cs` - Track nullability
-- `src/CodeGen/LLVMCodeGenerator.Types.cs` - Generate nullable field code
-
-**Priority:** 🟡 **MEDIUM** - Nice to have for clarity, but workarounds exist
-
----
-
-### 7.7 Module Resolution (Bug 12.15) - OPEN
-
-**Problem:** Import statements fail to resolve modules even with `--stdlib` flag.
-
-**Example:**
-
-```razorforge
-import Console
-import NativeDataTypes/s64
-
-routine start() {
-    Console.show("Hello")  # Error: Module not found
-}
-```
-
-**Compilation Error:**
-
-```
-Semantic error[main.rf:2:1]: Failed to import module 'Console': Module not found: Console
-```
-
-**Root Cause:**
-
-- Module resolver not finding stdlib files
-- Path resolution may be broken
-- `--stdlib` flag not being properly applied
-
-**Solution:**
-
-- Debug `ModuleResolver.cs` to understand path resolution
-- Verify stdlib path is correctly passed to module resolver
-- Check file path construction for imports
-
-**Files:**
-
-- `src/Analysis/ModuleResolver.cs` - Module path resolution
-- `src/CLI/Program.cs` - Command-line argument handling
-- `src/Analysis/SemanticAnalyzer.Declarations.cs` - Import processing
+**Workaround:** Entity references are nullable by default without explicit `?`
 
 ---
 
-### 7.7 Pointer Type in Binary Expressions (Bug 12.16) - ✅ FIXED (2025-12-04)
+## REFERENCE INFORMATION
 
-**Problem:** Code generator crashed when encountering pointer types in binary expressions.
+### File Locations
 
-**Error:**
+**Core Compiler:**
+- `src/Parser/RazorForgeParser.cs` - Main parser
+- `src/Analysis/SemanticAnalyzer.cs` - Semantic analysis and type checking
+- `src/CodeGen/LLVMCodeGenerator.cs` - LLVM IR code generation
+- `src/Analysis/GenericTypeResolver.cs` - Generic template matching (NEW, 256 lines)
+- `src/Analysis/CorePreludeLoader.cs` - Auto-load core namespace (NEW, 100 lines)
 
-```
-Failed to resolve type 'i8*' during code generation: unknown LLVM integer type in GetIntegerBitWidth
-```
+**Module System:**
+- `src/Analysis/ModuleResolver.cs` - Module path resolution (BROKEN)
+- `src/Analysis/SymbolTable.cs` - Symbol tracking
 
-**Root Cause:**
+**Standard Library:**
+- `stdlib/core/` - Auto-loaded types (primitives, Maybe, Result, etc.)
+- `stdlib/Collections/` - List, Dict, Set, etc.
+- `stdlib/Text/` - Text type and operations
+- `stdlib/Console.rf` - Console I/O
 
-- `GetIntegerBitWidth()` was being called on pointer types like `i8*`
-- Function only handles integer types (i8, i16, i32, i64, i128)
-
-**Solution:** ✅ FIXED
-
-- Added pointer type detection before calling `GetIntegerBitWidth()`
-- Check if type ends with `*` or equals `ptr`
-- Skip integer width comparison for pointer types
-
-**Files Modified:**
-
-- ✅ `src/CodeGen/LLVMCodeGenerator.Expressions.cs:293-298` - Added pointer checks
-
-```csharp
-// Check if types are pointers
-bool leftIsPointer = operandType.EndsWith(value: "*") || operandType == "ptr";
-bool rightIsPointer = rightTypeInfo.LLVMType.EndsWith(value: "*") || rightTypeInfo.LLVMType == "ptr";
-
-if (rightTypeInfo.LLVMType != operandType && !rightTypeInfo.IsFloatingPoint &&
-    !leftTypeInfo.IsFloatingPoint && !leftIsPointer && !rightIsPointer)
-{
-    // Only call GetIntegerBitWidth for non-pointer types
-    int leftBits = GetIntegerBitWidth(llvmType: operandType);
-    int rightBits = GetIntegerBitWidth(llvmType: rightTypeInfo.LLVMType);
-    // ...
-}
-```
+**Native Runtime:**
+- `native/runtime/` - C implementations of native functions
+- `native/build.sh` - Build script
 
 ---
 
-## 8. Auto-Generated Methods for Data Types
+### Implementation Patterns
 
-**Priority:** 🟡 **MEDIUM-LOW**
-
-Compiler should auto-generate default methods for:
-
-### Record
-
-- `to_text()`, `to_debug()`, `memory_size()`, `hash()`, `==`, `!=`, `is`, `isnot`
-
-### Entity
-
-- `to_text()`, `to_debug()`, `memory_size()`, `id()`, `copy()`, `==`, `!=`, `===`, `!==`
-
-### Choice
-
-- `to_text()`, `hash()`, `to_integer()`, `all_cases()`, `from_text()`, `==`, `!=`
-
-### Variant
-
-- `to_debug()`, `hash()`, `is_<case>()`, `try_get_<case>()`, `==`, `!=`
-
-**Files:**
-
-- `src/CodeGen/LLVMCodeGenerator.Declarations.cs` - Add auto-generation logic
-
----
-
-## Recently Completed
-
-### Code Generation Fixes (2025-12-04 Session)
-
-12. **Parameter assignment materialization** - Function parameters can be reassigned
-13. **Shift intrinsic type conversion** - Shift amounts auto-converted to match value type
-14. **When statement label generation** - Pre-allocate labels for correct ordering
-15. **Standalone when detection** - Fixed detection to check for `bool true`
-16. **Boolean type handling in when clauses** - Use i1 directly without conversion
-17. **Expression returns in when clauses** - Generate return statements for expression-only bodies
-18. **Text type representation** - Changed from opaque struct to `ptr`
-19. **Stack trace runtime declarations** - Added `EmitGlobalDeclarations()` call
-20. **Native function auto-declaration** - Auto-declare native functions before use
-
-### Record Type System Consistency (2025-12-06 Session)
-
-**Status:** ✅ **FULLY RESOLVED**
-
-Fixed systematic issues ensuring ALL types consistently use record wrappers (e.g., `%s32`, `%u64`, `%f128`, `%bool`)
-instead of bare primitives. The "everything is a record" architecture is now enforced throughout the entire codebase.
-
-**Fixes Applied:**
-
-1. **Core Type Mapping Consistency** - Updated `MapTypeToLLVM` to return record types for ALL primitives
-2. **When Expression Return Values** - When clause bodies check value type and cast if needed
-3. **Bitcast Intrinsic** - Proper handling of record types with extract → bitcast → wrap pattern
-4. **Decimal Type Mappings** - Fixed decimal types to map to their actual record fields (d32→u32, d64→u64, d128→u128)
-5. **Arithmetic Right Shift** - Extract, shift, and wrap pattern for record types
-6. **Bit Manipulation Intrinsics** - ctpop, ctlz, cttz now extract from record arguments
-7. **Boolean NOT Operator** - Extract from `%bool`, XOR, and wrap result
-8. **Chained Comparison Value Reuse** - Avoid illegal `add %s32` for record types
-9. **Logical AND/OR Short-Circuit** - Extract `i1` from `%bool` before branches
-10. **Integer Literal Wrapping** - Wrap integer literals when they have resolved record types
-
-**Key Pattern Established:** The Extract → Operate → Wrap Pattern is now consistently applied:
-
+#### Extract-Operate-Wrap Pattern
 ```llvm
 ; Extract primitive from record
 %tmp1 = extractvalue %s32 %value, 0
@@ -1881,1255 +901,105 @@ instead of bare primitives. The "everything is a record" architecture is now enf
 %tmp3 = insertvalue %s32 undef, i32 %tmp2, 0
 ```
 
-**Files Modified:**
-
-- `src/CodeGen/LLVMCodeGenerator.cs` - Core type mapping
-- `src/CodeGen/LLVMCodeGenerator.Errors.cs` - When expression returns
-- `src/CodeGen/LLVMCodeGenerator.Intrinsics.cs` - Bitcast and bit manipulation intrinsics
-- `src/CodeGen/LLVMCodeGenerator.Expressions.cs` - Multiple fixes for decimal types, shift ops, NOT, comparisons,
-  logical ops, literals
-
-### Generic Type Instantiation (2025-12-07 Session)
-
-**Status:** ✅ **FULLY RESOLVED**
-
-Fixed issue where generic types like `Maybe<saddr>` were not being instantiated and emitted to LLVM IR when used in
-function signatures.
-
-**Root Cause:** Generic type instantiation was happening during function signature generation, writing type definitions
-in the middle of the functions section.
-
-**Solution:** Modified to use a **deferred/queued approach**:
-
-1. `InstantiateGenericRecord` adds types to pending queue instead of generating immediately
-2. `GeneratePendingTypeInstantiations` uses while loop to process pending types until queue is empty
-3. Handles **recursive dependencies** (e.g., `Range<BackIndex<uaddr>>` needs `BackIndex<uaddr>`)
-4. Added pending type generation call after processing imported module functions
-
-**Files Modified:**
-
-- `src/CodeGen/LLVMCodeGenerator.Declarations.cs` - Queued instantiation system
-- `src/CodeGen/LLVMCodeGenerator.Functions.cs` - Call to generate pending types
-
-### Module Loading for Transitive Dependencies (2025-12-07 Session)
-
-**Status:** ✅ **FULLY RESOLVED**
-
-Fixed issue where `DataHandle` and `DataState` modules (imported by `Maybe.rf`) were not being loaded/processed by the
-code generator.
-
-**Root Causes:**
-
-1. Prelude modules not loading transitive dependencies - `LoadPrelude()` only loaded direct modules
-2. Missing namespace declarations - `DataHandle.rf` and `DataState.rf` had no `namespace` declaration
-
-**Solution:**
-
-1. Changed to use `LoadModuleWithDependencies()` which recursively loads all transitive imports
-2. Added `namespace core` to DataHandle.rf and DataState.rf
-
-**Files Modified:**
-
-- `src/Analysis/SemanticAnalyzer.cs` - Use LoadModuleWithDependencies in LoadPrelude
-- `stdlib/ErrorHandling/DataHandle.rf` - Added namespace core
-- `stdlib/ErrorHandling/DataState.rf` - Added namespace core
-
-### Decimal Type Module Loading and Code Generation (2025-12-07 Session)
-
-**Status:** ✅ **FULLY RESOLVED**
-
-Fixed multiple issues with decimal type modules (d32, d64, d128) not being loaded and code generation problems with
-multi-field record types.
-
-**Root Causes:**
-
-1. Decimal modules lacking `namespace core` declarations
-2. Multi-field record constant initialization trying to wrap single primitive values
-3. Nested record type constant initialization inserting primitives instead of records
-4. Code generator extracting fields for operators instead of calling dunder methods for multi-field structs
-5. Bitcast between decimal types causing type mismatches
-
-**Solution:**
-
-1. Added `namespace core` to all decimal type files
-2. Enhanced `VisitPresetDeclaration` to detect multi-field records and use `zeroinitializer`
-3. Check actual field types and use `zeroinitializer` for nested record types
-4. Modified d128.rf to call external functions explicitly within `danger!` blocks instead of using operators
-5. Replaced bitcast calls with `to_bits()` and `from_bits()` methods
-
-**Files Modified:**
-
-- `stdlib/NativeDataTypes/d32.rf`, `d64.rf`, `d128.rf` - Added namespace core, workarounds for code generator
-  limitations
-- `src/CodeGen/LLVMCodeGenerator.External.cs` - Enhanced preset constant generation
-
-**Note:** The d128 workarounds are necessary due to current code generator limitations:
-
-- Binary operator dispatch doesn't properly dispatch to dunder methods for multi-field structs
-- Global constant field access generates `%name` instead of `@name`
-- Bitcast intrinsic tries to be too clever with extract/insert for same-layout records
-
-### D32/D64 Nested Record Field Fix (2025-12-07 Session)
-
-**Status:** ✅ **FULLY RESOLVED**
-
-Fixed the bitcast intrinsic and decimal type workarounds to properly handle nested record types where a record's field
-is itself a record (e.g., `%d32 = type { %u32 }` where `%u32 = type { i32 }`).
-
-**Root Cause:** When bitcasting or performing operations on types with nested record fields, the code generator was:
-
-1. Extracting the outer record's field (which is itself a record) and getting a record instead of primitive
-2. Trying to insert a primitive where a record was expected
-3. Using comparison operators directly which tried to operate on nested records
-
-**Solution:**
-
-1. **Updated bitcast intrinsic** (`LLVMCodeGenerator.Intrinsics.cs` lines 122-173):
-    - When extracting from a struct whose field is a record, now extracts twice (outer → inner → primitive)
-    - When inserting into a struct whose field is a record, now wraps primitive into inner record first
-    - Checks `_recordFields` to determine if field type is itself a record
-
-2. **Updated d32/d64 methods** to avoid all operator overloading in their implementations:
-    - `__neg__()` - Uses external `d32_sub`/`d64_sub` with bitcast
-    - `min()`, `max()` - Uses external `d32_cmp`/`d64_cmp` with bitcast
-    - `is_positive()`, `is_negative()`, `is_zero()` - Uses external comparison functions
-    - `signum()` - Uses external comparison with explicit `__neg__()` call
-
-**Files Modified:**
-
-- `src/CodeGen/LLVMCodeGenerator.Intrinsics.cs` - Enhanced bitcast to handle nested records (lines 122-173)
-- `stdlib/NativeDataTypes/d32.rf` - Fixed 7 methods to use danger blocks with external functions
-- `stdlib/NativeDataTypes/d64.rf` - Fixed 7 methods to use danger blocks with external functions
-
-**Generated Code Example (correct):**
-
-```llvm
-; Bitcast from %u32 to %d32 (both have nested record structure)
-%tmp543 = load %u32, ptr %bits_12
-%tmp544 = extractvalue %u32 %tmp543, 0        ; Extract i32 from u32
-%tmp545 = insertvalue %u32 undef, i32 %tmp544, 0  ; Wrap i32 back into u32
-%tmp542 = insertvalue %d32 undef, %u32 %tmp545, 0 ; Insert u32 into d32 ✅
-```
-
-**Pattern for d32/d64 methods:**
-
-```razorforge
-routine d32.is_positive(me: d32) -> bool {
-    danger! {
-        let me_bits = @intrinsic.bitcast<d32, u32>(me)
-        let zero_bits = @intrinsic.bitcast<d32, u32>(D32_ZERO)
-        return d32_cmp(me_bits, zero_bits) > 0
-    }
-}
-```
-
-**Test Results:** ✅ Compilation successful with no Clang type mismatch errors
-
-### Core Prelude Auto-Loading System (2025-12-08 Session)
-
-**Status:** ✅ **FULLY IMPLEMENTED**
-
-Implemented automatic loading of all stdlib files marked with `namespace core` declaration, eliminating the need to
-manually import fundamental types and functions.
-
-**Problem:** Previously, core types like primitive numeric types, Maybe/Result, and other fundamental types had to be
-explicitly imported. This was verbose and inconsistent with most programming languages.
-
-**Solution:** Created `CorePreludeLoader.cs` that:
-
-1. Recursively scans the entire stdlib directory tree
-2. Parses every `.rf` file to check for `namespace core` declaration
-3. Automatically loads all core files without requiring explicit imports
-4. Integrates with module resolver cache for proper dependency tracking
-
-**Implementation Details:**
-
-**New File: `src/Analysis/CorePreludeLoader.cs` (100 lines)**
-
-- `LoadCorePrelude()` - Main entry point, returns dictionary of module info
-- `ScanDirectory()` - Recursive directory traversal
-- `LoadFileIfCoreNamespace()` - Parses and checks for core namespace
-- Handles parse errors gracefully (logs warnings, continues)
-
-**Modified: `src/Analysis/SemanticAnalyzer.cs`**
-
-- Added `LoadCorePrelude()` method to SemanticAnalyzer initialization
-- Core prelude loads BEFORE any user code is analyzed
-- Uses `LoadModuleWithDependencies()` for transitive imports
-- All core types now available in global scope without imports
-
-**Impact:**
-
-- ✅ Primitive types (s8-s128, u8-u128, f16-f128, d32-d128, bool, Blank) always available
-- ✅ Error handling types (Maybe, Result, Lookup, DataHandle, DataState) always available
-- ✅ Memory types (DynamicSlice, MemorySize, BackIndex, Range) always available
-- ✅ Letter types (letter8, letter16, letter32) always available
-- ✅ FFI types (cstr, cint, etc.) always available
-- ✅ Cleaner user code - no more `import s64` or `import Maybe`
-- ✅ Matches expectations from other languages
-
-**Example Before/After:**
-
-```razorforge
-# BEFORE - Had to manually import everything
-import s64
-import u32
-import Maybe
-import Result
-
-routine start() {
-    let x: s64 = 42
-    let maybe: Maybe<u32> = Some(100)
-}
-
-# AFTER - Core types automatically available
-routine start() {
-    let x: s64 = 42
-    let maybe: Maybe<u32> = Some(100)
-}
-```
-
-**Files Modified:**
-
-- ✅ `src/Analysis/CorePreludeLoader.cs` - NEW FILE (100 lines)
-- ✅ `src/Analysis/SemanticAnalyzer.cs` - Added LoadCorePrelude() call (lines 181, 372-401)
-- ✅ `src/Analysis/ModuleResolver.cs` - Added AddToCache() method
-
-### Comprehensive Code Generator Refactoring (2025-12-08 Session)
-
-**Status:** ✅ **MAJOR OVERHAUL COMPLETE**
-
-Massive refactoring and enhancement of the LLVM code generator to fix numerous edge cases, improve type handling, and
-support more complex language features.
-
-**Summary of Changes:**
-
-**1. Location Tracking (`UpdateLocation()` method)**
-
-- Created centralized `UpdateLocation(SourceLocation)` method in LLVMCodeGenerator.cs
-- Replaced all `_currentLocation = node.Location` assignments with `UpdateLocation(node.Location)`
-- Ensures consistent error reporting with correct file names and line numbers
-- Fixes Bug 12.14 (Error Location Tracking)
-
-**2. Generic Type Full Name Handling**
-
-- Added `BuildFullTypeName()` method to recursively construct generic type names
-- Fixed variable declarations to preserve generic type arguments (e.g., `TestType<s64>` not just `TestType`)
-- Enhanced `MapTypeWithSubstitution()` to handle nested generics with regex-based substitution
-- Proper handling of complex types like `Range<BackIndex<uaddr>>`
-
-**3. Type Conversion and Casting**
-
-- Enhanced variable initialization to auto-cast mismatched types
-- Added type checking before store instructions
-- Proper handling of record type conversions
-- Support for truncation and extension with record wrapping
-
-**4. Binary Expression Enhancements**
-
-- Added `GenerateAssignment()` handling for assignment operator
-- Floating-point type detection with fallback logic
-- Proper `fadd`/`fsub`/`fmul`/`fdiv`/`fcmp` for FP types vs `add`/`sub`/`mul`/`sdiv`/`icmp` for integers
-- Fixed type conversion for pointer and record types
-- Enhanced right operand conversion with record extraction/wrapping
-
-**5. Arithmetic Right Shift Fix**
-
-- Extract-operate-wrap pattern for record types
-- Properly detects primitive type inside record wrapper
-- Generates correct `ashr`/`lshr` instructions
-
-**6. Floating-Point Constant Handling**
-
-- Added `EnsureProperFPConstant()` to fix FP literal format issues
-- Ensures FP operations use proper constant representation
-
-**7. Function Generation Improvements**
-
-- Implicit `me` parameter for type methods (vs namespace functions)
-- Namespace detection to differentiate `s64.__add__` (method) from `Console.show` (namespace function)
-- Type parameter substitution in receiver types
-- Regex-based substitution for generic parameters in function signatures
-- Proper RazorForge type tracking with substitutions applied
-
-**8. Generic Function Template Matching**
-
-- Added `FindMatchingGenericTemplate()` to search for templates
-- Added `ExtractTypeArguments()` for parsing type argument lists
-- Added `GetGenericFunctionReturnType()` with type substitution
-- Handles complex cases like `BackIndex<I>.resolve` → `BackIndex<uaddr>.resolve`
-
-**9. Method Call Enhancements**
-
-- Improved argument type resolution with fallback to `GetTypeInfo()`
-- Better handling of literals and untracked expressions
-- Fixed temp name generation to avoid `%ptr_%tmp` (strips `%` prefix)
-- Enhanced return type lookup to return both LLVM and RazorForge types
-
-**10. Generic Record Constructor Calls**
-
-- Support for `TestType<s64>(value: 42)` syntax
-- Checks `_genericRecordTemplates` before instantiation
-- Proper struct initialization code generation
-
-**11. Native Function Declaration Tracking**
-
-- Added `_declaredNativeFunctions` and `_nativeFunctionDeclarations` tracking
-- Added `EmitNativeFunctionDeclarations()` method
-- Prevents duplicate external function declarations
-
-**12. Record Field Type Tracking**
-
-- Added `_recordFieldsRfTypes` to track RazorForge field types before LLVM conversion
-- Enables better method lookup on record fields
-- Supports generic record field resolution
-
-**Files Modified (Massive Changes):**
-
-- `src/CodeGen/LLVMCodeGenerator.cs` - 418+ lines changed
-    - Added `UpdateLocation()`, generic template methods, field tracking
-- `src/CodeGen/LLVMCodeGenerator.Expressions.cs` - 1365+ lines changed
-    - Binary expression overhaul, type conversion, FP handling
-- `src/CodeGen/LLVMCodeGenerator.Functions.cs` - 433+ lines changed
-    - Implicit me parameters, type substitution, template instantiation
-- `src/CodeGen/LLVMCodeGenerator.MethodCalls.cs` - 170+ lines changed
-    - Generic constructor calls, argument type resolution
-- `src/CodeGen/LLVMCodeGenerator.Declarations.cs` - 153+ lines changed
-- `src/CodeGen/LLVMCodeGenerator.Intrinsics.cs` - 797+ lines changed
-- `src/CodeGen/LLVMCodeGenerator.Errors.cs` - 188+ lines changed
-- `src/CodeGen/LLVMCodeGenerator.External.cs` - 320+ lines changed
-- `src/CodeGen/LLVMCodeGenerator.Statements.cs` - 306+ lines changed
-- `src/CodeGen/LLVMCodeGenerator.Types.cs` - 133+ lines changed
-- `src/CodeGen/LLVMCodeGenerator.Constructors.cs` - 734+ lines changed
-
-**Impact:**
-
-- ✅ Fixed Bug 12.14 - Error location tracking shows correct file/line
-- ✅ Fixed numerous type conversion edge cases
-- ✅ Generic types work end-to-end with proper instantiation
-- ✅ Methods on generic types resolve correctly
-- ✅ Floating-point arithmetic generates correct LLVM IR
-- ✅ Record type system consistently enforced throughout
-- ✅ Native function declarations properly managed
-
-### Semantic Analyzer Enhancements (2025-12-08 Session)
-
-**Status:** ✅ **COMPLETED**
-
-Enhanced the semantic analyzer with better type inference, namespace tracking, and module loading capabilities.
-
-**Changes:**
-
-**1. Expected Type Context for Inference**
-
-- Added `_expectedType` field for type inference (Bug 12.10 foundation)
-- Enables contextual type inference for integer literals
-- Will propagate expected types down expression tree
-
-**2. Current Namespace Tracking**
-
-- Added `_currentNamespace` field to track namespace declarations
-- Public `CurrentNamespace` property for code generator access
-- Distinguishes namespace-qualified functions from type methods
-- Critical for fixing method vs function ambiguity
-
-**3. Symbol Table Namespace Detection**
-
-- Made `_fileName` public for cross-component access
-- Enhanced symbol table to support namespace queries
-- Enables `IsNamespace()` checks during code generation
-
-**4. Core Prelude Integration**
-
-- Integrated `CorePreludeLoader` into analyzer initialization
-- Loads ALL transitive dependencies for core modules
-- Ensures types like DataHandle (imported by Maybe) are available
-- Fixes missing type errors during compilation
-
-**Files Modified:**
-
-- `src/Analysis/SemanticAnalyzer.cs` - 63+ lines changed
-    - Added expected type tracking, namespace tracking, core prelude loading
-- `src/Analysis/SemanticAnalyzer.Declarations.cs` - 145+ lines changed
-- `src/Analysis/SemanticAnalyzer.Expressions.cs` - 66+ lines changed
-- `src/Analysis/SemanticAnalyzer.Calls.cs` - 98+ lines changed
-- `src/Analysis/SemanticAnalyzer.Statements.cs` - 36+ lines changed
-- `src/Analysis/SymbolTable.cs` - 36+ lines changed
-- `src/Analysis/FunctionVariantGenerator.cs` - 99+ lines changed
-
-### Parser Improvements (2025-12-08 Session)
-
-**Status:** ✅ **COMPLETED**
-
-Enhanced parser to better handle generic types, expressions, and statements.
-
-**Changes:**
-
-- `src/Parser/RazorForgeParser.Expressions.cs` - 90+ lines changed
-    - Better generic type argument parsing
-    - Improved expression precedence handling
-- `src/Parser/RazorForgeParser.Statements.cs` - 73+ lines changed
-    - Enhanced statement parsing
-- `src/Parser/RazorForgeParser.Helpers.cs` - 23+ lines changed
-    - Added helper methods for common parsing patterns
-
-**Files Modified:**
-
-- `src/Parser/RazorForgeParser.Expressions.cs` - 90+ lines
-- `src/Parser/RazorForgeParser.Statements.cs` - 73+ lines
-- `src/Parser/RazorForgeParser.Helpers.cs` - 23+ lines
-- `src/Parser/BaseParser.cs` - 5+ lines
-- `src/Lexer/BaseTokenizer.cs` - 11+ lines
-
-### Standard Library Updates (2025-12-08 Session)
-
-**Status:** ✅ **COMPLETED**
-
-Updated standard library files with namespace declarations and bug fixes.
-
-**Core Namespace Additions:**
-
-- ✅ `stdlib/ErrorHandling/DataHandle.rf` – Added `namespace core`
-- ✅ `stdlib/ErrorHandling/DataState.rf` – Added `namespace core`
-- ✅ `stdlib/ErrorHandling/Maybe.rf` – Added `namespace core`
-- ✅ `stdlib/ErrorHandling/Result.rf` – Enhanced
-- ✅ `stdlib/ErrorHandling/Lookup.rf` – Added `namespace core`
-- ✅ All NativeDataTypes files – Already had `namespace core`
-
-**Other Files Modified:**
-
-- `stdlib/Console.rf` – 58+ lines changed
-- `stdlib/FFI/cstr.rf` – 10+ lines changed
-- Collection type files – Minor updates
-
-### Build System and Native Runtime (2025-12-08 Session)
-
-**Status:** ⏳ **IN PROGRESS**
-
-Added new native runtime functions and updated build configuration.
-
-**Files Modified:**
-
-- `native/CMakeLists.txt` - Build system updates
-- `native/build.bat` - Windows build script fixes
-- `native/build.sh` - Unix build script fixes
-- `native/runtime/memory.c` - 19+ lines added
-- `native/runtime/text_functions.c` - NEW FILE (for future text operations)
-
-### LLVM Code Generation ABI and Control Flow Fixes (2025-12-08 Session 2)
-
-**Status:** ✅ **COMPLETED**
-
-Fixed critical code generation issues related to multi-field struct ABI conventions, control flow termination, and
-generic entity method instantiation.
-
-**Problems Fixed:**
-
-**1. Multi-field Struct Argument Passing (d128 issue)**
-
-- **Problem:** When method returned multi-field struct VALUE (like `%d128 = {%u64, %u64}`), and that value was used as
-  argument expecting pointer, compiler generated invalid LLVM
-- **Example:** `%tmp631 = call %d128 @d128.min(...)` returns value, then `call @d128.max(ptr %tmp631, ...)` tried to
-  pass value as pointer
-- **Root Cause:** Method call receiver handling assumed multi-field structs were already pointers from variable access,
-  didn't handle return values
-- **Solution:** Added check in `LLVMCodeGenerator.Expressions.cs:1528-1550` to detect when receiver is struct VALUE via
-  `_tempTypes`, then allocate stack + store + pass pointer
-- **Result:** Multi-field struct chaining now works correctly (e.g., `d128.min(...).max(...)`)
-
-**2. If Statement Block Termination**
-
-- **Problem:** When both branches of if statement terminated (with `ret`), compiler still generated unreachable code
-  after the if
-- **Example:** Both branches return, but code continues with `call @__rf_stack_pop()` after, causing LLVM validation
-  error
-- **Root Cause:** Always set `_blockTerminated = false` after if statement, even when both branches terminated
-- **Solution:** Modified `LLVMCodeGenerator.Statements.cs:54-62` to only set `_blockTerminated = false` when there's
-  continuation (end label). When both terminate, set `_blockTerminated = true`
-- **Result:** No more unreachable code after terminated if statements
-
-**3. Generic Entity Method Registration**
-
-- **Problem:** Methods on generic entities like `List<T>.__create__()` were not being registered as instantiable
-  templates
-- **Root Cause:** Multiple issues:
-    - Entity members (methods inside `entity { }` blocks) were processed but generics skipped
-    - Top-level methods on generic types (like `routine List<T>.__create__()`) were being skipped as having method-level
-      generics
-    - No distinction between type-level generics (from `List<T>`) vs method-level generics
-- **Solution:**
-    - `LLVMCodeGenerator.Functions.cs:816-891` - Process methods inside generic record declarations, register as
-      templates
-    - `LLVMCodeGenerator.Functions.cs:879-941` - Process methods inside generic entity declarations, register as
-      templates
-    - `LLVMCodeGenerator.Functions.cs:983-1024` - Detect top-level methods on generic types (`List<T>.method`) and
-      register as templates
-    - Distinguished between `hasMethodLevelGenerics && !isGenericTypeMethod` (skip) vs `isGenericTypeMethod` (register)
-- **Result:** Generic entity/record methods now properly registered and available for instantiation
-
-**4. Generic Constructor Instantiation Trigger**
-
-- **Problem:** When calling generic constructors like `List<letter8>(len)`, the template was registered but
-  instantiation never triggered
-- **Root Cause:** `TryHandleGenericTypeConstructor` built mangled name and generated call, but didn't instantiate the
-  template
-- **Solution:** Added instantiation trigger in `LLVMCodeGenerator.Constructors.cs:1771-1780` - checks if template
-  exists, extracts type args, calls `InstantiateGenericFunction()`
-- **Result:** Constructor calls now trigger proper template instantiation
-
-**5. Entity Method Generation from Imports**
-
-- **Problem:** Only record methods were being generated from imported modules, entity methods were ignored
-- **Root Cause:** `GenerateImportedModuleFunctions` only had loop for `RecordDeclaration.Members`, not
-  `EntityDeclaration.Members`
-- **Solution:** Added parallel loop for entity members at `LLVMCodeGenerator.Functions.cs:879-941`
-- **Result:** Both record AND entity methods now generated from stdlib modules
-
-**Files Modified:**
-
-- ✅ `src/CodeGen/LLVMCodeGenerator.Expressions.cs` - Multi-field struct argument passing (lines 1528-1550)
-- ✅ `src/CodeGen/LLVMCodeGenerator.Statements.cs` - If statement termination (lines 54-62)
-- ✅ `src/CodeGen/LLVMCodeGenerator.Functions.cs` - Generic method registration (3 locations: records, entities,
-  top-level)
-- ✅ `src/CodeGen/LLVMCodeGenerator.Constructors.cs` - Generic constructor instantiation trigger (lines 1771-1780)
-
-**Impact:**
-
-- ✅ Multi-field structs (d32, d64, d128) can be chained in method calls
-- ✅ Control flow correctly handled - no unreachable code after terminated blocks
-- ✅ Generic entity methods (List<T>, Text<T>) registered and instantiable
-- ✅ Generic constructors trigger template instantiation
-- ✅ Stdlib entity types can now be used (List, Text, etc.)
-
-**Known Remaining Issues:**
-
-- ⏸️ Type resolution during generic instantiation - when generating instantiated generic code, some type lookups fail
-- ⏸️ Stdlib bugs - some stdlib files use wrong generic parameter names (e.g., `T` instead of `LetterType`)
-- ⏸️ Dependency issues - some stdlib modules reference types not loaded (e.g., Text not loaded when needed)
-
-**Test Results:**
-
-- ✅ d128 multi-field struct passing works correctly
-- ✅ If statement termination generates valid LLVM IR
-- ✅ Generic templates registered (List<T>.__create__, etc.)
-- ✅ Constructor calls trigger instantiation
-- ⏸️ Full compilation blocked by type resolution issues during instantiation
-
-### Generic Entity Constructor Calls (2025-12-08 Session 3)
-
-**Status:** ✅ **COMPLETED**
-
-Fixed critical code generation issue preventing generic entity constructors from working properly.
-
-**Problems Fixed:**
-
-**1. Generic Entity Template Detection in Constructor Calls**
-
-- **Problem:** When calling `Text<letter8>(letters: list)`, code generator couldn't find entity templates
-- **Root Cause:** Only checking `_genericRecordTemplates`, not `_genericEntityTemplates` in method call handling
-- **Solution:** Added entity template check in `LLVMCodeGenerator.MethodCalls.cs:107-119` - checks both record and
-  entity templates
-- **Result:** Generic entity constructors now properly detected and instantiated
-
-**2. Entity Field Tracking for Constructors**
-
-- **Problem:** `HandleRecordConstructorCall` couldn't find field information for entities like `Text_letter8`
-- **Root Cause:** `GenerateEntityType` didn't store field information in `_recordFields` dictionary (only records did)
-- **Solution:** Added field tracking to `GenerateEntityType` in `LLVMCodeGenerator.Declarations.cs:151-185` - mirrors
-  record field tracking
-- **Result:** Entity constructors can now access field information for initialization
-
-**3. Heap Allocation for Entity Constructors**
-
-- **Problem:** `HandleRecordConstructorCall` allocated on stack, but entities need heap allocation
-- **Root Cause:** No separate handler for entity constructors - used same code path as records
-- **Solution:**
-    - Created `HandleEntityConstructorCall` in `LLVMCodeGenerator.Constructors.cs:926-1022`
-    - Uses `malloc` for heap allocation instead of `alloca`
-    - Returns pointer directly (reference type) instead of loading value (value type)
-- **Result:** Entities properly heap-allocated and returned as pointers
-
-**4. Parser Bug with Generic Type Parameters**
-
-- **Problem:** Methods like `Text<letter8>.to_cstr` had `letter8` incorrectly placed in `GenericParameters`
-- **Root Cause:** Parser bug - receiver type arguments end up in method's `GenericParameters` list
-- **Workaround:** Modified `LLVMCodeGenerator.Functions.cs:991-998` to detect and ignore this case
-- **Result:** Concrete methods on specific instantiations no longer treated as generic templates
-
-**5. Stdlib Type Corrections**
-
-- **Problem:** Several numeric types used undefined `Text<LetterType>` parameter type
-- **Root Cause:** `LetterType` wasn't defined, should use concrete type like `letter8`
-- **Solution:** Changed `Text<LetterType>` to `Text<letter8>` in:
-    - `stdlib/NativeDataTypes/d128.rf:55`
-    - `stdlib/NativeDataTypes/d32.rf:49`
-    - `stdlib/NativeDataTypes/d64.rf:48`
-    - `stdlib/NativeDataTypes/s32.rf:21`
-- **Result:** Numeric type constructors from text now compile correctly
-
-**6. Text Entity Generic Parameter Consistency**
-
-- **Problem:** `Text` entity declared as `Text<LetterType>` but methods used `T`
-- **Root Cause:** Naming inconsistency in generic parameter between entity and methods
-- **Solution:** Changed entity declaration to `Text<T>` in `stdlib/Text/Text.rf:15` for consistency
-- **Result:** All `Text<T>` code uses same generic parameter name
-
-**Files Modified:**
-
-- ✅ `src/CodeGen/LLVMCodeGenerator.MethodCalls.cs` - Added entity template check (lines 107-119)
-- ✅ `src/CodeGen/LLVMCodeGenerator.Declarations.cs` - Added entity field tracking (lines 151-185)
-- ✅ `src/CodeGen/LLVMCodeGenerator.Constructors.cs` - Created `HandleEntityConstructorCall` (lines 926-1022)
-- ✅ `src/CodeGen/LLVMCodeGenerator.Functions.cs` - Parser bug workaround (lines 991-998)
-- ✅ `stdlib/NativeDataTypes/d128.rf` - Fixed Text<LetterType> → Text<letter8>
-- ✅ `stdlib/NativeDataTypes/d32.rf` - Fixed Text<LetterType> → Text<letter8>
-- ✅ `stdlib/NativeDataTypes/d64.rf` - Fixed Text<LetterType> → Text<letter8>
-- ✅ `stdlib/NativeDataTypes/s32.rf` - Fixed Text<LetterType> → Text<letter8>
-- ✅ `stdlib/Text/Text.rf` - Changed Text<LetterType> → Text<T>
-
-**Impact:**
-
-- ✅ Generic entity constructors work: `Text<letter8>(letters: list)`
-- ✅ Entities properly heap-allocated with `malloc`
-- ✅ Entity field initialization works correctly
-- ✅ Text type can be instantiated and used
-- ✅ Numeric type constructors from text strings work
-- ⏸️ Remaining issue: Methods on specific instantiations (e.g., `Text<letter8>.to_cstr`) still not generated due to
-  parser bug placing receiver type args in GenericParameters
-
-**Known Remaining Parser Bug:**
-
-- **Issue:** Parser places receiver type arguments in method's `GenericParameters` list
-- **Example:** `Text<letter8>.to_cstr` has `letter8` in `GenericParameters` when it shouldn't
-- **Current State:** Workaround prevents these from being treated as templates, but they still don't generate
-- **Fix Needed:** Parser needs to correctly distinguish receiver type arguments from method-level generics
-- **Impact:** Methods on concrete instantiations (like `Text<letter8>.to_cstr`) are not available
-- **Workaround:** Use `__create__` constructors or generic methods (like `Text<T>.length`) instead
-
-**Test Results:**
-
-- ✅ `Text<letter8>()` constructor works
-- ✅ `Text<letter8>(from_list: list)` constructor works
-- ✅ Entity types properly instantiated and tracked
-- ✅ Stdlib numeric types compile without Text-related errors
-- ⏸️ `Text<letter8>.to_cstr()` method still unavailable (parser bug)
+#### Generic Type Instantiation
+1. `InstantiateGenericRecord` queues types instead of generating immediately
+2. `GeneratePendingTypeInstantiations` uses while loop to process queue
+3. Handles recursive dependencies (e.g., `Range<BackIndex<uaddr>>`)
+4. All types generated before any functions
+
+#### Mutation Inference (Planned)
+1. Direct mutation detection - Walk AST for field writes
+2. Call graph construction - Track who-calls-whom
+3. Transitive propagation - Topological sort + marking
+4. Metadata caching - Store in TypeInfo, cache in compiled artifacts
 
 ---
 
-## Implementation Priority Summary
+### Related Documentation
 
-### ✅ COMPLETED (Major Milestone!)
-
-1. ✅ **Bug 12.13** - Generic method template matching - FULLY WORKING!
-
-### 🟠 HIGH PRIORITY (Core Language Features)
-
-2. **Generic record instantiation** - Two-pass generation with dependency ordering
-3. **Native runtime library** - Link and execute programs (currently blocks execution)
-4. **Type constructor fixes** - Bug 12.7, 12.10, 12.11 (blocking stdlib development)
-
-### 🟡 MEDIUM-HIGH (Important for Usability)
-
-5. **Protocol system** - Declarations, implementation checking
-6. **Module system** - Import resolution and symbol loading
-7. **Generic function overload resolution** - Choose between generic/non-generic
-8. **Generic constraints** - `<T: Protocol>` syntax and validation
-
-### 🟢 MEDIUM (Quality of Life)
-
-9. **Missing parser features** - `external`, `preset`, `common`, etc.
-10. **Lambda code generation** - Execute higher-order functions
-11. **Auto-generated methods** - Reduce boilerplate
-
-### ⚪ LOW (Nice to Have)
-
-12. **Method-chain constructors** - `"42".s32!()`
-13. **Range validation** - Compile-time bounds checking
-
----
-
-## External Documentation
-
+**Language Design:**
 - [GENERICS_STATUS.md](GENERICS_STATUS.md) - Comprehensive generics analysis
-- [BUG_12.13_ANALYSIS.md](BUG_12.13_ANALYSIS.md) - Generic method matching deep dive
-- [STDLIB_TODO.md](STDLIB_TODO.md) - Standard library implementation tasks
-- [RazorForge Error Handling](../wiki/RazorForge-Error-Handling.md) - Error handling design
-- [RazorForge Memory Model](../wiki/RazorForge-Memory-Model.md) - Memory management design
+- [BUG_12.13_ANALYSIS.md](BUG_12.13_ANALYSIS.md) - Generic method template matching
+- [RazorForge-Protocols.md](../wiki/RazorForge-Protocols.md) - Protocol system spec
+- [Modules-and-Imports.md](../wiki/Modules-and-Imports.md) - Module system (NaaM)
+
+**Memory Model:**
+- [RazorForge Memory Model](../wiki/RazorForge-Memory-Model.md) - Token types and iteration
+- [RazorForge Concurrency Model](../wiki/RazorForge-Concurrency-Model.md) - Multi-threaded iteration
+- [RazorForge Routines](../wiki/RazorForge-Routines.md) - Method declarations
+
+**Code Style:**
+- [RazorForge Code Style](../wiki/RazorForge-Code-Style.md) - Style guide
+- [Suflae Code Style](../wiki/Suflae-Code-Style.md) - Suflae style guide
+
+**Suflae-Specific:**
+- [Suflae Eternal](../wiki/Suflae-Eternal.md) - `eternal` keyword
+- [Resident vs Eternal](../wiki/Resident-vs-Eternal.md) - Comparison
 
 ---
 
-**Next Session Focus:** Generic record instantiation (two-pass generation) OR native runtime library OR type constructor
-fixes - choose based on immediate needs.
+## RECENTLY COMPLETED WORK
+
+### Generic Type System (2025-12-04)
+✅ **MAJOR MILESTONE** - End-to-end generics fully working!
+- Generic type instantiation (`TestType<s64>`)
+- Generic method calls (`instance.method()`)
+- Template matching system (GenericTypeResolver.cs)
+- Full type safety with compilation
+
+**See:** [GENERICS_STATUS.md](GENERICS_STATUS.md), [BUG_12.13_ANALYSIS.md](BUG_12.13_ANALYSIS.md)
 
 ---
 
-## 🔴 CRITICAL Language Design Changes (Added 2025-12-10, Updated 2025-12-12)
-
-**Priority:** 🔴 **CRITICAL** (blocking language spec finalization)
-
-**Status:** ✅ **NEARLY COMPLETE** (Items 1-5 done, 6 pending)
-
-These are fundamental language design changes that must be implemented to match the finalized language specification.
-
-**Completion Summary:**
-
-- ✅ Item 1: Entry point `main` → `start` (COMPLETE)
-- ✅ Item 2: Reserved names & namespace rules (COMPLETE)
-- ✅ Item 3: Crashable entry point design (COMPLETE)
-- ✅ Item 4: Hybrid namespace system (COMPLETE)
-- ✅ Item 5: Inline conditional restrictions (COMPLETE)
-- ⏳ Item 6: Suflae `eternal` keyword (PENDING)
-
-### 1. Entry Point Rename: `main` → `start` - ✅ **COMPLETE**
-
-**Status:** ✅ **COMPLETE (2025-12-12)**
-
-**Change:** The entry point routine must be named `start`, not `main`.
-
-**Design Decision:** `start()` is **ALWAYS crash-capable** (no `!` suffix or `@crash_only` attribute needed).
-Crashes at the entry point become exit codes automatically. This is simpler and matches user expectations.
-
-```razorforge
-# OLD (deprecated)
-routine start() {
-    show_line("Hello, RazorForge!")
-}
-
-# NEW (required)
-routine start() {
-    show_line("Hello, RazorForge!")
-
-    # Can use throw/absent without special attributes
-    let config = load_config()
-    unless config {
-        throw ConfigError("Failed to load config")
-    }
-}
-```
-
-**Completed Tasks:**
-
-- [x] ~~Update lexer to reserve `start` keyword~~ - NOT NEEDED (start is regular identifier)
-- [x] Code generator maps `start` to LLVM `main` function
-- [x] Semantic analyzer validates `start` signature (no required params, Blank return)
-- [x] Reserved name validation prevents misuse of `start`/`start!`
-- [ ] Update all example code in documentation - PENDING
-- [ ] Update all test files - PENDING
-
-**Files Modified:**
-
-- ✅ `src/CodeGen/LLVMCodeGenerator.Functions.cs:108-123, 280-286` - Maps start → main
-- ✅ `src/Analysis/SemanticAnalyzer.cs:276-330` - Validates entry point
-- ✅ `src/Analysis/SemanticAnalyzer.Declarations.cs:212-222` - Reserves start/start! names
+### Record Type System Consistency (2025-12-06)
+✅ Systematic fixes ensuring ALL types use record wrappers (`%s32`, `%u64`, etc.)
+- Core type mapping consistency
+- When expression return values
+- Bitcast intrinsic
+- Decimal type mappings
+- Arithmetic operations
+- Boolean operations
+- Integer literal wrapping
 
 ---
 
-### 2. Reserved Routine Names & Namespace Rules - ✅ **COMPLETE**
+### Core Prelude Auto-Loading (2025-12-08)
+✅ Automatic loading of all `namespace core` files
+- No more `import s64` or `import Maybe`
+- Transitive dependency loading
+- Recursive stdlib scanning
+- Clean user code
 
-**Status:** ✅ **COMPLETE (2025-12-12)** - Enhanced with namespace restrictions
-
-**Changes:**
-
-1. **`start!` is PROHIBITED** - Entry point is always `start` (always crash-capable)
-2. **`start` reserved for entry point** - Only zero-parameter, global namespace
-3. **Namespace requirement** - Entry point MUST be in global namespace (project root files)
-
-```razorforge
-# ❌ CE: 'start!' is never allowed
-routine start!() {
-    throw ConfigError()  # Error: Use 'start' instead (always crash-capable)
-}
-
-# ❌ CE: 'start' with parameters is reserved
-routine start(x: s32) -> s32 {
-    return x * 2  # Error: start is reserved for entry point
-}
-
-# ❌ CE: 'start' in namespace is not allowed
-namespace app.core
-routine start() {  # Error: Entry point must be in global namespace
-    show("Not allowed here")
-}
-
-# ✅ OK: Zero-parameter entry point in global namespace (root file)
-# File: myproject/main.rf (no namespace declaration)
-routine start() {
-    show("Application started")
-}
-```
-
-**Namespace Rules for Entry Point:**
-
-| File Location           | Namespace                  | `start()` Allowed? |
-|-------------------------|----------------------------|--------------------|
-| `myproject/main.rf`     | Global (no namespace decl) | ✅ YES              |
-| `myproject/app.rf`      | Global (no namespace decl) | ✅ YES              |
-| `myproject/src/core.rf` | Implicit `src` namespace   | ❌ NO               |
-| With `namespace foo`    | Explicit `foo` namespace   | ❌ NO               |
-
-**Completed Tasks:**
-
-- [x] Prohibit `start!` entirely (always use `start`)
-- [x] Reserved name validation in `SemanticAnalyzer.Declarations.cs`
-- [x] Error if `start` used with required parameters
-- [x] Error if `start` declared in non-global namespace
-- [x] Allow only zero-parameter `start` in global namespace
-
-**Files Modified:**
-
-- ✅ `src/Analysis/SemanticAnalyzer.Declarations.cs:212-246` - Reserved name & namespace checks
+**Files:** `src/Analysis/CorePreludeLoader.cs` (NEW)
 
 ---
 
-### 3. Crashable Entry Point - ✅ **DESIGN CHANGED**
-
-**Status:** ✅ **COMPLETE (2025-12-12)** - Different approach taken
-
-**Design Decision:** NO `@crash_only` attribute needed. The entry point `start()` is **ALWAYS crash-capable** by design.
-
-**Rationale:**
-
-- Simpler mental model (no need to remember `start()` vs `@crash_only routine start!()`)
-- Matches user expectations (where else would crashes go at the top level?)
-- Aligns with other languages (main() can return errors/panic)
-- More explicit (crashes naturally happen, runtime converts to exit codes)
-
-```razorforge
-# ✅ Simple: start() is always crash-capable
-routine start() {
-    throw FatalError()  # OK - becomes exit code automatically
-    absent               # OK - absence becomes exit code
-}
-
-# ❌ NO LONGER NEEDED: start! variant or @crash_only attribute
-```
-
-**Completed:**
-
-- [x] Design decision: Always crash-capable by default
-- [x] No special syntax or attributes needed
-- [x] Runtime handles crash → exit code conversion (future work)
-
-**Future Enhancement:**
-
-For complex project structures, we may add TOML configuration to override the default:
-
-```toml
-# forge.toml or bake.toml (FUTURE)
-[build]
-entry_point = "app.cli.start"  # Override default global namespace requirement
-# OR
-entry_file = "src/main.rf"     # Specify exact entry file
-```
-
-This would allow libraries and large projects more flexibility while maintaining the simple default behavior.
+### Comprehensive Code Generator Refactoring (2025-12-08)
+✅ **MAJOR OVERHAUL** - Numerous edge cases and enhancements
+- Location tracking with `UpdateLocation()` method (Bug 12.14 fix)
+- Generic type full name handling
+- Type conversion and casting
+- Binary expression enhancements
+- Floating-point constant handling
+- Function generation improvements
+- Generic template matching
+- Method call enhancements
+- Native function declaration tracking
+- Record field type tracking
 
 ---
 
-### 4. Hybrid Namespace System - ✅ **COMPLETE**
-
-**Status:** ✅ **COMPLETE (2025-12-12)** - Stdlib, project root, and path-based namespaces implemented
-
-**Changes:**
-
-1. **Forward slashes everywhere** - Consistent namespace syntax
-2. **Stdlib path resolution** - TOML → Environment → Default priority
-3. **Stdlib validation** - MUST have explicit namespace (CE)
-4. **Project root** - Global namespace (no declaration needed)
-5. **Subdirectories** - Auto-inferred namespace from path
-
-**Design:**
-
-```razorforge
-# ========== STDLIB FILES ==========
-# File: stdlib/Collections/List.rf
-namespace Collections  # ✅ REQUIRED - Compile error if missing
-
-# File: stdlib/Text/Text.rf
-namespace Text  # ✅ REQUIRED
-
-# ========== PROJECT ROOT FILES ==========
-# File: myproject/main.rf (no namespace declaration)
-routine start() {  # ✅ Global namespace (null)
-    show("Hello")
-}
-
-# File: myproject/app.rf (no namespace declaration)
-routine init() {  # ✅ Global namespace (null)
-    # ...
-}
-
-# ========== PROJECT SUBDIRECTORY FILES ==========
-# File: myproject/src/core.rf (no namespace declaration)
-# ✅ AUTO-INFERRED: namespace "src"
-routine process() {
-    # ...
-}
-
-# File: myproject/lib/utils/helpers.rf (no namespace declaration)
-# ✅ AUTO-INFERRED: namespace "lib/utils"
-routine format() {
-    # ...
-}
-
-# ========== EXPLICIT OVERRIDE ==========
-# File: myproject/src/core.rf
-namespace app/core  # ✅ Explicit override (ignores path)
-routine init() {
-    # ...
-}
-```
-
-**Namespace Rules Table:**
-
-| File Location                | Explicit `namespace`    | Actual Namespace | Notes                      |
-|------------------------------|-------------------------|------------------|----------------------------|
-| `stdlib/Collections/List.rf` | None                    | ❌ **CE**         | Stdlib MUST have namespace |
-| `stdlib/Collections/List.rf` | `namespace Collections` | `Collections`    | ✅ Required                 |
-| `myproject/main.rf`          | None                    | Global (null)    | ✅ Root file                |
-| `myproject/app.rf`           | `namespace myapp`       | `myapp`          | ✅ Explicit override        |
-| `myproject/src/core.rf`      | None                    | `src`            | ✅ Inferred from path       |
-| `myproject/lib/utils.rf`     | None                    | `lib/utils`      | ✅ Inferred from path       |
-| `myproject/src/foo.rf`       | `namespace bar`         | `bar`            | ✅ Explicit override        |
-
-**Stdlib Path Resolution (Priority Order):**
-
-```toml
-# 1. TOML config (highest priority)
-# forge.toml or bake.toml
-[build]
-stdlib_path = "/custom/path/to/stdlib"
-
-# 2. Environment variable (middle priority)
-# RAZORFORGE_STDLIB_PATH=/opt/razorforge/stdlib
-
-# 3. Default location (fallback)
-# <compiler_exe_dir>/stdlib
-# or parent directories for development builds
-```
-
-**Usage Examples:**
-
-```razorforge
-# Project structure:
-# myproject/
-#   ├── forge.toml
-#   ├── main.rf          # Global namespace
-#   └── src/
-#       └── utils.rf     # namespace "src"
-
-# main.rf (no namespace declaration)
-import src/utils  # Import from inferred namespace
-
-routine start() {
-    src/utils.process()
-}
-
-# src/utils.rf (no namespace declaration - inferred as "src")
-routine process() {
-    show("Processing...")
-}
-```
-
-**Completed Tasks:**
-
-- [x] Add stdlib path resolution (TOML → Env → Default) to `ModuleResolver`
-- [x] Add `FindProjectRoot()` to detect forge.toml/bake.toml
-- [x] Add `IsStdlibFile()` check using stdlib path
-- [x] Add `InferNamespaceFromPath()` with forward slash conversion
-- [x] Parser already supports forward slashes in namespace declarations
-- [x] Add namespace validation in `SemanticAnalyzer`:
-    - Stdlib files without namespace → CE
-    - Project files without namespace → infer from path
-    - Root files → global namespace
-
-**Files Modified:**
-
-- ✅ `src/Analysis/ModuleResolver.cs:15-470` - Stdlib path resolution, IsStdlibFile(), InferNamespaceFromPath(),
-  FindProjectRoot()
-- ✅ `src/Analysis/SemanticAnalyzer.cs:276-387` - ValidateNamespaceRules() implementation
+### LLVM ABI and Control Flow Fixes (2025-12-08)
+✅ Multi-field struct argument passing
+✅ Control flow termination
+✅ Generic entity method instantiation
+✅ Proper stack allocation for struct values used as pointers
 
 ---
 
-### 4.5. Module Closure: Prevent External Namespace Pollution - ⏸️ **TODO**
-
-**Status:** ⏸️ **TODO** - Design decision confirmed, implementation needed
-
-**Problem:** Once a module is imported, external code should NOT be able to add to that module's namespace.
-
-**Design Decision:** Modules should be **closed** - you cannot declare `namespace X` if module `X` is imported from
-stdlib or another package.
-
-**Examples:**
-
-```razorforge
-# File: stdlib/Collections/List.rf
-namespace Collections
-
-public entity List<T> {
-    # Core implementation
-}
-```
-
-```razorforge
-# File: myproject/main.rf
-import Collections/List  # Import the Collections module
-
-# ❌ CE: Cannot add to imported module's namespace
-namespace Collections
-routine my_helper() {  # Error: Cannot extend imported module namespace
-    # ...
-}
-
-# ✅ OK: Use your own namespace
-namespace myapp
-routine my_helper() {
-    # ...
-}
-
-# ✅ OK: Global namespace
-routine main_helper() {
-    # ...
-}
-```
-
-**Rationale:**
-
-1. **Prevent namespace pollution** - External code cannot inject into stdlib or third-party namespaces
-2. **Clear module boundaries** - Each module owns its namespace exclusively
-3. **Extension methods still work** - You can still add methods to types from any namespace, but cannot declare new
-   types/functions in imported namespaces
-4. **Consistent with `public(module)` access** - Module-scoped privacy already treats modules as boundaries
-
-**Rules:**
-
-| Scenario               | Namespace Declaration      | Result                                 |
-|------------------------|----------------------------|----------------------------------------|
-| Own module/local file  | `namespace myapp`          | ✅ OK                                   |
-| Stdlib module imported | `namespace Collections`    | ❌ CE: Cannot extend imported namespace |
-| Third-party imported   | `namespace external`       | ❌ CE: Cannot extend imported namespace |
-| Extension method       | `routine List.my_method()` | ✅ OK (methods, not namespace)          |
-
-**Implementation Tasks:**
-
-- [ ] Track imported namespaces in `ModuleResolver` or `SemanticAnalyzer`
-- [ ] Validate `namespace` declarations against imported namespaces
-- [ ] Error if user tries to declare namespace matching an imported module
-- [ ] Allow extension methods (don't confuse with namespace declarations)
-
-**Error Messages:**
-
-```
-Semantic error: Cannot declare namespace 'Collections' - this namespace is imported from module 'Collections/List'
-Note: To extend types from this module, use extension methods (e.g., 'routine List.my_method()')
-```
-
----
-
-### 5. Inline Conditional: Block Syntax NOT Supported - ✅ **COMPLETE**
-
-**Status:** ✅ **COMPLETE (2025-12-12)**
-
-**Change:** `if cond then A else B` is ONLY for single expressions, NOT blocks.
-
-```razorforge
-# ✅ OK: Inline expression only
-let x = if count > 0 then "items" else "empty"
-let max = if a > b then a else b
-return if success then result else default_value
-
-# ❌ CE: Cannot use blocks in inline conditional
-let y = if condition then {
-    let temp = compute()
-    temp * 2
-} else {
-    default_value
-}
-# Parse error: "Block syntax (if condition { ... }) is not supported for inline conditionals"
-
-# ❌ CE: Cannot nest inline conditionals
-let x = if a > 0 then (if a < 0 then -1 else 0) else 1
-# Parse error: "Nested inline conditionals are not allowed. Use statement-form 'if' or 'when'"
-
-# ✅ OK: Use statement form for blocks
-let y = {
-    if condition {
-        let temp = compute()
-        temp * 2
-    } else {
-        default_value
-    }
-}
-```
-
-**Rationale:** Keep inline conditionals simple. Blocks should use statement syntax.
-
-**Completed Tasks:**
-
-- [x] Added `_parsingInlineConditional` flag to track parsing state
-- [x] Updated parser to reject block syntax in `if-then-else` expressions
-- [x] Ensured `if-then-else` only accepts single expressions
-- [x] Generated clear compile errors for block syntax attempts
-- [x] Rejected nested inline conditionals (even with parentheses)
-- [x] Applied same restrictions to both RazorForge and Suflae parsers
-- [x] Tested all restrictions with comprehensive test cases
-- [ ] Update documentation to clarify inline vs statement forms (PENDING)
-
-**Files Modified:**
-
-- ✅ `src/Parser/RazorForgeParser.cs:20-21` - Added `_parsingInlineConditional` flag
-- ✅ `src/Parser/RazorForgeParser.Expressions.cs:1111-1156` - Enforced restrictions
-- ✅ `src/Parser/SuflaeParser.cs:18-19` - Added `_parsingInlineConditional` flag
-- ✅ `src/Parser/SuflaeParser.Expressions.cs:660-699` - Enforced restrictions
-
-**Stdlib Files Updated:**
-
-- ✅ `stdlib/Collections/BitList.rf` - Converted all inline conditionals to new syntax
-- ✅ `stdlib/Collections/Dict.rf` - Updated
-- ✅ `stdlib/Collections/Set.rf` - Updated
-- ✅ `stdlib/Collections/List.rf` - Updated
-- ✅ `stdlib/Collections/Deque.rf` - Updated
-- ✅ `stdlib/Collections/FixedDeque.rf` - Updated
-- ✅ `stdlib/Collections/PriorityQueue.rf` - Updated
-- ✅ `stdlib/NativeDataTypes/*.rf` - All numeric types updated (s8-s128, u8-u128, d128)
-
----
-
-### 6. Ban In-Scope Method Declarations - ⏸️ **TODO**
-
-**Status:** ⏸️ **TODO** - Design decision confirmed, implementation needed
-
-**Problem:** Methods MUST be declared outside type scope. In-scope method declarations should be banned.
-
-**Design Decision:** All methods must use `routine TypeName.method_name()` syntax declared outside the type body.
-Methods inside entity/resident/record scope are compile errors.
-
-**Examples:**
-
-```razorforge
-# ✅ OK: Methods declared outside type scope
-public entity List<T> {
-    private var _buffer: pointer
-    local var _count: uaddr
-}
-
-routine List<T>.push(value: T) {
-    # Implementation
-}
-
-routine List<T>.pop!() -> T {
-    # Implementation
-}
-
-# ❌ CE: In-scope methods not allowed
-public entity List<T> {
-    private var _buffer: pointer
-
-    routine push(value: T) {  # ❌ Compile Error: Methods must be declared outside type scope
-        # ...
-    }
-
-    private routine internal_helper() {  # ❌ Compile Error: Methods must be declared outside type scope
-        # ...
-    }
-}
-```
-
-**Rationale:**
-
-1. **Consistency** - Internal methods and extension methods use identical syntax
-2. **Multi-file organization** - Methods can be naturally split across files in the same namespace
-3. **No distinction** - No syntactic difference between "internal" and "extension" methods
-4. **Cleaner type definitions** - Types show data structure clearly, methods are separate concerns
-5. **Simpler parser** - One syntax for methods, not two separate paths
-6. **Access control clarity** - Access modifiers on methods are unambiguous
-
-**Implementation Tasks:**
-
-- [ ] Update parser to reject method declarations inside type scope
-- [ ] Generate clear error message: "Methods must be declared outside type scope using 'routine TypeName.method_name()'
-  syntax"
-- [ ] Apply to all type kinds (entity, resident, record)
-- [ ] Update both RazorForge and Suflae parsers
-- [ ] Add test cases for banned syntax
-
-**Error Messages:**
-
-```
-Parse error: Methods cannot be declared inside type scope
-Note: Use 'routine TypeName.method_name()' syntax outside the type definition
-```
-
-**Documentation:**
-
-- ✅ `wiki/RazorForge-Routines.md` - Methods section updated with ban explanation
-- ✅ `wiki/Suflae-Routines.md` - Methods section updated with ban explanation
-- ✅ `wiki/RazorForge-Code-Style.md` - Type and Method Declaration section added
-- ✅ `wiki/Suflae-Code-Style.md` - Type and Method Declaration section added
-
----
-
-### 7. Suflae `eternal` Keyword Support
-
-**Change:** Suflae needs `eternal` keyword for application-scoped singleton actors.
-
-```suflae
-# start.sf - Suflae entry point
-eternal AppCore:
-    logger: Logger
-    config: Config
-    metrics: Metrics
-
-routine start():
-    AppCore.logger = Logger()
-    AppCore.config = load_config()
-    # ...
-```
-
-**Requirements:**
-
-- **Start file only** - Can only declare in entry point file
-- **Single declaration** - Only one `eternal` type per application
-- **Actor semantics** - All access through message passing
-- **Application scope** - Accessible everywhere without import
-- **Immortal lifetime** - Never garbage collected
-
-**Tasks:**
-
-- [ ] Add `eternal` keyword to Suflae lexer
-- [ ] Parse `eternal TypeName:` syntax
-- [ ] Validate single eternal declaration per application
-- [ ] Validate eternal only in start file
-- [ ] Generate actor wrapper code
-- [ ] Make eternal accessible globally (no import needed)
-- [ ] Mark as immortal in GC
-- [ ] Update Suflae documentation
-
-**Files (Suflae only):**
-
-- `src/Lexer/SuflaeLexer.cs` - Add `eternal` keyword
-- `src/Parser/SuflaeParser.cs` - Parse eternal declaration
-- `src/Analysis/SemanticAnalyzer.cs` - Validate eternal rules
-- `src/CodeGen/SuflaeCodeGenerator.cs` - Generate actor wrapper
-
-**See:**
-
-- [Suflae Eternal Documentation](../wiki/Suflae-Eternal.md)
-- [Resident vs Eternal Comparison](../wiki/Resident-vs-Eternal.md)
-
----
-
-## Implementation Priority for Critical Changes
-
-**Suggested Order:**
-
-1. **Entry point `main` → `start`** (Straightforward refactor)
-2. **Reserve `start`/`start!`** (Small addition to validation)
-3. **`@crash_only` for `start!`** (Attribute validation)
-4. **Inline conditional restrictions** (Parser validation)
-5. **`eternal` keyword** (Suflae only, most complex)
-
-**Timeline Suggestion:**
-
-- Items 1-5: Can be done in single session (3-4 hours)
-- Item 6 (`eternal`): Separate session (requires actor model integration)
-
+### Inline Conditional Restrictions (2025-12-08)
+✅ Parser restrictions enforced
+✅ No block syntax in inline conditionals
+✅ No nested inline conditionals
+✅ Clear compile errors
+✅ Applied to both RazorForge and Suflae
