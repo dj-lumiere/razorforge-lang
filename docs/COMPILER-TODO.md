@@ -2,7 +2,7 @@
 
 **Last Updated:** 2025-12-14
 
-This document tracks compiler features needed for RazorForge and Suflae. For standard library implementation tasks, see [STDLIB_TODO.md](STDLIB_TODO.md).
+This document tracks compiler features needed for RazorForge and Suflae. For standard library implementation tasks, see [STDLIB-TODO.md](STDLIB-TODO.md).
 
 ---
 
@@ -333,7 +333,7 @@ The LSP should track and visualize all four function types:
 2. **Generic Function Overload Resolution** - Cannot choose between generic and non-generic versions
 3. **Generic Constraints** - Cannot express type requirements (`<T: Comparable>`)
 
-**See:** [GENERICS_STATUS.md](GENERICS_STATUS.md), [BUG_12.13_ANALYSIS.md](BUG_12.13_ANALYSIS.md)
+**See:** [GENERICS-STATUS.md](GENERICS-STATUS.md), [BUG-12.13-ANALYSIS.md](BUG-12.13-ANALYSIS.md)
 
 ---
 
@@ -404,7 +404,7 @@ The LSP should track and visualize all four function types:
 - ❌ Protocol declarations (parser support for `protocol` keyword)
 - ❌ Protocol fields (mixin pattern)
 - ❌ Default implementations
-- ❌ Mutation annotations (`@readonly`, `@writable`, structural)
+- ❌ Mutation annotations (`@readonly`, `@writable`, `@migratable`)
 - ❌ Implementation checking and verification
 - ❌ Generic constraints (`<T: Protocol>`)
 
@@ -424,7 +424,7 @@ The LSP should track and visualize all four function types:
 
 **Depends On:**
 - Method Mutation Inference (Immediate Priorities #3)
-- Iterator Permission Inference (for structural detection)
+- Iterator Permission Inference (for migratable detection)
 
 **See Also:** [RazorForge-Protocols.md](../wiki/RazorForge-Protocols.md)
 
@@ -438,8 +438,8 @@ The LSP should track and visualize all four function types:
 **Blocking Issue:** Requires Method Mutation Inference (Immediate Priorities #3)
 
 **Additional Work Needed:**
-- Iterator Permission Inference (R/RW/RWS detection)
-- Structural operation detection (DynamicSlice modifications)
+- Iterator Permission Inference (R/RW/RWM detection)
+- Migratable operation detection (DynamicSlice buffer relocations)
 - Token type enforcement at call sites
 - Return type wrapping for token propagation
 
@@ -918,8 +918,8 @@ entity SortedDict<K, V> {
 ### Related Documentation
 
 **Language Design:**
-- [GENERICS_STATUS.md](GENERICS_STATUS.md) - Comprehensive generics analysis
-- [BUG_12.13_ANALYSIS.md](BUG_12.13_ANALYSIS.md) - Generic method template matching
+- [GENERICS-STATUS.md](GENERICS-STATUS.md) - Comprehensive generics analysis
+- [BUG-12.13-ANALYSIS.md](BUG-12.13-ANALYSIS.md) - Generic method template matching
 - [RazorForge-Protocols.md](../wiki/RazorForge-Protocols.md) - Protocol system spec
 - [Modules-and-Imports.md](../wiki/Modules-and-Imports.md) - Module system (NaaM)
 
@@ -947,7 +947,7 @@ entity SortedDict<K, V> {
 - Template matching system (GenericTypeResolver.cs)
 - Full type safety with compilation
 
-**See:** [GENERICS_STATUS.md](GENERICS_STATUS.md), [BUG_12.13_ANALYSIS.md](BUG_12.13_ANALYSIS.md)
+**See:** [GENERICS-STATUS.md](GENERICS-STATUS.md), [BUG-12.13-ANALYSIS.md](BUG-12.13-ANALYSIS.md)
 
 ---
 
