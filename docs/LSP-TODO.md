@@ -214,11 +214,11 @@ Replace line 78 TODO with:
    - Quick fix: "Replace with try_foo()" or "Replace with check_foo()"
    - Makes error handling transparent at a glance
 
-2. **Function/Method Mutation Coloring (R/RW/RWS)** 🔴 HIGH PRIORITY
-   - Visually distinguish methods by mutation category
+2. **Function/Method Permission Coloring (R/RW/RWM)** 🔴 HIGH PRIORITY
+   - Visually distinguish methods by permission category
    - R (Read-only) - green/blue tint
-   - RW (Read-write) - yellow/orange tint
-   - RWS (Structural) - red tint
+   - RW (Writable) - yellow/orange tint
+   - RWM (Migratable) - red tint
    - Makes memory model transparent at a glance
 
 3. **Live Memory Token Tracking** 🔴 HIGH PRIORITY
@@ -232,34 +232,34 @@ Replace line 78 TODO with:
    - Use semantic tokens to mark danger block ranges
    - Client-side styling via VS Code extension
 
-5. **Structural Inference Visualization**
-   - Mark methods that modify DynamicSlice as structural
-   - Visual indicator for structural methods
-   - Warning when calling structural methods on tokens
+5. **Migratable Operation Visualization**
+   - Mark methods that can relocate DynamicSlice buffers as migratable
+   - Visual indicator for migratable methods
+   - Warning when calling migratable methods during iteration
 
 **Tasks:**
 1. Implement `ErrorHandlingCategorizer` (4-way crashable categorization)
 2. Implement semantic tokens for error handling coloring (red/yellow/blue)
 3. Implement diagnostics for crashable call violations
 4. Implement quick fixes for crashable → try_/check_ replacement
-5. Implement `FunctionCategorizer` (R/RW/RWS categorization)
-6. Implement semantic tokens for mutation coloring (R/RW/RWS)
+5. Implement `FunctionCategorizer` (R/RW/RWM categorization)
+6. Implement semantic tokens for permission coloring (R/RW/RWM)
 7. Implement `MemoryTokenAnalyzer`
 8. Publish invalidation diagnostics
 9. Enhance hover with token state, method category, and error handling category
 10. Implement semantic tokens for danger blocks
-11. Implement structural method markers
-12. Enhanced error messages for structural violations
+11. Implement migratable method markers
+12. Enhanced error messages for migratable violations
 
 **Dependencies:**
 - Compiler analysis improvements:
   - Crashable function tracking (COMPILER_TODO.md #4) - CRITICAL for error handling visualization
   - Mutation inference (COMPILER_TODO.md #3) - required for R/RW categorization
-  - Structural detection - required for RWS categorization
-  - DynamicSlice modification analysis
+  - Migratable detection - required for RWM categorization
+  - DynamicSlice buffer relocation analysis
 - VS Code extension for client-side features:
   - Semantic token rendering
-  - Custom theme colors for R/RW/RWS methods
+  - Custom theme colors for R/RW/RWM methods
   - Diagnostic tag support
 
 ---
@@ -323,8 +323,8 @@ src/LanguageServer/Analysis/
 ├── DiagnosticsPublisher.cs
 ├── ErrorHandlingCategorizer.cs (4-way crashable classification)
 ├── MemoryTokenAnalyzer.cs
-├── StructuralAnalyzer.cs
-├── FunctionCategorizer.cs (R/RW/RWS classification)
+├── MigratableAnalyzer.cs
+├── FunctionCategorizer.cs (R/RW/RWM classification)
 └── DocumentationParser.cs
 ```
 
@@ -433,29 +433,29 @@ public class CompletionHandler : CompletionHandlerBase
 }
 ```
 
-**FunctionCategorizer (R/RW/RWS) Pattern:**
+**FunctionCategorizer (R/RW/RWM) Pattern:**
 ```csharp
 public enum MethodCategory
 {
     ReadOnly,      // R - doesn't mutate me
-    Mutating,      // RW - mutates me, but not structural
-    Structural     // RWS - modifies DynamicSlice control structures
+    Writable,      // RW - mutates me, but not migratable
+    Migratable     // RWM - can relocate DynamicSlice buffers
 }
 
 public class FunctionCategorizer
 {
-    private readonly MutationAnalyzer _mutationAnalyzer;
-    private readonly StructuralAnalyzer _structuralAnalyzer;
+    private readonly WritableAnalyzer _writableAnalyzer;
+    private readonly MigratableAnalyzer _migratableAnalyzer;
 
     public MethodCategory CategorizeMethod(RoutineDeclaration routine)
     {
-        // Check structural first (most specific)
-        if (_structuralAnalyzer.IsStructuralMutation(routine))
-            return MethodCategory.Structural;
+        // Check migratable first (most specific)
+        if (_migratableAnalyzer.CanRelocateBuffer(routine))
+            return MethodCategory.Migratable;
 
-        // Check if mutating
-        if (_mutationAnalyzer.IsMutating(routine))
-            return MethodCategory.Mutating;
+        // Check if writable
+        if (_writableAnalyzer.IsWritable(routine))
+            return MethodCategory.Writable;
 
         // Default to read-only
         return MethodCategory.ReadOnly;
@@ -505,9 +505,9 @@ public record TokenInvalidation(
    - Multi-statement analysis
 
 4. **Function Categorizer Tests:**
-   - R/RW/RWS classification accuracy
-   - Structural method detection
-   - Mutation analysis integration
+   - R/RW/RWM classification accuracy
+   - Migratable method detection
+   - Writable method analysis integration
 
 **Integration Tests Needed:**
 1. **LSP Protocol Tests:**
@@ -541,5 +541,5 @@ public record TokenInvalidation(
 
 **Key Dependencies:**
 - OmniSharp.Extensions.LanguageServer library interface compatibility
-- Compiler analysis improvements (mutation inference, structural detection)
+- Compiler analysis improvements (mutation inference, migratable detection)
 - VS Code extension for client-side features (semantic tokens, custom theme colors)
