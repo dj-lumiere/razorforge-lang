@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
@@ -64,10 +65,19 @@ public class RazorForgeLSP
     /// <returns>Exit code: 0 for success, 1 for failure</returns>
     public async Task<int> StartAsync(string[] args)
     {
-        _logger.LogInformation(message: "Starting RazorForge Language Server...");
+        var logFile = Path.Combine(Path.GetTempPath(), "razorforge-lsp.log");
 
         try
         {
+            // Write to both stderr and a log file
+            File.AppendAllText(logFile, $"[{DateTime.Now:HH:mm:ss}] RazorForge LSP: Starting...\n");
+            Console.Error.WriteLine("RazorForge LSP: Starting...");
+
+            _logger.LogInformation(message: "Starting RazorForge Language Server...");
+
+            File.AppendAllText(logFile, $"[{DateTime.Now:HH:mm:ss}] Creating server configuration...\n");
+            Console.Error.WriteLine("RazorForge LSP: Creating server configuration...");
+
             _server = await OmniSharp.Extensions.LanguageServer.Server.LanguageServer.From(
                 optionsAction: options => options.WithInput(input: Console.OpenStandardInput())
                                                  .WithOutput(output: Console.OpenStandardOutput())
@@ -75,16 +85,37 @@ public class RazorForgeLSP
                                                      .AddLanguageProtocolLogging()
                                                      .SetMinimumLevel(level: LogLevel.Debug))
                                                  .WithServices(servicesAction: ConfigureServices)
-                                                  // TODO: Add handlers when interface compatibility is resolved
+                                                 .WithHandler<Handlers.TextDocumentSyncHandler>()
+                                                 .WithHandler<Handlers.CompletionHandler>()
+                                                 .WithHandler<Handlers.HoverHandler>()
                                                  .OnInitialize(@delegate: OnInitialize)
                                                   // .OnInitialized(OnInitialized)
                                                  .OnStarted(@delegate: OnStarted));
 
+            File.AppendAllText(logFile, $"[{DateTime.Now:HH:mm:ss}] Server created, waiting for exit...\n");
+            Console.Error.WriteLine("RazorForge LSP: Server created, waiting for exit...");
             await _server.WaitForExit;
+
+            File.AppendAllText(logFile, $"[{DateTime.Now:HH:mm:ss}] Server exited normally\n");
+            Console.Error.WriteLine("RazorForge LSP: Server exited normally");
             return 0;
         }
         catch (Exception ex)
         {
+            var errorMsg = $"[{DateTime.Now:HH:mm:ss}] FATAL ERROR - {ex.GetType().Name}: {ex.Message}\nStack: {ex.StackTrace}\n";
+            if (ex.InnerException != null)
+            {
+                errorMsg += $"Inner: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}\n";
+            }
+
+            File.AppendAllText(logFile, errorMsg);
+            Console.Error.WriteLine($"RazorForge LSP: FATAL ERROR - {ex.GetType().Name}: {ex.Message}");
+            Console.Error.WriteLine($"Stack trace: {ex.StackTrace}");
+            if (ex.InnerException != null)
+            {
+                Console.Error.WriteLine($"Inner exception: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}");
+            }
+
             _logger.LogError(exception: ex, message: "Language Server failed to start");
             return 1;
         }
@@ -98,16 +129,36 @@ public class RazorForgeLSP
     /// - SemanticAnalyzer: For analyzing RazorForge code semantics
     /// - IRazorForgeCompilerService: Core compiler integration
     /// - DocumentManager: Document lifecycle and state management
+    /// - DiagnosticsPublisher: For publishing diagnostics to the client
     /// </summary>
     /// <param name="services">Service collection to configure</param>
     private void ConfigureServices(IServiceCollection services)
     {
-        // Register RazorForge compiler services
-        services.AddSingleton<SemanticAnalyzer>(implementationFactory: provider =>
-            new SemanticAnalyzer(language: Language.RazorForge, mode: LanguageMode.Normal));
+        try
+        {
+            Console.Error.WriteLine("RazorForge LSP: Configuring services...");
 
-        services.AddSingleton<IRazorForgeCompilerService, RazorForgeCompilerService>();
-        services.AddSingleton<DocumentManager>();
+            // Register RazorForge compiler services
+            Console.Error.WriteLine("RazorForge LSP: Registering SemanticAnalyzer...");
+            services.AddSingleton<SemanticAnalyzer>(implementationFactory: provider =>
+                new SemanticAnalyzer(language: Language.RazorForge, mode: LanguageMode.Normal));
+
+            Console.Error.WriteLine("RazorForge LSP: Registering IRazorForgeCompilerService...");
+            services.AddSingleton<IRazorForgeCompilerService, RazorForgeCompilerService>();
+
+            Console.Error.WriteLine("RazorForge LSP: Registering DocumentManager...");
+            services.AddSingleton<DocumentManager>();
+
+            Console.Error.WriteLine("RazorForge LSP: Registering DiagnosticsPublisher...");
+            services.AddSingleton<Analysis.DiagnosticsPublisher>();
+
+            Console.Error.WriteLine("RazorForge LSP: Services configured successfully");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"RazorForge LSP: ERROR in ConfigureServices - {ex.GetType().Name}: {ex.Message}");
+            throw;
+        }
     }
 
     /// <summary>
@@ -150,6 +201,12 @@ public class RazorForgeLSP
     private Task OnStarted(ILanguageServer server, CancellationToken cancellationToken)
     {
         _logger.LogInformation(message: "Language Server started and ready for connections");
+
+        // Initialize DiagnosticsPublisher with server reference
+        var diagnosticsPublisher = server.Services.GetService(typeof(Analysis.DiagnosticsPublisher))
+            as Analysis.DiagnosticsPublisher;
+        diagnosticsPublisher?.SetServer(server);
+
         return Task.CompletedTask;
     }
 
@@ -166,41 +223,5 @@ public class RazorForgeLSP
             _logger.LogInformation(message: "Stopping RazorForge Language Server...");
             _server.Dispose();
         }
-    }
-}
-
-/// <summary>
-/// Entry point for the RazorForge Language Server when run as a separate executable.
-/// Provides a command-line interface for starting the LSP server.
-///
-/// Usage: RazorForge.exe --lsp
-///
-/// When the --lsp flag is provided, the program will start in Language Server mode
-/// and communicate via stdin/stdout using the LSP protocol.
-/// </summary>
-public static class LanguageServerProgram
-{
-    /// <summary>
-    /// Main entry point for the Language Server executable.
-    /// Checks for --lsp flag and starts the appropriate mode.
-    /// </summary>
-    /// <param name="args">Command line arguments</param>
-    /// <returns>Exit code: 0 for success, 1 for failure or unsupported mode</returns>
-    public static async Task<int> Main(string[] args)
-    {
-        // Check if LSP mode was requested
-        if (args.Length > 0 && args[0] == "--lsp")
-        {
-            using ILoggerFactory loggerFactory = LoggerFactory.Create(configure: builder =>
-                builder.SetMinimumLevel(level: LogLevel.Information));
-
-            ILogger<RazorForgeLSP> logger = loggerFactory.CreateLogger<RazorForgeLSP>();
-            var lsp = new RazorForgeLSP(logger: logger);
-
-            return await lsp.StartAsync(args: args);
-        }
-
-        // Fall back to regular compiler behavior
-        return 1;
     }
 }

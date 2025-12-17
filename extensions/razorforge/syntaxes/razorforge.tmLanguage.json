@@ -82,9 +82,131 @@
       }
     },
     {
-      "comment": "Keywords",
+      "comment": "Attributes with parameters",
+      "match": "(@)([a-zA-Z_][a-zA-Z0-9_]*)\\s*(\\()",
+      "captures": {
+        "1": {
+          "name": "punctuation.definition.annotation.razorforge"
+        },
+        "2": {
+          "name": "storage.type.annotation.razorforge"
+        },
+        "3": {
+          "name": "punctuation.definition.parameters.begin.razorforge"
+        }
+      }
+    },
+    {
+      "comment": "Simple attributes",
+      "match": "(@)([a-zA-Z_][a-zA-Z0-9_]*)",
+      "captures": {
+        "1": {
+          "name": "punctuation.definition.annotation.razorforge"
+        },
+        "2": {
+          "name": "storage.type.annotation.razorforge"
+        }
+      }
+    },
+    {
+      "comment": "Namespace declaration",
+      "match": "\\b(namespace)\\s+([A-Za-z_][A-Za-z0-9_/]*)",
+      "captures": {
+        "1": {
+          "name": "keyword.declaration.razorforge"
+        },
+        "2": {
+          "name": "entity.name.namespace.razorforge"
+        }
+      }
+    },
+    {
+      "comment": "Import statement",
+      "match": "\\b(import|using)\\s+([A-Za-z_][A-Za-z0-9_/{}]*)(?:\\s+(as)\\s+([A-Za-z_][A-Za-z0-9_]*))?",
+      "captures": {
+        "1": {
+          "name": "keyword.declaration.razorforge"
+        },
+        "2": {
+          "name": "entity.name.namespace.razorforge"
+        },
+        "3": {
+          "name": "keyword.operator.razorforge"
+        },
+        "4": {
+          "name": "entity.name.type.razorforge"
+        }
+      }
+    },
+    {
+      "comment": "Protocol declaration",
+      "match": "\\b(protocol)\\s+([A-Z][a-zA-Z0-9_]*)(<[^>]+>)?",
+      "captures": {
+        "1": {
+          "name": "storage.type.protocol.razorforge"
+        },
+        "2": {
+          "name": "entity.name.type.protocol.razorforge"
+        },
+        "3": {
+          "name": "meta.generic.razorforge"
+        }
+      }
+    },
+    {
+      "comment": "Mutant type declaration",
+      "match": "\\b(mutant)\\s+([A-Z][a-zA-Z0-9_]*)(<[^>]+>)?",
+      "captures": {
+        "1": {
+          "name": "storage.type.mutant.razorforge"
+        },
+        "2": {
+          "name": "entity.name.type.mutant.razorforge"
+        },
+        "3": {
+          "name": "meta.generic.razorforge"
+        }
+      }
+    },
+    {
+      "comment": "Special identifiers (me, Me, parent, MyType)",
+      "name": "variable.language.razorforge",
+      "match": "\\b(me|Me|parent|MyType)\\b"
+    },
+    {
+      "comment": "Control flow keywords",
       "name": "keyword.control.razorforge",
-      "match": "\\b(routine|let|var|const|preeval|return|if|else|for|in|to|loop|break|continue|import|public|private|protected|danger|with|and|or|not|as|redefine|crash|external|me|auto|using|when|preset)\\b"
+      "match": "\\b(routine|if|elseif|else|then|unless|when|for|while|loop|in|to|downto|by|break|continue|return|pass|crash|generate|suspended|waitfor)\\b"
+    },
+    {
+      "comment": "Declaration keywords",
+      "name": "keyword.declaration.razorforge",
+      "match": "\\b(let|var|preset|define|imported|using|import)\\b"
+    },
+    {
+      "comment": "Access modifiers",
+      "name": "storage.modifier.razorforge",
+      "match": "\\b(public|private|family|internal|common|global)\\b"
+    },
+    {
+      "comment": "Type checking and operators",
+      "name": "keyword.operator.razorforge",
+      "match": "\\b(is|isnot|as|and|or|not|in|notin|from|notfrom|follows|notfollows)\\b"
+    },
+    {
+      "comment": "Compile-time keywords",
+      "name": "keyword.other.razorforge",
+      "match": "\\b(requires|verify|danger|with)\\b"
+    },
+    {
+      "comment": "Memory allocation areas",
+      "name": "storage.modifier.memory.razorforge",
+      "match": "\\b(temporary|dynamic|persistent)\\b"
+    },
+    {
+      "comment": "Special constants",
+      "name": "constant.language.razorforge",
+      "match": "\\b(true|false|none|None|Blank|start)\\b"
     },
     {
       "comment": "Memory operations",
@@ -109,7 +231,7 @@
     {
       "comment": "Built-in primitive types",
       "name": "storage.type.primitive.razorforge",
-      "match": "\\b(s8|s16|s32|s64|s128|u8|u16|u32|u64|u128|f16|f32|f64|f128|d32|d64|d128|bool|Bool|uaddr|saddr|letter|cptr)\\b"
+      "match": "\\b(s8|s16|s32|s64|s128|u8|u16|u32|u64|u128|f16|f32|f64|f128|d32|d64|d128|bool|Bool|uaddr|saddr|letter8|letter16|letter32|cptr|Blank)\\b"
     },
     {
       "comment": "User-defined types (PascalCase)",
@@ -166,12 +288,6 @@
       "name": "comment.block.documentation.razorforge",
       "begin": "###",
       "end": "###"
-    },
-    {
-      "comment": "Block comments",
-      "name": "comment.block.razorforge",
-      "begin": "/\\*",
-      "end": "\\*/"
     }
   ]
 }

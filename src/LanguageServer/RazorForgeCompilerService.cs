@@ -278,59 +278,38 @@ public class RazorForgeCompilerService : IRazorForgeCompilerService
     {
         string[] keywords = new[]
         {
-            "routine",
-            "entity",
-            "record",
-            "variant",
-            "kind",
-            "feature",
-            "let",
-            "var",
-            "preset",
-            "if",
-            "else",
-            "when",
-            "while",
-            "for",
-            "in",
-            "to",
-            "by",
-            "when",
-            "default",
-            "break",
-            "continue",
-            "return",
-            "danger",
-            "external",
-            "import",
-            "export",
-            "using",
-            "true",
-            "false",
-            "none",
-            "s8",
-            "s16",
-            "s32",
-            "s64",
-            "s128",
-            "u8",
-            "u16",
-            "u32",
-            "u64",
-            "u128",
-            "f16",
-            "f32",
-            "f64",
-            "f128",
-            "d32",
-            "d64",
-            "d128",
-            "bool",
-            "letter",
-            "Text",
-            "void",
-            "any",
-            "uaddr"
+            // Type declarations
+            "routine", "entity", "record", "resident", "variant", "choice", "protocol", "mutant",
+            // Variables and constants
+            "let", "var", "preset", "define",
+            // Control flow
+            "if", "elseif", "else", "then", "unless", "when", "while", "for", "loop",
+            "in", "to", "downto", "by", "break", "continue", "return", "pass",
+            // Access modifiers
+            "public", "private", "family", "internal", "common", "global",
+            // Type operations
+            "is", "isnot", "as", "from", "follows", "notfrom", "notfollows",
+            // Logical operators
+            "and", "or", "not", "notin",
+            // Special keywords
+            "danger", "external", "import", "using", "namespace", "with",
+            "generate", "suspended", "waitfor",
+            "requires", "verify", "crash",
+            // Memory areas
+            "temporary", "dynamic", "persistent",
+            // Special identifiers
+            "me", "Me", "parent", "start",
+            // Constants
+            "true", "false", "none", "None", "Blank",
+            // Integer types
+            "s8", "s16", "s32", "s64", "s128", "saddr",
+            "u8", "u16", "u32", "u64", "u128", "uaddr",
+            // Float types
+            "f16", "f32", "f64", "f128",
+            // Decimal types
+            "d32", "d64", "d128",
+            // Other primitives
+            "bool", "letter8", "letter16", "letter32"
         };
 
         return keywords.Select(selector: keyword => new CompletionSuggestion
