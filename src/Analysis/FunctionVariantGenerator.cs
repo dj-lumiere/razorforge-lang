@@ -674,7 +674,7 @@ public class FunctionVariantGenerator : IAstVisitor<object?>
     {
         return null;
     }
-    public object? VisitExternalDeclaration(ExternalDeclaration node)
+    public object? VisitImportedDeclaration(ExternalDeclaration node)
     {
         return null;
     }

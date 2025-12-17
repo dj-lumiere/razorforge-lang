@@ -184,9 +184,9 @@ public partial class SemanticAnalyzer
     /// Visits an external declaration for FFI bindings.
     /// Registers external functions in the symbol table.
     /// </summary>
-    /// <param name="node">External declaration node</param>
+    /// <param name="node">Imported declaration node</param>
     /// <returns>Null</returns>
-    public object? VisitExternalDeclaration(ExternalDeclaration node)
+    public object? VisitImportedDeclaration(ExternalDeclaration node)
     {
         // Create function symbol for external declaration
         List<Parameter> parameters = node.Parameters;
@@ -203,7 +203,7 @@ public partial class SemanticAnalyzer
 
         if (!_symbolTable.TryDeclare(symbol: functionSymbol))
         {
-            AddError(message: $"External function '{node.Name}' is already declared",
+            AddError(message: $"Imported function '{node.Name}' is already declared",
                 location: node.Location);
         }
 

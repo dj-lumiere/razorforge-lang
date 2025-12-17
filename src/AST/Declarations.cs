@@ -627,7 +627,7 @@ public record PresetDeclaration(
 }
 
 /// <summary>
-/// External function declaration that links to native runtime functions.
+/// Imported function declaration that links to native runtime functions.
 /// Used for declaring functions implemented in C or other native languages.
 /// </summary>
 /// <param name="Name">Name of the external function</param>
@@ -637,7 +637,7 @@ public record PresetDeclaration(
 /// <param name="CallingConvention">Calling convention ("C", "stdcall", "fastcall", etc.)</param>
 /// <param name="Location">Source location information</param>
 /// <remarks>
-/// External declarations link RazorForge to native runtime:
+/// Imported declarations link RazorForge to native runtime:
 /// <list type="bullet">
 /// <item>external("C") routine malloc(size: uaddr) -> cptr&lt;cvoid&gt;</item>
 /// <item>external("C") routine free(ptr: cptr&lt;cvoid&gt;)</item>
@@ -658,7 +658,7 @@ public record ExternalDeclaration(
 {
     public override T Accept<T>(IAstVisitor<T> visitor)
     {
-        return visitor.VisitExternalDeclaration(node: this);
+        return visitor.VisitImportedDeclaration(node: this);
     }
 }
 
