@@ -5,25 +5,28 @@ using Compilers.Shared.CodeGen;
 using Compilers.RazorForge.Parser;
 using Compilers.Suflae.Parser;
 using Compilers.Shared.AST;
+using Microsoft.Extensions.Logging;
+using RazorForge.LanguageServer;
 
 namespace Compilers;
 
 internal class Program
 {
-    public static void Main(string[] args)
+    public static async Task<int> Main(string[] args)
     {
         if (args.Length == 0)
         {
             PrintUsage();
-            return;
+            return 0;
         }
 
         string command = args[0]
-           .ToLowerInvariant();
+           .ToLowerInvariant()
+           .TrimStart('-'); // Support both "lsp" and "--lsp" formats
 
         // Check if first arg is a command or a file
         bool isCommand = command == "compile" || command == "run" || command == "compileandrun" ||
-                         command == "check" || command == "lsp";
+                         command == "check" || command == "lsp" || command == "lsp-test";
 
         if (!isCommand)
         {
@@ -31,12 +34,29 @@ internal class Program
             CompileFile(sourceFile: args[0],
                 executeAfter: false,
                 programArgs: Array.Empty<string>());
+            return 0;
         }
         else if (command == "lsp")
         {
-            Console.WriteLine(value: "Language Server not yet implemented.");
-            Console.WriteLine(
-                value: "This would start the RazorForge Language Server Protocol implementation.");
+            // Start the RazorForge Language Server
+            using ILoggerFactory loggerFactory = LoggerFactory.Create(configure: builder =>
+                builder.SetMinimumLevel(level: LogLevel.Information));
+
+            ILogger<RazorForgeLSP> logger = loggerFactory.CreateLogger<RazorForgeLSP>();
+            var lsp = new RazorForgeLSP(logger: logger);
+
+            return await lsp.StartAsync(args: args);
+        }
+        else if (command == "lsp-test")
+        {
+            // Start the minimal test LSP server
+            using ILoggerFactory loggerFactory = LoggerFactory.Create(configure: builder =>
+                builder.SetMinimumLevel(level: LogLevel.Information));
+
+            ILogger<RazorForgeLSPSimple> logger = loggerFactory.CreateLogger<RazorForgeLSPSimple>();
+            var lsp = new RazorForgeLSPSimple(logger: logger);
+
+            return await lsp.StartAsync(args: args);
         }
         else
         {
@@ -44,7 +64,7 @@ internal class Program
             if (args.Length < 2)
             {
                 PrintUsage();
-                return;
+                return 1;
             }
 
             string sourceFile = args[1];
@@ -80,6 +100,8 @@ internal class Program
                     break;
             }
         }
+
+        return 0;
     }
 
     private static void PrintUsage()
