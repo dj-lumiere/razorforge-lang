@@ -1015,7 +1015,7 @@ public class SimpleCodeGenerator : IAstVisitor<string>
     }
 
 
-    public string VisitExternalDeclaration(ExternalDeclaration node)
+    public string VisitImportedDeclaration(ExternalDeclaration node)
     {
         var sb = new StringBuilder();
         sb.Append(value: "external routine ");

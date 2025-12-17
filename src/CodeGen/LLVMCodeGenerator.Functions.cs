@@ -662,7 +662,7 @@ public partial class LLVMCodeGenerator
             return;
         }
 
-        _output.AppendLine(value: "; External function declarations from imports");
+        _output.AppendLine(value: "; Imported function declarations from imports");
 
         // Track emitted declarations to avoid duplicates
         var emittedDeclarations = new HashSet<string>();

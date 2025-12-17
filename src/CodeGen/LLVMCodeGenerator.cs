@@ -282,7 +282,7 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
     /// The generation process follows this structure:
     /// <list type="bullet">
     /// <item><strong>Module Headers</strong>: LLVM module metadata, target information</item>
-    /// <item><strong>External Declarations</strong>: Standard library functions (printf, malloc, etc.)</item>
+    /// <item><strong>Imported Declarations</strong>: Standard library functions (printf, malloc, etc.)</item>
     /// <item><strong>Math Library Support</strong>: Precision arithmetic function declarations</item>
     /// <item><strong>String Constants</strong>: Global constants for formatted I/O operations</item>
     /// <item><strong>Program Content</strong>: User-defined functions, classes, and global variables</item>
@@ -300,8 +300,8 @@ public partial class LLVMCodeGenerator : IAstVisitor<string>
         _output.AppendLine(value: $"target triple = \"{_targetPlatform.TripleString}\"");
         _output.AppendLine();
 
-        // External function declarations - C runtime interfaces
-        _output.AppendLine(value: "; External function declarations");
+        // Imported function declarations - C runtime interfaces
+        _output.AppendLine(value: "; Imported function declarations");
         _output.AppendLine(value: "declare i32 @printf(i8*, ...)"); // Formatted output
         _output.AppendLine(value: "declare i32 @puts(i8*)"); // Print string with newline
         _output.AppendLine(value: "declare i32 @putchar(i32)"); // Print single character

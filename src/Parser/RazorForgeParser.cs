@@ -11,7 +11,7 @@ public partial class RazorForgeParser : BaseParser
 {
     #region field and property definitions
 
-    
+
     private bool _inWhenPatternContext = false;
 
     private bool
@@ -103,7 +103,7 @@ public partial class RazorForgeParser : BaseParser
         // Parse visibility modifier
         VisibilityModifier visibility = ParseVisibilityModifier();
 
-        // External declaration with optional calling convention
+        // Imported declaration with optional calling convention
         // Supports: external routine foo() or external("C") routine foo()
         if (visibility == VisibilityModifier.External)
         {

@@ -533,7 +533,7 @@ public enum VisibilityModifier
     Family,
 
     /// <summary>Accessible within the same module/assembly (RazorForge: internal)</summary>
-    Local,
+    Internal,
 
     /// <summary>Accessible from anywhere (RazorForge: public)</summary>
     Public,

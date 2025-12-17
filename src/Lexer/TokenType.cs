@@ -309,13 +309,13 @@ public enum TokenType
     Family,
 
     /// <summary>local access modifier keyword (`local`)</summary>
-    Local,
+    Internal,
 
     /// <summary>Public access modifier keyword</summary>
     Public,
 
-    /// <summary>External linkage modifier keyword</summary>
-    External,
+    /// <summary>Imported linkage modifier keyword</summary>
+    Imported,
 
     /// <summary>Global scope modifier keyword</summary>
     Global,

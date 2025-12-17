@@ -4,7 +4,7 @@ namespace Compilers.Shared.CodeGen;
 
 public partial class LLVMCodeGenerator
 {
-    public string VisitExternalDeclaration(ExternalDeclaration node)
+    public string VisitImportedDeclaration(ExternalDeclaration node)
     {
         UpdateLocation(node.Location);
         string sanitizedName = SanitizeFunctionName(name: node.Name);

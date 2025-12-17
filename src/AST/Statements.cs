@@ -59,7 +59,7 @@ public record ExpressionStatement(Expression Expression, SourceLocation Location
 /// This allows declarations to be used in contexts that expect statements:
 /// <list type="bullet">
 /// <item>Variable declarations inside function bodies: var x = 5</item>
-/// <item>Local declarations inside blocks: let y = computeValue()</item>
+/// <item>Internal declarations inside blocks: let y = computeValue()</item>
 /// <item>Nested function definitions inside other functions</item>
 /// </list>
 /// </remarks>

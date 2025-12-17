@@ -192,9 +192,9 @@ public partial class RazorForgeParser
             return VisibilityModifier.Family;
         }
 
-        if (Match(type: TokenType.Local))
+        if (Match(type: TokenType.Internal))
         {
-            return VisibilityModifier.Local;
+            return VisibilityModifier.Internal;
         }
 
         if (Match(type: TokenType.Private))
@@ -202,7 +202,7 @@ public partial class RazorForgeParser
             return VisibilityModifier.Private;
         }
 
-        if (Match(type: TokenType.External))
+        if (Match(type: TokenType.Imported))
         {
             return VisibilityModifier.External;
         }
