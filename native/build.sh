@@ -19,7 +19,7 @@ mkdir -p ../../bin/Release/net9.0
 # TODO: Change it based on OS
 cp lib/*.so ../../bin/Debug/net9.0/ 2>/dev/null || true
 cp lib/*.so ../../bin/Release/net9.0/ 2>/dev/null || true
-cp lib/*.dylib ../../bin/Debug/net9.0/ 2>/dev/null || true
-cp lib/*.dylib ../../bin/Release/net9.0/ 2>/dev/null || true
+#cp lib/*.dylib ../../bin/Debug/net9.0/ 2>/dev/null || true
+#cp lib/*.dylib ../../bin/Release/net9.0/ 2>/dev/null || true
 
 echo "Native libraries built successfully!"

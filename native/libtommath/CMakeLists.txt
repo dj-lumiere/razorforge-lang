@@ -41,6 +41,12 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/bn_mp_init.c" OR
             target_compile_definitions(tommath PRIVATE MP_NO_FILE)
         endif()
 
+        if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        target_compile_options(tommath PRIVATE
+            -fPIC
+        )
+        endif()
+
         set(HAVE_LIBTOMMATH TRUE PARENT_SCOPE)
     else()
         add_library(tommath INTERFACE)

@@ -48,6 +48,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/m_apm.h" OR
         # Link math library on Unix
         if(UNIX AND NOT APPLE)
             target_link_libraries(mapm m)
+            target_compile_options(mapm PUBLIC -fPIC)
         endif()
 
         set(HAVE_MAPM TRUE PARENT_SCOPE)
