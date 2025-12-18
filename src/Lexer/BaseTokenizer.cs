@@ -202,7 +202,7 @@ public abstract class BaseTokenizer
                 Advance();
             }
 
-            while (char.IsDigit(c: Peek()))
+            while (char.IsDigit(c: Peek()) || Peek() == '_')
             {
                 Advance();
             }
