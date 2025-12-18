@@ -13,17 +13,17 @@ import FFI/cstr
 # ============================================================================
 
 # Core text output functions - take C strings (cstr)
-external("C") routine rf_console_print_cstr(value: cstr)
-external("C") routine rf_console_print_line_cstr(value: cstr)
-external("C") routine rf_console_print_line_empty()
+imported("C") routine rf_console_print_cstr(value: cstr)
+imported("C") routine rf_console_print_line_cstr(value: cstr)
+imported("C") routine rf_console_print_line_empty()
 
-external("C") routine rf_console_alert_cstr(value: cstr)
-external("C") routine rf_console_alert_line_cstr(value: cstr)
-external("C") routine rf_console_alert_line_empty()
+imported("C") routine rf_console_alert_cstr(value: cstr)
+imported("C") routine rf_console_alert_line_cstr(value: cstr)
+imported("C") routine rf_console_alert_line_empty()
 
 # Utility operations
-external("C") routine rf_console_flush()
-external("C") routine rf_console_clear()
+imported("C") routine rf_console_flush()
+imported("C") routine rf_console_clear()
 
 # ============================================================================
 # Generic show() - Standard Output (stdout)
@@ -133,10 +133,10 @@ routine Console.alert_line() {
 # ============================================================================
 
 # External C runtime input functions (return raw pointers)
-external("C") routine rf_console_get_letters(count: uaddr) -> cstr
-external("C") routine rf_console_get_word() -> cstr
-external("C") routine rf_console_get_line() -> cstr
-external("C") routine rf_console_get_all() -> cstr
+imported("C") routine rf_console_get_letters(count: uaddr) -> cstr
+imported("C") routine rf_console_get_word() -> cstr
+imported("C") routine rf_console_get_line() -> cstr
+imported("C") routine rf_console_get_all() -> cstr
 
 # Read exactly n letters from input
 routine Console.get_letters(count: uaddr) -> Text<letter8> {

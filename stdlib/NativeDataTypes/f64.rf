@@ -14,6 +14,12 @@ preset F64_ZERO: f64 = 0.0_f64
 preset F64_ONE: f64 = 1.0_f64
 preset F64_NAN: f64 = 0.0_f64 / 0.0_f64  # TODO: Proper NaN constant
 preset F64_INFINITY: f64 = 1.0_f64 / 0.0_f64  # TODO: Proper infinity constant
+imported routine rf_f64_to_d32(x: f64) -> u32
+imported routine rf_f64_to_d64(x: f64) -> u64
+imported routine rf_f64_to_d128(x: f64) -> d128
+imported routine rf_d32_to_f64(x: u32) -> f64
+imported routine rf_d64_to_f64(x: u64) -> f64
+imported routine rf_d128_to_f64(low: u64, high: u64) -> f64
 
 # ============================================================================
 # Arithmetic Operations
@@ -379,12 +385,7 @@ routine f64.__create__(from: d128) -> f64 {
     }
 }
 
-external routine rf_f64_to_d32(x: f64) -> u32;
-external routine rf_f64_to_d64(x: f64) -> u64;
-external routine rf_f64_to_d128(x: f64) -> d128;
-external routine rf_d32_to_f64(x: u32) -> f64;
-external routine rf_d64_to_f64(x: u64) -> f64;
-external routine rf_d128_to_f64(low: u64, high: u64) -> f64;
+
 
 # ============================================================================
 # Examples

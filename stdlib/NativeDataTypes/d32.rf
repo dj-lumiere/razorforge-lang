@@ -1,6 +1,6 @@
 # RazorForge d32 (decimal32 floating point) native type implementation
 # IEEE 754-2008 decimal floating point with 7 significant digits
-# Uses Intel DFP library via external C functions
+# Uses Intel DFP library via imported C functions
 namespace core
 import FFI/ctypes
 
@@ -17,30 +17,30 @@ preset D32_ONE: d32 = 1.0_d32
 # External C Functions (from decimal_functions.c)
 # ============================================================================
 
-external routine d32_add(a: u32, b: u32) -> u32
-external routine d32_sub(a: u32, b: u32) -> u32
-external routine d32_mul(a: u32, b: u32) -> u32
-external routine d32_div(a: u32, b: u32) -> u32
-external routine d32_cmp(a: u32, b: u32) -> s32
-external routine d32_from_string(str: cstr) -> u32
-external routine d32_to_string(val: u32) -> cstr
-external routine d32_from_i32(val: s32) -> u32
-external routine d32_from_u32(val: u32) -> u32
-external routine d32_from_i64(val: s64) -> u32
-external routine d32_from_u64(val: u64) -> u32
-external routine d32_to_i32(val: u32) -> s32
-external routine d32_to_i64(val: u32) -> s64
-external routine rf_d32_sqrt(x: u32) -> u32
-external routine rf_d32_abs(x: u32) -> u32
-external routine rf_d32_ceil(x: u32) -> u32
-external routine rf_d32_floor(x: u32) -> u32
-external routine rf_d32_round(x: u32) -> u32
-external routine rf_d32_trunc(x: u32) -> u32
-external routine rf_d32_to_f32(x: u32) -> f32
-external routine rf_d32_to_f64(x: u32) -> f64
-external routine rf_d32_to_d64(x: u32) -> u64
-external routine rf_f32_to_d32(x: f32) -> u32
-external routine rf_f64_to_d32(x: f64) -> u32
+imported routine d32_add(a: u32, b: u32) -> u32
+imported routine d32_sub(a: u32, b: u32) -> u32
+imported routine d32_mul(a: u32, b: u32) -> u32
+imported routine d32_div(a: u32, b: u32) -> u32
+imported routine d32_cmp(a: u32, b: u32) -> s32
+imported routine d32_from_string(str: cstr) -> u32
+imported routine d32_to_string(val: u32) -> cstr
+imported routine d32_from_i32(val: s32) -> u32
+imported routine d32_from_u32(val: u32) -> u32
+imported routine d32_from_i64(val: s64) -> u32
+imported routine d32_from_u64(val: u64) -> u32
+imported routine d32_to_i32(val: u32) -> s32
+imported routine d32_to_i64(val: u32) -> s64
+imported routine rf_d32_sqrt(x: u32) -> u32
+imported routine rf_d32_abs(x: u32) -> u32
+imported routine rf_d32_ceil(x: u32) -> u32
+imported routine rf_d32_floor(x: u32) -> u32
+imported routine rf_d32_round(x: u32) -> u32
+imported routine rf_d32_trunc(x: u32) -> u32
+imported routine rf_d32_to_f32(x: u32) -> f32
+imported routine rf_d32_to_f64(x: u32) -> f64
+imported routine rf_d32_to_d64(x: u32) -> u64
+imported routine rf_f32_to_d32(x: f32) -> u32
+imported routine rf_f64_to_d32(x: f64) -> u32
 
 # ============================================================================
 # Constructors

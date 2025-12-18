@@ -1,6 +1,6 @@
 # RazorForge d64 (decimal64 floating point) native type implementation
 # IEEE 754-2008 decimal floating point with 16 significant digits
-# Uses Intel DFP library via external C functions
+# Uses Intel DFP library via imported C functions
 namespace core
 
 # Core d64 type definition - stored as 64-bit value in BID encoding
@@ -16,30 +16,30 @@ preset D64_ONE: d64 = 1.0_d64
 # External C Functions (from decimal_functions.c)
 # ============================================================================
 
-external routine d64_add(a: u64, b: u64) -> u64
-external routine d64_sub(a: u64, b: u64) -> u64
-external routine d64_mul(a: u64, b: u64) -> u64
-external routine d64_div(a: u64, b: u64) -> u64
-external routine d64_cmp(a: u64, b: u64) -> s32
-external routine d64_from_string(str: cstr) -> u64
-external routine d64_to_string(val: u64) -> cstr
-external routine d64_from_i32(val: s32) -> u64
-external routine d64_from_u32(val: u32) -> u64
-external routine d64_from_i64(val: s64) -> u64
-external routine d64_from_u64(val: u64) -> u64
-external routine rf_d64_sqrt(x: u64) -> u64
-external routine rf_d64_abs(x: u64) -> u64
-external routine rf_d64_ceil(x: u64) -> u64
-external routine rf_d64_floor(x: u64) -> u64
-external routine rf_d64_round(x: u64) -> u64
-external routine rf_d64_trunc(x: u64) -> u64
-external routine rf_d64_to_f32(x: u64) -> f32
-external routine rf_d64_to_f64(x: u64) -> f64
-external routine rf_d64_to_d32(x: u64) -> u32
-external routine rf_f32_to_d64(x: f32) -> u64
-external routine rf_f64_to_d64(x: f64) -> u64
-external routine d64_to_i32(val: u64) -> s32
-external routine d64_to_i64(val: u64) -> s64
+imported routine d64_add(a: u64, b: u64) -> u64
+imported routine d64_sub(a: u64, b: u64) -> u64
+imported routine d64_mul(a: u64, b: u64) -> u64
+imported routine d64_div(a: u64, b: u64) -> u64
+imported routine d64_cmp(a: u64, b: u64) -> s32
+imported routine d64_from_string(str: cstr) -> u64
+imported routine d64_to_string(val: u64) -> cstr
+imported routine d64_from_i32(val: s32) -> u64
+imported routine d64_from_u32(val: u32) -> u64
+imported routine d64_from_i64(val: s64) -> u64
+imported routine d64_from_u64(val: u64) -> u64
+imported routine rf_d64_sqrt(x: u64) -> u64
+imported routine rf_d64_abs(x: u64) -> u64
+imported routine rf_d64_ceil(x: u64) -> u64
+imported routine rf_d64_floor(x: u64) -> u64
+imported routine rf_d64_round(x: u64) -> u64
+imported routine rf_d64_trunc(x: u64) -> u64
+imported routine rf_d64_to_f32(x: u64) -> f32
+imported routine rf_d64_to_f64(x: u64) -> f64
+imported routine rf_d64_to_d32(x: u64) -> u32
+imported routine rf_f32_to_d64(x: f32) -> u64
+imported routine rf_f64_to_d64(x: f64) -> u64
+imported routine d64_to_i32(val: u64) -> s32
+imported routine d64_to_i64(val: u64) -> s64
 
 # ============================================================================
 # Constructors

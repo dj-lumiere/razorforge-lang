@@ -1,6 +1,6 @@
 # RazorForge d128 (decimal128 floating point) native type implementation
 # IEEE 754-2008 decimal floating point with 34 significant digits
-# Uses Intel DFP library via external C functions
+# Uses Intel DFP library via imported C functions
 namespace core
 import FFI/ctypes
 
@@ -20,33 +20,33 @@ preset D128_ONE: d128 = 1.0_d128
 # Note: d128 is passed/returned as a struct {u64 low, u64 high}
 # ============================================================================
 
-external routine d128_add(a_low: u64, a_high: u64, b_low: u64, b_high: u64) -> d128
-external routine d128_sub(a_low: u64, a_high: u64, b_low: u64, b_high: u64) -> d128
-external routine d128_mul(a_low: u64, a_high: u64, b_low: u64, b_high: u64) -> d128
-external routine d128_div(a_low: u64, a_high: u64, b_low: u64, b_high: u64) -> d128
-external routine d128_cmp(a_low: u64, a_high: u64, b_low: u64, b_high: u64) -> s32
-external routine d128_from_string(str: cstr) -> d128
-external routine d128_to_string(low: u64, high: u64) -> cstr
-external routine d128_from_i32(val: s32) -> d128
-external routine d128_from_u32(val: u32) -> d128
-external routine d128_from_i64(val: s64) -> d128
-external routine d128_from_u64(val: u64) -> d128
-external routine rf_d128_sqrt(low: u64, high: u64) -> d128
-external routine rf_d128_abs(low: u64, high: u64) -> d128
-external routine rf_d128_ceil(low: u64, high: u64) -> d128
-external routine rf_d128_floor(low: u64, high: u64) -> d128
-external routine rf_d128_round(low: u64, high: u64) -> d128
-external routine rf_d128_trunc(low: u64, high: u64) -> d128
-external routine rf_d128_to_f32(low: u64, high: u64) -> f32
-external routine rf_d128_to_f64(low: u64, high: u64) -> f64
-external routine rf_d128_to_d32(low: u64, high: u64) -> u32
-external routine rf_d128_to_d64(low: u64, high: u64) -> u64
-external routine rf_f32_to_d128(x: f32) -> d128
-external routine rf_f64_to_d128(x: f64) -> d128
-external routine rf_d32_to_d128(x: u32) -> d128
-external routine rf_d64_to_d128(x: u64) -> d128
-external routine d128_to_i32(low: u64, high: u64) -> s32
-external routine d128_to_i64(low: u64, high: u64) -> s64
+imported routine d128_add(a_low: u64, a_high: u64, b_low: u64, b_high: u64) -> d128
+imported routine d128_sub(a_low: u64, a_high: u64, b_low: u64, b_high: u64) -> d128
+imported routine d128_mul(a_low: u64, a_high: u64, b_low: u64, b_high: u64) -> d128
+imported routine d128_div(a_low: u64, a_high: u64, b_low: u64, b_high: u64) -> d128
+imported routine d128_cmp(a_low: u64, a_high: u64, b_low: u64, b_high: u64) -> s32
+imported routine d128_from_string(str: cstr) -> d128
+imported routine d128_to_string(low: u64, high: u64) -> cstr
+imported routine d128_from_i32(val: s32) -> d128
+imported routine d128_from_u32(val: u32) -> d128
+imported routine d128_from_i64(val: s64) -> d128
+imported routine d128_from_u64(val: u64) -> d128
+imported routine rf_d128_sqrt(low: u64, high: u64) -> d128
+imported routine rf_d128_abs(low: u64, high: u64) -> d128
+imported routine rf_d128_ceil(low: u64, high: u64) -> d128
+imported routine rf_d128_floor(low: u64, high: u64) -> d128
+imported routine rf_d128_round(low: u64, high: u64) -> d128
+imported routine rf_d128_trunc(low: u64, high: u64) -> d128
+imported routine rf_d128_to_f32(low: u64, high: u64) -> f32
+imported routine rf_d128_to_f64(low: u64, high: u64) -> f64
+imported routine rf_d128_to_d32(low: u64, high: u64) -> u32
+imported routine rf_d128_to_d64(low: u64, high: u64) -> u64
+imported routine rf_f32_to_d128(x: f32) -> d128
+imported routine rf_f64_to_d128(x: f64) -> d128
+imported routine rf_d32_to_d128(x: u32) -> d128
+imported routine rf_d64_to_d128(x: u64) -> d128
+imported routine d128_to_i32(low: u64, high: u64) -> s32
+imported routine d128_to_i64(low: u64, high: u64) -> s64
 
 # ============================================================================
 # Constructors

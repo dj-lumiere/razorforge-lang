@@ -21,6 +21,13 @@ preset F32_SQRT_2: f32 = 1.4142135_f32
 preset F32_LN_2: f32 = 0.6931472_f32
 preset F32_LN_10: f32 = 2.3025851_f32
 
+imported routine rf_f32_to_d32(x: f32) -> u32
+imported routine rf_f32_to_d64(x: f32) -> u64
+imported routine rf_f32_to_d128(x: f32) -> d128
+imported routine rf_d32_to_f32(x: u32) -> f32
+imported routine rf_d64_to_f32(x: u64) -> f32
+imported routine rf_d128_to_f32(low: u64, high: u64) -> f32
+
 # Failable constructor from Text - called as f32!(text)
 # Compiler automatically generates try_f32.__create__(text) -> Maybe<f32>
 routine f32.__create__!(from_text: Text<Letterlikes>) -> f32 {
@@ -102,13 +109,6 @@ routine f32.__create__(from: d128) -> f32 {
         return rf_d128_to_f32(from.low_bits(), from.high_bits())
     }
 }
-
-external routine rf_f32_to_d32(x: f32) -> u32;
-external routine rf_f32_to_d64(x: f32) -> u64;
-external routine rf_f32_to_d128(x: f32) -> d128;
-external routine rf_d32_to_f32(x: u32) -> f32;
-external routine rf_d64_to_f32(x: u64) -> f32;
-external routine rf_d128_to_f32(low: u64, high: u64) -> f32;
 
 # ============================================================================
 # Arithmetic Operations (IEEE 754 semantics)

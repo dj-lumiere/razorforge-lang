@@ -33,9 +33,9 @@ import Text/letter32
 # External C Runtime Functions
 # ============================================================================
 
-external("C") routine rf_wcslen(str: uaddr) -> uaddr
-external("C") routine rf_wcscpy(dest: uaddr, src: uaddr) -> uaddr
-external("C") routine rf_wcscmp(s1: uaddr, s2: uaddr) -> s32
+imported("C") routine rf_wcslen(str: uaddr) -> uaddr
+imported("C") routine rf_wcscpy(dest: uaddr, src: uaddr) -> uaddr
+imported("C") routine rf_wcscmp(s1: uaddr, s2: uaddr) -> s32
 
 # ============================================================================
 # Platform-Dependent Wide Character Type
