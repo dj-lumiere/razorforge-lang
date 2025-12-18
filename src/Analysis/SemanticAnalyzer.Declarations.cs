@@ -274,6 +274,24 @@ public partial class SemanticAnalyzer
                 }
             }
 
+            // Add implicit "me" parameter for methods (functions with receiver type like f64.__add__)
+            // Methods are identified by having a dot in the name (e.g., "TypeName.methodName")
+            if (node.Name.Contains('.'))
+            {
+                // Extract the type name before the dot (e.g., "f64" from "f64.__add__")
+                string receiverTypeName = node.Name.Substring(0, node.Name.IndexOf('.'));
+                TypeInfo meType = new TypeInfo(Name: receiverTypeName, IsReference: false);
+
+                var meSymbol = new VariableSymbol(
+                    Name: "me",
+                    Type: meType,
+                    IsMutable: false,
+                    Visibility: VisibilityModifier.Private);
+
+                _symbolTable.TryDeclare(symbol: meSymbol);
+                _memoryAnalyzer.RegisterObject(name: "me", type: meType, location: node.Location);
+            }
+
             // Process function parameters - add to both symbol table and memory analyzer
             foreach (Parameter param in node.Parameters)
             {
