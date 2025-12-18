@@ -222,9 +222,9 @@ record TextIterator<T> {
     index: u64
 }
 
-routine TextIterator<T>.next(me: TextIterator<T>) -> T? {
+routine TextIterator<T>.next!(me: TextIterator<T>) -> T {
     if me.index >= me.text.length() {
-        return none
+        return None
     }
     let value = me.text[me.index]
     me.index = me.index + 1u64
@@ -234,7 +234,7 @@ routine TextIterator<T>.next(me: TextIterator<T>) -> T? {
 # C-String Conversion (for runtime interop)
 
 # External C runtime functions for cstr operations
-external("C") routine rf_cstr_len(ptr: cstr) -> uaddr
+imported("C") routine rf_cstr_len(ptr: cstr) -> uaddr
 
 # Create Text<letter8> from null-terminated C string (cstr)
 # This copies the data into a new Text
