@@ -3,10 +3,10 @@
 
 record NotImplementedError follows Crashable {
     public feature: Text<letter32>
+}
 
-    routine crash_message(me) -> Text<letter32> {
-        return f"Not implemented: {me.feature}"
-    }
+routine NotImplementedError.crash_message() -> Text<letter32> {
+    return f"Not implemented: {me.feature}"
 }
 
 # Convenience constructor with no message

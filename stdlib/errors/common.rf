@@ -5,28 +5,32 @@
 
 # AbsentValueError - thrown when accessing an absent value
 record AbsentValueError follows Crashable {
-    routine crash_message() -> Text<letter32> {
-        return @intrinsic.ptr_to_text(me.message_handle.ptr)
-    }
+}
+
+routine AbsentValueError.crash_message() -> Text<letter32> {
+    return @intrinsic.ptr_to_text(me.message_handle.ptr)
 }
 
 # UserTerminationError - thrown by stop!()
 record UserTerminationError follows Crashable {
-    routine crash_message() -> Text<letter32> {
-        return @intrinsic.ptr_to_text(me.message_handle.ptr)
-    }
+}
+
+routine UserTerminationError.crash_message() -> Text<letter32> {
+    return @intrinsic.ptr_to_text(me.message_handle.ptr)
 }
 
 # VerificationFailedError - thrown by verify!()
 record VerificationFailedError follows Crashable {
-    routine crash_message() -> Text<letter32> {
-        return @intrinsic.ptr_to_text(me.message_handle.ptr)
-    }
+}
+
+routine VerificationFailedError.crash_message() -> Text<letter32> {
+    return @intrinsic.ptr_to_text(me.message_handle.ptr)
 }
 
 # LogicBreachedError - thrown by breach!()
 record LogicBreachedError follows Crashable {
-    routine crash_message() -> Text<letter32> {
-        return @intrinsic.ptr_to_text(me.message_handle.ptr)
-    }
+}
+
+routine LogicBreachedError.crash_message() -> Text<letter32> {
+    return @intrinsic.ptr_to_text(me.message_handle.ptr)
 }

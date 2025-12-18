@@ -1,5 +1,6 @@
 record None {
-    routine to_text(me) -> Text<letter32> {
-        return "None"
-    }
+}
+
+routine None.to_text() -> Text<letter32> {
+    return "None"
 }

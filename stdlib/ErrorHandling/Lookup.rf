@@ -1,15 +1,6 @@
 namespace core
+
 record Lookup<T> {
     private state: DataState
     private handle: DataHandle
-
-    # Query
-    routine is_valid() -> bool
-    routine is_none() -> bool
-    routine is_error() -> bool
-    routine state() -> DataState
-
-    # Coalescing (?? operator)
-    routine __unwrap__(default: T) -> T
-    routine __unwrap__(or_else: Routine<(T), U>) -> T
 }

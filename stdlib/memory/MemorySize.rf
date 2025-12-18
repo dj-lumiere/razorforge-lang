@@ -1,57 +1,57 @@
 namespace core
+
 record MemorySize {
     private value: uaddr
+}
 
-    public routine __create__(bytes: uaddr) {
-        me.value = bytes
-    }
+routine MemorySize.__create__(bytes: uaddr) {
+    me.value = bytes
+}
 
-    # Gets the size in bytes
-    public routine size_byte() -> uaddr {
-        return me.value
-    }
+# Gets the size in bytes
+routine MemorySize.size() -> uaddr {
+    return me.value
+}
 
-    # Gets the size in bits
-    public routine size_bit() -> uaddr {
-        return me.value * 8
-    }
+# Gets the size in bits
+routine MemorySize.bit_size() -> uaddr {
+    return me.value * 8
+}
 
-    # Gets the size in kibibytes (binary, 1024)
-    public routine size_kib() -> f64 {
-        return f64!(me.value) / 1024.0
-    }
+# Gets the size in kibibytes (binary, 1024)
+routine MemorySize.kib_size() -> f64 {
+    return f64(me.value) / 1024.0
+}
 
-    # Gets the size in mebibytes (binary, 1024^2)
-    public routine size_mib() -> f64 {
-        return f64!(me.value) / 1048576.0
-    }
+# Gets the size in mebibytes (binary, 1024^2)
+routine MemorySize.mib_size() -> f64 {
+    return f64(me.value) / 1048576.0
+}
 
-    # Gets the size in gibibytes (binary, 1024^3)
-    public routine size_gib() -> f64 {
-        return f64!(me.value) / 1073741824.0
-    }
+# Gets the size in gibibytes (binary, 1024^3)
+routine MemorySize.gib_size() -> f64 {
+    return f64(me.value) / 1073741824.0
+}
 
-    # Gets the size in kilobytes (decimal, 1000)
-    public routine size_kb() -> f64 {
-        return f64!(me.value) / 1000.0
-    }
+# Gets the size in kilobytes (decimal, 1000)
+routine MemorySize.kb_size() -> f64 {
+    return f64(me.value) / 1000.0
+}
 
-    # Gets the size in megabytes (decimal, 1000^2)
-    public routine size_mb() -> f64 {
-        return f64!(me.value) / 1000000.0
-    }
+# Gets the size in megabytes (decimal, 1000^2)
+routine MemorySize.mb_size() -> f64 {
+    return f64(me.value) / 1000000.0
+}
 
-    # Gets the size in gigabytes (decimal, 1000^3)
-    public routine size_gb() -> f64 {
-        return f64!(me.value) / 1000000000.0
-    }
+# Gets the size in gigabytes (decimal, 1000^3)
+routine MemorySize.gb_size() -> f64 {
+    return f64(me.value) / 1000000000.0
+}
 
-    public routine text(memory_size: MemorySize) {
-        return f"{me.value.u64()} bytes"
-    }
+routine MemorySize.to_text(memory_size: MemorySize) {
+    return f"{me.value} bytes"
+}
 
-    public routine add(your: MemorySize) {
-        return MemorySize(me.value + your.value)
-    }
-
+routine MemorySize.__add__(you: MemorySize) {
+    return MemorySize(me.value + you.value)
 }

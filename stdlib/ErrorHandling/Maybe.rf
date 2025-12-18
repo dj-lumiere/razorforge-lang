@@ -5,45 +5,32 @@ import ErrorHandling/DataHandle
 record Maybe<T> {
     private state: DataState
     private handle: DataHandle
+}
 
-    # Query
-    routine is_valid() -> bool {
-        return state == DataState.VALID
-    }
-    routine is_none() -> bool {
-        return state == DataState.ABSENT
-    }
-    routine state() -> DataState {
-        return state
-    }
+# Query
+routine Maybe<T>.is_valid() -> bool {
+    return me.state == VALID
+}
 
-    # Coalescing (?? operator)
-    routine __unwrap__(default: T) -> T {
-        if is_none() {
-            return default
-        }
-        return handle.unwrap()
-    }
+routine Maybe<T>.is_none() -> bool {
+    return me.state == ABSENT
+}
 
-    routine __unwrap__(or_else: Routine<(MyType), T>) -> T {
-        if is_none() {
-            return or_else()
-        }
-        return handle.unwrap()
-    }
+routine Maybe<T>.state() -> DataState {
+    return me.state
+}
 
-    # Convert
-    routine Maybe<T>.__create__(value: Result<T>) {
-        if value.is_error() {
-            return Maybe<T>(state: DataState.ABSENT, handle: DataHandle(0uaddr))
-        }
-        return Maybe<T>(state: DataState.VALID, handle: value.handle)
+# Coalescing (?? operator)
+routine Maybe<T>.__unwrap__(default: T) -> T {
+    if me.is_none() {
+        return default
     }
+    return me.handle.unwrap()
+}
 
-    routine Maybe<T>.__create__(value: Lookup<T>) {
-        if value.is_error() or value.is_none() {
-            return Maybe<T>(state: DataState.ABSENT, handle: DataHandle(0uaddr))
-        }
-        return Maybe<T>(state: DataState.VALID, handle: value.handle)
+routine Maybe<T>.__unwrap__(or_else: Routine<(MyType), T>) -> T {
+    if me.is_none() {
+        return or_else()
     }
+    return me.handle.unwrap()
 }

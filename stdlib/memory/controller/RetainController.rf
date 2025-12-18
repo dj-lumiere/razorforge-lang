@@ -5,13 +5,14 @@ entity RetainController {
     private strong_count: s32
     private weak_count: s32
 
-    # Create new reference count controller with initial counts of 0
-    public routine __create__() -> RetainController {
-        return RetainController(
-            strong_count: 0,
-            weak_count: 0
-        )
-    }
+}
+
+# Create new reference count controller with initial counts of 0
+routine RetainController.__create__() -> RetainController {
+    return RetainController(
+        strong_count: 0,
+        weak_count: 0
+    )
 }
 
 # Simple non-atomic operations (single-threaded)

@@ -1,6 +1,7 @@
 # DivisionByZeroError - thrown on division by zero
 record DivisionByZeroError follows Crashable {
-    routine crash_message() -> Text<letter32> {
-        return "You tried to divide by zero, which is not allowed."
-    }
+}
+
+routine DivisionByZeroError.crash_message() -> Text<letter32> {
+    return "You tried to divide by zero, which is not allowed."
 }

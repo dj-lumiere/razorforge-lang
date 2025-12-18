@@ -8,10 +8,11 @@
 import errors/message
 import errors/stacktrace
 
-record Error follows Crashable {
-    routine crash_message() -> Text<letter32> {
-        # Dereference the message pointer to get the string
-        # This is handled by compiler intrinsic
-        return @intrinsic.ptr_to_text(me.message_handle.ptr)
-    }
+record RuntimeError follows Crashable {
+}
+
+routine RuntimeError.crash_message() -> Text<letter32> {
+    # Dereference the message pointer to get the string
+    # This is handled by compiler intrinsic
+    return @intrinsic.ptr_to_text(me.message_handle.ptr)
 }

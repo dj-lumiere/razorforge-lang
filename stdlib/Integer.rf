@@ -7,7 +7,8 @@ import ErrorHandling/Maybe
 
 # Opaque handle to LibTomMath mp_int structure
 # The actual memory is managed by the native runtime
-entity Integer {
+entity Integer
+follows Comparable {
     private handle: uaddr
 }
 
@@ -127,49 +128,24 @@ routine Integer.__neg__() -> Integer {
 # Comparison Operations
 # ============================================================================
 
-routine Integer.__eq__(other: Integer) -> bool {
+routine Integer.__eq__(you: Integer) -> bool {
     danger! {
         return @native.rf_bigint_cmp(me.handle, other.handle) == 0
     }
 }
 
-routine Integer.__ne__(other: Integer) -> bool {
+routine Integer.__cmp__(you: Integer) -> CompareSign {
     danger! {
-        return @native.rf_bigint_cmp(me.handle, other.handle) != 0
+        let comparison_value = @native.rf_bigint_cmp(me.handle, other.handle)
+        if comparison_value < 0 {
+            return LEFT_SMALL
+        } elseif comparison_value > 0 {
+            return RIGHT_SMALL
+        } else {
+            return EQUAL
+        }
     }
 }
-
-routine Integer.__lt__(other: Integer) -> bool {
-    danger! {
-        return @native.rf_bigint_cmp(me.handle, other.handle) < 0
-    }
-}
-
-routine Integer.__le__(other: Integer) -> bool {
-    danger! {
-        return @native.rf_bigint_cmp(me.handle, other.handle) <= 0
-    }
-}
-
-routine Integer.__gt__(other: Integer) -> bool {
-    danger! {
-        return @native.rf_bigint_cmp(me.handle, other.handle) > 0
-    }
-}
-
-routine Integer.__ge__(other: Integer) -> bool {
-    danger! {
-        return @native.rf_bigint_cmp(me.handle, other.handle) >= 0
-    }
-}
-
-# Compare with s64
-routine Integer.cmp(other: s64) -> s32 {
-    danger! {
-        return @native.rf_bigint_cmp_i64(me.handle, other)
-    }
-}
-
 # ============================================================================
 # Bitwise Operations
 # ============================================================================
@@ -291,16 +267,16 @@ routine Integer.signum() -> s32 {
 # ============================================================================
 
 # Convert to s64 (may overflow/truncate for large values)
-routine Integer.to_s64() -> s64 {
+routine s64.__create__!(from: Integer) -> s64 {
     danger! {
-        return @native.rf_bigint_get_i64(me.handle)
+        return @native.rf_bigint_get_i64(from.handle)
     }
 }
 
 # Convert to u64 (may overflow/truncate for large values)
-routine Integer.to_u64() -> u64 {
+routine u64.__create__!(from: Integer) -> u64 {
     danger! {
-        return @native.rf_bigint_get_u64(me.handle)
+        return @native.rf_bigint_get_u64(from.handle)
     }
 }
 
@@ -316,22 +292,22 @@ routine Integer.to_text(radix: s32 = 10) -> Text {
 
 # Default string conversion (base 10)
 routine Integer.to_string() -> Text {
-    return me.to_text(10)
+    return me.to_text(radix: 10)
 }
 
 # Convert to binary string
 routine Integer.to_binary() -> Text {
-    return me.to_text(2)
+    return me.to_text(radix: 2)
 }
 
 # Convert to hexadecimal string
 routine Integer.to_hex() -> Text {
-    return me.to_text(16)
+    return me.to_text(radix: 16)
 }
 
 # Convert to octal string
 routine Integer.to_octal() -> Text {
-    return me.to_text(8)
+    return me.to_text(radix: 8)
 }
 
 # ============================================================================
@@ -339,39 +315,39 @@ routine Integer.to_octal() -> Text {
 # ============================================================================
 
 # Parse from decimal string - returns None on failure
-routine Integer.parse(text: Text) -> Maybe<Integer> {
+routine Integer.__create__!(text: Text) -> Integer {
     danger! {
         let int = Integer(handle: @native.rf_bigint_new())
         let result = @native.rf_bigint_set_str(int.handle, text.to_cstr(), 10)
         if result != 0 {
             @native.rf_bigint_clear(int.handle)
-            return None
+            throw ParseError("Invalid integer form")
         }
         return int
     }
 }
 
 # Parse from binary string (without 0b prefix) - returns None on failure
-routine Integer.from_binary(text: Text) -> Maybe<Integer> {
+routine Integer.from_binary!(text: Text) -> Integer {
     danger! {
         let int = Integer(handle: @native.rf_bigint_new())
         let result = @native.rf_bigint_set_str(int.handle, text.to_cstr(), 2)
         if result != 0 {
             @native.rf_bigint_clear(int.handle)
-            return None
+            throw ParseError("Invalid integer form")
         }
         return int
     }
 }
 
 # Parse from hexadecimal string (without 0x prefix) - returns None on failure
-routine Integer.from_hex(text: Text) -> Maybe<Integer> {
+routine Integer.from_hex!(text: Text) -> Integer {
     danger! {
         let int = Integer(handle: @native.rf_bigint_new())
         let result = @native.rf_bigint_set_str(int.handle, text.to_cstr(), 16)
         if result != 0 {
             @native.rf_bigint_clear(int.handle)
-            return None
+            throw ParseError("Invalid integer form")
         }
         return int
     }
