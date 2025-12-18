@@ -235,22 +235,22 @@ record DynamicSlice {
 }
 
 # Native runtime functions for dynamic memory operations
-external("C") routine claim_dynamic(bytes: uaddr) -> uaddr
-external("C") routine release_dynamic(address: uaddr)
-external("C") routine resize_dynamic(address: uaddr, new_bytes: uaddr) -> uaddr
-external("C") routine memory_copy(src: uaddr, dest: uaddr, bytes: uaddr)
-external("C") routine memory_fill(address: uaddr, pattern: u8, bytes: uaddr)
-external("C") routine memory_zero(address: uaddr, bytes: uaddr)
-external("C") routine memory_read<T>(address: uaddr) -> T
-external("C") routine memory_write<T>(address: uaddr, value: T)
-external("C") routine sizeof<T>() -> uaddr
+imported("C") routine claim_dynamic(bytes: uaddr) -> uaddr
+imported("C") routine release_dynamic(address: uaddr)
+imported("C") routine resize_dynamic(address: uaddr, new_bytes: uaddr) -> uaddr
+imported("C") routine memory_copy(src: uaddr, dest: uaddr, bytes: uaddr)
+imported("C") routine memory_fill(address: uaddr, pattern: u8, bytes: uaddr)
+imported("C") routine memory_zero(address: uaddr, bytes: uaddr)
+imported("C") routine memory_read<T>(address: uaddr) -> T
+imported("C") routine memory_write<T>(address: uaddr, value: T)
+imported("C") routine sizeof<T>() -> uaddr
 
 # Danger zone operations - raw memory access without safety checks
-external("C") routine read_as<T>(address: uaddr) -> T
-external("C") routine write_as<T>(address: uaddr, value: T)
-external("C") routine volatile_read<T>(address: uaddr) -> T
-external("C") routine volatile_write<T>(address: uaddr, value: T)
-external("C") routine obtain_as<T>(object: auto) -> uaddr
-external("C") routine reveal_as<T>(address: uaddr) -> T
-external("C") routine address_of(object: auto) -> uaddr
-external("C") routine invalidate<T>(object: T)
+imported("C") routine read_as<T>(address: uaddr) -> T
+imported("C") routine write_as<T>(address: uaddr, value: T)
+imported("C") routine volatile_read<T>(address: uaddr) -> T
+imported("C") routine volatile_write<T>(address: uaddr, value: T)
+imported("C") routine obtain_as<T, U>(object: Snatched<T>) -> U
+imported("C") routine reveal_as<T>(address: uaddr) -> T
+imported("C") routine address_of<T>(object: T) -> uaddr
+imported("C") routine invalidate<T>(object: T)

@@ -1,31 +1,31 @@
 # RazorForge C Subsystem Memory Operations
-# Core external functions for danger! blocks and low-level memory management
+# Core imported functions for danger! blocks and low-level memory management
 # These map directly to LLVM intrinsics and C runtime functions
 namespace core
 # Memory allocation operations (for danger zone)
-external("C") routine claim_dynamic(bytes: uaddr) -> uaddr
-external("C") routine claim_temporary(bytes: uaddr) -> uaddr
-external("C") routine release_dynamic(address: uaddr)
+imported("C") routine claim_dynamic(bytes: uaddr) -> uaddr
+imported("C") routine claim_temporary(bytes: uaddr) -> uaddr
+imported("C") routine release_dynamic(address: uaddr)
 
 # Memory reading operations
-external("C") routine read_as<T>(address: uaddr) -> T
-external("C") routine volatile_read_as<T>(address: uaddr) -> T
+imported("C") routine read_as<T>(address: uaddr) -> T
+imported("C") routine volatile_read_as<T>(address: uaddr) -> T
 
 # Memory writing operations
-external("C") routine write_as<T>(address: uaddr, value: T)
-external("C") routine volatile_write_as<T>(address: uaddr, value: T)
+imported("C") routine write_as<T>(address: uaddr, value: T)
+imported("C") routine volatile_write_as<T>(address: uaddr, value: T)
 
 # Address operations
-external("C") routine address_of<T>(value: T) -> uaddr
+imported("C") routine address_of<T>(value: T) -> uaddr
 
 # Type punning operations
-external("C") routine obtain_as<U, T>(value: T) -> uaddr
-external("C") routine reveal_as<U, T>(ptr: uaddr) -> U
+imported("C") routine obtain_as<U, T>(value: T) -> uaddr
+imported("C") routine reveal_as<U, T>(ptr: uaddr) -> U
 
 # Memory management
-external("C") routine invalidate!(address: uaddr)
+imported("C") routine invalidate!(address: uaddr)
 
 # Memory utilities
-external("C") routine copy_memory(dest: uaddr, src: uaddr, bytes: uaddr)
-external("C") routine zero_memory(address: uaddr, bytes: uaddr)
-external("C") routine compare_memory(a: uaddr, b: uaddr, bytes: uaddr) -> s32
+imported("C") routine copy_memory(dest: uaddr, src: uaddr, bytes: uaddr)
+imported("C") routine zero_memory(address: uaddr, bytes: uaddr)
+imported("C") routine compare_memory(a: uaddr, b: uaddr, bytes: uaddr) -> s32
