@@ -112,9 +112,9 @@ record ValueListIterator<T, N> {
     index: uaddr
 }
 
-routine ValueListIterator<T, N>.next(me: ValueListIterator<T, N>) -> T? {
+routine ValueListIterator<T, N>.next!(me: ValueListIterator<T, N>) -> T {
     if me.index >= N {
-        return None
+        absent
     }
     let value = me.list[me.index]
     me.index = me.index + 1uaddr

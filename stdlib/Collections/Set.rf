@@ -352,11 +352,11 @@ record SetIterator<T> {
     current_elements: List<T>
 }
 
-routine SetIterator<T>.next(me: SetIterator<T>) -> T? {
+routine SetIterator<T>.next!(me: SetIterator<T>) -> T {
     # Advance to next non-empty bucket if needed
     while me.element_idx >= me.current_elements.count() {
         if me.bucket_idx >= me.set.buckets.count() {
-            return None
+            absent
         }
         me.current_elements = me.set.buckets[me.bucket_idx].to_list()
         me.element_idx = 0uaddr

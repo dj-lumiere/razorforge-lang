@@ -523,9 +523,9 @@ record SortedListIterator<T> {
     index: uaddr
 }
 
-routine SortedListIterator<T>.next(me: SortedListIterator<T>) -> T? {
+routine SortedListIterator<T>.next!(me: SortedListIterator<T>) -> T {
     if me.index >= me.list.count() {
-        return None
+        absent
     }
     let value = me.list[me.index]
     me.index = me.index + 1uaddr

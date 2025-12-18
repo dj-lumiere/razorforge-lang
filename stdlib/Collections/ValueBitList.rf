@@ -118,9 +118,9 @@ record ValueBitListIterator<N> {
     index: uaddr
 }
 
-routine ValueBitListIterator<N>.next(me: ValueBitListIterator<N>) -> bool? {
+routine ValueBitListIterator<N>.next!(me: ValueBitListIterator<N>) -> bool {
     if me.index >= N {
-        return None
+        absent
     }
     let value = me.list[me.index]
     me.index = me.index + 1uaddr

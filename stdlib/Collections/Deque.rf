@@ -285,9 +285,9 @@ record DequeIterator<T> {
     index: uaddr
 }
 
-routine DequeIterator<T>.next(me: DequeIterator<T>) -> T? {
+routine DequeIterator<T>.next!(me: DequeIterator<T>) -> T {
     if me.index >= me.deque.count() {
-        return None
+        absent
     }
     let value = me.deque[me.index]
     me.index = me.index + 1uaddr

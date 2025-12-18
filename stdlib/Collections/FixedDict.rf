@@ -156,7 +156,7 @@ routine FixedDict<K, V, N>.contains_key(me: FixedDict<K, V, N>, key: K) -> bool 
     }
 }
 
-routine FixedDict<K, V, N>.find_slot(me: FixedDict<K, V, N>, key: K) -> uaddr? {
+routine FixedDict<K, V, N>.find_slot!(me: FixedDict<K, V, N>, key: K) -> uaddr {
     # Returns slot index if key found, None otherwise
     var slot = me.hash_index(key)
     var probe_dist = 0uaddr
@@ -165,12 +165,12 @@ routine FixedDict<K, V, N>.find_slot(me: FixedDict<K, V, N>, key: K) -> uaddr? {
         let state = me.get_state(slot)
 
         if state == FDICT_SLOT_EMPTY {
-            return None
+            absent
         }
 
         if state == FDICT_SLOT_OCCUPIED {
             if probe_dist > me.get_probe_dist(slot) {
-                return None
+                absent
             }
 
             if me.get_key(slot) == key {
@@ -182,7 +182,7 @@ routine FixedDict<K, V, N>.find_slot(me: FixedDict<K, V, N>, key: K) -> uaddr? {
         probe_dist = probe_dist + 1uaddr
 
         if probe_dist >= N {
-            return None
+            absent
         }
     }
 }
@@ -385,7 +385,7 @@ record FixedDictIterator<K, V, N> {
     slot: uaddr
 }
 
-routine FixedDictIterator<K, V, N>.next(me: FixedDictIterator<K, V, N>) -> FixedDictEntry<K, V>? {
+routine FixedDictIterator<K, V, N>.next!(me: FixedDictIterator<K, V, N>) -> FixedDictEntry<K, V> {
     while me.slot < N {
         if me.dict.get_state(me.slot) == FDICT_SLOT_OCCUPIED {
             let entry = FixedDictEntry<K, V>(
@@ -397,7 +397,7 @@ routine FixedDictIterator<K, V, N>.next(me: FixedDictIterator<K, V, N>) -> Fixed
         }
         me.slot = me.slot + 1uaddr
     }
-    return None
+    absent
 }
 
 # ============================================================================

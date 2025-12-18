@@ -315,9 +315,9 @@ record FixedDequeIterator<T, N> {
     index: uaddr
 }
 
-routine FixedDequeIterator<T, N>.next(me: FixedDequeIterator<T, N>) -> T? {
+routine FixedDequeIterator<T, N>.next!(me: FixedDequeIterator<T, N>) -> T {
     if me.index >= me.deque.count() {
-        return None
+        absent
     }
     let value = me.deque[me.index]
     me.index = me.index + 1uaddr

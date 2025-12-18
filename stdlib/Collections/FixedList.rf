@@ -187,9 +187,9 @@ record FixedListIterator<T, N> {
     index: uaddr
 }
 
-routine FixedListIterator<T, N>.next(me: FixedListIterator<T, N>) -> T? {
+routine FixedListIterator<T, N>.next!(me: FixedListIterator<T, N>) -> T {
     if me.index >= me.list.count() {
-        return None
+        absent
     }
     let value = me.list[me.index]
     me.index = me.index + 1uaddr

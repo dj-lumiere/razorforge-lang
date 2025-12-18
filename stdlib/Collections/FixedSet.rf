@@ -291,7 +291,7 @@ record FixedSetIterator<T, N> {
     slot: uaddr
 }
 
-routine FixedSetIterator<T, N>.next(me: FixedSetIterator<T, N>) -> T? {
+routine FixedSetIterator<T, N>.next!(me: FixedSetIterator<T, N>) -> T {
     while me.slot < N {
         if me.set.get_state(me.slot) == SLOT_OCCUPIED {
             let value = me.set.get_value(me.slot)
@@ -300,7 +300,7 @@ routine FixedSetIterator<T, N>.next(me: FixedSetIterator<T, N>) -> T? {
         }
         me.slot = me.slot + 1uaddr
     }
-    return None
+    absent
 }
 
 # ============================================================================

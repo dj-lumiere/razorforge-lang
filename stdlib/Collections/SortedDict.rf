@@ -92,7 +92,7 @@ routine SortedDict<K, V>.contains_key(me: SortedDict<K, V>, key: K) -> bool {
     return me.search_node(me.root!, key) isnot None
 }
 
-routine SortedDict<K, V>.search_node(me: SortedDict<K, V>, node: BTreeDictNode<K, V>, key: K) -> V? {
+routine SortedDict<K, V>.search_node!(me: SortedDict<K, V>, node: BTreeDictNode<K, V>, key: K) -> V {
     var i = 0uaddr
     while i < node.entries.count() and key > node.entries[i].key {
         i = i + 1uaddr
@@ -103,7 +103,7 @@ routine SortedDict<K, V>.search_node(me: SortedDict<K, V>, node: BTreeDictNode<K
     }
 
     if node.is_leaf {
-        return None
+        absent
     }
 
     return me.search_node(node.children[i], key)
@@ -532,9 +532,9 @@ record SortedDictIterator<K, V> {
     index: uaddr
 }
 
-routine SortedDictIterator<K, V>.next(me: SortedDictIterator<K, V>) -> KVPair<K, V>? {
+routine SortedDictIterator<K, V>.next!(me: SortedDictIterator<K, V>) -> KVPair<K, V> {
     if me.index >= me.entries.count() {
-        return None
+        absent
     }
     let entry = me.entries[me.index]
     me.index = me.index + 1uaddr

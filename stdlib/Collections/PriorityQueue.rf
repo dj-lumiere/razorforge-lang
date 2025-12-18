@@ -233,9 +233,10 @@ record PriorityQueueIterator<TElement, TPriority> {
     index: uaddr
 }
 
-routine PriorityQueueIterator<TElement, TPriority>.next(me: PriorityQueueIterator<TElement, TPriority>) -> PQEntry<TElement, TPriority>? {
+routine PriorityQueueIterator<TElement, TPriority>.next!(me: PriorityQueueIterator<TElement, TPriority>) ->
+PQEntry<TElement, TPriority> {
     if me.index >= me.queue.count() {
-        return None
+        absent
     }
     let entry = me.queue.heap[me.index]
     me.index = me.index + 1uaddr

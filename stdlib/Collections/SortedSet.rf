@@ -521,9 +521,9 @@ record SortedSetIterator<T> {
     index: uaddr
 }
 
-routine SortedSetIterator<T>.next(me: SortedSetIterator<T>) -> T? {
+routine SortedSetIterator<T>.next!(me: SortedSetIterator<T>) -> T {
     if me.index >= me.set.count() {
-        return None
+        absent
     }
     let value = me.set[me.index]
     me.index = me.index + 1uaddr

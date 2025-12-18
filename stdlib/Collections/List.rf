@@ -251,9 +251,9 @@ record ListIterator<T> {
     index: u64
 }
 
-routine ListIterator<T>.next(me: ListIterator<T>) -> T? {
+routine ListIterator<T>.next!(me: ListIterator<T>) -> T {
     if me.index >= me.list.count() {
-        return None
+        absent
     }
     let value = me.list.get!(me.index)
     me.index = me.index + 1u64

@@ -242,9 +242,9 @@ record FixedBitListIterator<N> {
     index: uaddr
 }
 
-routine FixedBitListIterator<N>.next(me: FixedBitListIterator<N>) -> bool? {
+routine FixedBitListIterator<N>.next!(me: FixedBitListIterator<N>) -> bool {
     if me.index >= me.list.count() {
-        return None
+        absent
     }
     let value = me.list[me.index]
     me.index = me.index + 1uaddr
