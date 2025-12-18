@@ -204,7 +204,7 @@ public interface IAstVisitor<T>
 
     // Memory slice expression visitor methods
 
-    /// <summary>Visits a slice constructor expression node (DynamicSlice/TemporarySlice creation)</summary>
+    /// <summary>Visits a slice constructor expression node (DynamicSlice creation)</summary>
     /// <param name="node">The slice constructor expression to visit</param>
     /// <returns>Result of visiting the slice constructor expression</returns>
     T VisitSliceConstructorExpression(SliceConstructorExpression node);
