@@ -91,9 +91,19 @@ public enum TokenType
     /// <summary>16-bit raw formatted text literal with explicit prefix (t16rf"dir: {path}\file")</summary>
     Text16RawFormattedText,
 
+    /// <summary> Byte letter literal with prefix (b'a') </summary>
+    ByteLetterLiteral,
+
+    /// <summary>Bytes literal with explicit prefix (b"hello")</summary>
     BytesLiteral,
+
+    /// <summary>Bytes raw literal with explicit prefix (br"C:\path")</summary>
     BytesRawLiteral,
+
+    /// <summary>Bytes formatted literal with explicit prefix (bf"value: {x}")</summary>
     BytesFormatted,
+
+    /// <summary>Bytes raw formatted text literal with explicit prefix (brf"dir: {path}\file")</summary>
     BytesRawFormatted,
 
     #endregion
@@ -101,23 +111,23 @@ public enum TokenType
     #region Typed Numeric Literals
 
     // Signed integers
-    /// <summary>8-bit signed integer literal (42i8)</summary>
+    /// <summary>8-bit signed integer literal (42s8)</summary>
     S8Literal,
 
-    /// <summary>16-bit signed integer literal (1000i16)</summary>
+    /// <summary>16-bit signed integer literal (1000s16)</summary>
     S16Literal,
 
-    /// <summary>32-bit signed integer literal (42i32)</summary>
+    /// <summary>32-bit signed integer literal (42s32)</summary>
     S32Literal,
 
-    /// <summary>64-bit signed integer literal (1000i64)</summary>
+    /// <summary>64-bit signed integer literal (1000s64)</summary>
     S64Literal,
 
-    /// <summary>128-bit signed integer literal (42i128)</summary>
+    /// <summary>128-bit signed integer literal (42s128)</summary>
     S128Literal,
 
     /// <summary>System pointer-sized signed integer literal (42saddr)</summary>
-    SyssintLiteral,
+    SaddrLiteral,
 
     // Unsigned integers
     /// <summary>8-bit unsigned integer literal (255u8)</summary>
@@ -135,8 +145,8 @@ public enum TokenType
     /// <summary>128-bit unsigned integer literal (42u128)</summary>
     U128Literal,
 
-    /// <summary>System pointer-sized unsigned integer literal (42usys)</summary>
-    SysuintLiteral,
+    /// <summary>System pointer-sized unsigned integer literal (42uaddr)</summary>
+    UaddrLiteral,
 
     // Floating point
     /// <summary>16-bit floating point literal (3.14f16)</summary>
@@ -265,7 +275,7 @@ public enum TokenType
 
     #region Identifiers
 
-    /// <summary>Regular identifier in snake_case, may end with ! (my_var, is_valid!)</summary>
+    /// <summary>Regular identifier prefixed with let/var/nothing</summary>
     Identifier,
 
     /// <summary>Type identifier in PascalCase (MyClass, HttpResponse)</summary>
@@ -603,6 +613,9 @@ public enum TokenType
 
     /// <summary>Greater than or equal comparison operator (>=)</summary>
     GreaterEqual,
+
+    /// <summary>Three-way comparison (spaceship) operator (&lt;=&gt;)</summary>
+    ThreeWayComparison,
 
     #endregion
 

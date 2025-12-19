@@ -1,827 +1,364 @@
-using Compilers.Shared.Lexer;
-
 namespace Compilers.Suflae.Lexer;
+
+using Compilers.Shared.Lexer;
 
 /// <summary>
 /// Tokenizer implementation for the Suflae programming language.
-/// Handles Suflae-specific syntax including significant indentation (Python-style blocks),
-/// colon-based block starters, and indent/dedent tokens for block structure.
 /// </summary>
-public class SuflaeTokenizer : BaseTokenizer
+/// <remarks>
+/// <para>
+/// Suflae is a Python-inspired syntax variant of RazorForge that uses significant
+/// indentation instead of braces for block structure. Key differences from RazorForge:
+/// </para>
+/// <list type="bullet">
+///   <item><description>Indentation-based blocks (4 spaces per level)</description></item>
+///   <item><description>No braces { } - colons followed by newlines start blocks</description></item>
+///   <item><description>Simplified numeric types (no 8-bit or 16-bit suffixes)</description></item>
+///   <item><description>Character literals use byte' and letter' prefixes</description></item>
+///   <item><description>Text literals use b"..." prefix for bytes</description></item>
+///   <item><description>Significant newlines (statement terminators)</description></item>
+///   <item><description>Script mode detection for top-level code</description></item>
+/// </list>
+/// <para>
+/// The tokenizer produces INDENT and DEDENT tokens to represent block structure,
+/// similar to Python's tokenization model.
+/// </para>
+/// </remarks>
+public partial class SuflaeTokenizer
 {
-    #region Fields and Keywords
+    #region Fields
 
-    /// <summary>Current indentation level (number of spaces from start of line)</summary>
+    /// <summary>
+    /// The complete source code text being tokenized.
+    /// </summary>
+    private readonly string _source;
+
+    /// <summary>
+    /// Current character position in the source text (0-based index).
+    /// </summary>
+    private int _position;
+
+    /// <summary>
+    /// Current line number in the source text (1-based).
+    /// </summary>
+    private int _line = 1;
+
+    /// <summary>
+    /// Current column number in the current line (1-based).
+    /// </summary>
+    private int _column = 1;
+
+    /// <summary>
+    /// Starting position of the current token being processed.
+    /// </summary>
+    private int _tokenStart;
+
+    /// <summary>
+    /// Starting column of the current token being processed.
+    /// </summary>
+    private int _tokenStartColumn;
+
+    /// <summary>
+    /// Starting line of the current token being processed.
+    /// </summary>
+    private int _tokenStartLine;
+
+    /// <summary>
+    /// List of tokens that have been successfully parsed from the source.
+    /// </summary>
+    private readonly List<Token> _tokens = [];
+
+    /// <summary>
+    /// Current indentation level (measured in units of 4 spaces).
+    /// </summary>
+    /// <remarks>
+    /// An indentation level of 0 means no indentation (column 1).
+    /// Level 1 = 4 spaces, Level 2 = 8 spaces, etc.
+    /// </remarks>
     private int _currentIndentLevel;
 
-    /// <summary>Flag indicating that an indent token should be generated on the next line</summary>
+    /// <summary>
+    /// Flag indicating that an INDENT token is expected on the next non-empty line.
+    /// </summary>
+    /// <remarks>
+    /// Set to true after encountering a colon that ends a line (block starter).
+    /// The next line must have greater indentation than the current level.
+    /// </remarks>
     private bool _expectIndent;
 
-    /// <summary>Flag tracking whether any non-whitespace tokens have been processed on current line</summary>
+    /// <summary>
+    /// Flag tracking whether any non-whitespace tokens have been processed on the current line.
+    /// </summary>
+    /// <remarks>
+    /// Used to determine whether newlines are significant. A newline after
+    /// actual content is significant; a blank line is not.
+    /// </remarks>
     private bool _hasTokenOnLine;
 
+    /// <summary>
+    /// Flag tracking whether any definitions (routine, entity, etc.) have been found.
+    /// </summary>
+    /// <remarks>
+    /// Used to detect script mode - if no definitions are found, the file is
+    /// treated as a script with implicit main routine wrapping.
+    /// </remarks>
     private bool _hasDefinitions;
 
-    /// <summary>Dictionary mapping Suflae keywords to their corresponding token types</summary>
+    #endregion
+
+    #region Keywords
+
+    /// <summary>
+    /// Dictionary mapping Suflae keywords to their corresponding token types.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Suflae shares most keywords with RazorForge, but excludes some
+    /// RazorForge-specific keywords like 'danger' (Suflae doesn't support danger blocks).
+    /// </para>
+    /// </remarks>
     private readonly Dictionary<string, TokenType> _keywords = new()
     {
-        [key: "routine"] = TokenType.Routine,
-        [key: "entity"] = TokenType.Entity,
-        [key: "record"] = TokenType.Record,
-        [key: "variant"] = TokenType.Variant,
-        [key: "choice"] = TokenType.Choice,
-        [key: "requires"] = TokenType.Requires,
-        [key: "protocol"] = TokenType.Protocol,
-        [key: "let"] = TokenType.Let,
-        [key: "var"] = TokenType.Var,
-        [key: "preset"] = TokenType.Preset,
-        [key: "common"] = TokenType.TypeWise,
-        [key: "private"] = TokenType.Private,
-        [key: "family"] = TokenType.Family,
-        [key: "internal"] = TokenType.Internal,
-        [key: "public"] = TokenType.Public,
-        [key: "global"] = TokenType.Global,
-        [key: "imported"] = TokenType.Imported,
-        [key: "me"] = TokenType.Me,
-        [key: "MyType"] = TokenType.MyType,
-        [key: "parent"] = TokenType.Parent,
-        [key: "if"] = TokenType.If,
-        [key: "elseif"] = TokenType.Elseif,
-        [key: "else"] = TokenType.Else,
-        [key: "then"] = TokenType.Then,
-        [key: "unless"] = TokenType.Unless,
-        [key: "break"] = TokenType.Break,
-        [key: "continue"] = TokenType.Continue,
-        [key: "return"] = TokenType.Return,
-        [key: "throw"] = TokenType.Throw,
-        [key: "absent"] = TokenType.Absent,
-        [key: "for"] = TokenType.For,
-        [key: "loop"] = TokenType.Loop,
-        [key: "while"] = TokenType.While,
-        [key: "when"] = TokenType.When,
-        [key: "is"] = TokenType.Is,
-        [key: "from"] = TokenType.From,
-        [key: "follows"] = TokenType.Follows,
-        [key: "import"] = TokenType.Import,
-        [key: "namespace"] = TokenType.Namespace,
-        [key: "define"] = TokenType.Define,
-        [key: "using"] = TokenType.Using,
-        [key: "as"] = TokenType.As,
-        [key: "pass"] = TokenType.Pass,
-        [key: "with"] = TokenType.With,
-        [key: "where"] = TokenType.Where,
-        [key: "isnot"] = TokenType.IsNot,
-        [key: "notfrom"] = TokenType.NotFrom,
-        [key: "notin"] = TokenType.NotIn,
-        [key: "notfollows"] = TokenType.NotFollows,
-        [key: "in"] = TokenType.In,
-        [key: "to"] = TokenType.To,
-        [key: "downto"] = TokenType.Downto,
-        [key: "by"] = TokenType.By,
-        [key: "and"] = TokenType.And,
-        [key: "or"] = TokenType.Or,
-        [key: "not"] = TokenType.Not,
-        [key: "true"] = TokenType.True,
-        [key: "false"] = TokenType.False,
-        [key: "none"] = TokenType.None,
-        [key: "generate"] = TokenType.Generate,
-        [key: "suspended"] = TokenType.Suspended,
-        [key: "waitfor"] = TokenType.Waitfor
+        ["routine"] = TokenType.Routine,
+        ["entity"] = TokenType.Entity,
+        ["record"] = TokenType.Record,
+        ["variant"] = TokenType.Variant,
+        ["choice"] = TokenType.Choice,
+        ["requires"] = TokenType.Requires,
+        ["protocol"] = TokenType.Protocol,
+        ["let"] = TokenType.Let,
+        ["var"] = TokenType.Var,
+        ["preset"] = TokenType.Preset,
+        ["common"] = TokenType.TypeWise,
+        ["private"] = TokenType.Private,
+        ["family"] = TokenType.Family,
+        ["internal"] = TokenType.Internal,
+        ["public"] = TokenType.Public,
+        ["global"] = TokenType.Global,
+        ["imported"] = TokenType.Imported,
+        ["me"] = TokenType.Me,
+        ["MyType"] = TokenType.MyType,
+        ["parent"] = TokenType.Parent,
+        ["if"] = TokenType.If,
+        ["elseif"] = TokenType.Elseif,
+        ["else"] = TokenType.Else,
+        ["then"] = TokenType.Then,
+        ["unless"] = TokenType.Unless,
+        ["break"] = TokenType.Break,
+        ["continue"] = TokenType.Continue,
+        ["return"] = TokenType.Return,
+        ["throw"] = TokenType.Throw,
+        ["absent"] = TokenType.Absent,
+        ["for"] = TokenType.For,
+        ["loop"] = TokenType.Loop,
+        ["while"] = TokenType.While,
+        ["when"] = TokenType.When,
+        ["is"] = TokenType.Is,
+        ["from"] = TokenType.From,
+        ["follows"] = TokenType.Follows,
+        ["import"] = TokenType.Import,
+        ["namespace"] = TokenType.Namespace,
+        ["define"] = TokenType.Define,
+        ["using"] = TokenType.Using,
+        ["as"] = TokenType.As,
+        ["pass"] = TokenType.Pass,
+        ["with"] = TokenType.With,
+        ["where"] = TokenType.Where,
+        ["isnot"] = TokenType.IsNot,
+        ["notfrom"] = TokenType.NotFrom,
+        ["notin"] = TokenType.NotIn,
+        ["notfollows"] = TokenType.NotFollows,
+        ["in"] = TokenType.In,
+        ["to"] = TokenType.To,
+        ["downto"] = TokenType.Downto,
+        ["by"] = TokenType.By,
+        ["and"] = TokenType.And,
+        ["or"] = TokenType.Or,
+        ["not"] = TokenType.Not,
+        ["true"] = TokenType.True,
+        ["false"] = TokenType.False,
+        ["none"] = TokenType.None,
+        ["generate"] = TokenType.Generate,
+        ["suspended"] = TokenType.Suspended,
+        ["waitfor"] = TokenType.Waitfor
     };
 
     #endregion
 
-    #region Initialization and Core Methods
+    #region Suffix Mappings
 
     /// <summary>
-    /// Initializes a new Suflae tokenizer with the source code to tokenize.
+    /// Maps numeric type suffixes to their corresponding token types.
     /// </summary>
-    /// <param name="source">The Suflae source code text</param>
-    public SuflaeTokenizer(string source) : base(source: source)
+    /// <remarks>
+    /// Suflae has a simplified numeric type system compared to RazorForge:
+    /// only 32-bit and larger types are supported directly.
+    /// </remarks>
+    private readonly Dictionary<string, TokenType> _numericSuffixToTokenType = new()
     {
+        ["s32"] = TokenType.S32Literal,
+        ["s64"] = TokenType.S64Literal,
+        ["s128"] = TokenType.S128Literal,
+        ["saddr"] = TokenType.SaddrLiteral,
+        ["u32"] = TokenType.U32Literal,
+        ["u64"] = TokenType.U64Literal,
+        ["u128"] = TokenType.U128Literal,
+        ["uaddr"] = TokenType.UaddrLiteral,
+        ["f32"] = TokenType.F32Literal,
+        ["f64"] = TokenType.F64Literal,
+        ["d128"] = TokenType.D128Literal
+    };
+
+    /// <summary>
+    /// Maps memory size suffixes to their corresponding token types.
+    /// </summary>
+    private readonly Dictionary<string, TokenType> _memorySuffixToTokenType = new()
+    {
+        ["b"] = TokenType.ByteLiteral,
+        ["kb"] = TokenType.KilobyteLiteral,
+        ["kib"] = TokenType.KibibyteLiteral,
+        ["kbit"] = TokenType.KilobitLiteral,
+        ["kibit"] = TokenType.KibibitLiteral,
+        ["mb"] = TokenType.MegabyteLiteral,
+        ["mib"] = TokenType.MebibyteLiteral,
+        ["mbit"] = TokenType.MegabitLiteral,
+        ["mibit"] = TokenType.MebibitLiteral,
+        ["gb"] = TokenType.GigabyteLiteral,
+        ["gib"] = TokenType.GibibyteLiteral,
+        ["gbit"] = TokenType.GigabitLiteral,
+        ["gibit"] = TokenType.GibibitLiteral,
+        ["tb"] = TokenType.TerabyteLiteral,
+        ["tib"] = TokenType.TebibyteLiteral,
+        ["tbit"] = TokenType.TerabitLiteral,
+        ["tibit"] = TokenType.TebibitLiteral,
+        ["pb"] = TokenType.PetabyteLiteral,
+        ["pib"] = TokenType.PebibyteLiteral,
+        ["pbit"] = TokenType.PetabitLiteral,
+        ["pibit"] = TokenType.PebibitLiteral
+    };
+
+    /// <summary>
+    /// Maps duration suffixes to their corresponding token types.
+    /// </summary>
+    private readonly Dictionary<string, TokenType> _durationSuffixToTokenType = new()
+    {
+        ["w"] = TokenType.WeekLiteral,
+        ["d"] = TokenType.DayLiteral,
+        ["h"] = TokenType.HourLiteral,
+        ["m"] = TokenType.MinuteLiteral,
+        ["s"] = TokenType.SecondLiteral,
+        ["ms"] = TokenType.MillisecondLiteral,
+        ["us"] = TokenType.MicrosecondLiteral,
+        ["ns"] = TokenType.NanosecondLiteral
+    };
+
+    /// <summary>
+    /// Maps text literal prefixes to their corresponding token types.
+    /// </summary>
+    /// <remarks>
+    /// Suflae uses a simplified prefix system: r, f, rf for text, and b, br, bf, brf for bytes.
+    /// </remarks>
+    private readonly Dictionary<string, TokenType> _textPrefixToTokenType = new()
+    {
+        ["r"] = TokenType.RawText,
+        ["f"] = TokenType.FormattedText,
+        ["rf"] = TokenType.RawFormattedText,
+        ["b"] = TokenType.BytesLiteral,
+        ["br"] = TokenType.BytesRawLiteral,
+        ["bf"] = TokenType.BytesFormatted,
+        ["brf"] = TokenType.BytesRawFormatted
+    };
+
+    /// <summary>
+    /// List of all valid text prefixes for prefix matching.
+    /// </summary>
+    private readonly List<string> _textPrefixes =
+    [
+        "r", "f", "rf", "b", "br", "bf", "brf"
+    ];
+
+    #endregion
+
+    #region Constructor and Properties
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="SuflaeTokenizer"/> class.
+    /// </summary>
+    /// <param name="source">The Suflae source code to tokenize.</param>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="source"/> is null.</exception>
+    public SuflaeTokenizer(string source)
+    {
+        _source = source ?? throw new ArgumentNullException(nameof(source));
     }
 
     /// <summary>
-    /// Indicates whether the source code is in script mode, determined by the absence of definitions.
-    /// In script mode, no explicit definitions (such as functions or classes) are present in the code.
+    /// Gets a value indicating whether the source code is in script mode.
     /// </summary>
+    /// <value>
+    /// <c>true</c> if no definitions (routine, entity, record, etc.) were found;
+    /// <c>false</c> if at least one definition was found.
+    /// </value>
+    /// <remarks>
+    /// <para>
+    /// Script mode allows Suflae files to contain top-level statements without
+    /// an explicit main routine. The compiler wraps script mode code in an
+    /// implicit main routine.
+    /// </para>
+    /// <para>
+    /// This property is only valid after <see cref="Tokenize"/> has been called.
+    /// </para>
+    /// </remarks>
     public bool IsScriptMode => !_hasDefinitions;
 
-    /// <summary>
-    /// Returns the Suflae-specific keyword mappings.
-    /// </summary>
-    /// <returns>Dictionary of Suflae keywords and their token types</returns>
-    protected override Dictionary<string, TokenType> GetKeywords()
-    {
-        return _keywords;
-    }
+    #endregion
+
+    #region Public Methods
 
     /// <summary>
-    /// Tokenizes the entire Suflae source code into a list of tokens.
-    /// Handles significant indentation and generates indent/dedent tokens.
+    /// Tokenizes the entire source code and returns a list of tokens.
     /// </summary>
-    /// <returns>List of tokens representing the Suflae source code</returns>
-    public override List<Token> Tokenize()
+    /// <returns>
+    /// A list of <see cref="Token"/> objects representing the tokenized source code.
+    /// The list includes INDENT/DEDENT tokens for block structure and ends with EOF.
+    /// </returns>
+    /// <exception cref="LexerException">
+    /// Thrown when the source contains invalid syntax, such as misaligned indentation,
+    /// unterminated strings, or invalid escape sequences.
+    /// </exception>
+    /// <remarks>
+    /// <para>
+    /// After tokenization completes, any remaining indentation levels are closed
+    /// with DEDENT tokens to ensure proper block closure.
+    /// </para>
+    /// <para>
+    /// After calling this method, the <see cref="IsScriptMode"/> property reflects
+    /// whether the source contained any definition keywords.
+    /// </para>
+    /// </remarks>
+    public List<Token> Tokenize()
     {
         while (!IsAtEnd())
         {
-            TokenStart = Position;
-            TokenStartColumn = Column;
-            TokenStartLine = Line;
+            _tokenStart = _position;
+            _tokenStartColumn = _column;
+            _tokenStartLine = _line;
 
             ScanToken();
         }
 
-        // Emit remaining dedents at end of file
-        for (int i = 0; i < _currentIndentLevel; i++)
+        // Emit remaining DEDENT tokens at end of file
+        for (int i = 0; i < _currentIndentLevel; i += 1)
         {
-            AddToken(type: TokenType.Dedent, text: "");
+            AddToken(TokenType.Dedent, "");
         }
 
-        Tokens.Add(item: new Token(Type: TokenType.Eof,
+        _tokens.Add(new Token(
+            Type: TokenType.Eof,
             Text: "",
-            Line: Line,
-            Column: Column,
-            Position: Position));
-        return Tokens;
-    }
-
-    #endregion
-
-    #region Token Scanning
-
-    /// <summary>
-    /// Scans a single token from the current position, handling Suflae-specific indentation rules.
-    /// </summary>
-    private void ScanToken()
-    {
-        // Handle indentation at start of line
-        if (Column == 1)
-        {
-            HandleIndentation();
-            if (IsAtEnd())
-            {
-                return;
-            }
-        }
-
-        // Skip non-newline whitespace and update token start
-        while (Peek() == ' ' || Peek() == '\t' || Peek() == '\r')
-        {
-            Advance();
-        }
-
-        TokenStart = Position;
-        TokenStartColumn = Column;
-        char c = Advance();
-
-        switch (c)
-        {
-            // Whitespace (remaining after skip above)
-            case ' ' or '\r' or '\t': break;
-            case '\n': HandleNewline(); break;
-
-            // Literals
-            case '#': ScanComment(); break;
-            case '"': ScanSuflaeString(); break;
-            case '\'': ScanChar(); break;
-            case 'l':
-                if (!TryParseLetterPrefix())
-                {
-                    ScanIdentifier();
-                }
-
-                break;
-            case 'r' or 'f' or 't':
-                if (!TryParseTextPrefix())
-                {
-                    ScanIdentifier();
-                }
-
-                break;
-
-            // Delimiters (no braces in Suflae - uses indentation)
-            case '(': AddToken(type: TokenType.LeftParen); break;
-            case ')': AddToken(type: TokenType.RightParen); break;
-            case '[': AddToken(type: TokenType.LeftBracket); break;
-            case ']': AddToken(type: TokenType.RightBracket); break;
-            case ',': AddToken(type: TokenType.Comma); break;
-
-            // Multi-character delimiters
-            case '.':
-                AddToken(type: Match(expected: '.')
-                    ? Match(expected: '.')
-                        ? TokenType.DotDotDot
-                        : TokenType.DotDot
-                    : TokenType.Dot); break;
-            case ':':
-                if (Match(expected: ':'))
-                {
-                    AddToken(type: TokenType.DoubleColon);
-                }
-                else
-                {
-                    AddToken(type: TokenType.Colon);
-                    _expectIndent = IsBlockStarterColon();
-                }
-
-                break;
-
-            // Arithmetic operators
-            case '+': ScanPlusOperator(); break;
-            case '-':
-                if (Match(expected: '>'))
-                {
-                    AddToken(type: TokenType.Arrow);
-                }
-                else
-                {
-                    ScanMinusOperator();
-                }
-
-                break;
-            case '*': ScanStarOperator(); break;
-            case '/': ScanSlashOperator(); break;
-            case '%': ScanPercentOperator(); break;
-
-            // Comparison and assignment
-            case '=':
-                AddToken(type: Match(expected: '=') ? Match(expected: '=')
-                        ? TokenType.ReferenceEqual
-                        : TokenType.Equal :
-                    Match(expected: '>') ? TokenType.FatArrow : TokenType.Assign); break;
-            case '!':
-                AddToken(type: Match(expected: '=')
-                    ? Match(expected: '=')
-                        ? TokenType.ReferenceNotEqual
-                        : TokenType.NotEqual
-                    : TokenType.Bang); break;
-            case '<': ScanLessThanOperator(); break;
-            case '>': ScanGreaterThanOperator(); break;
-
-            // Single-character operators
-            case '&': AddToken(type: TokenType.Ampersand); break;
-            case '|': AddToken(type: TokenType.Pipe); break;
-            case '^': AddToken(type: TokenType.Caret); break;
-            case '~': AddToken(type: TokenType.Tilde); break;
-            case '?':
-                AddToken(type: Match(expected: '?')
-                    ? TokenType.NoneCoalesce
-                    : TokenType.Question); break;
-            case '@':
-                // Check for @intrinsic or @native
-                if (Peek() == 'i' && PeekWord() == "intrinsic")
-                {
-                    // Consume "intrinsic"
-                    for (int i = 0; i < 9; i++)
-                    {
-                        Advance();
-                    }
-
-                    AddToken(type: TokenType.Intrinsic);
-                }
-                else if (Peek() == 'n' && PeekWord() == "native")
-                {
-                    // Consume "native"
-                    for (int i = 0; i < 6; i++)
-                    {
-                        Advance();
-                    }
-
-                    AddToken(type: TokenType.Native);
-                }
-                else
-                {
-                    AddToken(type: TokenType.At);
-                }
-
-                break;
-
-            // Numbers
-            case '0':
-                if (Match(expected: 'x') || Match(expected: 'X'))
-                {
-                    ScanSuflaePrefixedNumber(isHex: true);
-                }
-                else if (Match(expected: 'b') || Match(expected: 'B'))
-                {
-                    ScanSuflaePrefixedNumber(isHex: false);
-                }
-                else
-                {
-                    ScanSuflaeNumber();
-                }
-
-                break;
-
-            default:
-                _hasTokenOnLine = true;
-                if (char.IsDigit(c: c))
-                {
-                    ScanSuflaeNumber();
-                }
-                else if (IsIdentifierStart(c: c))
-                {
-                    ScanIdentifier();
-                }
-                else
-                {
-                    AddToken(type: TokenType.Unknown);
-                }
-
-                break;
-        }
-    }
-
-    #endregion
-
-    #region Indentation and Newline Handling
-
-    /// <summary>
-    /// Handles indentation processing at the beginning of lines, generating indent/dedent tokens.
-    /// Manages indentation level tracking and validates consistent spacing.
-    /// </summary>
-    private void HandleIndentation()
-    {
-        int spaces = 0;
-        while (Peek() == ' ' || Peek() == '\t')
-        {
-            if (Peek() == ' ')
-            {
-                spaces += 1;
-            }
-            else // Tab
-            {
-                spaces += 4;
-            }
-
-            Advance();
-        }
-
-        // Skip empty lines
-        if (Peek() == '\n' || IsAtEnd())
-        {
-            return;
-        }
-
-        // Skip lines with only comments
-        if (Peek() == '#')
-        {
-            return;
-        }
-
-        int newIndentLevel = spaces / 4;
-
-        // Check for misaligned indentation
-        if (spaces % 4 != 0)
-        {
-            throw new LexerException(
-                message:
-                $"Indentation error at line {Line}: expected multiple of 4 spaces, got {spaces} spaces.");
-        }
-
-        if (_expectIndent)
-        {
-            if (newIndentLevel <= _currentIndentLevel)
-            {
-                throw new LexerException(message: $"Expected indent after ':' at line {Line}");
-            }
-
-            AddToken(type: TokenType.Indent, text: "");
-            _currentIndentLevel = newIndentLevel;
-            _expectIndent = false;
-            return;
-        }
-
-        // Handle dedents
-        while (newIndentLevel < _currentIndentLevel)
-        {
-            AddToken(type: TokenType.Dedent, text: "");
-            _currentIndentLevel -= 1;
-        }
-
-        // Check for unexpected indent
-        if (newIndentLevel > _currentIndentLevel)
-        {
-            throw new LexerException(message: $"Unexpected indent at line {Line}");
-        }
-    }
-
-    private void HandleNewline()
-    {
-        bool isSignificant = IsNewlineSignificant();
-
-        if (isSignificant)
-        {
-            AddToken(type: TokenType.Newline, text: "\\n");
-        }
-
-        _hasTokenOnLine = false;
-    }
-
-    private bool IsNewlineSignificant()
-    {
-        if (!_hasTokenOnLine)
-        {
-            return false;
-        }
-
-        if (Tokens.Count == 0)
-        {
-            return false;
-        }
-
-        TokenType lastToken = Tokens[^1].Type;
-
-        return lastToken switch
-        {
-            TokenType.LeftParen => false,
-            TokenType.LeftBracket => false,
-            TokenType.Comma => false,
-            TokenType.Dot => false,
-            TokenType.Plus => false,
-            TokenType.Minus => false,
-            TokenType.Star => false,
-            TokenType.Slash => false,
-            TokenType.Equal => false,
-            TokenType.Less => false,
-            TokenType.Greater => false,
-            TokenType.And => false,
-            TokenType.Or => false,
-            TokenType.Arrow => false,
-            TokenType.FatArrow => false,
-            TokenType.Newline => false,
-            TokenType.Colon => true, // Colon starts a block
-            _ => true
-        };
-    }
-
-    #endregion
-
-    #region Suflae-Specific Literal Scanning
-
-    /// <summary>
-    /// Scans a basic Suflae text literal (without prefix).
-    /// </summary>
-    private void ScanSuflaeString()
-    {
-        ScanStringLiteral(isRaw: false, isFormatted: false);
-    }
-
-    /// <summary>
-    /// Attempts to parse a letter prefix (letter8, letter16, letter32) followed by a single-quoted character.
-    /// </summary>
-    /// <returns>True if a valid letter prefix was found and processed</returns>
-    private bool TryParseLetterPrefix()
-    {
-        int startPos = Position - 1; // We already consumed first letter
-        int originalPos = Position;
-        int originalCol = Column;
-
-        // Build the prefix string starting with the character we already consumed
-        string prefix = Source[index: startPos]
-           .ToString();
-
-        // Continue building the prefix
-        while (!IsAtEnd() && char.IsLetterOrDigit(c: Peek()))
-        {
-            prefix += Advance();
-        }
-
-        // Check if we have a quote after the prefix
-        if (Peek() != '\'')
-        {
-            // Not a letter prefix, reset
-            Position = originalPos;
-            Column = originalCol;
-            return false;
-        }
-
-        // Check for valid letter prefixes
-        switch (prefix)
-        {
-            case "letter8":
-                Advance(); // consume '\''
-                ScanCharLiteral(tokenType: TokenType.Letter8Literal, bitWidth: 8);
-                return true;
-            case "letter16":
-                Advance(); // consume '\''
-                ScanCharLiteral(tokenType: TokenType.Letter16Literal, bitWidth: 16);
-                return true;
-            case "letter32":
-                Advance(); // consume '\''
-                ScanCharLiteral(tokenType: TokenType.LetterLiteral, bitWidth: 32);
-                return true;
-            default:
-                // Not a letter prefix, reset
-                Position = originalPos;
-                Column = originalCol;
-                return false;
-        }
-    }
-
-    /// <summary>
-    /// Scans a character literal with the specified token type.
-    /// </summary>
-    /// <param name="tokenType">The type of character literal token</param>
-    /// <param name="bitWidth">The bit width for Unicode escapes (8, 16, or 32)</param>
-    private void ScanCharLiteral(TokenType tokenType, int bitWidth = 32)
-    {
-        if (Peek() == '\\')
-        {
-            Advance();
-            ScanEscapeSequence(bitWidth: bitWidth);
-        }
-        else
-        {
-            Advance();
-        }
-
-        if (!Match(expected: '\''))
-        {
-            throw new LexerException(message: $"Unterminated character literal at line {Line}");
-        }
-
-        AddToken(type: tokenType);
-    }
-
-
-    /// <summary>
-    /// Checks if a colon starts a new block by looking ahead for newlines or comments.
-    /// Block-starting colons are followed by whitespace/newlines, not inline content.
-    /// </summary>
-    /// <returns>True if the colon starts a block and should generate an indent expectation</returns>
-    private bool IsBlockStarterColon()
-    {
-        // A colon starts a block if it's followed by whitespace/newline and not more text
-        // Look ahead to see if there's significant content after the colon on the same line
-        int pos = Position;
-
-        // Skip whitespace
-        while (pos < Source.Length && (Source[index: pos] == ' ' || Source[index: pos] == '\t'))
-        {
-            pos++;
-        }
-
-        // If we hit end of file or newline, it's a block starter
-        if (pos >= Source.Length || Source[index: pos] == '\n' || Source[index: pos] == '\r')
-        {
-            return true;
-        }
-
-        // If we hit a comment, it's still a block starter
-        if (Source[index: pos] == '#')
-        {
-            return true;
-        }
-
-        // Otherwise, it's likely a type annotation
-        return false;
-    }
-
-    #endregion
-
-    #region Overridden Base Methods
-
-    /// <summary>
-    /// Scans and identifies an identifier token from the source code.
-    /// Updates the internal state when specific definition keywords are encountered
-    /// to track whether the tokenizer is operating in script mode or not.
-    /// </summary>
-    protected override void ScanIdentifier()
-    {
-        _hasTokenOnLine = true;
-        base.ScanIdentifier();
-
-        // Track definition keywords for script mode detection
-        if (Tokens.Count <= 0)
-        {
-            return;
-        }
-
-        TokenType lastToken = Tokens[^1].Type;
-        if (lastToken is TokenType.Routine or TokenType.Entity or TokenType.Record
-            or TokenType.Choice or TokenType.Protocol)
-        {
-            _hasDefinitions = true;
-        }
-    }
-
-    /// <summary>
-    /// Overrides base number scanning to use Suflae's default Integer and Decimal types
-    /// for unsuffixed numbers instead of IntegerLiteral and FloatLiteral.
-    /// </summary>
-    protected void ScanSuflaeNumber()
-    {
-        while (char.IsDigit(c: Peek()) || Peek() == '_')
-        {
-            Advance();
-        }
-
-        bool isFloat = false;
-
-        if (Peek() == '.' && char.IsDigit(c: Peek(offset: 1)))
-        {
-            isFloat = true;
-            Advance();
-            while (char.IsDigit(c: Peek()) || Peek() == '_')
-            {
-                Advance();
-            }
-        }
-
-        if (Peek() == 'e' || Peek() == 'E')
-        {
-            isFloat = true;
-            Advance();
-            if (Peek() == '+' || Peek() == '-')
-            {
-                Advance();
-            }
-
-            while (char.IsDigit(c: Peek()))
-            {
-                Advance();
-            }
-        }
-
-        if (char.IsLetter(c: Peek()))
-        {
-            int suffixStart = Position;
-            while (char.IsLetterOrDigit(c: Peek()))
-            {
-                Advance();
-            }
-
-            string suffix =
-                Source.Substring(startIndex: suffixStart, length: Position - suffixStart);
-
-            if (_numericSuffixToTokenType.TryGetValue(key: suffix,
-                    value: out TokenType numericTokenType))
-            {
-                AddToken(type: numericTokenType);
-            }
-            else if (_memorySuffixToTokenType.TryGetValue(key: suffix,
-                         value: out TokenType memoryTokenType))
-            {
-                AddToken(type: memoryTokenType);
-            }
-            else if (_durationSuffixToTokenType.TryGetValue(key: suffix,
-                         value: out TokenType durationTokenType))
-            {
-                AddToken(type: durationTokenType);
-            }
-            else if (suffix == "d")
-            {
-                AddToken(type: TokenType.Decimal);
-            }
-            else
-            {
-                throw new LexerException(message: $"Unknown suffix '{suffix}' at line {Line}");
-            }
-        }
-        else
-        {
-            // Use Suflae's default types: Integer for whole numbers, Decimal for floating point
-            AddToken(type: isFloat
-                ? TokenType.Decimal
-                : TokenType.Integer);
-        }
-    }
-
-    /// <summary>
-    /// Overrides prefixed number scanning to use Suflae's Integer type for unsuffixed numbers.
-    /// </summary>
-    /// <param name="isHex">True if scanning hexadecimal, false if binary</param>
-    protected void ScanSuflaePrefixedNumber(bool isHex)
-    {
-        if (isHex)
-        {
-            while (IsHexDigit(c: Peek()) || Peek() == '_')
-            {
-                Advance();
-            }
-        }
-        else
-        {
-            while (Peek() == '0' || Peek() == '1' || Peek() == '_')
-            {
-                Advance();
-            }
-        }
-
-        if (char.IsLetter(c: Peek()))
-        {
-            int suffixStart = Position;
-            while (char.IsLetterOrDigit(c: Peek()))
-            {
-                Advance();
-            }
-
-            string suffix =
-                Source.Substring(startIndex: suffixStart, length: Position - suffixStart);
-            if (_numericSuffixToTokenType.TryGetValue(key: suffix, value: out TokenType tokenType))
-            {
-                AddToken(type: tokenType);
-            }
-            else
-            {
-                string baseType = isHex
-                    ? "hex"
-                    : "binary";
-                throw new LexerException(
-                    message: $"Unknown {baseType} suffix '{suffix}' at line {Line}");
-            }
-        }
-        else
-        {
-            // Use Suflae's default Integer type for unsuffixed hex/binary numbers
-            AddToken(type: TokenType.Integer);
-        }
-    }
-
-    #endregion
-
-    #region Shift Operator Scanning
-
-    /// <summary>
-    /// Scans operators starting with '&lt;': &lt;, &lt;=, &lt;&lt;, &lt;&lt;?, &lt;&lt;&lt;
-    /// </summary>
-    private void ScanLessThanOperator()
-    {
-        if (Match(expected: '='))
-        {
-            AddToken(type: TokenType.LessEqual);
-        }
-        else if (Match(expected: '<'))
-        {
-            // << or <<? or <<<
-            if (Match(expected: '<'))
-            {
-                AddToken(type: TokenType.LogicalLeftShift); // <<<
-            }
-            else if (Match(expected: '?'))
-            {
-                AddToken(type: TokenType.LeftShiftChecked); // <<?
-            }
-            else
-            {
-                AddToken(type: TokenType.LeftShift); // <<
-            }
-        }
-        else
-        {
-            AddToken(type: TokenType.Less);
-        }
-    }
-
-    /// <summary>
-    /// Scans operators starting with '>': >, >=, >>, >>>
-    /// </summary>
-    private void ScanGreaterThanOperator()
-    {
-        if (Match(expected: '='))
-        {
-            AddToken(type: TokenType.GreaterEqual);
-        }
-        else if (Match(expected: '>'))
-        {
-            // >> or >>>
-            if (Match(expected: '>'))
-            {
-                AddToken(type: TokenType.LogicalRightShift); // >>>
-            }
-            else
-            {
-                AddToken(type: TokenType.RightShift); // >>
-            }
-        }
-        else
-        {
-            AddToken(type: TokenType.Greater);
-        }
-    }
-
-    #endregion
-
-    #region Helper Methods
-
-    /// <summary>
-    /// Peeks at the word starting at the current position without consuming it.
-    /// Used for multi-character token detection like @intrinsic and @native.
-    /// </summary>
-    private string PeekWord()
-    {
-        var word = new System.Text.StringBuilder();
-        int offset = 0;
-
-        while (!IsAtEnd() && char.IsLetterOrDigit(c: Peek(offset: offset)))
-        {
-            word.Append(value: Peek(offset: offset));
-            offset++;
-        }
-
-        return word.ToString();
+            Line: _line,
+            Column: _column,
+            Position: _position));
+        return _tokens;
     }
 
     #endregion

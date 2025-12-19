@@ -1,486 +1,389 @@
-using Compilers.Shared.Lexer;
-
 namespace Compilers.RazorForge.Lexer;
+
+using Compilers.Shared.Lexer;
 
 /// <summary>
 /// Tokenizer implementation for the RazorForge programming language.
-/// Handles RazorForge-specific syntax including braced blocks, overflow operators,
-/// and various text literal prefixes. Uses semicolons as optional statement terminators.
 /// </summary>
-public class RazorForgeTokenizer : BaseTokenizer
+/// <remarks>
+/// <para>
+/// RazorForge uses a C-style syntax with braced blocks, semicolons as optional statement
+/// terminators, and a rich set of operators including overflow-checked variants.
+/// </para>
+/// <para>
+/// This tokenizer handles:
+/// <list type="bullet">
+///   <item><description>Keywords and identifiers (snake_case vs PascalCase detection)</description></item>
+///   <item><description>Numeric literals with type suffixes (s32, u64, f32, etc.)</description></item>
+///   <item><description>Text literals with prefixes (r"raw", f"formatted", t8"utf8", t16"utf16")</description></item>
+///   <item><description>Character literals with bit-width prefixes (letter8, letter16, letter32)</description></item>
+///   <item><description>Overflow operators (+%, -^, *?, etc.)</description></item>
+///   <item><description>Memory size literals (1kb, 2mib, etc.)</description></item>
+///   <item><description>Duration literals (1s, 500ms, 2h, etc.)</description></item>
+///   <item><description>Documentation comments (###)</description></item>
+/// </list>
+/// </para>
+/// </remarks>
+public partial class RazorForgeTokenizer
 {
-    #region Fields and Keywords
+    #region Fields
 
-    /// <summary>Dictionary mapping RazorForge keywords to their corresponding token types</summary>
+    /// <summary>
+    /// The complete source code text being tokenized.
+    /// </summary>
+    /// <remarks>
+    /// This field is immutable after construction and represents the entire
+    /// input that will be processed by the tokenizer.
+    /// </remarks>
+    private readonly string _source;
+
+    /// <summary>
+    /// Current character position in the source text (0-based index).
+    /// </summary>
+    /// <remarks>
+    /// This position advances as characters are consumed during tokenization.
+    /// It represents the next character to be read.
+    /// </remarks>
+    private int _position;
+
+    /// <summary>
+    /// Current line number in the source text (1-based).
+    /// </summary>
+    /// <remarks>
+    /// Line numbers start at 1 and increment each time a newline character is consumed.
+    /// Used for error reporting and token location tracking.
+    /// </remarks>
+    private int _line = 1;
+
+    /// <summary>
+    /// Current column number in the current line (1-based).
+    /// </summary>
+    /// <remarks>
+    /// Column numbers start at 1 at the beginning of each line and increment
+    /// with each character consumed. Reset to 1 after each newline.
+    /// </remarks>
+    private int _column = 1;
+
+    /// <summary>
+    /// Starting position of the current token being processed.
+    /// </summary>
+    /// <remarks>
+    /// Captured at the beginning of each token scan to enable extraction
+    /// of the token's text from the source.
+    /// </remarks>
+    private int _tokenStart;
+
+    /// <summary>
+    /// Starting column of the current token being processed.
+    /// </summary>
+    /// <remarks>
+    /// Captured at the beginning of each token scan for accurate
+    /// location reporting in the resulting token.
+    /// </remarks>
+    private int _tokenStartColumn;
+
+    /// <summary>
+    /// Starting line of the current token being processed.
+    /// </summary>
+    /// <remarks>
+    /// Captured at the beginning of each token scan for accurate
+    /// location reporting in the resulting token.
+    /// </remarks>
+    private int _tokenStartLine;
+
+    /// <summary>
+    /// List of tokens that have been successfully parsed from the source.
+    /// </summary>
+    /// <remarks>
+    /// Tokens are appended to this list as they are recognized during scanning.
+    /// The final list includes an EOF token at the end.
+    /// </remarks>
+    private readonly List<Token> _tokens = [];
+
+    #endregion
+
+    #region Keywords
+
+    /// <summary>
+    /// Dictionary mapping RazorForge keywords to their corresponding token types.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This dictionary is used during identifier scanning to distinguish between
+    /// keywords and regular identifiers. Keywords take precedence.
+    /// </para>
+    /// <para>
+    /// Categories of keywords include:
+    /// <list type="bullet">
+    ///   <item><description>Declaration keywords: routine, entity, record, choice, variant, protocol</description></item>
+    ///   <item><description>Variable keywords: let, var, preset</description></item>
+    ///   <item><description>Access modifiers: private, family, internal, public, global</description></item>
+    ///   <item><description>Control flow: if, elseif, else, when, for, loop, while, break, continue, return</description></item>
+    ///   <item><description>Type operations: is, isnot, from, notfrom, follows, notfollows, in, notin</description></item>
+    ///   <item><description>Memory management: usurping, viewing, hijacking, seizing, inspecting</description></item>
+    ///   <item><description>Literals: true, false, none, absent</description></item>
+    /// </list>
+    /// </para>
+    /// </remarks>
     private readonly Dictionary<string, TokenType> _keywords = new()
     {
-        [key: "routine"] = TokenType.Routine,
-        [key: "resident"] = TokenType.Resident,
-        [key: "choice"] = TokenType.Choice,
-        [key: "variant"] = TokenType.Variant,
-        [key: "mutant"] = TokenType.Mutant,
-        [key: "let"] = TokenType.Let,
-        [key: "var"] = TokenType.Var,
-        [key: "preset"] = TokenType.Preset,
-        [key: "common"] = TokenType.TypeWise,
-        [key: "private"] = TokenType.Private,
-        [key: "family"] = TokenType.Family,
-        [key: "internal"] = TokenType.Internal,
-        [key: "public"] = TokenType.Public,
-        [key: "global"] = TokenType.Global,
-        [key: "imported"] = TokenType.Imported,
-        [key: "me"] = TokenType.Me,
-        [key: "MyType"] = TokenType.MyType,
-        [key: "parent"] = TokenType.Parent,
-        [key: "if"] = TokenType.If,
-        [key: "elseif"] = TokenType.Elseif,
-        [key: "else"] = TokenType.Else,
-        [key: "then"] = TokenType.Then,
-        [key: "unless"] = TokenType.Unless,
-        [key: "break"] = TokenType.Break,
-        [key: "continue"] = TokenType.Continue,
-        [key: "return"] = TokenType.Return,
-        [key: "throw"] = TokenType.Throw,
-        [key: "absent"] = TokenType.Absent,
-        [key: "for"] = TokenType.For,
-        [key: "loop"] = TokenType.Loop,
-        [key: "while"] = TokenType.While,
-        [key: "when"] = TokenType.When,
-        [key: "is"] = TokenType.Is,
-        [key: "from"] = TokenType.From,
-        [key: "follows"] = TokenType.Follows,
-        [key: "import"] = TokenType.Import,
-        [key: "namespace"] = TokenType.Namespace,
-        [key: "define"] = TokenType.Define,
-        [key: "using"] = TokenType.Using,
-        [key: "as"] = TokenType.As,
-        [key: "pass"] = TokenType.Pass,
-        [key: "danger"] = TokenType.Danger,
-        [key: "with"] = TokenType.With,
-        [key: "where"] = TokenType.Where,
-        [key: "isnot"] = TokenType.IsNot,
-        [key: "notfrom"] = TokenType.NotFrom,
-        [key: "notin"] = TokenType.NotIn,
-        [key: "notfollows"] = TokenType.NotFollows,
-        [key: "in"] = TokenType.In,
-        [key: "to"] = TokenType.To,
-        [key: "downto"] = TokenType.Downto,
-        [key: "by"] = TokenType.By,
-        [key: "and"] = TokenType.And,
-        [key: "or"] = TokenType.Or,
-        [key: "not"] = TokenType.Not,
-        [key: "true"] = TokenType.True,
-        [key: "false"] = TokenType.False,
-        [key: "none"] = TokenType.None,
-        [key: "entity"] = TokenType.Entity,
-        [key: "record"] = TokenType.Record,
-        [key: "protocol"] = TokenType.Protocol,
-        [key: "requires"] = TokenType.Requires,
-        [key: "generate"] = TokenType.Generate,
-        [key: "suspended"] = TokenType.Suspended,
-        [key: "waitfor"] = TokenType.Waitfor,
-        [key: "usurping"] = TokenType.Usurping,
-        [key: "viewing"] = TokenType.Viewing,
-        [key: "hijacking"] = TokenType.Hijacking,
-        [key: "seizing"] = TokenType.Seizing,
-        [key: "inspecting"] = TokenType.Inspecting
+        ["routine"] = TokenType.Routine,
+        ["resident"] = TokenType.Resident,
+        ["choice"] = TokenType.Choice,
+        ["variant"] = TokenType.Variant,
+        ["mutant"] = TokenType.Mutant,
+        ["let"] = TokenType.Let,
+        ["var"] = TokenType.Var,
+        ["preset"] = TokenType.Preset,
+        ["common"] = TokenType.TypeWise,
+        ["private"] = TokenType.Private,
+        ["family"] = TokenType.Family,
+        ["internal"] = TokenType.Internal,
+        ["public"] = TokenType.Public,
+        ["global"] = TokenType.Global,
+        ["imported"] = TokenType.Imported,
+        ["me"] = TokenType.Me,
+        ["MyType"] = TokenType.MyType,
+        ["parent"] = TokenType.Parent,
+        ["if"] = TokenType.If,
+        ["elseif"] = TokenType.Elseif,
+        ["else"] = TokenType.Else,
+        ["then"] = TokenType.Then,
+        ["unless"] = TokenType.Unless,
+        ["break"] = TokenType.Break,
+        ["continue"] = TokenType.Continue,
+        ["return"] = TokenType.Return,
+        ["throw"] = TokenType.Throw,
+        ["absent"] = TokenType.Absent,
+        ["for"] = TokenType.For,
+        ["loop"] = TokenType.Loop,
+        ["while"] = TokenType.While,
+        ["when"] = TokenType.When,
+        ["is"] = TokenType.Is,
+        ["from"] = TokenType.From,
+        ["follows"] = TokenType.Follows,
+        ["import"] = TokenType.Import,
+        ["namespace"] = TokenType.Namespace,
+        ["define"] = TokenType.Define,
+        ["using"] = TokenType.Using,
+        ["as"] = TokenType.As,
+        ["pass"] = TokenType.Pass,
+        ["danger"] = TokenType.Danger,
+        ["with"] = TokenType.With,
+        ["where"] = TokenType.Where,
+        ["isnot"] = TokenType.IsNot,
+        ["notfrom"] = TokenType.NotFrom,
+        ["notin"] = TokenType.NotIn,
+        ["notfollows"] = TokenType.NotFollows,
+        ["in"] = TokenType.In,
+        ["to"] = TokenType.To,
+        ["downto"] = TokenType.Downto,
+        ["by"] = TokenType.By,
+        ["and"] = TokenType.And,
+        ["or"] = TokenType.Or,
+        ["not"] = TokenType.Not,
+        ["true"] = TokenType.True,
+        ["false"] = TokenType.False,
+        ["none"] = TokenType.None,
+        ["entity"] = TokenType.Entity,
+        ["record"] = TokenType.Record,
+        ["protocol"] = TokenType.Protocol,
+        ["requires"] = TokenType.Requires,
+        ["generate"] = TokenType.Generate,
+        ["suspended"] = TokenType.Suspended,
+        ["waitfor"] = TokenType.Waitfor,
+        ["usurping"] = TokenType.Usurping,
+        ["viewing"] = TokenType.Viewing,
+        ["hijacking"] = TokenType.Hijacking,
+        ["seizing"] = TokenType.Seizing,
+        ["inspecting"] = TokenType.Inspecting
     };
 
     #endregion
 
-    #region Initialization and Core Methods
+    #region Suffix Mappings
 
     /// <summary>
-    /// Initializes a new RazorForge tokenizer with the source code to tokenize.
+    /// Maps numeric type suffixes to their corresponding token types.
     /// </summary>
-    /// <param name="source">The RazorForge source code text</param>
-    public RazorForgeTokenizer(string source) : base(source: source)
+    /// <remarks>
+    /// Supports signed integers (s8-s128, saddr), unsigned integers (u8-u128, uaddr),
+    /// floating point (f16-f128), and decimal floating point (d32-d128).
+    /// </remarks>
+    private readonly Dictionary<string, TokenType> _numericSuffixToTokenType = new()
     {
+        ["s8"] = TokenType.S8Literal,
+        ["s16"] = TokenType.S16Literal,
+        ["s32"] = TokenType.S32Literal,
+        ["s64"] = TokenType.S64Literal,
+        ["s128"] = TokenType.S128Literal,
+        ["saddr"] = TokenType.SaddrLiteral,
+        ["u8"] = TokenType.U8Literal,
+        ["u16"] = TokenType.U16Literal,
+        ["u32"] = TokenType.U32Literal,
+        ["u64"] = TokenType.U64Literal,
+        ["u128"] = TokenType.U128Literal,
+        ["uaddr"] = TokenType.UaddrLiteral,
+        ["f16"] = TokenType.F16Literal,
+        ["f32"] = TokenType.F32Literal,
+        ["f64"] = TokenType.F64Literal,
+        ["f128"] = TokenType.F128Literal,
+        ["d32"] = TokenType.D32Literal,
+        ["d64"] = TokenType.D64Literal,
+        ["d128"] = TokenType.D128Literal
+    };
+
+    /// <summary>
+    /// Maps memory size suffixes to their corresponding token types.
+    /// </summary>
+    /// <remarks>
+    /// Supports both SI units (kb, mb, gb, tb, pb) and binary units (kib, mib, gib, tib, pib),
+    /// as well as bit-based units (kbit, mbit, etc.).
+    /// </remarks>
+    private readonly Dictionary<string, TokenType> _memorySuffixToTokenType = new()
+    {
+        ["b"] = TokenType.ByteLiteral,
+        ["kb"] = TokenType.KilobyteLiteral,
+        ["kib"] = TokenType.KibibyteLiteral,
+        ["kbit"] = TokenType.KilobitLiteral,
+        ["kibit"] = TokenType.KibibitLiteral,
+        ["mb"] = TokenType.MegabyteLiteral,
+        ["mib"] = TokenType.MebibyteLiteral,
+        ["mbit"] = TokenType.MegabitLiteral,
+        ["mibit"] = TokenType.MebibitLiteral,
+        ["gb"] = TokenType.GigabyteLiteral,
+        ["gib"] = TokenType.GibibyteLiteral,
+        ["gbit"] = TokenType.GigabitLiteral,
+        ["gibit"] = TokenType.GibibitLiteral,
+        ["tb"] = TokenType.TerabyteLiteral,
+        ["tib"] = TokenType.TebibyteLiteral,
+        ["tbit"] = TokenType.TerabitLiteral,
+        ["tibit"] = TokenType.TebibitLiteral,
+        ["pb"] = TokenType.PetabyteLiteral,
+        ["pib"] = TokenType.PebibyteLiteral,
+        ["pbit"] = TokenType.PetabitLiteral,
+        ["pibit"] = TokenType.PebibitLiteral
+    };
+
+    /// <summary>
+    /// Maps duration suffixes to their corresponding token types.
+    /// </summary>
+    /// <remarks>
+    /// Supports weeks (w), days (d), hours (h), minutes (m), seconds (s),
+    /// milliseconds (ms), microseconds (us), and nanoseconds (ns).
+    /// </remarks>
+    private readonly Dictionary<string, TokenType> _durationSuffixToTokenType = new()
+    {
+        ["w"] = TokenType.WeekLiteral,
+        ["d"] = TokenType.DayLiteral,
+        ["h"] = TokenType.HourLiteral,
+        ["m"] = TokenType.MinuteLiteral,
+        ["s"] = TokenType.SecondLiteral,
+        ["ms"] = TokenType.MillisecondLiteral,
+        ["us"] = TokenType.MicrosecondLiteral,
+        ["ns"] = TokenType.NanosecondLiteral
+    };
+
+    /// <summary>
+    /// Maps text literal prefixes to their corresponding token types.
+    /// </summary>
+    /// <remarks>
+    /// <para>Supported prefixes:</para>
+    /// <list type="bullet">
+    ///   <item><description>r - Raw text (no escape processing)</description></item>
+    ///   <item><description>f - Formatted text (interpolation)</description></item>
+    ///   <item><description>rf - Raw formatted text</description></item>
+    ///   <item><description>t8 - UTF-8 text</description></item>
+    ///   <item><description>t16 - UTF-16 text</description></item>
+    ///   <item><description>Combinations: t8r, t8f, t8rf, t16r, t16f, t16rf</description></item>
+    /// </list>
+    /// </remarks>
+    private readonly Dictionary<string, TokenType> _textPrefixToTokenType = new()
+    {
+        ["r"] = TokenType.RawText,
+        ["f"] = TokenType.FormattedText,
+        ["rf"] = TokenType.RawFormattedText,
+        ["t8"] = TokenType.Text8Literal,
+        ["t8r"] = TokenType.Text8RawText,
+        ["t8f"] = TokenType.Text8FormattedText,
+        ["t8rf"] = TokenType.Text8RawFormattedText,
+        ["t16"] = TokenType.Text16Literal,
+        ["t16r"] = TokenType.Text16RawText,
+        ["t16f"] = TokenType.Text16FormattedText,
+        ["t16rf"] = TokenType.Text16RawFormattedText
+    };
+
+    /// <summary>
+    /// List of all valid text prefixes for prefix matching during tokenization.
+    /// </summary>
+    /// <remarks>
+    /// Used for greedy matching of text prefixes - the tokenizer tries to match
+    /// the longest valid prefix first.
+    /// </remarks>
+    private readonly List<string> _textPrefixes =
+    [
+        "r", "f", "rf", "t8", "t8r", "t8f", "t8rf", "t16", "t16r", "t16f", "t16rf"
+    ];
+
+    #endregion
+
+    #region Constructor
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="RazorForgeTokenizer"/> class.
+    /// </summary>
+    /// <param name="source">The RazorForge source code to tokenize.</param>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="source"/> is null.</exception>
+    public RazorForgeTokenizer(string source)
+    {
+        _source = source ?? throw new ArgumentNullException(nameof(source));
     }
 
-    /// <summary>
-    /// Returns the RazorForge-specific keyword mappings.
-    /// </summary>
-    /// <returns>Dictionary of RazorForge keywords and their token types</returns>
-    protected override Dictionary<string, TokenType> GetKeywords()
-    {
-        return _keywords;
-    }
+    #endregion
+
+    #region Public Methods
 
     /// <summary>
-    /// Tokenizes the entire RazorForge source code into a list of tokens.
+    /// Tokenizes the entire source code and returns a list of tokens.
     /// </summary>
-    /// <returns>List of tokens representing the RazorForge source code</returns>
-    public override List<Token> Tokenize()
+    /// <returns>
+    /// A list of <see cref="Token"/> objects representing the tokenized source code.
+    /// The list always ends with an EOF token.
+    /// </returns>
+    /// <exception cref="LexerException">
+    /// Thrown when the source contains invalid syntax that cannot be tokenized,
+    /// such as unterminated strings, invalid escape sequences, or unknown suffixes.
+    /// </exception>
+    /// <remarks>
+    /// <para>
+    /// This method processes the entire source code from start to finish,
+    /// producing a complete token stream. Each call to this method starts
+    /// fresh from the beginning of the source.
+    /// </para>
+    /// <para>
+    /// Whitespace (spaces, tabs, carriage returns, and newlines) is consumed
+    /// but not included in the output token stream, except that semicolons
+    /// produce Newline tokens to support optional statement terminators.
+    /// </para>
+    /// </remarks>
+    public List<Token> Tokenize()
     {
         while (!IsAtEnd())
         {
-            TokenStart = Position;
-            TokenStartColumn = Column;
-            TokenStartLine = Line;
+            _tokenStart = _position;
+            _tokenStartColumn = _column;
+            _tokenStartLine = _line;
 
             ScanToken();
         }
 
-        Tokens.Add(item: new Token(Type: TokenType.Eof,
+        _tokens.Add(new Token(
+            Type: TokenType.Eof,
             Text: "",
-            Line: Line,
-            Column: Column,
-            Position: Position));
-        return Tokens;
-    }
-
-    #endregion
-
-    #region Token Scanning
-
-    /// <summary>
-    /// Scans a single token from the current position in the source code.
-    /// Handles all RazorForge-specific syntax and delegates to base entity for common constructs.
-    /// </summary>
-    private void ScanToken()
-    {
-        char c = Advance();
-
-        switch (c)
-        {
-            // Whitespace (ignored)
-            case ' ' or '\r' or '\t' or '\n': break;
-
-            // Literals
-            case '#': ScanComment(); break;
-            case '"': ScanRazorForgeString(); break;
-            case '\'': ScanChar(); break;
-            case 'l':
-                if (!TryParseLetterPrefix())
-                {
-                    ScanIdentifier();
-                }
-
-                break;
-            case 'r' or 'f' or 't':
-                if (!TryParseTextPrefix())
-                {
-                    ScanIdentifier();
-                }
-
-                break;
-
-            // Single-character delimiters
-            case '(': AddToken(type: TokenType.LeftParen); break;
-            case ')': AddToken(type: TokenType.RightParen); break;
-            case '[': AddToken(type: TokenType.LeftBracket); break;
-            case ']': AddToken(type: TokenType.RightBracket); break;
-            case '{': AddToken(type: TokenType.LeftBrace); break;
-            case '}': AddToken(type: TokenType.RightBrace); break;
-            case ',': AddToken(type: TokenType.Comma); break;
-            case ';': AddToken(type: TokenType.Newline); break;
-
-            // Multi-character delimiters and operators
-            case '.':
-                AddToken(type: Match(expected: '.')
-                    ? Match(expected: '.')
-                        ? TokenType.DotDotDot
-                        : TokenType.DotDot
-                    : TokenType.Dot); break;
-            case ':':
-                AddToken(type: Match(expected: ':')
-                    ? TokenType.DoubleColon
-                    : TokenType.Colon); break;
-            case '!':
-                AddToken(type: Match(expected: '=')
-                    ? Match(expected: '=')
-                        ? TokenType.ReferenceNotEqual
-                        : TokenType.NotEqual
-                    : TokenType.Bang); break;
-            case '?':
-                AddToken(type: Match(expected: '?')
-                    ? TokenType.NoneCoalesce
-                    : TokenType.Question); break;
-
-            // Arithmetic operators (delegated to specialized methods)
-            case '+': ScanPlusOperator(); break;
-            case '-':
-                if (Match(expected: '>'))
-                {
-                    AddToken(type: TokenType.Arrow);
-                }
-                else
-                {
-                    ScanMinusOperator();
-                }
-
-                break;
-            case '*': ScanStarOperator(); break;
-            case '/': ScanSlashOperator(); break;
-            case '%': ScanPercentOperator(); break;
-
-            // Comparison and assignment
-            case '=':
-                AddToken(type: Match(expected: '=') ? Match(expected: '=')
-                        ? TokenType.ReferenceEqual
-                        : TokenType.Equal :
-                    Match(expected: '>') ? TokenType.FatArrow : TokenType.Assign); break;
-            case '<': ScanLessThanOperator(); break;
-            case '>': ScanGreaterThanOperator(); break;
-
-            // Single-character operators
-            case '&': AddToken(type: TokenType.Ampersand); break;
-            case '|': AddToken(type: TokenType.Pipe); break;
-            case '^': AddToken(type: TokenType.Caret); break;
-            case '~': AddToken(type: TokenType.Tilde); break;
-            case '@':
-                // Check for @intrinsic
-                if (Peek() == 'i' && PeekWord() == "intrinsic")
-                {
-                    // Consume "intrinsic"
-                    for (int i = 0; i < 9; i++)
-                    {
-                        Advance();
-                    }
-
-                    AddToken(type: TokenType.Intrinsic);
-                }
-                else if (Peek() == 'n' && PeekWord() == "native")
-                {
-                    // Consume "native"
-                    for (int i = 0; i < 6; i++)
-                    {
-                        Advance();
-                    }
-
-                    AddToken(type: TokenType.Native);
-                }
-                else
-                {
-                    AddToken(type: TokenType.At);
-                }
-
-                break;
-
-            // Numbers
-            case '0':
-                if (Match(expected: 'x') || Match(expected: 'X'))
-                {
-                    ScanPrefixedNumber(isHex: true);
-                }
-                else if ((Peek() == 'b' || Peek() == 'B') && (Peek(offset: 1) == '0' ||
-                                                              Peek(offset: 1) == '1' ||
-                                                              Peek(offset: 1) == '_'))
-                {
-                    // Only treat as binary prefix if followed by binary digit or underscore
-                    // Otherwise, 'b' is a byte suffix (e.g., 0b = 0 bytes)
-                    Advance(); // consume 'b' or 'B'
-                    ScanPrefixedNumber(isHex: false);
-                }
-                else
-                {
-                    ScanNumber();
-                }
-
-                break;
-
-            default:
-                if (char.IsDigit(c: c))
-                {
-                    ScanNumber();
-                }
-                else if (IsIdentifierStart(c: c))
-                {
-                    ScanIdentifier();
-                }
-                else
-                {
-                    AddToken(type: TokenType.Unknown);
-                }
-
-                break;
-        }
-    }
-
-    #endregion
-
-    #region RazorForge-Specific Literal Scanning
-
-    /// <summary>
-    /// Scans a basic RazorForge text literal (without prefix).
-    /// In RazorForge, regular text is an alias for text8 (8-bit text).
-    /// </summary>
-    private void ScanRazorForgeString()
-    {
-        ScanStringLiteralWithType(isRaw: false,
-            isFormatted: false,
-            tokenType: TokenType.Text8Literal,
-            bitWidth: 8);
-    }
-
-    /// <summary>
-    /// Attempts to parse a letter prefix (letter8, letter16, letter32) followed by a single-quoted character.
-    /// </summary>
-    /// <returns>True if a valid letter prefix was found and processed</returns>
-    private bool TryParseLetterPrefix()
-    {
-        int startPos = Position - 1; // We already consumed first letter
-        int originalPos = Position;
-        int originalCol = Column;
-
-        // Build the prefix string starting with the character we already consumed
-        string prefix = Source[index: startPos]
-           .ToString();
-
-        // Continue building the prefix
-        while (!IsAtEnd() && char.IsLetterOrDigit(c: Peek()))
-        {
-            prefix += Advance();
-        }
-
-        // Check if we have a quote after the prefix
-        if (Peek() != '\'')
-        {
-            // Not a letter prefix, reset
-            Position = originalPos;
-            Column = originalCol;
-            return false;
-        }
-
-        // Check for valid letter prefixes
-        switch (prefix)
-        {
-            case "letter8":
-                Advance(); // consume '\''
-                ScanCharLiteral(tokenType: TokenType.Letter8Literal, bitWidth: 8);
-                return true;
-            case "letter16":
-                Advance(); // consume '\''
-                ScanCharLiteral(tokenType: TokenType.Letter16Literal, bitWidth: 16);
-                return true;
-            case "letter32":
-                Advance(); // consume '\''
-                ScanCharLiteral(tokenType: TokenType.LetterLiteral, bitWidth: 32);
-                return true;
-            default:
-                // Not a letter prefix, reset
-                Position = originalPos;
-                Column = originalCol;
-                return false;
-        }
-    }
-
-    /// <summary>
-    /// Scans a character literal with the specified token type.
-    /// </summary>
-    /// <param name="tokenType">The type of character literal token</param>
-    /// <param name="bitWidth">The bitwidth for letter in case of unicode letter. It defaults to 32.</param>
-    private void ScanCharLiteral(TokenType tokenType, int bitWidth = 32)
-    {
-        if (Peek() == '\\')
-        {
-            Advance();
-            ScanEscapeSequence(bitWidth: bitWidth);
-        }
-        else
-        {
-            Advance();
-        }
-
-        if (!Match(expected: '\''))
-        {
-            throw new LexerException(message: $"Unterminated character literal at line {Line}");
-        }
-
-        AddToken(type: tokenType);
-    }
-
-    #endregion
-
-    #region Shift Operator Scanning
-
-    /// <summary>
-    /// Scans operators starting with '&lt;': &lt;, &lt;=, &lt;&lt;, &lt;&lt;?, &lt;&lt;&lt;
-    /// </summary>
-    private void ScanLessThanOperator()
-    {
-        if (Match(expected: '='))
-        {
-            AddToken(type: TokenType.LessEqual);
-        }
-        else if (Match(expected: '<'))
-        {
-            // << or <<? or <<<
-            if (Match(expected: '<'))
-            {
-                AddToken(type: TokenType.LogicalLeftShift); // <<<
-            }
-            else if (Match(expected: '?'))
-            {
-                AddToken(type: TokenType.LeftShiftChecked); // <<?
-            }
-            else
-            {
-                AddToken(type: TokenType.LeftShift); // <<
-            }
-        }
-        else
-        {
-            AddToken(type: TokenType.Less);
-        }
-    }
-
-    /// <summary>
-    /// Scans operators starting with '>': >, >=, >>, >>>
-    /// </summary>
-    private void ScanGreaterThanOperator()
-    {
-        if (Match(expected: '='))
-        {
-            AddToken(type: TokenType.GreaterEqual);
-        }
-        else if (Match(expected: '>'))
-        {
-            // >> or >>>
-            if (Match(expected: '>'))
-            {
-                AddToken(type: TokenType.LogicalRightShift); // >>>
-            }
-            else
-            {
-                AddToken(type: TokenType.RightShift); // >>
-            }
-        }
-        else
-        {
-            AddToken(type: TokenType.Greater);
-        }
-    }
-
-    #endregion
-
-    #region Helper Methods
-
-    /// <summary>
-    /// Peeks ahead to check if the next characters match a specific word.
-    /// </summary>
-    /// <returns>The word starting at the current peek position, or empty string if not an identifier</returns>
-    private string PeekWord()
-    {
-        int offset = 0;
-        var sb = new System.Text.StringBuilder();
-
-        while (true)
-        {
-            char c = Peek(offset: offset);
-            if (char.IsLetterOrDigit(c: c) || c == '_')
-            {
-                sb.Append(value: c);
-                offset++;
-            }
-            else
-            {
-                break;
-            }
-        }
-
-        return sb.ToString();
+            Line: _line,
+            Column: _column,
+            Position: _position));
+        return _tokens;
     }
 
     #endregion
