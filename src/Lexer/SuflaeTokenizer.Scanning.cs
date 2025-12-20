@@ -202,23 +202,29 @@ public partial class SuflaeTokenizer
                 ScanGreaterThanOperator();
                 break;
 
-            // Single-character operators
+            // Single-character operators (with compound assignment variants)
             case '&':
-                AddToken(type: TokenType.Ampersand);
+                AddToken(type: Match(expected: '=') ? TokenType.AmpersandAssign : TokenType.Ampersand);
                 break;
             case '|':
-                AddToken(type: TokenType.Pipe);
+                AddToken(type: Match(expected: '=') ? TokenType.PipeAssign : TokenType.Pipe);
                 break;
             case '^':
-                AddToken(type: TokenType.Caret);
+                AddToken(type: Match(expected: '=') ? TokenType.CaretAssign : TokenType.Caret);
                 break;
             case '~':
                 AddToken(type: TokenType.Tilde);
                 break;
             case '?':
-                AddToken(type: Match(expected: '?')
-                    ? TokenType.NoneCoalesce
-                    : TokenType.Question);
+                if (Match(expected: '?'))
+                {
+                    // ?? or ??=
+                    AddToken(type: Match(expected: '=') ? TokenType.NoneCoalesceAssign : TokenType.NoneCoalesce);
+                }
+                else
+                {
+                    AddToken(type: TokenType.Question);
+                }
                 break;
 
             // Special @ tokens

@@ -22,7 +22,7 @@ public partial class SuflaeTokenizer
     #region Arithmetic Operators
 
     /// <summary>
-    /// Scans a plus-based operator (+, +%, +^, +?).
+    /// Scans a plus-based operator (+, +%, +^, +?, +=, +%=, +^=).
     /// </summary>
     private void ScanPlusOperator()
     {
@@ -30,15 +30,19 @@ public partial class SuflaeTokenizer
         {
             case '%':
                 Advance();
-                AddToken(type: TokenType.PlusWrap);
+                AddToken(type: Match(expected: '=') ? TokenType.PlusWrapAssign : TokenType.PlusWrap);
                 break;
             case '^':
                 Advance();
-                AddToken(type: TokenType.PlusSaturate);
+                AddToken(type: Match(expected: '=') ? TokenType.PlusSaturateAssign : TokenType.PlusSaturate);
                 break;
             case '?':
                 Advance();
                 AddToken(type: TokenType.PlusChecked);
+                break;
+            case '=':
+                Advance();
+                AddToken(type: TokenType.PlusAssign);
                 break;
             default:
                 AddToken(type: TokenType.Plus);
@@ -47,7 +51,7 @@ public partial class SuflaeTokenizer
     }
 
     /// <summary>
-    /// Scans a minus-based operator (-, -%, -^, -?).
+    /// Scans a minus-based operator (-, -%, -^, -?, -=, -%=, -^=).
     /// </summary>
     /// <remarks>
     /// Arrow (-&gt;) is handled separately in ScanToken.
@@ -58,15 +62,19 @@ public partial class SuflaeTokenizer
         {
             case '%':
                 Advance();
-                AddToken(type: TokenType.MinusWrap);
+                AddToken(type: Match(expected: '=') ? TokenType.MinusWrapAssign : TokenType.MinusWrap);
                 break;
             case '^':
                 Advance();
-                AddToken(type: TokenType.MinusSaturate);
+                AddToken(type: Match(expected: '=') ? TokenType.MinusSaturateAssign : TokenType.MinusSaturate);
                 break;
             case '?':
                 Advance();
                 AddToken(type: TokenType.MinusChecked);
+                break;
+            case '=':
+                Advance();
+                AddToken(type: TokenType.MinusAssign);
                 break;
             default:
                 AddToken(type: TokenType.Minus);
@@ -75,7 +83,7 @@ public partial class SuflaeTokenizer
     }
 
     /// <summary>
-    /// Scans a star-based operator (*, **, *%, *^, *?, **%, **^, **?).
+    /// Scans a star-based operator (*, **, *%, *^, *?, **%, **^, **?, *=, **=, *%=, **%=, *^=, **^=).
     /// </summary>
     private void ScanStarOperator()
     {
@@ -85,45 +93,69 @@ public partial class SuflaeTokenizer
         {
             case '%':
                 Advance();
-                AddToken(type: isPow
-                    ? TokenType.PowerWrap
-                    : TokenType.MultiplyWrap);
+                // *%= or **%=
+                if (Match(expected: '='))
+                {
+                    AddToken(type: isPow ? TokenType.PowerWrapAssign : TokenType.MultiplyWrapAssign);
+                }
+                else
+                {
+                    AddToken(type: isPow ? TokenType.PowerWrap : TokenType.MultiplyWrap);
+                }
                 break;
             case '^':
                 Advance();
-                AddToken(type: isPow
-                    ? TokenType.PowerSaturate
-                    : TokenType.MultiplySaturate);
+                // *^= or **^=
+                if (Match(expected: '='))
+                {
+                    AddToken(type: isPow ? TokenType.PowerSaturateAssign : TokenType.MultiplySaturateAssign);
+                }
+                else
+                {
+                    AddToken(type: isPow ? TokenType.PowerSaturate : TokenType.MultiplySaturate);
+                }
                 break;
             case '?':
                 Advance();
-                AddToken(type: isPow
-                    ? TokenType.PowerChecked
-                    : TokenType.MultiplyChecked);
+                AddToken(type: isPow ? TokenType.PowerChecked : TokenType.MultiplyChecked);
+                break;
+            case '=':
+                Advance();
+                // *= or **=
+                AddToken(type: isPow ? TokenType.PowerAssign : TokenType.StarAssign);
                 break;
             default:
-                AddToken(type: isPow
-                    ? TokenType.Power
-                    : TokenType.Star);
+                AddToken(type: isPow ? TokenType.Power : TokenType.Star);
                 break;
         }
     }
 
     /// <summary>
-    /// Scans a slash-based operator (/, //, //?).
+    /// Scans a slash-based operator (/, //, //?, /=, //=).
     /// </summary>
     private void ScanSlashOperator()
     {
         if (!Match(expected: '/'))
         {
-            AddToken(type: TokenType.Slash); // Single /
+            // Single / - check for /=
+            if (Match(expected: '='))
+            {
+                AddToken(type: TokenType.SlashAssign);
+            }
+            else
+            {
+                AddToken(type: TokenType.Slash);
+            }
         }
         else
         {
-            // Double //
-            if (Peek() == '?')
+            // Double // - check for //= or //?
+            if (Match(expected: '='))
             {
-                Advance();
+                AddToken(type: TokenType.DivideAssign); // //=
+            }
+            else if (Match(expected: '?'))
+            {
                 AddToken(type: TokenType.DivideChecked); // //?
             }
             else
@@ -134,7 +166,7 @@ public partial class SuflaeTokenizer
     }
 
     /// <summary>
-    /// Scans a percent-based operator (%, %?).
+    /// Scans a percent-based operator (%, %?, %=).
     /// </summary>
     private void ScanPercentOperator()
     {
@@ -142,6 +174,11 @@ public partial class SuflaeTokenizer
         {
             Advance();
             AddToken(type: TokenType.ModuloChecked);
+        }
+        else if (Peek() == '=')
+        {
+            Advance();
+            AddToken(type: TokenType.PercentAssign);
         }
         else
         {
@@ -185,13 +222,19 @@ public partial class SuflaeTokenizer
         }
         else if (Match(expected: '<'))
         {
+            // << or <<? or <<< or <<= or <<<=
             if (Match(expected: '<'))
             {
-                AddToken(type: TokenType.LogicalLeftShift); // <<<
+                // <<< or <<<=
+                AddToken(type: Match(expected: '=') ? TokenType.LogicalLeftShiftAssign : TokenType.LogicalLeftShift);
             }
             else if (Match(expected: '?'))
             {
                 AddToken(type: TokenType.LeftShiftChecked); // <<?
+            }
+            else if (Match(expected: '='))
+            {
+                AddToken(type: TokenType.LeftShiftAssign); // <<=
             }
             else
             {
@@ -205,7 +248,7 @@ public partial class SuflaeTokenizer
     }
 
     /// <summary>
-    /// Scans operators starting with '&gt;' (&gt;, &gt;=, &gt;&gt;, &gt;&gt;&gt;).
+    /// Scans operators starting with '&gt;' (&gt;, &gt;=, &gt;&gt;, &gt;&gt;&gt;, &gt;&gt;=, &gt;&gt;&gt;=).
     /// </summary>
     private void ScanGreaterThanOperator()
     {
@@ -215,9 +258,15 @@ public partial class SuflaeTokenizer
         }
         else if (Match(expected: '>'))
         {
+            // >> or >>> or >>= or >>>=
             if (Match(expected: '>'))
             {
-                AddToken(type: TokenType.LogicalRightShift); // >>>
+                // >>> or >>>=
+                AddToken(type: Match(expected: '=') ? TokenType.LogicalRightShiftAssign : TokenType.LogicalRightShift);
+            }
+            else if (Match(expected: '='))
+            {
+                AddToken(type: TokenType.RightShiftAssign); // >>=
             }
             else
             {

@@ -607,6 +607,75 @@ public enum TokenType
     /// <summary>Assignment operator (=)</summary>
     Assign,
 
+    /// <summary>Addition assignment operator (+=)</summary>
+    PlusAssign,
+
+    /// <summary>Subtraction assignment operator (-=)</summary>
+    MinusAssign,
+
+    /// <summary>Multiplication assignment operator (*=)</summary>
+    StarAssign,
+
+    /// <summary>Division assignment operator (/=)</summary>
+    SlashAssign,
+
+    /// <summary>Modulo assignment operator (%=)</summary>
+    PercentAssign,
+
+    /// <summary>Bitwise AND assignment operator (&amp;=)</summary>
+    AmpersandAssign,
+
+    /// <summary>Bitwise OR assignment operator (|=)</summary>
+    PipeAssign,
+
+    /// <summary>Bitwise XOR assignment operator (^=)</summary>
+    CaretAssign,
+
+    /// <summary>Left shift assignment operator (&lt;&lt;=)</summary>
+    LeftShiftAssign,
+
+    /// <summary>Right shift assignment operator (&gt;&gt;=)</summary>
+    RightShiftAssign,
+
+    /// <summary>Logical left shift assignment operator (&lt;&lt;&lt;=)</summary>
+    LogicalLeftShiftAssign,
+
+    /// <summary>Logical right shift assignment operator (&gt;&gt;&gt;=)</summary>
+    LogicalRightShiftAssign,
+
+    /// <summary>Integer division assignment operator (//=)</summary>
+    DivideAssign,
+
+    /// <summary>Power assignment operator (**=)</summary>
+    PowerAssign,
+
+    /// <summary>Wrapping add assignment operator (+%=)</summary>
+    PlusWrapAssign,
+
+    /// <summary>Wrapping subtract assignment operator (-%=)</summary>
+    MinusWrapAssign,
+
+    /// <summary>Wrapping multiply assignment operator (*%=)</summary>
+    MultiplyWrapAssign,
+
+    /// <summary>Wrapping power assignment operator (**%=)</summary>
+    PowerWrapAssign,
+
+    /// <summary>Saturating add assignment operator (+^=)</summary>
+    PlusSaturateAssign,
+
+    /// <summary>Saturating subtract assignment operator (-^=)</summary>
+    MinusSaturateAssign,
+
+    /// <summary>Saturating multiply assignment operator (*^=)</summary>
+    MultiplySaturateAssign,
+
+    /// <summary>Saturating power assignment operator (**^=)</summary>
+    PowerSaturateAssign,
+
+    /// <summary>None coalescing assignment operator (??=)</summary>
+    NoneCoalesceAssign,
+
     /// <summary>Negation or macro operator (!)</summary>
     Bang,
 
