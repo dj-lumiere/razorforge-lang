@@ -311,9 +311,6 @@ public enum TokenType
     /// <summary>Private access modifier keyword</summary>
     Private,
 
-    /// <summary>family access modifier keyword</summary>
-    Family,
-
     /// <summary>local access modifier keyword</summary>
     Internal,
 
@@ -335,17 +332,8 @@ public enum TokenType
     /// <summary>Self type keyword (Me) - the type of 'me' in protocols and methods</summary>
     MyType,
 
-    /// <summary>Parent reference keyword</summary>
-    Parent,
-
-    /// <summary>From clause keyword for inheritance</summary>
-    From,
-
     /// <summary>Follows keyword for ordering constraints</summary>
     Follows,
-
-    /// <summary>Not from keyword - negated inheritance check (notfrom)</summary>
-    NotFrom,
 
     /// <summary>Not follows keyword - negated ordering constraint (notfollows)</summary>
     NotFollows,
