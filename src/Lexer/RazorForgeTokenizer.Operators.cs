@@ -53,11 +53,15 @@ public partial class RazorForgeTokenizer
         {
             case '%':
                 Advance();
-                AddToken(type: Match(expected: '=') ? TokenType.PlusWrapAssign : TokenType.PlusWrap);
+                AddToken(type: Match(expected: '=')
+                    ? TokenType.PlusWrapAssign
+                    : TokenType.PlusWrap);
                 break;
             case '^':
                 Advance();
-                AddToken(type: Match(expected: '=') ? TokenType.PlusSaturateAssign : TokenType.PlusSaturate);
+                AddToken(type: Match(expected: '=')
+                    ? TokenType.PlusSaturateAssign
+                    : TokenType.PlusSaturate);
                 break;
             case '?':
                 Advance();
@@ -97,11 +101,15 @@ public partial class RazorForgeTokenizer
         {
             case '%':
                 Advance();
-                AddToken(type: Match(expected: '=') ? TokenType.MinusWrapAssign : TokenType.MinusWrap);
+                AddToken(type: Match(expected: '=')
+                    ? TokenType.MinusWrapAssign
+                    : TokenType.MinusWrap);
                 break;
             case '^':
                 Advance();
-                AddToken(type: Match(expected: '=') ? TokenType.MinusSaturateAssign : TokenType.MinusSaturate);
+                AddToken(type: Match(expected: '=')
+                    ? TokenType.MinusSaturateAssign
+                    : TokenType.MinusSaturate);
                 break;
             case '?':
                 Advance();
@@ -146,36 +154,52 @@ public partial class RazorForgeTokenizer
                 // *%= or **%=
                 if (Match(expected: '='))
                 {
-                    AddToken(type: isPow ? TokenType.PowerWrapAssign : TokenType.MultiplyWrapAssign);
+                    AddToken(type: isPow
+                        ? TokenType.PowerWrapAssign
+                        : TokenType.MultiplyWrapAssign);
                 }
                 else
                 {
-                    AddToken(type: isPow ? TokenType.PowerWrap : TokenType.MultiplyWrap);
+                    AddToken(type: isPow
+                        ? TokenType.PowerWrap
+                        : TokenType.MultiplyWrap);
                 }
+
                 break;
             case '^':
                 Advance();
                 // *^= or **^=
                 if (Match(expected: '='))
                 {
-                    AddToken(type: isPow ? TokenType.PowerSaturateAssign : TokenType.MultiplySaturateAssign);
+                    AddToken(type: isPow
+                        ? TokenType.PowerSaturateAssign
+                        : TokenType.MultiplySaturateAssign);
                 }
                 else
                 {
-                    AddToken(type: isPow ? TokenType.PowerSaturate : TokenType.MultiplySaturate);
+                    AddToken(type: isPow
+                        ? TokenType.PowerSaturate
+                        : TokenType.MultiplySaturate);
                 }
+
                 break;
             case '?':
                 Advance();
-                AddToken(type: isPow ? TokenType.PowerChecked : TokenType.MultiplyChecked);
+                AddToken(type: isPow
+                    ? TokenType.PowerChecked
+                    : TokenType.MultiplyChecked);
                 break;
             case '=':
                 Advance();
                 // *= or **=
-                AddToken(type: isPow ? TokenType.PowerAssign : TokenType.StarAssign);
+                AddToken(type: isPow
+                    ? TokenType.PowerAssign
+                    : TokenType.StarAssign);
                 break;
             default:
-                AddToken(type: isPow ? TokenType.Power : TokenType.Star);
+                AddToken(type: isPow
+                    ? TokenType.Power
+                    : TokenType.Star);
                 break;
         }
     }
@@ -299,7 +323,9 @@ public partial class RazorForgeTokenizer
             if (Match(expected: '<'))
             {
                 // <<< or <<<=
-                AddToken(type: Match(expected: '=') ? TokenType.LogicalLeftShiftAssign : TokenType.LogicalLeftShift);
+                AddToken(type: Match(expected: '=')
+                    ? TokenType.LogicalLeftShiftAssign
+                    : TokenType.LogicalLeftShift);
             }
             else if (Match(expected: '?'))
             {
@@ -346,7 +372,9 @@ public partial class RazorForgeTokenizer
             if (Match(expected: '>'))
             {
                 // >>> or >>>=
-                AddToken(type: Match(expected: '=') ? TokenType.LogicalRightShiftAssign : TokenType.LogicalRightShift);
+                AddToken(type: Match(expected: '=')
+                    ? TokenType.LogicalRightShiftAssign
+                    : TokenType.LogicalRightShift);
             }
             else if (Match(expected: '='))
             {

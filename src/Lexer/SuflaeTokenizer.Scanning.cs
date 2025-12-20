@@ -204,13 +204,19 @@ public partial class SuflaeTokenizer
 
             // Single-character operators (with compound assignment variants)
             case '&':
-                AddToken(type: Match(expected: '=') ? TokenType.AmpersandAssign : TokenType.Ampersand);
+                AddToken(type: Match(expected: '=')
+                    ? TokenType.AmpersandAssign
+                    : TokenType.Ampersand);
                 break;
             case '|':
-                AddToken(type: Match(expected: '=') ? TokenType.PipeAssign : TokenType.Pipe);
+                AddToken(type: Match(expected: '=')
+                    ? TokenType.PipeAssign
+                    : TokenType.Pipe);
                 break;
             case '^':
-                AddToken(type: Match(expected: '=') ? TokenType.CaretAssign : TokenType.Caret);
+                AddToken(type: Match(expected: '=')
+                    ? TokenType.CaretAssign
+                    : TokenType.Caret);
                 break;
             case '~':
                 AddToken(type: TokenType.Tilde);
@@ -219,12 +225,15 @@ public partial class SuflaeTokenizer
                 if (Match(expected: '?'))
                 {
                     // ?? or ??=
-                    AddToken(type: Match(expected: '=') ? TokenType.NoneCoalesceAssign : TokenType.NoneCoalesce);
+                    AddToken(type: Match(expected: '=')
+                        ? TokenType.NoneCoalesceAssign
+                        : TokenType.NoneCoalesce);
                 }
                 else
                 {
                     AddToken(type: TokenType.Question);
                 }
+
                 break;
 
             // Special @ tokens
