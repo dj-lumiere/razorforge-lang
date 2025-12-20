@@ -54,34 +54,48 @@ public partial class SuflaeTokenizer
         while (Peek() == ' ' || Peek() == '\t')
         {
             if (Peek() == ' ')
+            {
                 spaces += 1;
+            }
             else // Tab counts as 4 spaces
+            {
                 spaces += 4;
+            }
+
             Advance();
         }
 
         // Skip empty lines (don't change indentation state)
         if (Peek() == '\n' || IsAtEnd())
+        {
             return;
+        }
 
         // Skip lines with only comments (don't change indentation state)
         if (Peek() == '#')
+        {
             return;
+        }
 
         int newIndentLevel = spaces / 4;
 
         // Validate indentation alignment
         if (spaces % 4 != 0)
+        {
             throw new LexerException(
+                message:
                 $"Indentation error at line {_line}: expected multiple of 4 spaces, got {spaces} spaces.");
+        }
 
         // Handle expected indent after block-starter colon
         if (_expectIndent)
         {
             if (newIndentLevel <= _currentIndentLevel)
-                throw new LexerException($"Expected indent after ':' at line {_line}");
+            {
+                throw new LexerException(message: $"Expected indent after ':' at line {_line}");
+            }
 
-            AddToken(TokenType.Indent, "");
+            AddToken(type: TokenType.Indent, text: "");
             _currentIndentLevel = newIndentLevel;
             _expectIndent = false;
             return;
@@ -90,13 +104,15 @@ public partial class SuflaeTokenizer
         // Handle dedents when indentation decreases
         while (newIndentLevel < _currentIndentLevel)
         {
-            AddToken(TokenType.Dedent, "");
+            AddToken(type: TokenType.Dedent, text: "");
             _currentIndentLevel -= 1;
         }
 
         // Unexpected increase in indentation
         if (newIndentLevel > _currentIndentLevel)
-            throw new LexerException($"Unexpected indent at line {_line}");
+        {
+            throw new LexerException(message: $"Unexpected indent at line {_line}");
+        }
     }
 
     #endregion
@@ -122,7 +138,9 @@ public partial class SuflaeTokenizer
         bool isSignificant = IsNewlineSignificant();
 
         if (isSignificant)
-            AddToken(TokenType.Newline, "\\n");
+        {
+            AddToken(type: TokenType.Newline, text: "\\n");
+        }
 
         _hasTokenOnLine = false;
     }
@@ -152,10 +170,16 @@ public partial class SuflaeTokenizer
     private bool IsNewlineSignificant()
     {
         // No tokens on line = not significant
-        if (!_hasTokenOnLine) return false;
+        if (!_hasTokenOnLine)
+        {
+            return false;
+        }
 
         // No tokens at all = not significant
-        if (_tokens.Count == 0) return false;
+        if (_tokens.Count == 0)
+        {
+            return false;
+        }
 
         TokenType lastToken = _tokens[^1].Type;
 
@@ -219,16 +243,22 @@ public partial class SuflaeTokenizer
         int pos = _position;
 
         // Skip whitespace
-        while (pos < _source.Length && (_source[pos] == ' ' || _source[pos] == '\t'))
+        while (pos < _source.Length && (_source[index: pos] == ' ' || _source[index: pos] == '\t'))
+        {
             pos += 1;
+        }
 
         // If we hit end of file or newline, it's a block starter
-        if (pos >= _source.Length || _source[pos] == '\n' || _source[pos] == '\r')
+        if (pos >= _source.Length || _source[index: pos] == '\n' || _source[index: pos] == '\r')
+        {
             return true;
+        }
 
         // If we hit a comment, it's still a block starter
-        if (_source[pos] == '#')
+        if (_source[index: pos] == '#')
+        {
             return true;
+        }
 
         // Otherwise, it's a type annotation
         return false;

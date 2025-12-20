@@ -64,51 +64,89 @@ public partial class RazorForgeTokenizer
 
             // Potential prefixed literals or identifiers
             case 'l':
-                if (!TryParseLetterPrefix()) ScanIdentifier();
+                if (!TryParseLetterPrefix())
+                {
+                    ScanIdentifier();
+                }
+
                 break;
             case 'r' or 'f' or 't':
-                if (!TryParseTextPrefix()) ScanIdentifier();
+                if (!TryParseTextPrefix())
+                {
+                    ScanIdentifier();
+                }
+
                 break;
 
             // Delimiters
             case '(':
-                AddToken(TokenType.LeftParen);
+                AddToken(type: TokenType.LeftParen);
                 break;
             case ')':
-                AddToken(TokenType.RightParen);
+                AddToken(type: TokenType.RightParen);
                 break;
             case '[':
-                AddToken(TokenType.LeftBracket);
+                AddToken(type: TokenType.LeftBracket);
                 break;
             case ']':
-                AddToken(TokenType.RightBracket);
+                AddToken(type: TokenType.RightBracket);
                 break;
             case '{':
-                AddToken(TokenType.LeftBrace);
+                AddToken(type: TokenType.LeftBrace);
                 break;
             case '}':
-                AddToken(TokenType.RightBrace);
+                AddToken(type: TokenType.RightBrace);
                 break;
             case ',':
-                AddToken(TokenType.Comma);
+                AddToken(type: TokenType.Comma);
                 break;
+            case ';':
+                throw new LexerException(
+                    message:
+                    $"[{_line}:{_column}] Semicolons are not used in RazorForge. Statements are terminated by newlines.");
 
             // Multi-character punctuation
             case '.':
-                AddToken(Match('.')
-                    ? Match('.') ? TokenType.DotDotDot : TokenType.DotDot
-                    : TokenType.Dot);
+                if (Match(expected: '.'))
+                {
+                    if (Match(expected: '.'))
+                    {
+                        AddToken(type: TokenType.DotDotDot);
+                    }
+                    else
+                    {
+                        throw new LexerException(
+                            message:
+                            $"[{_line}:{_column}] Range operator '..' is not supported. Use 'to' keyword instead (e.g., '1 to 10').");
+                    }
+                }
+                else
+                {
+                    AddToken(type: TokenType.Dot);
+                }
+
                 break;
             case ':':
-                AddToken(Match(':') ? TokenType.DoubleColon : TokenType.Colon);
+                if (Match(expected: ':'))
+                {
+                    throw new LexerException(
+                        message:
+                        $"[{_line}:{_column}] Static access operator '::' is not supported. Use '.' instead.");
+                }
+
+                AddToken(type: TokenType.Colon);
                 break;
             case '!':
-                AddToken(Match('=')
-                    ? Match('=') ? TokenType.ReferenceNotEqual : TokenType.NotEqual
+                AddToken(type: Match(expected: '=')
+                    ? Match(expected: '=')
+                        ? TokenType.ReferenceNotEqual
+                        : TokenType.NotEqual
                     : TokenType.Bang);
                 break;
             case '?':
-                AddToken(Match('?') ? TokenType.NoneCoalesce : TokenType.Question);
+                AddToken(type: Match(expected: '?')
+                    ? TokenType.NoneCoalesce
+                    : TokenType.Question);
                 break;
 
             // Arithmetic operators with overflow variants
@@ -116,8 +154,15 @@ public partial class RazorForgeTokenizer
                 ScanPlusOperator();
                 break;
             case '-':
-                if (Match('>')) AddToken(TokenType.Arrow);
-                else ScanMinusOperator();
+                if (Match(expected: '>'))
+                {
+                    AddToken(type: TokenType.Arrow);
+                }
+                else
+                {
+                    ScanMinusOperator();
+                }
+
                 break;
             case '*':
                 ScanStarOperator();
@@ -131,9 +176,10 @@ public partial class RazorForgeTokenizer
 
             // Comparison and assignment
             case '=':
-                AddToken(Match('=')
-                    ? Match('=') ? TokenType.ReferenceEqual : TokenType.Equal
-                    : Match('>') ? TokenType.FatArrow : TokenType.Assign);
+                AddToken(type: Match(expected: '=') ? Match(expected: '=')
+                        ? TokenType.ReferenceEqual
+                        : TokenType.Equal :
+                    Match(expected: '>') ? TokenType.FatArrow : TokenType.Assign);
                 break;
             case '<':
                 ScanLessThanOperator();
@@ -144,16 +190,16 @@ public partial class RazorForgeTokenizer
 
             // Single-character operators
             case '&':
-                AddToken(TokenType.Ampersand);
+                AddToken(type: TokenType.Ampersand);
                 break;
             case '|':
-                AddToken(TokenType.Pipe);
+                AddToken(type: TokenType.Pipe);
                 break;
             case '^':
-                AddToken(TokenType.Caret);
+                AddToken(type: TokenType.Caret);
                 break;
             case '~':
-                AddToken(TokenType.Tilde);
+                AddToken(type: TokenType.Tilde);
                 break;
 
             // Special @ tokens
@@ -163,26 +209,39 @@ public partial class RazorForgeTokenizer
 
             // Numbers (special handling for 0x and 0b prefixes)
             case '0':
-                if (Match('x') || Match('X'))
+                if (Match(expected: 'x') || Match(expected: 'X'))
+                {
                     ScanPrefixedNumber(isHex: true);
-                else if ((Peek() == 'b' || Peek() == 'B') &&
-                         (Peek(1) == '0' || Peek(1) == '1' || Peek(1) == '_'))
+                }
+                else if ((Peek() == 'b' || Peek() == 'B') && (Peek(offset: 1) == '0' ||
+                                                              Peek(offset: 1) == '1' ||
+                                                              Peek(offset: 1) == '_'))
                 {
                     Advance(); // consume 'b' or 'B'
                     ScanPrefixedNumber(isHex: false);
                 }
                 else
+                {
                     ScanNumber();
+                }
+
                 break;
 
             // Default: digits, identifiers, or unknown
             default:
-                if (char.IsDigit(c))
+                if (char.IsDigit(c: c))
+                {
                     ScanNumber();
-                else if (IsIdentifierStart(c))
+                }
+                else if (IsIdentifierStart(c: c))
+                {
                     ScanIdentifier();
+                }
                 else
-                    AddToken(TokenType.Unknown);
+                {
+                    AddToken(type: TokenType.Unknown);
+                }
+
                 break;
         }
     }

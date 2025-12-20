@@ -52,20 +52,24 @@ public partial class RazorForgeTokenizer
     private void ScanNumber()
     {
         // Consume digits and underscores
-        while (char.IsDigit(Peek()) || Peek() == '_')
+        while (char.IsDigit(c: Peek()) || Peek() == '_')
+        {
             Advance();
+        }
 
         bool isFloat = false;
 
         // Check for decimal point followed by digit
-        if (Peek() == '.' && char.IsDigit(Peek(1)))
+        if (Peek() == '.' && char.IsDigit(c: Peek(offset: 1)))
         {
             isFloat = true;
             Advance(); // consume '.'
 
             // Consume fractional digits
-            while (char.IsDigit(Peek()) || Peek() == '_')
+            while (char.IsDigit(c: Peek()) || Peek() == '_')
+            {
                 Advance();
+            }
         }
 
         // Check for scientific notation
@@ -76,35 +80,55 @@ public partial class RazorForgeTokenizer
 
             // Optional sign
             if (Peek() == '+' || Peek() == '-')
+            {
                 Advance();
+            }
 
             // Exponent digits
-            while (char.IsDigit(Peek()) || Peek() == '_')
+            while (char.IsDigit(c: Peek()) || Peek() == '_')
+            {
                 Advance();
+            }
         }
 
         // Check for type suffix
-        if (char.IsLetter(Peek()))
+        if (char.IsLetter(c: Peek()))
         {
             int suffixStart = _position;
-            while (char.IsLetterOrDigit(Peek()))
+            while (char.IsLetterOrDigit(c: Peek()))
+            {
                 Advance();
+            }
 
-            string suffix = _source.Substring(suffixStart, _position - suffixStart);
+            string suffix =
+                _source.Substring(startIndex: suffixStart, length: _position - suffixStart);
 
-            if (_numericSuffixToTokenType.TryGetValue(suffix, out TokenType numericType))
-                AddToken(numericType);
-            else if (_memorySuffixToTokenType.TryGetValue(suffix, out TokenType memoryType))
-                AddToken(memoryType);
-            else if (_durationSuffixToTokenType.TryGetValue(suffix, out TokenType durationToken))
-                AddToken(durationToken);
+            if (_numericSuffixToTokenType.TryGetValue(key: suffix,
+                    value: out TokenType numericType))
+            {
+                AddToken(type: numericType);
+            }
+            else if (_memorySuffixToTokenType.TryGetValue(key: suffix,
+                         value: out TokenType memoryType))
+            {
+                AddToken(type: memoryType);
+            }
+            else if (_durationSuffixToTokenType.TryGetValue(key: suffix,
+                         value: out TokenType durationToken))
+            {
+                AddToken(type: durationToken);
+            }
             else
-                throw new LexerException($"Unknown suffix '{suffix}' at line {_line}");
+            {
+                throw new LexerException(message: $"Unknown suffix '{suffix}' at line {_line}");
+            }
         }
         else
         {
             // No suffix - use default type based on presence of decimal point
-            AddToken(isFloat ? TokenType.Decimal : TokenType.Integer);
+            AddToken(type: isFloat
+                ? TokenType.Decimal
+                : TokenType.Integer);
         }
     }
 
@@ -141,36 +165,48 @@ public partial class RazorForgeTokenizer
         // Consume valid digits and underscores
         if (isHex)
         {
-            while (IsHexDigit(Peek()) || Peek() == '_')
+            while (IsHexDigit(c: Peek()) || Peek() == '_')
+            {
                 Advance();
+            }
         }
         else
         {
             while (Peek() == '0' || Peek() == '1' || Peek() == '_')
+            {
                 Advance();
+            }
         }
 
         // Check for type suffix
-        if (char.IsLetter(Peek()))
+        if (char.IsLetter(c: Peek()))
         {
             int suffixStart = _position;
-            while (char.IsLetterOrDigit(Peek()))
+            while (char.IsLetterOrDigit(c: Peek()))
+            {
                 Advance();
+            }
 
-            string suffix = _source.Substring(suffixStart, _position - suffixStart);
+            string suffix =
+                _source.Substring(startIndex: suffixStart, length: _position - suffixStart);
 
-            if (_numericSuffixToTokenType.TryGetValue(suffix, out TokenType tokenType))
-                AddToken(tokenType);
+            if (_numericSuffixToTokenType.TryGetValue(key: suffix, value: out TokenType tokenType))
+            {
+                AddToken(type: tokenType);
+            }
             else
             {
-                string baseType = isHex ? "hex" : "binary";
-                throw new LexerException($"Unknown {baseType} suffix '{suffix}' at line {_line}");
+                string baseType = isHex
+                    ? "hex"
+                    : "binary";
+                throw new LexerException(
+                    message: $"Unknown {baseType} suffix '{suffix}' at line {_line}");
             }
         }
         else
         {
             // No suffix - default to Integer
-            AddToken(TokenType.Integer);
+            AddToken(type: TokenType.Integer);
         }
     }
 

@@ -37,7 +37,10 @@ public partial class RazorForgeTokenizer
     /// <exception cref="LexerException">Thrown when the string is unterminated.</exception>
     private void ScanString()
     {
-        ScanTextLiteral(isRaw: false, isFormatted: false, TokenType.Text8Literal, bitWidth: 8);
+        ScanTextLiteral(isRaw: false,
+            isFormatted: false,
+            tokenType: TokenType.Text8Literal,
+            bitWidth: 8);
     }
 
     /// <summary>
@@ -73,21 +76,25 @@ public partial class RazorForgeTokenizer
         int originalPos = _position;
         int originalCol = _column;
 
-        char firstChar = _source[startPos];
+        char firstChar = _source[index: startPos];
         string prefix = firstChar.ToString();
 
         // Greedy match: try to build the longest valid prefix
-        while (!IsAtEnd() && char.IsLetterOrDigit(Peek()))
+        while (!IsAtEnd() && char.IsLetterOrDigit(c: Peek()))
         {
             string testPrefix = prefix + Peek();
-            if (_textPrefixes.Any(p => p.StartsWith(testPrefix)))
+            if (_textPrefixes.Any(predicate: p => p.StartsWith(value: testPrefix)))
+            {
                 prefix += Advance();
+            }
             else
+            {
                 break;
+            }
         }
 
         // Check if we found a valid prefix
-        if (!_textPrefixToTokenType.ContainsKey(prefix))
+        if (!_textPrefixToTokenType.ContainsKey(key: prefix))
         {
             _position = originalPos;
             _column = originalCol;
@@ -104,16 +111,25 @@ public partial class RazorForgeTokenizer
 
         Advance(); // consume opening quote
 
-        TokenType tokenType = _textPrefixToTokenType[prefix];
-        bool isRaw = prefix.Contains('r');
-        bool isFormatted = prefix.Contains('f');
+        TokenType tokenType = _textPrefixToTokenType[key: prefix];
+        bool isRaw = prefix.Contains(value: 'r');
+        bool isFormatted = prefix.Contains(value: 'f');
 
         // Determine bit width from prefix
         int bitWidth = 32; // default
-        if (prefix.Contains("t8")) bitWidth = 8;
-        else if (prefix.Contains("t16")) bitWidth = 16;
+        if (prefix.Contains(value: "t8"))
+        {
+            bitWidth = 8;
+        }
+        else if (prefix.Contains(value: "t16"))
+        {
+            bitWidth = 16;
+        }
 
-        ScanTextLiteral(isRaw, isFormatted, tokenType, bitWidth);
+        ScanTextLiteral(isRaw: isRaw,
+            isFormatted: isFormatted,
+            tokenType: tokenType,
+            bitWidth: bitWidth);
         return true;
     }
 
@@ -136,7 +152,8 @@ public partial class RazorForgeTokenizer
     /// </para>
     /// </remarks>
     /// <exception cref="LexerException">Thrown when the string is unterminated or contains invalid escapes.</exception>
-    private void ScanTextLiteral(bool isRaw, bool isFormatted, TokenType tokenType, int bitWidth = 32)
+    private void ScanTextLiteral(bool isRaw, bool isFormatted, TokenType tokenType,
+        int bitWidth = 32)
     {
         int startLine = _line;
         int startColumn = _column;
@@ -146,27 +163,31 @@ public partial class RazorForgeTokenizer
         {
             if (Peek() == '\n')
             {
-                content.Append('\n');
+                content.Append(value: '\n');
                 Advance();
             }
             else if (!isRaw && Peek() == '\\')
             {
                 int escapeStart = _position;
                 Advance(); // consume backslash
-                ScanEscapeSequence(bitWidth);
-                content.Append(ParseEscapeSequence(escapeStart, bitWidth));
+                ScanEscapeSequence(bitWidth: bitWidth);
+                content.Append(value: ParseEscapeSequence(escapeStart: escapeStart,
+                    bitWidth: bitWidth));
             }
             else
             {
-                content.Append(Advance());
+                content.Append(value: Advance());
             }
         }
 
         if (IsAtEnd())
-            throw new LexerException($"Unterminated text starting at line {startLine}, column {startColumn}");
+        {
+            throw new LexerException(
+                message: $"Unterminated text starting at line {startLine}, column {startColumn}");
+        }
 
         Advance(); // consume closing quote
-        AddToken(tokenType, content.ToString());
+        AddToken(type: tokenType, text: content.ToString());
     }
 
     #endregion
@@ -190,13 +211,15 @@ public partial class RazorForgeTokenizer
     private void ScanLetter()
     {
         if (IsAtEnd())
-            throw new LexerException($"Unterminated character literal at line {_line}");
+        {
+            throw new LexerException(message: $"Unterminated character literal at line {_line}");
+        }
 
         char value;
         if (Peek() == '\\')
         {
             Advance(); // consume backslash
-            value = EscapeCharacter(Advance());
+            value = EscapeCharacter(c: Advance());
         }
         else
         {
@@ -204,10 +227,12 @@ public partial class RazorForgeTokenizer
         }
 
         if (Peek() != '\'')
-            throw new LexerException($"Unterminated character literal at line {_line}");
+        {
+            throw new LexerException(message: $"Unterminated character literal at line {_line}");
+        }
 
         Advance(); // consume closing quote
-        AddToken(TokenType.LetterLiteral, value.ToString());
+        AddToken(type: TokenType.LetterLiteral, text: value.ToString());
     }
 
     /// <summary>
@@ -237,11 +262,14 @@ public partial class RazorForgeTokenizer
         int originalPos = _position;
         int originalCol = _column;
 
-        string prefix = _source[startPos].ToString();
+        string prefix = _source[index: startPos]
+           .ToString();
 
         // Build the complete prefix (l8 or l16)
-        while (!IsAtEnd() && char.IsLetterOrDigit(Peek()))
+        while (!IsAtEnd() && char.IsLetterOrDigit(c: Peek()))
+        {
             prefix += Advance();
+        }
 
         // Must be followed by a quote
         if (Peek() != '\'')
@@ -255,11 +283,11 @@ public partial class RazorForgeTokenizer
         {
             case "l8":
                 Advance(); // consume opening quote
-                ScanCharLiteral(TokenType.Letter8Literal, 8);
+                ScanCharLiteral(tokenType: TokenType.Letter8Literal, bitWidth: 8);
                 return true;
             case "l16":
                 Advance();
-                ScanCharLiteral(TokenType.Letter16Literal, 16);
+                ScanCharLiteral(tokenType: TokenType.Letter16Literal, bitWidth: 16);
                 return true;
             default:
                 // No l32 - unprefixed 'x' is the 32-bit default
@@ -284,17 +312,19 @@ public partial class RazorForgeTokenizer
         if (Peek() == '\\')
         {
             Advance(); // consume backslash
-            ScanEscapeSequence(bitWidth);
+            ScanEscapeSequence(bitWidth: bitWidth);
         }
         else
         {
             Advance(); // consume the character
         }
 
-        if (!Match('\''))
-            throw new LexerException($"Unterminated character literal at line {_line}");
+        if (!Match(expected: '\''))
+        {
+            throw new LexerException(message: $"Unterminated character literal at line {_line}");
+        }
 
-        AddToken(tokenType);
+        AddToken(type: tokenType);
     }
 
     #endregion
@@ -328,7 +358,9 @@ public partial class RazorForgeTokenizer
     private void ScanEscapeSequence(int bitWidth = 32)
     {
         if (IsAtEnd())
-            throw new LexerException($"Unterminated escape sequence at line {_line}");
+        {
+            throw new LexerException(message: $"Unterminated escape sequence at line {_line}");
+        }
 
         char escapeChar = Peek();
         switch (escapeChar)
@@ -338,10 +370,11 @@ public partial class RazorForgeTokenizer
                 break;
             case 'u':
                 Advance(); // consume 'u'
-                ScanUnicodeEscape(bitWidth);
+                ScanUnicodeEscape(bitWidth: bitWidth);
                 break;
             default:
-                throw new LexerException($"Invalid escape sequence '\\{escapeChar}' at line {_line}");
+                throw new LexerException(
+                    message: $"Invalid escape sequence '\\{escapeChar}' at line {_line}");
         }
     }
 
@@ -372,9 +405,13 @@ public partial class RazorForgeTokenizer
 
         for (int i = 0; i < hexDigits; i += 1)
         {
-            if (!IsHexDigit(Peek()))
+            if (!IsHexDigit(c: Peek()))
+            {
                 throw new LexerException(
+                    message:
                     $"Invalid Unicode escape sequence at line {_line}: expected {hexDigits} hex digits for {bitWidth}-bit character");
+            }
+
             Advance();
         }
     }
@@ -392,23 +429,31 @@ public partial class RazorForgeTokenizer
     /// <exception cref="LexerException">Thrown when a Unicode value exceeds the bit width range.</exception>
     private char ParseEscapeSequence(int escapeStart, int bitWidth = 32)
     {
-        char c = _source[escapeStart + 1]; // character after backslash
+        char c = _source[index: escapeStart + 1]; // character after backslash
 
         if (c == 'u')
         {
             int hexDigits = bitWidth switch { 8 => 2, 16 => 4, 32 => 8, _ => 4 };
-            string hexStr = _source.Substring(escapeStart + 2, hexDigits);
-            int codePoint = Convert.ToInt32(hexStr, 16);
+            string hexStr = _source.Substring(startIndex: escapeStart + 2, length: hexDigits);
+            int codePoint = Convert.ToInt32(value: hexStr, fromBase: 16);
 
             if (bitWidth == 8 && codePoint > 0xFF)
-                throw new LexerException($"Unicode escape value {codePoint:X} exceeds 8-bit range at line {_line}");
+            {
+                throw new LexerException(
+                    message:
+                    $"Unicode escape value {codePoint:X} exceeds 8-bit range at line {_line}");
+            }
             else if (bitWidth == 16 && codePoint > 0xFFFF)
-                throw new LexerException($"Unicode escape value {codePoint:X} exceeds 16-bit range at line {_line}");
+            {
+                throw new LexerException(
+                    message:
+                    $"Unicode escape value {codePoint:X} exceeds 16-bit range at line {_line}");
+            }
 
             return (char)codePoint;
         }
 
-        return EscapeCharacter(c);
+        return EscapeCharacter(c: c);
     }
 
     /// <summary>
@@ -420,17 +465,20 @@ public partial class RazorForgeTokenizer
     /// This method handles simple escapes like \n, \t, \r, etc.
     /// Unknown escape characters are returned unchanged.
     /// </remarks>
-    private static char EscapeCharacter(char c) => c switch
+    private static char EscapeCharacter(char c)
     {
-        'n' => '\n',
-        't' => '\t',
-        'r' => '\r',
-        '\\' => '\\',
-        '"' => '"',
-        '\'' => '\'',
-        '0' => '\0',
-        _ => c
-    };
+        return c switch
+        {
+            'n' => '\n',
+            't' => '\t',
+            'r' => '\r',
+            '\\' => '\\',
+            '"' => '"',
+            '\'' => '\'',
+            '0' => '\0',
+            _ => c
+        };
+    }
 
     #endregion
 }

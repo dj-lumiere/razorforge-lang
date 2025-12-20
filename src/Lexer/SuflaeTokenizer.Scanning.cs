@@ -45,12 +45,17 @@ public partial class SuflaeTokenizer
         if (_column == 1)
         {
             HandleIndentation();
-            if (IsAtEnd()) return;
+            if (IsAtEnd())
+            {
+                return;
+            }
         }
 
         // Skip non-newline whitespace and update token start
         while (Peek() == ' ' || Peek() == '\t' || Peek() == '\r')
+        {
             Advance();
+        }
 
         _tokenStart = _position;
         _tokenStartColumn = _column;
@@ -82,47 +87,73 @@ public partial class SuflaeTokenizer
 
             // Potential prefixed literals or identifiers
             case 'r' or 'f':
-                if (!TryParseTextPrefix()) ScanIdentifier();
+                if (!TryParseTextPrefix())
+                {
+                    ScanIdentifier();
+                }
+
                 break;
             case 'b':
                 // Could be bytes prefix (b"..."), byte character (b'x'), or identifier
                 if (!TryParseTextPrefix() && !TryParseByteLiteralPrefix())
+                {
                     ScanIdentifier();
+                }
+
                 break;
 
             // Delimiters (no braces in Suflae)
             case '(':
-                AddToken(TokenType.LeftParen);
+                AddToken(type: TokenType.LeftParen);
                 break;
             case ')':
-                AddToken(TokenType.RightParen);
+                AddToken(type: TokenType.RightParen);
                 break;
             case '[':
-                AddToken(TokenType.LeftBracket);
+                AddToken(type: TokenType.LeftBracket);
                 break;
             case ']':
-                AddToken(TokenType.RightBracket);
+                AddToken(type: TokenType.RightBracket);
                 break;
             case ',':
-                AddToken(TokenType.Comma);
+                AddToken(type: TokenType.Comma);
                 break;
+            case ';':
+                throw new LexerException(
+                    message:
+                    $"[{_line}:{_column}] Semicolons are not used in Suflae. Statements are terminated by newlines.");
 
             // Multi-character punctuation
             case '.':
-                AddToken(Match('.')
-                    ? Match('.') ? TokenType.DotDotDot : TokenType.DotDot
-                    : TokenType.Dot);
-                break;
-            case ':':
-                if (Match(':'))
+                if (Match(expected: '.'))
                 {
-                    AddToken(TokenType.DoubleColon);
+                    if (Match(expected: '.'))
+                    {
+                        AddToken(type: TokenType.DotDotDot);
+                    }
+                    else
+                    {
+                        throw new LexerException(
+                            message:
+                            $"[{_line}:{_column}] Range operator '..' is no longer supported. Use 'to' keyword instead (e.g., '1 to 10').");
+                    }
                 }
                 else
                 {
-                    AddToken(TokenType.Colon);
-                    _expectIndent = IsBlockStarterColon();
+                    AddToken(type: TokenType.Dot);
                 }
+
+                break;
+            case ':':
+                if (Match(expected: ':'))
+                {
+                    throw new LexerException(
+                        message:
+                        $"[{_line}:{_column}] Static access operator '::' is no longer supported. Use '.' instead.");
+                }
+
+                AddToken(type: TokenType.Colon);
+                _expectIndent = IsBlockStarterColon();
                 break;
 
             // Arithmetic operators with overflow variants
@@ -130,8 +161,15 @@ public partial class SuflaeTokenizer
                 ScanPlusOperator();
                 break;
             case '-':
-                if (Match('>')) AddToken(TokenType.Arrow);
-                else ScanMinusOperator();
+                if (Match(expected: '>'))
+                {
+                    AddToken(type: TokenType.Arrow);
+                }
+                else
+                {
+                    ScanMinusOperator();
+                }
+
                 break;
             case '*':
                 ScanStarOperator();
@@ -145,13 +183,16 @@ public partial class SuflaeTokenizer
 
             // Comparison and assignment
             case '=':
-                AddToken(Match('=')
-                    ? Match('=') ? TokenType.ReferenceEqual : TokenType.Equal
-                    : Match('>') ? TokenType.FatArrow : TokenType.Assign);
+                AddToken(type: Match(expected: '=') ? Match(expected: '=')
+                        ? TokenType.ReferenceEqual
+                        : TokenType.Equal :
+                    Match(expected: '>') ? TokenType.FatArrow : TokenType.Assign);
                 break;
             case '!':
-                AddToken(Match('=')
-                    ? Match('=') ? TokenType.ReferenceNotEqual : TokenType.NotEqual
+                AddToken(type: Match(expected: '=')
+                    ? Match(expected: '=')
+                        ? TokenType.ReferenceNotEqual
+                        : TokenType.NotEqual
                     : TokenType.Bang);
                 break;
             case '<':
@@ -163,19 +204,21 @@ public partial class SuflaeTokenizer
 
             // Single-character operators
             case '&':
-                AddToken(TokenType.Ampersand);
+                AddToken(type: TokenType.Ampersand);
                 break;
             case '|':
-                AddToken(TokenType.Pipe);
+                AddToken(type: TokenType.Pipe);
                 break;
             case '^':
-                AddToken(TokenType.Caret);
+                AddToken(type: TokenType.Caret);
                 break;
             case '~':
-                AddToken(TokenType.Tilde);
+                AddToken(type: TokenType.Tilde);
                 break;
             case '?':
-                AddToken(Match('?') ? TokenType.NoneCoalesce : TokenType.Question);
+                AddToken(type: Match(expected: '?')
+                    ? TokenType.NoneCoalesce
+                    : TokenType.Question);
                 break;
 
             // Special @ tokens
@@ -185,23 +228,37 @@ public partial class SuflaeTokenizer
 
             // Numbers
             case '0':
-                if (Match('x') || Match('X'))
+                if (Match(expected: 'x') || Match(expected: 'X'))
+                {
                     ScanPrefixedNumber(isHex: true);
-                else if (Match('b') || Match('B'))
+                }
+                else if (Match(expected: 'b') || Match(expected: 'B'))
+                {
                     ScanPrefixedNumber(isHex: false);
+                }
                 else
+                {
                     ScanNumber();
+                }
+
                 break;
 
             // Default: digits, identifiers, or unknown
             default:
                 _hasTokenOnLine = true;
-                if (char.IsDigit(c))
+                if (char.IsDigit(c: c))
+                {
                     ScanNumber();
-                else if (IsIdentifierStart(c))
+                }
+                else if (IsIdentifierStart(c: c))
+                {
                     ScanIdentifier();
+                }
                 else
-                    AddToken(TokenType.Unknown);
+                {
+                    AddToken(type: TokenType.Unknown);
+                }
+
                 break;
         }
     }

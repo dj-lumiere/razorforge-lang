@@ -119,68 +119,68 @@ public partial class SuflaeTokenizer
     /// </remarks>
     private readonly Dictionary<string, TokenType> _keywords = new()
     {
-        ["routine"] = TokenType.Routine,
-        ["entity"] = TokenType.Entity,
-        ["record"] = TokenType.Record,
-        ["variant"] = TokenType.Variant,
-        ["choice"] = TokenType.Choice,
-        ["requires"] = TokenType.Requires,
-        ["protocol"] = TokenType.Protocol,
-        ["let"] = TokenType.Let,
-        ["var"] = TokenType.Var,
-        ["preset"] = TokenType.Preset,
-        ["common"] = TokenType.TypeWise,
-        ["private"] = TokenType.Private,
-        ["family"] = TokenType.Family,
-        ["internal"] = TokenType.Internal,
-        ["public"] = TokenType.Public,
-        ["global"] = TokenType.Global,
-        ["imported"] = TokenType.Imported,
-        ["me"] = TokenType.Me,
-        ["MyType"] = TokenType.MyType,
-        ["parent"] = TokenType.Parent,
-        ["if"] = TokenType.If,
-        ["elseif"] = TokenType.Elseif,
-        ["else"] = TokenType.Else,
-        ["then"] = TokenType.Then,
-        ["unless"] = TokenType.Unless,
-        ["break"] = TokenType.Break,
-        ["continue"] = TokenType.Continue,
-        ["return"] = TokenType.Return,
-        ["throw"] = TokenType.Throw,
-        ["absent"] = TokenType.Absent,
-        ["for"] = TokenType.For,
-        ["loop"] = TokenType.Loop,
-        ["while"] = TokenType.While,
-        ["when"] = TokenType.When,
-        ["is"] = TokenType.Is,
-        ["from"] = TokenType.From,
-        ["follows"] = TokenType.Follows,
-        ["import"] = TokenType.Import,
-        ["namespace"] = TokenType.Namespace,
-        ["define"] = TokenType.Define,
-        ["using"] = TokenType.Using,
-        ["as"] = TokenType.As,
-        ["pass"] = TokenType.Pass,
-        ["with"] = TokenType.With,
-        ["where"] = TokenType.Where,
-        ["isnot"] = TokenType.IsNot,
-        ["notfrom"] = TokenType.NotFrom,
-        ["notin"] = TokenType.NotIn,
-        ["notfollows"] = TokenType.NotFollows,
-        ["in"] = TokenType.In,
-        ["to"] = TokenType.To,
-        ["downto"] = TokenType.Downto,
-        ["by"] = TokenType.By,
-        ["and"] = TokenType.And,
-        ["or"] = TokenType.Or,
-        ["not"] = TokenType.Not,
-        ["true"] = TokenType.True,
-        ["false"] = TokenType.False,
-        ["none"] = TokenType.None,
-        ["generate"] = TokenType.Generate,
-        ["suspended"] = TokenType.Suspended,
-        ["waitfor"] = TokenType.Waitfor
+        [key: "routine"] = TokenType.Routine,
+        [key: "entity"] = TokenType.Entity,
+        [key: "record"] = TokenType.Record,
+        [key: "variant"] = TokenType.Variant,
+        [key: "choice"] = TokenType.Choice,
+        [key: "requires"] = TokenType.Requires,
+        [key: "protocol"] = TokenType.Protocol,
+        [key: "let"] = TokenType.Let,
+        [key: "var"] = TokenType.Var,
+        [key: "preset"] = TokenType.Preset,
+        [key: "common"] = TokenType.Common,
+        [key: "private"] = TokenType.Private,
+        [key: "family"] = TokenType.Family,
+        [key: "internal"] = TokenType.Internal,
+        [key: "public"] = TokenType.Public,
+        [key: "global"] = TokenType.Global,
+        [key: "imported"] = TokenType.Imported,
+        [key: "me"] = TokenType.Me,
+        [key: "MyType"] = TokenType.MyType,
+        [key: "parent"] = TokenType.Parent,
+        [key: "if"] = TokenType.If,
+        [key: "elseif"] = TokenType.Elseif,
+        [key: "else"] = TokenType.Else,
+        [key: "then"] = TokenType.Then,
+        [key: "unless"] = TokenType.Unless,
+        [key: "break"] = TokenType.Break,
+        [key: "continue"] = TokenType.Continue,
+        [key: "return"] = TokenType.Return,
+        [key: "throw"] = TokenType.Throw,
+        [key: "absent"] = TokenType.Absent,
+        [key: "for"] = TokenType.For,
+        [key: "loop"] = TokenType.Loop,
+        [key: "while"] = TokenType.While,
+        [key: "when"] = TokenType.When,
+        [key: "is"] = TokenType.Is,
+        [key: "from"] = TokenType.From,
+        [key: "follows"] = TokenType.Follows,
+        [key: "import"] = TokenType.Import,
+        [key: "namespace"] = TokenType.Namespace,
+        [key: "define"] = TokenType.Define,
+        [key: "using"] = TokenType.Using,
+        [key: "as"] = TokenType.As,
+        [key: "pass"] = TokenType.Pass,
+        [key: "with"] = TokenType.With,
+        [key: "where"] = TokenType.Where,
+        [key: "isnot"] = TokenType.IsNot,
+        [key: "notfrom"] = TokenType.NotFrom,
+        [key: "notin"] = TokenType.NotIn,
+        [key: "notfollows"] = TokenType.NotFollows,
+        [key: "in"] = TokenType.In,
+        [key: "to"] = TokenType.To,
+        [key: "downto"] = TokenType.Downto,
+        [key: "by"] = TokenType.By,
+        [key: "and"] = TokenType.And,
+        [key: "or"] = TokenType.Or,
+        [key: "not"] = TokenType.Not,
+        [key: "true"] = TokenType.True,
+        [key: "false"] = TokenType.False,
+        [key: "none"] = TokenType.None,
+        [key: "generate"] = TokenType.Generate,
+        [key: "suspended"] = TokenType.Suspended,
+        [key: "waitfor"] = TokenType.Waitfor
     };
 
     #endregion
@@ -196,17 +196,17 @@ public partial class SuflaeTokenizer
     /// </remarks>
     private readonly Dictionary<string, TokenType> _numericSuffixToTokenType = new()
     {
-        ["s32"] = TokenType.S32Literal,
-        ["s64"] = TokenType.S64Literal,
-        ["s128"] = TokenType.S128Literal,
-        ["saddr"] = TokenType.SaddrLiteral,
-        ["u32"] = TokenType.U32Literal,
-        ["u64"] = TokenType.U64Literal,
-        ["u128"] = TokenType.U128Literal,
-        ["uaddr"] = TokenType.UaddrLiteral,
-        ["f32"] = TokenType.F32Literal,
-        ["f64"] = TokenType.F64Literal,
-        ["d128"] = TokenType.D128Literal
+        [key: "s32"] = TokenType.S32Literal,
+        [key: "s64"] = TokenType.S64Literal,
+        [key: "s128"] = TokenType.S128Literal,
+        [key: "saddr"] = TokenType.SaddrLiteral,
+        [key: "u32"] = TokenType.U32Literal,
+        [key: "u64"] = TokenType.U64Literal,
+        [key: "u128"] = TokenType.U128Literal,
+        [key: "uaddr"] = TokenType.UaddrLiteral,
+        [key: "f32"] = TokenType.F32Literal,
+        [key: "f64"] = TokenType.F64Literal,
+        [key: "d128"] = TokenType.D128Literal
     };
 
     /// <summary>
@@ -214,27 +214,27 @@ public partial class SuflaeTokenizer
     /// </summary>
     private readonly Dictionary<string, TokenType> _memorySuffixToTokenType = new()
     {
-        ["b"] = TokenType.ByteLiteral,
-        ["kb"] = TokenType.KilobyteLiteral,
-        ["kib"] = TokenType.KibibyteLiteral,
-        ["kbit"] = TokenType.KilobitLiteral,
-        ["kibit"] = TokenType.KibibitLiteral,
-        ["mb"] = TokenType.MegabyteLiteral,
-        ["mib"] = TokenType.MebibyteLiteral,
-        ["mbit"] = TokenType.MegabitLiteral,
-        ["mibit"] = TokenType.MebibitLiteral,
-        ["gb"] = TokenType.GigabyteLiteral,
-        ["gib"] = TokenType.GibibyteLiteral,
-        ["gbit"] = TokenType.GigabitLiteral,
-        ["gibit"] = TokenType.GibibitLiteral,
-        ["tb"] = TokenType.TerabyteLiteral,
-        ["tib"] = TokenType.TebibyteLiteral,
-        ["tbit"] = TokenType.TerabitLiteral,
-        ["tibit"] = TokenType.TebibitLiteral,
-        ["pb"] = TokenType.PetabyteLiteral,
-        ["pib"] = TokenType.PebibyteLiteral,
-        ["pbit"] = TokenType.PetabitLiteral,
-        ["pibit"] = TokenType.PebibitLiteral
+        [key: "b"] = TokenType.ByteLiteral,
+        [key: "kb"] = TokenType.KilobyteLiteral,
+        [key: "kib"] = TokenType.KibibyteLiteral,
+        [key: "kbit"] = TokenType.KilobitLiteral,
+        [key: "kibit"] = TokenType.KibibitLiteral,
+        [key: "mb"] = TokenType.MegabyteLiteral,
+        [key: "mib"] = TokenType.MebibyteLiteral,
+        [key: "mbit"] = TokenType.MegabitLiteral,
+        [key: "mibit"] = TokenType.MebibitLiteral,
+        [key: "gb"] = TokenType.GigabyteLiteral,
+        [key: "gib"] = TokenType.GibibyteLiteral,
+        [key: "gbit"] = TokenType.GigabitLiteral,
+        [key: "gibit"] = TokenType.GibibitLiteral,
+        [key: "tb"] = TokenType.TerabyteLiteral,
+        [key: "tib"] = TokenType.TebibyteLiteral,
+        [key: "tbit"] = TokenType.TerabitLiteral,
+        [key: "tibit"] = TokenType.TebibitLiteral,
+        [key: "pb"] = TokenType.PetabyteLiteral,
+        [key: "pib"] = TokenType.PebibyteLiteral,
+        [key: "pbit"] = TokenType.PetabitLiteral,
+        [key: "pibit"] = TokenType.PebibitLiteral
     };
 
     /// <summary>
@@ -242,14 +242,14 @@ public partial class SuflaeTokenizer
     /// </summary>
     private readonly Dictionary<string, TokenType> _durationSuffixToTokenType = new()
     {
-        ["w"] = TokenType.WeekLiteral,
-        ["d"] = TokenType.DayLiteral,
-        ["h"] = TokenType.HourLiteral,
-        ["m"] = TokenType.MinuteLiteral,
-        ["s"] = TokenType.SecondLiteral,
-        ["ms"] = TokenType.MillisecondLiteral,
-        ["us"] = TokenType.MicrosecondLiteral,
-        ["ns"] = TokenType.NanosecondLiteral
+        [key: "w"] = TokenType.WeekLiteral,
+        [key: "d"] = TokenType.DayLiteral,
+        [key: "h"] = TokenType.HourLiteral,
+        [key: "m"] = TokenType.MinuteLiteral,
+        [key: "s"] = TokenType.SecondLiteral,
+        [key: "ms"] = TokenType.MillisecondLiteral,
+        [key: "us"] = TokenType.MicrosecondLiteral,
+        [key: "ns"] = TokenType.NanosecondLiteral
     };
 
     /// <summary>
@@ -260,13 +260,13 @@ public partial class SuflaeTokenizer
     /// </remarks>
     private readonly Dictionary<string, TokenType> _textPrefixToTokenType = new()
     {
-        ["r"] = TokenType.RawText,
-        ["f"] = TokenType.FormattedText,
-        ["rf"] = TokenType.RawFormattedText,
-        ["b"] = TokenType.BytesLiteral,
-        ["br"] = TokenType.BytesRawLiteral,
-        ["bf"] = TokenType.BytesFormatted,
-        ["brf"] = TokenType.BytesRawFormatted
+        [key: "r"] = TokenType.RawText,
+        [key: "f"] = TokenType.FormattedText,
+        [key: "rf"] = TokenType.RawFormattedText,
+        [key: "b"] = TokenType.BytesLiteral,
+        [key: "br"] = TokenType.BytesRawLiteral,
+        [key: "bf"] = TokenType.BytesFormatted,
+        [key: "brf"] = TokenType.BytesRawFormatted
     };
 
     /// <summary>
@@ -288,7 +288,7 @@ public partial class SuflaeTokenizer
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="source"/> is null.</exception>
     public SuflaeTokenizer(string source)
     {
-        _source = source ?? throw new ArgumentNullException(nameof(source));
+        _source = source ?? throw new ArgumentNullException(paramName: nameof(source));
     }
 
     /// <summary>
@@ -349,11 +349,10 @@ public partial class SuflaeTokenizer
         // Emit remaining DEDENT tokens at end of file
         for (int i = 0; i < _currentIndentLevel; i += 1)
         {
-            AddToken(TokenType.Dedent, "");
+            AddToken(type: TokenType.Dedent, text: "");
         }
 
-        _tokens.Add(new Token(
-            Type: TokenType.Eof,
+        _tokens.Add(item: new Token(Type: TokenType.Eof,
             Text: "",
             Line: _line,
             Column: _column,

@@ -30,14 +30,10 @@ public enum TokenType
     /// <summary>Arbitrary precision decimal in Suflae - unsuffixed decimals (3.14, 2.718)</summary>
     Decimal,
 
-    /// <summary>Represents the semicolon (;) token in the syntax
-    /// This token is present for unnecessary semicolon detection</summary>
-    Semicolon,
-
-    /// <summary>Variant declaration keyword (alias for Chimera)</summary>
+    /// <summary>Variant declaration keyword (tagged union)</summary>
     Variant,
 
-    /// <summary>Mutant declaration keyword (alias for Chimera)</summary>
+    /// <summary>Mutant declaration keyword (untagged union)</summary>
     Mutant,
 
     /// <summary>Single 8-bit character literal with explicit prefix (l8'a')</summary>
@@ -278,14 +274,14 @@ public enum TokenType
     /// <summary>Regular identifier prefixed with let/var/nothing</summary>
     Identifier,
 
-    /// <summary>Type identifier in PascalCase (MyClass, HttpResponse)</summary>
+    /// <summary>Type identifier prefixed with record/entity/resident/choice/variant/mutant</summary>
     TypeIdentifier,
 
     #endregion
 
     #region Keywords - Declarations
 
-    /// <summary>Function declaration keyword (routine)</summary>
+    /// <summary>Routine(function) declaration keyword</summary>
     Routine,
 
     /// <summary>Entity declaration keyword</summary>
@@ -294,7 +290,7 @@ public enum TokenType
     /// <summary>Record declaration keyword</summary>
     Record,
 
-    /// <summary>Choice declaration keyword (enum in both languages)</summary>
+    /// <summary>Choice declaration keyword</summary>
     Choice,
 
     /// <summary>Resident declaration keyword</summary>
@@ -315,10 +311,10 @@ public enum TokenType
     /// <summary>Private access modifier keyword</summary>
     Private,
 
-    /// <summary>family access modifier keyword (`family`)</summary>
+    /// <summary>family access modifier keyword</summary>
     Family,
 
-    /// <summary>local access modifier keyword (`local`)</summary>
+    /// <summary>local access modifier keyword</summary>
     Internal,
 
     /// <summary>Public access modifier keyword</summary>
@@ -331,12 +327,12 @@ public enum TokenType
     Global,
 
     /// <summary>Static modifier keyword</summary>
-    TypeWise,
+    Common,
 
     /// <summary>Self reference keyword (me)</summary>
     Me,
 
-    /// <summary>Self type keyword (MyType) - the type of 'me' in protocols and methods</summary>
+    /// <summary>Self type keyword (Me) - the type of 'me' in protocols and methods</summary>
     MyType,
 
     /// <summary>Parent reference keyword</summary>
@@ -344,6 +340,15 @@ public enum TokenType
 
     /// <summary>From clause keyword for inheritance</summary>
     From,
+
+    /// <summary>Follows keyword for ordering constraints</summary>
+    Follows,
+
+    /// <summary>Not from keyword - negated inheritance check (notfrom)</summary>
+    NotFrom,
+
+    /// <summary>Not follows keyword - negated ordering constraint (notfollows)</summary>
+    NotFollows,
 
     #endregion
 
@@ -358,7 +363,7 @@ public enum TokenType
     /// <summary>Else conditional keyword</summary>
     Else,
 
-    /// <summary>One liner of conditional expression (if predicate then A else B)</summary>
+    /// <summary>One-liner of conditional expression (if predicate then A else B)</summary>
     Then,
 
     /// <summary>Unless (negative if) conditional keyword</summary>
@@ -414,26 +419,21 @@ public enum TokenType
     /// <summary>Type alias as keyword</summary>
     As,
 
-    /// <summary>Method redefinition keyword (redefinition A = B)</summary>
+    /// <summary>Method/Type redefinition keyword (define A as B)</summary>
     Define,
 
     /// <summary>No-operation pass keyword</summary>
     Pass,
 
-    /// <summary>Bitter mode keyword for low-level operations</summary>
-    Bitter,
-
     /// <summary>Danger mode keyword for unsafe operations</summary>
     Danger,
 
-    /// <summary>With clause keyword for context</summary>
+    /// <summary>With clause keyword for record modify and generation keyword (ex, a = a with (x: 42))</summary>
     With,
 
     /// <summary>Where clause keyword for constraints</summary>
     Where,
 
-    /// <summary>Follows keyword for ordering constraints</summary>
-    Follows,
 
     /// <summary>In keyword for iterating/contains (ex, for i in 1 to 10 step 2)</summary>
     In,
@@ -443,12 +443,6 @@ public enum TokenType
 
     /// <summary>Is not keyword - negated type check (isnot)</summary>
     IsNot,
-
-    /// <summary>Not from keyword - negated inheritance check (notfrom)</summary>
-    NotFrom,
-
-    /// <summary>Not follows keyword - negated ordering constraint (notfollows)</summary>
-    NotFollows,
 
     /// <summary>To keyword for Range object (ex, for i in 1 to 10 by 2)</summary>
     To,
@@ -495,17 +489,17 @@ public enum TokenType
     /// <summary>Subtraction or unary minus operator (-)</summary>
     Minus,
 
-    /// <summary>Multiplication or dereference operator (*)</summary>
+    /// <summary>Multiplication operator (*)</summary>
     Star,
 
-    /// <summary>Regular division operator (/)</summary>
+    /// <summary>Regular division or namespace separation operator (/)</summary>
     Slash,
-
-    /// <summary>Modulo operator (%)</summary>
-    Percent,
 
     /// <summary>Integer division operator (//)</summary>
     Divide,
+
+    /// <summary>Modulo operator (%)</summary>
+    Percent,
 
     #endregion
 
@@ -517,9 +511,6 @@ public enum TokenType
     /// <summary>Saturating addition operator (+^)</summary>
     PlusSaturate,
 
-    /// <summary>Unchecked addition operator (+!)</summary>
-    PlusUnchecked,
-
     /// <summary>Checked addition operator (+?)</summary>
     PlusChecked,
 
@@ -528,9 +519,6 @@ public enum TokenType
 
     /// <summary>Saturating subtraction operator (-^)</summary>
     MinusSaturate,
-
-    /// <summary>Unchecked subtraction operator (-!)</summary>
-    MinusUnchecked,
 
     /// <summary>Checked subtraction operator (-?)</summary>
     MinusChecked,
@@ -541,32 +529,11 @@ public enum TokenType
     /// <summary>Saturating multiplication operator (*^)</summary>
     MultiplySaturate,
 
-    /// <summary>Unchecked multiplication operator (*!)</summary>
-    MultiplyUnchecked,
-
     /// <summary>Checked multiplication operator (*?)</summary>
     MultiplyChecked,
 
-    /// <summary>Wrapping integer division operator (//%)</summary>
-    DivideWrap,
-
-    /// <summary>Saturating integer division operator (//^)</summary>
-    DivideSaturate,
-
-    /// <summary>Unchecked integer division operator (//!)</summary>
-    DivideUnchecked,
-
     /// <summary>Checked integer division operator (//?)</summary>
     DivideChecked,
-
-    /// <summary>Wrapping modulo operator (%%)</summary>
-    ModuloWrap,
-
-    /// <summary>Saturating modulo operator (%^)</summary>
-    ModuloSaturate,
-
-    /// <summary>Unchecked modulo operator (%!)</summary>
-    ModuloUnchecked,
 
     /// <summary>Checked modulo operator (%?)</summary>
     ModuloChecked,
@@ -579,9 +546,6 @@ public enum TokenType
 
     /// <summary>Saturating exponentiation operator (**^)</summary>
     PowerSaturate,
-
-    /// <summary>Unchecked exponentiation operator (**!)</summary>
-    PowerUnchecked,
 
     /// <summary>Checked exponentiation operator (**?)</summary>
     PowerChecked,
@@ -621,10 +585,10 @@ public enum TokenType
 
     #region Operators - Bitwise
 
-    /// <summary>Bitwise AND or reference operator (&)</summary>
+    /// <summary>Bitwise AND operator (&)</summary>
     Ampersand,
 
-    /// <summary>Bitwise OR or union operator (|)</summary>
+    /// <summary>Bitwise OR operator (|)</summary>
     Pipe,
 
     /// <summary>Bitwise XOR operator (^)</summary>
@@ -658,10 +622,10 @@ public enum TokenType
     /// <summary>Negation or macro operator (!)</summary>
     Bang,
 
-    /// <summary>Optional or ternary operator (?)</summary>
+    /// <summary>Optional type operator (?)</summary>
     Question,
 
-    /// <summary>Attribute or annotation operator (@)</summary>
+    /// <summary>Attribute operator (@)</summary>
     At,
 
     /// <summary>Intrinsic function call (@intrinsic)</summary>
@@ -670,7 +634,7 @@ public enum TokenType
     /// <summary>Native function call (@native)</summary>
     Native,
 
-    /// <summary>Comment or preprocessing operator (#)</summary>
+    /// <summary>Comment operator (#)</summary>
     Hash,
 
     /// <summary>Function arrow operator (->)</summary>
@@ -717,13 +681,7 @@ public enum TokenType
     /// <summary>Type annotation colon (:)</summary>
     Colon,
 
-    /// <summary>Namespace or static access operator (::)</summary>
-    DoubleColon,
-
-    /// <summary>Range operator (..)  </summary>
-    DotDot,
-
-    /// <summary>Spread or rest operator (...)</summary>
+    /// <summary>Vararg declaration operator (...) (ex, routine foo(values...:s32) -> s32</summary>
     DotDotDot,
 
     #endregion
@@ -739,7 +697,7 @@ public enum TokenType
     /// <summary>Indentation decrement token (Suflae language only)</summary>
     Dedent,
 
-    /// <summary>Documentation comment token (##)</summary>
+    /// <summary>Documentation comment token (###)</summary>
     DocComment,
 
     /// <summary>Requires keyword for protocol/interface requirements</summary>
@@ -753,9 +711,6 @@ public enum TokenType
 
     /// <summary>Waitfor keyword for awaiting async operations</summary>
     Waitfor,
-
-    /// <summary>Usurping keyword for taking ownership in resource management (usurping obj as u)</summary>
-    Usurping,
 
     /// <summary>Scoped read-only access keyword (viewing obj as v { })</summary>
     Viewing,

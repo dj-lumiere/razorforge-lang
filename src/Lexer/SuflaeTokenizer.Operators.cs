@@ -30,18 +30,18 @@ public partial class SuflaeTokenizer
         {
             case '%':
                 Advance();
-                AddToken(TokenType.PlusWrap);
+                AddToken(type: TokenType.PlusWrap);
                 break;
             case '^':
                 Advance();
-                AddToken(TokenType.PlusSaturate);
+                AddToken(type: TokenType.PlusSaturate);
                 break;
             case '?':
                 Advance();
-                AddToken(TokenType.PlusChecked);
+                AddToken(type: TokenType.PlusChecked);
                 break;
             default:
-                AddToken(TokenType.Plus);
+                AddToken(type: TokenType.Plus);
                 break;
         }
     }
@@ -58,18 +58,18 @@ public partial class SuflaeTokenizer
         {
             case '%':
                 Advance();
-                AddToken(TokenType.MinusWrap);
+                AddToken(type: TokenType.MinusWrap);
                 break;
             case '^':
                 Advance();
-                AddToken(TokenType.MinusSaturate);
+                AddToken(type: TokenType.MinusSaturate);
                 break;
             case '?':
                 Advance();
-                AddToken(TokenType.MinusChecked);
+                AddToken(type: TokenType.MinusChecked);
                 break;
             default:
-                AddToken(TokenType.Minus);
+                AddToken(type: TokenType.Minus);
                 break;
         }
     }
@@ -79,24 +79,32 @@ public partial class SuflaeTokenizer
     /// </summary>
     private void ScanStarOperator()
     {
-        bool isPow = Match('*'); // Check for **
+        bool isPow = Match(expected: '*'); // Check for **
 
         switch (Peek())
         {
             case '%':
                 Advance();
-                AddToken(isPow ? TokenType.PowerWrap : TokenType.MultiplyWrap);
+                AddToken(type: isPow
+                    ? TokenType.PowerWrap
+                    : TokenType.MultiplyWrap);
                 break;
             case '^':
                 Advance();
-                AddToken(isPow ? TokenType.PowerSaturate : TokenType.MultiplySaturate);
+                AddToken(type: isPow
+                    ? TokenType.PowerSaturate
+                    : TokenType.MultiplySaturate);
                 break;
             case '?':
                 Advance();
-                AddToken(isPow ? TokenType.PowerChecked : TokenType.MultiplyChecked);
+                AddToken(type: isPow
+                    ? TokenType.PowerChecked
+                    : TokenType.MultiplyChecked);
                 break;
             default:
-                AddToken(isPow ? TokenType.Power : TokenType.Star);
+                AddToken(type: isPow
+                    ? TokenType.Power
+                    : TokenType.Star);
                 break;
         }
     }
@@ -106,9 +114,9 @@ public partial class SuflaeTokenizer
     /// </summary>
     private void ScanSlashOperator()
     {
-        if (!Match('/'))
+        if (!Match(expected: '/'))
         {
-            AddToken(TokenType.Slash); // Single /
+            AddToken(type: TokenType.Slash); // Single /
         }
         else
         {
@@ -116,11 +124,11 @@ public partial class SuflaeTokenizer
             if (Peek() == '?')
             {
                 Advance();
-                AddToken(TokenType.DivideChecked); // //?
+                AddToken(type: TokenType.DivideChecked); // //?
             }
             else
             {
-                AddToken(TokenType.Divide); // //
+                AddToken(type: TokenType.Divide); // //
             }
         }
     }
@@ -133,11 +141,11 @@ public partial class SuflaeTokenizer
         if (Peek() == '?')
         {
             Advance();
-            AddToken(TokenType.ModuloChecked);
+            AddToken(type: TokenType.ModuloChecked);
         }
         else
         {
-            AddToken(TokenType.Percent);
+            AddToken(type: TokenType.Percent);
         }
     }
 
@@ -163,26 +171,36 @@ public partial class SuflaeTokenizer
     /// </remarks>
     private void ScanLessThanOperator()
     {
-        if (Match('='))
+        if (Match(expected: '='))
         {
             // <= or <=>
-            if (Match('>'))
-                AddToken(TokenType.ThreeWayComparison); // <=>
+            if (Match(expected: '>'))
+            {
+                AddToken(type: TokenType.ThreeWayComparison); // <=>
+            }
             else
-                AddToken(TokenType.LessEqual); // <=
+            {
+                AddToken(type: TokenType.LessEqual); // <=
+            }
         }
-        else if (Match('<'))
+        else if (Match(expected: '<'))
         {
-            if (Match('<'))
-                AddToken(TokenType.LogicalLeftShift); // <<<
-            else if (Match('?'))
-                AddToken(TokenType.LeftShiftChecked); // <<?
+            if (Match(expected: '<'))
+            {
+                AddToken(type: TokenType.LogicalLeftShift); // <<<
+            }
+            else if (Match(expected: '?'))
+            {
+                AddToken(type: TokenType.LeftShiftChecked); // <<?
+            }
             else
-                AddToken(TokenType.LeftShift); // <<
+            {
+                AddToken(type: TokenType.LeftShift); // <<
+            }
         }
         else
         {
-            AddToken(TokenType.Less);
+            AddToken(type: TokenType.Less);
         }
     }
 
@@ -191,20 +209,24 @@ public partial class SuflaeTokenizer
     /// </summary>
     private void ScanGreaterThanOperator()
     {
-        if (Match('='))
+        if (Match(expected: '='))
         {
-            AddToken(TokenType.GreaterEqual);
+            AddToken(type: TokenType.GreaterEqual);
         }
-        else if (Match('>'))
+        else if (Match(expected: '>'))
         {
-            if (Match('>'))
-                AddToken(TokenType.LogicalRightShift); // >>>
+            if (Match(expected: '>'))
+            {
+                AddToken(type: TokenType.LogicalRightShift); // >>>
+            }
             else
-                AddToken(TokenType.RightShift); // >>
+            {
+                AddToken(type: TokenType.RightShift); // >>
+            }
         }
         else
         {
-            AddToken(TokenType.Greater);
+            AddToken(type: TokenType.Greater);
         }
     }
 
@@ -227,19 +249,25 @@ public partial class SuflaeTokenizer
         {
             // Consume "intrinsic" (9 characters)
             for (int i = 0; i < 9; i += 1)
+            {
                 Advance();
-            AddToken(TokenType.Intrinsic);
+            }
+
+            AddToken(type: TokenType.Intrinsic);
         }
         else if (Peek() == 'n' && PeekWord() == "native")
         {
             // Consume "native" (6 characters)
             for (int i = 0; i < 6; i += 1)
+            {
                 Advance();
-            AddToken(TokenType.Native);
+            }
+
+            AddToken(type: TokenType.Native);
         }
         else
         {
-            AddToken(TokenType.At);
+            AddToken(type: TokenType.At);
         }
     }
 

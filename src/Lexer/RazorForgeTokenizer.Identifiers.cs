@@ -53,32 +53,36 @@ public partial class RazorForgeTokenizer
     private void ScanIdentifier()
     {
         // Consume identifier characters
-        while (IsIdentifierPart(Peek()))
+        while (IsIdentifierPart(c: Peek()))
+        {
             Advance();
+        }
 
-        string text = _source.Substring(_tokenStart, _position - _tokenStart);
+        string text = _source.Substring(startIndex: _tokenStart, length: _position - _tokenStart);
 
         // Check for optional ? suffix for failable types (e.g., s32?)
         // Only consume single ? - double ?? is the none coalescing operator
-        if (Peek() == '?' && Peek(1) != '?')
+        if (Peek() == '?' && Peek(offset: 1) != '?')
         {
             Advance();
             text += "?";
         }
 
         // Check if it's a keyword
-        if (_keywords.TryGetValue(text, out TokenType type))
+        if (_keywords.TryGetValue(key: text, value: out TokenType type))
         {
-            AddToken(type, text);
+            AddToken(type: type, text: text);
             return;
         }
 
         // Skip empty identifiers (shouldn't happen, but defensive)
-        if (string.IsNullOrEmpty(text))
+        if (string.IsNullOrEmpty(value: text))
+        {
             return;
+        }
 
         // Always emit Identifier - parser determines type vs value from context
-        AddToken(TokenType.Identifier, text);
+        AddToken(type: TokenType.Identifier, text: text);
     }
 
     #endregion
@@ -108,7 +112,7 @@ public partial class RazorForgeTokenizer
     private void ScanComment()
     {
         // Check for doc comment (###)
-        if (Peek() == '#' && Peek(1) == '#')
+        if (Peek() == '#' && Peek(offset: 1) == '#')
         {
             Advance(); // consume second #
             Advance(); // consume third #
@@ -117,16 +121,20 @@ public partial class RazorForgeTokenizer
 
             // Consume until end of line
             while (Peek() != '\n' && !IsAtEnd())
+            {
                 Advance();
+            }
 
-            string text = _source.Substring(start, _position - start);
-            AddToken(TokenType.DocComment, text);
+            string text = _source.Substring(startIndex: start, length: _position - start);
+            AddToken(type: TokenType.DocComment, text: text);
         }
         else
         {
             // Regular comment - consume until end of line (no token emitted)
             while (Peek() != '\n' && !IsAtEnd())
+            {
                 Advance();
+            }
         }
     }
 

@@ -33,9 +33,12 @@ public partial class RazorForgeTokenizer
     /// </remarks>
     private char Advance()
     {
-        if (IsAtEnd()) return '\0';
+        if (IsAtEnd())
+        {
+            return '\0';
+        }
 
-        char c = _source[_position];
+        char c = _source[index: _position];
         _position += 1;
 
         if (c == '\n')
@@ -73,8 +76,15 @@ public partial class RazorForgeTokenizer
     /// </remarks>
     private bool Match(char expected)
     {
-        if (IsAtEnd()) return false;
-        if (_source[_position] != expected) return false;
+        if (IsAtEnd())
+        {
+            return false;
+        }
+
+        if (_source[index: _position] != expected)
+        {
+            return false;
+        }
 
         _position += 1;
         _column += 1;
@@ -109,7 +119,9 @@ public partial class RazorForgeTokenizer
     private char Peek(int offset = 0)
     {
         int pos = _position + offset;
-        return pos >= _source.Length ? '\0' : _source[pos];
+        return pos >= _source.Length
+            ? '\0'
+            : _source[index: pos];
     }
 
     /// <summary>
@@ -124,7 +136,10 @@ public partial class RazorForgeTokenizer
     /// when to stop scanning and to handle edge cases like unterminated
     /// strings at end of file.
     /// </remarks>
-    private bool IsAtEnd() => _position >= _source.Length;
+    private bool IsAtEnd()
+    {
+        return _position >= _source.Length;
+    }
 
     /// <summary>
     /// Peeks at the word starting at the current position without consuming it.
@@ -149,10 +164,10 @@ public partial class RazorForgeTokenizer
 
         while (true)
         {
-            char c = Peek(offset);
-            if (char.IsLetterOrDigit(c) || c == '_')
+            char c = Peek(offset: offset);
+            if (char.IsLetterOrDigit(c: c) || c == '_')
             {
-                sb.Append(c);
+                sb.Append(value: c);
                 offset += 1;
             }
             else
@@ -179,8 +194,8 @@ public partial class RazorForgeTokenizer
     /// </remarks>
     private void AddToken(TokenType type)
     {
-        string text = _source.Substring(_tokenStart, _position - _tokenStart);
-        AddToken(type, text);
+        string text = _source.Substring(startIndex: _tokenStart, length: _position - _tokenStart);
+        AddToken(type: type, text: text);
     }
 
     /// <summary>
@@ -200,8 +215,7 @@ public partial class RazorForgeTokenizer
     /// </remarks>
     private void AddToken(TokenType type, string text)
     {
-        _tokens.Add(new Token(
-            Type: type,
+        _tokens.Add(item: new Token(Type: type,
             Text: text,
             Line: _tokenStartLine,
             Column: _tokenStartColumn,
@@ -223,7 +237,10 @@ public partial class RazorForgeTokenizer
     /// In RazorForge, identifiers must start with a letter or underscore.
     /// Digits are not allowed as the first character.
     /// </remarks>
-    private static bool IsIdentifierStart(char c) => char.IsLetter(c) || c == '_';
+    private static bool IsIdentifierStart(char c)
+    {
+        return char.IsLetter(c: c) || c == '_';
+    }
 
     /// <summary>
     /// Determines whether a character can be part of an identifier (after the first character).
@@ -235,7 +252,10 @@ public partial class RazorForgeTokenizer
     /// <remarks>
     /// After the first character, identifiers can contain letters, digits, and underscores.
     /// </remarks>
-    private static bool IsIdentifierPart(char c) => char.IsLetterOrDigit(c) || c == '_';
+    private static bool IsIdentifierPart(char c)
+    {
+        return char.IsLetterOrDigit(c: c) || c == '_';
+    }
 
     /// <summary>
     /// Determines whether a character is a valid hexadecimal digit.
@@ -247,7 +267,10 @@ public partial class RazorForgeTokenizer
     /// <remarks>
     /// Used for parsing hexadecimal literals (0x...) and Unicode escape sequences (\uXXXX).
     /// </remarks>
-    private static bool IsHexDigit(char c) => char.IsDigit(c) || c is >= 'a' and <= 'f' or >= 'A' and <= 'F';
+    private static bool IsHexDigit(char c)
+    {
+        return char.IsDigit(c: c) || c is >= 'a' and <= 'f' or >= 'A' and <= 'F';
+    }
 
     #endregion
 }
