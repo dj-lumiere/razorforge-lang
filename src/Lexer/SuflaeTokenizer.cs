@@ -160,7 +160,6 @@ public partial class SuflaeTokenizer
         [key: "as"] = TokenType.As,
         [key: "pass"] = TokenType.Pass,
         [key: "with"] = TokenType.With,
-        [key: "where"] = TokenType.Where,
         [key: "isnot"] = TokenType.IsNot,
         [key: "notin"] = TokenType.NotIn,
         [key: "notfollows"] = TokenType.NotFollows,

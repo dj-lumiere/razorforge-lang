@@ -167,7 +167,6 @@ public partial class RazorForgeTokenizer
         [key: "pass"] = TokenType.Pass,
         [key: "danger"] = TokenType.Danger,
         [key: "with"] = TokenType.With,
-        [key: "where"] = TokenType.Where,
         [key: "isnot"] = TokenType.IsNot,
         [key: "notin"] = TokenType.NotIn,
         [key: "notfollows"] = TokenType.NotFollows,
