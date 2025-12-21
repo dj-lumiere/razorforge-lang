@@ -8,6 +8,11 @@ namespace Compilers.RazorForge.Parser;
 /// </summary>
 public partial class RazorForgeParser
 {
+    /// <summary>
+    /// Parses an if statement with optional elseif/else chains.
+    /// Syntax: <c>if condition { body } elseif condition { body } else { body }</c>
+    /// </summary>
+    /// <returns>An <see cref="IfStatement"/> AST node.</returns>
     private IfStatement ParseIfStatement()
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
@@ -16,37 +21,27 @@ public partial class RazorForgeParser
         Statement? thenBranch = ParseStatement();
         Statement? elseBranch = null;
 
-        // Handle elif chain
+        // Handle elseif chain
         while (Match(type: TokenType.Elseif))
         {
-            Expression elifCondition = ParseExpression();
-            Statement? elifBranch = ParseStatement();
+            Expression elseifCondition = ParseExpression();
+            Statement? elseifBranch = ParseStatement();
 
-            // Convert elif to nested if-else
-            var nestedIf = new IfStatement(Condition: elifCondition,
-                ThenStatement: elifBranch,
+            // Convert elseif to nested if-else
+            var nestedIf = new IfStatement(Condition: elseifCondition,
+                ThenStatement: elseifBranch,
                 ElseStatement: null,
                 Location: GetLocation(token: PeekToken(offset: -1)));
 
-            if (elseBranch == null)
+            elseBranch = elseBranch switch
             {
-                elseBranch = nestedIf;
-            }
-            else
-            {
-                // Chain elifs together
-                if (elseBranch is IfStatement prevIf && prevIf.ElseStatement == null)
-                {
-                    elseBranch = new IfStatement(Condition: prevIf.Condition,
-                        ThenStatement: prevIf.ThenStatement,
-                        ElseStatement: nestedIf,
-                        Location: prevIf.Location);
-                }
-                else
-                {
-                    elseBranch = nestedIf;
-                }
-            }
+                null => nestedIf,
+                IfStatement { ElseStatement: null } prevIf => new IfStatement(Condition: prevIf.Condition,
+                    ThenStatement: prevIf.ThenStatement,
+                    ElseStatement: nestedIf,
+                    Location: prevIf.Location),
+                _ => nestedIf
+            };
         }
 
         if (Match(type: TokenType.Else))
@@ -68,9 +63,7 @@ public partial class RazorForgeParser
 
                 elseBranch = new IfStatement(Condition: lastIf.Condition,
                     ThenStatement: lastIf.ThenStatement,
-                    ElseStatement: current.ElseStatement == null
-                        ? finalElse
-                        : current.ElseStatement,
+                    ElseStatement: current.ElseStatement ?? finalElse,
                     Location: lastIf.Location);
             }
         }
@@ -81,6 +74,11 @@ public partial class RazorForgeParser
             Location: location);
     }
 
+    /// <summary>
+    /// Parses an unless statement (inverted if).
+    /// Syntax: <c>unless condition { body }</c> = <c>if not condition { body }</c>
+    /// </summary>
+    /// <returns>An <see cref="IfStatement"/> with negated condition.</returns>
     private IfStatement ParseUnlessStatement()
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
@@ -95,9 +93,7 @@ public partial class RazorForgeParser
         }
 
         // Unless is "if not condition"
-        var negatedCondition = new UnaryExpression(Operator: UnaryOperator.Not,
-            Operand: condition,
-            Location: condition.Location);
+        var negatedCondition = new UnaryExpression(Operator: UnaryOperator.Not, Operand: condition, Location: condition.Location);
 
         return new IfStatement(Condition: negatedCondition,
             ThenStatement: thenBranch,
@@ -105,6 +101,11 @@ public partial class RazorForgeParser
             Location: location);
     }
 
+    /// <summary>
+    /// Parses a while loop statement.
+    /// Syntax: <c>while condition { body }</c>
+    /// </summary>
+    /// <returns>A <see cref="WhileStatement"/> AST node.</returns>
     private WhileStatement ParseWhileStatement()
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
@@ -115,18 +116,27 @@ public partial class RazorForgeParser
         return new WhileStatement(Condition: condition, Body: body, Location: location);
     }
 
+    /// <summary>
+    /// Parses an infinite loop statement.
+    /// Syntax: <c>loop { body }</c> = <c>while true { body }</c>
+    /// </summary>
+    /// <returns>A <see cref="WhileStatement"/> with always-true condition.</returns>
     private WhileStatement ParseLoopStatement()
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
 
         // loop { body } is equivalent to while true { body }
-        Expression trueCondition =
-            new LiteralExpression(Value: true, LiteralType: TokenType.True, Location: location);
+        Expression trueCondition = new LiteralExpression(Value: true, LiteralType: TokenType.True, Location: location);
         Statement? body = ParseStatement();
 
         return new WhileStatement(Condition: trueCondition, Body: body, Location: location);
     }
 
+    /// <summary>
+    /// Parses a for-in loop statement (iteration over collections).
+    /// Syntax: <c>for variable in iterable { body }</c>
+    /// </summary>
+    /// <returns>A <see cref="ForStatement"/> AST node.</returns>
     private ForStatement ParseForStatement()
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
@@ -142,6 +152,12 @@ public partial class RazorForgeParser
             Location: location);
     }
 
+    /// <summary>
+    /// Parses a when statement (pattern matching).
+    /// Syntax: <c>when expr { pattern =&gt; body, ... }</c> or <c>when { condition =&gt; body, ... }</c>
+    /// Supports type patterns, literal patterns, wildcard patterns, and expression guards.
+    /// </summary>
+    /// <returns>A <see cref="WhenStatement"/> AST node.</returns>
     private WhenStatement ParseWhenStatement()
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
@@ -152,9 +168,7 @@ public partial class RazorForgeParser
         if (Check(type: TokenType.LeftBrace))
         {
             // Standalone when - use 'true' as the implicit subject
-            expression = new LiteralExpression(Value: true,
-                LiteralType: TokenType.True,
-                Location: location);
+            expression = new LiteralExpression(Value: true, LiteralType: TokenType.True, Location: location);
         }
         else
         {
@@ -190,8 +204,7 @@ public partial class RazorForgeParser
                 if (Check(type: TokenType.Identifier) && PeekToken(offset: 1)
                        .Type == TokenType.FatArrow)
                 {
-                    string varName =
-                        ConsumeIdentifier(errorMessage: "Expected variable name after 'else'");
+                    string varName = ConsumeIdentifier(errorMessage: "Expected variable name after 'else'");
                     pattern = new IdentifierPattern(Name: varName, Location: clauseLocation);
                 }
                 else
@@ -216,8 +229,7 @@ public partial class RazorForgeParser
             Statement? body = ParseStatement();
             _inWhenClauseBody = false;
 
-            clauses.Add(
-                item: new WhenClause(Pattern: pattern, Body: body, Location: GetLocation()));
+            clauses.Add(item: new WhenClause(Pattern: pattern, Body: body, Location: GetLocation()));
 
             // Optional comma or newline between clauses
             Match(TokenType.Comma, TokenType.Newline);
@@ -228,6 +240,11 @@ public partial class RazorForgeParser
         return new WhenStatement(Expression: expression, Clauses: clauses, Location: location);
     }
 
+    /// <summary>
+    /// Parses a pattern for use in when clauses.
+    /// Supports: wildcard (_), type patterns (Type varName), literal patterns, guard patterns (n if n &lt; 0).
+    /// </summary>
+    /// <returns>A <see cref="Pattern"/> AST node.</returns>
     private Pattern ParsePattern()
     {
         SourceLocation location = GetLocation();
@@ -236,7 +253,8 @@ public partial class RazorForgeParser
         if (Check(type: TokenType.Identifier) && CurrentToken.Text == "_")
         {
             Advance();
-            return new WildcardPattern(Location: location);
+            Pattern wildcardPattern = new WildcardPattern(Location: location);
+            return TryParseGuard(innerPattern: wildcardPattern, location: location);
         }
 
         // Type pattern with optional variable binding: Type variableName or Type
@@ -248,35 +266,56 @@ public partial class RazorForgeParser
             string? variableName = null;
             if (Check(type: TokenType.Identifier))
             {
-                variableName =
-                    ConsumeIdentifier(errorMessage: "Expected variable name for type pattern");
+                variableName = ConsumeIdentifier(errorMessage: "Expected variable name for type pattern");
             }
 
-            return new TypePattern(Type: type, VariableName: variableName, Location: location);
+            Pattern typePattern = new TypePattern(Type: type, VariableName: variableName, Location: location);
+            return TryParseGuard(innerPattern: typePattern, location: location);
         }
 
-        // Try parsing as expression (for standalone when blocks with boolean conditions)
-        // This allows patterns like: b != 0, x > 10, etc.
-        Expression expr = ParseExpression();
-
-        // If it's a simple identifier, treat as identifier pattern (variable binding)
-        if (expr is IdentifierExpression identExpr)
+        // Identifier pattern: variable binding (check before parsing full expression)
+        if (Check(type: TokenType.Identifier))
         {
-            return new IdentifierPattern(Name: identExpr.Name, Location: location);
+            string name = ConsumeIdentifier(errorMessage: "Expected identifier for pattern");
+            Pattern identPattern = new IdentifierPattern(Name: name, Location: location);
+            return TryParseGuard(innerPattern: identPattern, location: location);
         }
 
-        // If it's a literal, treat as literal pattern
+        // Literal pattern: constants like 42, "hello", true, etc.
+        Expression expr = ParsePrimary();
         if (expr is LiteralExpression literal)
         {
-            return new LiteralPattern(Value: literal.Value,
-                LiteralType: literal.LiteralType,
-                Location: location);
+            Pattern litPattern = new LiteralPattern(Value: literal.Value, LiteralType: literal.LiteralType, Location: location);
+            return TryParseGuard(innerPattern: litPattern, location: location);
         }
 
-        // Otherwise, treat as expression pattern (guard condition)
+        // Otherwise, treat as expression pattern
         return new ExpressionPattern(Expression: expr, Location: location);
     }
 
+    /// <summary>
+    /// Tries to parse a guard clause (if condition) after a pattern.
+    /// Syntax: <c>pattern if condition</c>
+    /// </summary>
+    /// <param name="innerPattern">The pattern before the guard.</param>
+    /// <param name="location">Source location of the pattern.</param>
+    /// <returns>A <see cref="GuardPattern"/> if guard is present, otherwise the original pattern.</returns>
+    private Pattern TryParseGuard(Pattern innerPattern, SourceLocation location)
+    {
+        if (Match(type: TokenType.If))
+        {
+            Expression guard = ParseExpression();
+            return new GuardPattern(InnerPattern: innerPattern, Guard: guard, Location: location);
+        }
+
+        return innerPattern;
+    }
+
+    /// <summary>
+    /// Parses a return statement.
+    /// Syntax: <c>return</c> or <c>return value</c>
+    /// </summary>
+    /// <returns>A <see cref="ReturnStatement"/> AST node.</returns>
     private ReturnStatement ParseReturnStatement()
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
@@ -293,6 +332,11 @@ public partial class RazorForgeParser
         return new ReturnStatement(Value: value, Location: location);
     }
 
+    /// <summary>
+    /// Parses a break statement (exits loop).
+    /// Syntax: <c>break</c>
+    /// </summary>
+    /// <returns>A <see cref="BreakStatement"/> AST node.</returns>
     private BreakStatement ParseBreakStatement()
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
@@ -300,6 +344,11 @@ public partial class RazorForgeParser
         return new BreakStatement(Location: location);
     }
 
+    /// <summary>
+    /// Parses a continue statement (skips to next loop iteration).
+    /// Syntax: <c>continue</c>
+    /// </summary>
+    /// <returns>A <see cref="ContinueStatement"/> AST node.</returns>
     private ContinueStatement ParseContinueStatement()
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
@@ -307,6 +356,23 @@ public partial class RazorForgeParser
         return new ContinueStatement(Location: location);
     }
 
+    /// <summary>
+    /// Parses a pass statement (no-op placeholder).
+    /// Syntax: <c>pass</c>
+    /// </summary>
+    /// <returns>A <see cref="PassStatement"/> AST node.</returns>
+    private PassStatement ParsePassStatement()
+    {
+        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
+        ConsumeStatementTerminator();
+        return new PassStatement(Location: location);
+    }
+
+    /// <summary>
+    /// Parses a throw statement (raises an error).
+    /// Syntax: <c>throw errorExpression</c>
+    /// </summary>
+    /// <returns>A <see cref="ThrowStatement"/> AST node.</returns>
     private ThrowStatement ParseThrowStatement()
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
@@ -315,6 +381,11 @@ public partial class RazorForgeParser
         return new ThrowStatement(Error: error, Location: location);
     }
 
+    /// <summary>
+    /// Parses an absent statement (returns None from failable function).
+    /// Syntax: <c>absent</c>
+    /// </summary>
+    /// <returns>An <see cref="AbsentStatement"/> AST node.</returns>
     private AbsentStatement ParseAbsentStatement()
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
@@ -322,6 +393,12 @@ public partial class RazorForgeParser
         return new AbsentStatement(Location: location);
     }
 
+    /// <summary>
+    /// Parses a block statement (sequence of statements in braces).
+    /// Syntax: <c>{ statement1\nstatement2\n... }</c>
+    /// Handles variable declarations with var/let keywords.
+    /// </summary>
+    /// <returns>A <see cref="BlockStatement"/> AST node.</returns>
     private BlockStatement ParseBlockStatement()
     {
         SourceLocation location = GetLocation();
@@ -339,19 +416,19 @@ public partial class RazorForgeParser
             // Handle variable declarations inside blocks
             if (Match(TokenType.Var, TokenType.Let))
             {
-                // Check if this is tuple destructuring: let (a, b) = expr
+                // Check if this is destructuring: let (field, field2) = expr
                 if (Check(type: TokenType.LeftParen))
                 {
-                    Statement tupleDestructuring = ParseTupleDestructuring();
-                    statements.Add(item: tupleDestructuring);
+                    Statement destructuring = ParseDestructuringDeclaration();
+                    statements.Add(item: destructuring);
                 }
                 else
                 {
                     VariableDeclaration varDecl = ParseVariableDeclaration();
                     // Wrap the variable declaration as a declaration statement
-                    statements.Add(item: new DeclarationStatement(Declaration: varDecl,
-                        Location: varDecl.Location));
+                    statements.Add(item: new DeclarationStatement(Declaration: varDecl, Location: varDecl.Location));
                 }
+
                 continue;
             }
 
@@ -368,7 +445,7 @@ public partial class RazorForgeParser
     }
 
     /// <summary>
-    /// Parses a block expression: { expr } or { statements; expr }
+    /// Parses a block expression: { expr } or { statements\nexpr }
     /// The block evaluates to the last expression.
     /// </summary>
     private Expression ParseBlockExpression()
@@ -395,6 +472,11 @@ public partial class RazorForgeParser
         return new BlockExpression(Value: expr, Location: location);
     }
 
+    /// <summary>
+    /// Parses an expression statement (expression used as statement).
+    /// Syntax: <c>expression</c>
+    /// </summary>
+    /// <returns>An <see cref="ExpressionStatement"/> AST node.</returns>
     private ExpressionStatement ParseExpressionStatement()
     {
         Expression expr = ParseExpression();
@@ -402,6 +484,11 @@ public partial class RazorForgeParser
         return new ExpressionStatement(Expression: expr, Location: expr.Location);
     }
 
+    /// <summary>
+    /// Parses a danger statement (unsafe memory operations block).
+    /// Syntax: <c>danger! { unsafe_operations }</c>
+    /// </summary>
+    /// <returns>A <see cref="DangerStatement"/> AST node.</returns>
     private DangerStatement ParseDangerStatement()
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
@@ -414,25 +501,37 @@ public partial class RazorForgeParser
         return new DangerStatement(Body: body, Location: location);
     }
 
+    /// <summary>
+    /// Parses a viewing statement (scoped read-only memory access).
+    /// Syntax: <c>viewing source as token { body }</c>
+    /// Provides safe, immutable access to shared memory.
+    /// </summary>
+    /// <returns>A <see cref="ViewingStatement"/> AST node.</returns>
     private ViewingStatement ParseViewingStatement()
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
 
-        // Parse source expression: viewing <expr> as <handle>
+        // Parse source expression: viewing <expr> as <token>
         Expression source = ParseExpression();
 
         Consume(type: TokenType.As, errorMessage: "Expected 'as' after viewing source");
 
-        string handle = ConsumeIdentifier(errorMessage: "Expected handle name after 'as'");
+        string token = ConsumeIdentifier(errorMessage: "Expected token name after 'as'");
 
         BlockStatement body = ParseBlockStatement();
 
         return new ViewingStatement(Source: source,
-            Handle: handle,
+            Token: token,
             Body: body,
             Location: location);
     }
 
+    /// <summary>
+    /// Parses a hijacking statement (scoped exclusive memory access).
+    /// Syntax: <c>hijacking source as token { body }</c>
+    /// Provides exclusive mutable access to memory.
+    /// </summary>
+    /// <returns>A <see cref="HijackingStatement"/> AST node.</returns>
     private HijackingStatement ParseHijackingStatement()
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
@@ -447,100 +546,87 @@ public partial class RazorForgeParser
         BlockStatement body = ParseBlockStatement();
 
         return new HijackingStatement(Source: source,
-            Handle: handle,
-            Body: body,
-            Location: location);
-    }
-
-    private InspectingStatement ParseObservingStatement()
-    {
-        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
-
-        // Parse source expression: inspecting <expr> from <handle>
-        string handle = ConsumeIdentifier(errorMessage: "Expected handle name");
-
-        Consume(type: TokenType.From, errorMessage: "Expected 'from' after inspecting handle");
-
-        Expression source = ParseExpression();
-
-        Consume(type: TokenType.Colon, errorMessage: "Expected ':' after inspecting source");
-
-        BlockStatement body = ParseBlockStatement();
-
-        return new InspectingStatement(Source: source,
-            Handle: handle,
-            Body: body,
-            Location: location);
-    }
-
-    private SeizingStatement ParseSeizingStatement()
-    {
-        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
-
-        // Parse source expression: seizing <expr> from <handle>
-        string handle = ConsumeIdentifier(errorMessage: "Expected handle name");
-
-        Consume(type: TokenType.From, errorMessage: "Expected 'from' after seizing handle");
-
-        Expression source = ParseExpression();
-
-        Consume(type: TokenType.Colon, errorMessage: "Expected ':' after seizing source");
-
-        BlockStatement body = ParseBlockStatement();
-
-        return new SeizingStatement(Source: source,
-            Handle: handle,
+            Token: handle,
             Body: body,
             Location: location);
     }
 
     /// <summary>
-    /// Parses tuple destructuring: let (a, b) = expr or var (x: s32, y: s64) = tuple_expr
+    /// Parses an inspecting statement (thread-safe scoped read access).
+    /// Syntax: <c>inspecting source as handle { body }</c>
+    /// Provides thread-safe shared read access with locking.
     /// </summary>
-    private TupleDestructuringStatement ParseTupleDestructuring()
+    /// <returns>An <see cref="InspectingStatement"/> AST node.</returns>
+    private InspectingStatement ParseInspectingStatement()
+    {
+        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
+
+        // Parse source expression: hijacking <expr> as <handle>
+        Expression source = ParseExpression();
+
+        Consume(type: TokenType.As, errorMessage: "Expected 'as' after inspecting handle");
+
+        string handle = ConsumeIdentifier(errorMessage: "Expected handle name after 'as'");
+
+        BlockStatement body = ParseBlockStatement();
+
+        return new InspectingStatement(Source: source,
+            Token: handle,
+            Body: body,
+            Location: location);
+    }
+
+    /// <summary>
+    /// Parses a seizing statement (thread-safe scoped exclusive access).
+    /// Syntax: <c>seizing source as handle { body }</c>
+    /// Provides thread-safe exclusive mutable access with locking.
+    /// </summary>
+    /// <returns>A <see cref="SeizingStatement"/> AST node.</returns>
+    private SeizingStatement ParseSeizingStatement()
+    {
+        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
+
+        // Parse source expression: hijacking <expr> as <handle>
+        Expression source = ParseExpression();
+
+        Consume(type: TokenType.As, errorMessage: "Expected 'as' after seizing handle");
+
+        string handle = ConsumeIdentifier(errorMessage: "Expected handle name after 'as'");
+
+        BlockStatement body = ParseBlockStatement();
+
+        return new SeizingStatement(Source: source,
+            Token: handle,
+            Body: body,
+            Location: location);
+    }
+
+    /// <summary>
+    /// Parses record/entity destructuring: let (field, field2) = expr
+    /// or let (field: alias, field2: alias2) = expr
+    /// or nested: let ((x, y), radius) = circle
+    /// Destructuring only works for types where ALL fields are public.
+    /// </summary>
+    private DestructuringStatement ParseDestructuringDeclaration()
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -2)); // -2 because we already consumed 'let'/'var'
-        bool isMutable = PeekToken(offset: -2).Type == TokenType.Var;
+        bool isMutable = PeekToken(offset: -2)
+           .Type == TokenType.Var;
 
-        Consume(type: TokenType.LeftParen, errorMessage: "Expected '(' for tuple destructuring");
+        // Parse the destructuring pattern (reuse ParseDestructuringBindings from Expressions)
+        List<DestructuringBinding> bindings = ParseDestructuringBindings();
 
-        var variables = new List<string>();
-        var types = new List<TypeExpression?>();
-
-        // Parse variable list: (a, b, c) or (a: Type1, b: Type2)
-        do
-        {
-            if (Match(type: TokenType.Newline))
-            {
-                continue; // Skip newlines in tuple destructuring
-            }
-
-            string varName = ConsumeIdentifier(errorMessage: "Expected variable name in tuple destructuring");
-            variables.Add(item: varName);
-
-            // Check for optional type annotation: varName: Type
-            TypeExpression? varType = null;
-            if (Match(type: TokenType.Colon))
-            {
-                varType = ParseType();
-            }
-            types.Add(item: varType);
-
-        } while (Match(type: TokenType.Comma));
-
-        Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after tuple variable list");
+        var pattern = new DestructuringPattern(Bindings: bindings, Location: location);
 
         // Expect '='
-        Consume(type: TokenType.Assign, errorMessage: "Expected '=' in tuple destructuring");
+        Consume(type: TokenType.Assign, errorMessage: "Expected '=' in destructuring");
 
         // Parse the initializer expression
         Expression initializer = ParseExpression();
 
         ConsumeStatementTerminator();
 
-        return new TupleDestructuringStatement(
-            Variables: variables,
-            Types: types,
+        return new DestructuringStatement(Pattern: pattern,
             Initializer: initializer,
             IsMutable: isMutable,
             Location: location);

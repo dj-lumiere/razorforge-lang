@@ -1,6 +1,8 @@
+using System.Numerics;
 using Compilers.Shared.AST;
-using Compilers.Shared.Parser;
 using Compilers.Shared.Lexer;
+using Compilers.Shared.Parser;
+using Compilers.RazorForge.Parser;
 
 namespace Compilers.Suflae.Parser;
 
@@ -8,26 +10,132 @@ namespace Compilers.Suflae.Parser;
 /// Parser for Suflae language (indentation-based syntax)
 /// Handles Python-like indentation with colons and blocks
 /// </summary>
-public partial class SuflaeParser : BaseParser
+public partial class SuflaeParser
 {
-    #region field and property definitions
+    #region Base Parser Fields
 
-    private readonly Stack<int> _indentationStack = new();
-    private int _currentIndentationLevel = 0;
+    /// <summary>
+    /// The list of tokens to parse.
+    /// </summary>
+    protected readonly List<Token> Tokens;
 
-    private bool
-        _parsingInlineConditional = false; // Prevents nested inline conditionals (if-then-else expressions)
+    /// <summary>
+    /// Current position in the token stream.
+    /// </summary>
+    protected int Position = 0;
+
+    /// <summary>
+    /// Collection of warnings generated during parsing.
+    /// </summary>
+    protected readonly List<CompileWarning> Warnings = new();
+
+    /// <summary>
+    /// The source file name for error reporting.
+    /// </summary>
+    public string fileName = "";
 
     #endregion
 
-    public SuflaeParser(List<Token> tokens, string? fileName = null) : base(tokens: tokens, fileName: fileName ?? "")
+    #region Suflae-specific Fields
+
+    /// <summary>
+    /// Stack tracking indentation levels for block detection.
+    /// </summary>
+    private readonly Stack<int> _indentationStack = new();
+
+    /// <summary>
+    /// Current indentation level being parsed.
+    /// </summary>
+    private int _currentIndentationLevel = 0;
+
+    /// <summary>
+    /// Prevents nested inline conditionals (if-then-else expressions).
+    /// </summary>
+    private bool _parsingInlineConditional = false;
+
+    /// <summary>
+    /// Indicates whether we're currently parsing inside a record body.
+    /// When true, allows field declarations without var/let keywords.
+    /// </summary>
+    private bool _parsingRecordBody = false;
+
+    /// <summary>
+    /// Indicates whether we are currently parsing within a 'when' pattern context.
+    /// Used to disambiguate pattern matching syntax from regular expressions.
+    /// </summary>
+    private bool _inWhenPatternContext;
+
+    /// <summary>
+    /// Prevents 'is' expression parsing in when clause bodies.
+    /// When true, 'is' is not treated as a pattern-matching operator.
+    /// </summary>
+    private bool _inWhenClauseBody;
+
+    /// <summary>
+    /// Set of known type names for generic disambiguation.
+    /// Contains simple names like "List", "User" that have been declared or imported.
+    /// </summary>
+    private readonly HashSet<string> _knownTypeNames = [];
+
+    /// <summary>
+    /// Set of imported namespace names for qualified type resolution.
+    /// Contains namespace names like "Collections", "core" from import statements.
+    /// </summary>
+    private readonly HashSet<string> _importedNamespaces = [];
+
+    /// <summary>
+    /// Stack of generic parameter scopes for type name resolution.
+    /// Each scope contains parameter names like "K", "V" that are valid within that context.
+    /// Pushed when entering a generic declaration, popped when exiting.
+    /// </summary>
+    private readonly Stack<HashSet<string>> _genericParameterScopes = new();
+
+    #endregion
+
+    /// <summary>
+    /// Checks if an identifier is a known type name (declared, imported, or generic parameter).
+    /// Used for generic disambiguation when parsing expressions like <c>x &lt; y</c> vs <c>List&lt;T&gt;</c>.
+    /// </summary>
+    /// <param name="name">The identifier name to check.</param>
+    /// <returns>True if the name is a known type; false otherwise.</returns>
+    private bool IsKnownTypeName(string name)
     {
+        // Check simple type names (declared locally or individually imported)
+        if (_knownTypeNames.Contains(item: name))
+        {
+            return true;
+        }
+
+        // Check generic parameter scopes (e.g., K, V within Dict<K, V>)
+        foreach (HashSet<string> scope in _genericParameterScopes)
+        {
+            if (scope.Contains(item: name))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Creates a new Suflae parser for the given token stream.
+    /// </summary>
+    /// <param name="tokens">The tokens to parse.</param>
+    /// <param name="fileName">Optional source file name for error reporting.</param>
+    public SuflaeParser(List<Token> tokens, string? fileName = null)
+    {
+        Tokens = tokens;
+        this.fileName = fileName ?? "";
         _indentationStack.Push(item: 0); // Base indentation level
     }
 
-
-
-    public override Compilers.Shared.AST.Program Parse()
+    /// <summary>
+    /// Parses the token stream into a complete program AST.
+    /// Main entry point for parsing Suflae source files.
+    /// </summary>
+    /// <returns>A <see cref="Compilers.Shared.AST.Program"/> containing all top-level declarations.</returns>
+    public Compilers.Shared.AST.Program Parse()
     {
         var declarations = new List<IAstNode>();
 
@@ -59,18 +167,22 @@ public partial class SuflaeParser : BaseParser
                 Token errorToken = Position < Tokens.Count
                     ? Tokens[index: Position]
                     : Tokens[^1];
-                string location = !string.IsNullOrEmpty(base.fileName)
-                    ? $"[{base.fileName}:{errorToken.Line}:{errorToken.Column}]"
+                string location = !string.IsNullOrEmpty(value: fileName)
+                    ? $"[{fileName}:{errorToken.Line}:{errorToken.Column}]"
                     : $"[{errorToken.Line}:{errorToken.Column}]";
                 Console.Error.WriteLine(value: $"Parse error{location}: {ex.Message}");
                 Synchronize();
             }
         }
 
-        return new Compilers.Shared.AST.Program(Declarations: declarations,
-            Location: GetLocation());
+        return new Compilers.Shared.AST.Program(Declarations: declarations, Location: GetLocation());
     }
 
+    /// <summary>
+    /// Parses a single top-level or nested declaration.
+    /// Handles: namespace, import, define, using, var/let, routine, entity, record, choice, variant, protocol, impl.
+    /// </summary>
+    /// <returns>The parsed declaration node, or null if no valid declaration.</returns>
     private IAstNode? ParseDeclaration()
     {
         // Namespace declaration (must appear at top of file)
@@ -88,7 +200,7 @@ public partial class SuflaeParser : BaseParser
         // Redefinition
         if (Match(type: TokenType.Define))
         {
-            return ParseRedefinitionDeclaration();
+            return ParseDefineDeclaration();
         }
 
         // Using declaration
@@ -97,88 +209,87 @@ public partial class SuflaeParser : BaseParser
             return ParseUsingDeclaration();
         }
 
-        // Parse visibility modifier
-        VisibilityModifier visibility = ParseVisibilityModifier();
+        // Preset (compile-time constant)
+        if (Match(type: TokenType.Preset))
+        {
+            return ParsePresetDeclaration();
+        }
+
+        // Parse attributes (e.g., @inline, @crash_only, @intrinsic("name"))
+        List<string> attributes = ParseAttributes();
+
+        // Parse visibility modifier (with optional setter visibility)
+        (VisibilityModifier getterVisibility, VisibilityModifier? setterVisibility) = ParseGetterSetterVisibility();
+
+        // Field declaration in records: public name: Type or name: Type
+        // Detected by identifier followed by colon (no var/let keyword needed)
+        // Only allowed inside record bodies
+        if (_parsingRecordBody && Check(type: TokenType.Identifier) && PeekToken(offset: 1)
+               .Type == TokenType.Colon)
+        {
+            return ParseFieldDeclaration(visibility: getterVisibility, setterVisibility: setterVisibility);
+        }
 
         // Variable declarations
-        if (Match(TokenType.Var, TokenType.Let))
+        if (Match(TokenType.Var, TokenType.Let, TokenType.Preset))
         {
-            return ParseVariableDeclaration(visibility: visibility);
+            return ParseVariableDeclaration(visibility: getterVisibility, setterVisibility: setterVisibility);
         }
 
         // Routine (function) declaration - using 'routine' keyword in Suflae
         if (Match(type: TokenType.Routine))
         {
-            return ParseRoutineDeclaration(visibility: visibility);
+            return ParseRoutineDeclaration(visibility: getterVisibility, attributes: attributes);
         }
 
         // Entity/Record/Choice declarations
         if (Match(type: TokenType.Entity))
         {
-            return ParseClassDeclaration(visibility: visibility);
+            return ParseEntityDeclaration(visibility: getterVisibility);
         }
 
         if (Match(type: TokenType.Record))
         {
-            return ParseStructDeclaration(visibility: visibility);
+            return ParseRecordDeclaration(visibility: getterVisibility);
         }
 
         if (Match(type: TokenType.Choice))
         {
-            return ParseChoiceDeclaration(visibility: visibility); // choice in Suflae
+            return ParseChoiceDeclaration(visibility: getterVisibility);
         }
 
         if (Match(type: TokenType.Variant))
         {
-            return ParseVariantDeclaration(visibility: visibility, kind: VariantKind.Variant);
-        }
-
-        if (Match(type: TokenType.Mutant))
-        {
-            return ParseVariantDeclaration(visibility: visibility, kind: VariantKind.Mutant);
+            return ParseVariantDeclaration(visibility: getterVisibility, kind: VariantKind.Variant);
         }
 
         if (Match(type: TokenType.Protocol))
         {
-            return ParseFeatureDeclaration(visibility: visibility);
+            return ParseProtocolDeclaration(visibility: getterVisibility);
         }
 
-        // Implementation blocks (Type follows Trait:)
-        if (CheckImplementation())
+        // If we parsed a visibility modifier but no declaration follows, it's an error (unless
+        // it is an record or protocol)
+        if (getterVisibility != VisibilityModifier.Public)
         {
-            return ParseImplementationDeclaration();
+            throw new ParseException(message: $"Visibility modifier '{getterVisibility}' must be followed by a declaration " + $"(routine, entity, record, choice, variant, protocol, var, preset, or let)");
         }
 
-        // If we parsed a visibility modifier but no declaration follows, reset position
-        if (visibility != VisibilityModifier.Private)
+        // If we have attributes but no declaration, that's an error
+        if (attributes.Count > 0)
         {
-            // Go back to before the visibility modifier
-            Position--;
+            throw new ParseException(message: $"Attributes must be followed by a declaration (routine, entity, record, etc.)");
         }
 
         // Otherwise parse as statement
         return ParseStatement();
     }
 
-    private bool CheckImplementation()
-    {
-        // Look for pattern: Identifier follows Identifier:
-        if (Check(type: TokenType.Identifier) || Check(type: TokenType.TypeIdentifier))
-        {
-            int saved = Position;
-            Advance(); // Skip type name
-            if (Match(type: TokenType.Follows))
-            {
-                Position = saved; // Reset position
-                return true;
-            }
-
-            Position = saved; // Reset position
-        }
-
-        return false;
-    }
-
+    /// <summary>
+    /// Parses a single statement within a block or function body.
+    /// Handles: if, while, for, when, return, throw, absent, break, continue, and expression statements.
+    /// </summary>
+    /// <returns>The parsed statement, or null if at end of block.</returns>
     private Statement? ParseStatement()
     {
         // Handle dedent tokens
@@ -201,9 +312,19 @@ public partial class SuflaeParser : BaseParser
             return ParseIfStatement();
         }
 
+        if (Match(type: TokenType.Unless))
+        {
+            return ParseUnlessStatement();
+        }
+
         if (Match(type: TokenType.While))
         {
             return ParseWhileStatement();
+        }
+
+        if (Match(type: TokenType.Loop))
+        {
+            return ParseLoopStatement();
         }
 
         if (Match(type: TokenType.For))
@@ -223,7 +344,7 @@ public partial class SuflaeParser : BaseParser
 
         if (Match(type: TokenType.Throw))
         {
-            return ParseFailStatement();
+            return ParseThrowStatement();
         }
 
         if (Match(type: TokenType.Absent))
@@ -241,35 +362,22 @@ public partial class SuflaeParser : BaseParser
             return ParseContinueStatement();
         }
 
-        // Variable declarations (can appear in statement context)
-        if (Match(TokenType.Var, TokenType.Let))
+        if (Match(type: TokenType.Pass))
         {
-            VariableDeclaration varDecl = ParseVariableDeclaration();
-            return new ExpressionStatement(
-                Expression: new IdentifierExpression(Name: $"var {varDecl.Name}",
-                    Location: GetLocation()),
-                Location: GetLocation());
+            return ParsePassStatement();
         }
 
-        // Suflae's display statement (equivalent to print/console.log)
-        if (Check(type: TokenType.Identifier) && CurrentToken.Text == "display")
+        // Variable declarations (can appear in statement context)
+        if (Match(TokenType.Var, TokenType.Let, TokenType.Preset))
         {
-            Advance();
-            Consume(type: TokenType.LeftParen, errorMessage: "Expected '(' after 'display'");
-            Expression expr = ParseExpression();
-            Consume(type: TokenType.RightParen,
-                errorMessage: "Expected ')' after display expression");
-            Match(type: TokenType.Newline);
+            // Check if this is destructuring: let (a, b) = expr or var (x, y) = expr
+            if (Check(type: TokenType.LeftParen))
+            {
+                return ParseDestructuringDeclaration();
+            }
 
-            // Convert to a function call expression
-            var displayCall =
-                new CallExpression(
-                    Callee: new IdentifierExpression(Name: "Console.WriteLine",
-                        Location: GetLocation()),
-                    Arguments: new List<Expression> { expr },
-                    Location: GetLocation());
-
-            return new ExpressionStatement(Expression: displayCall, Location: GetLocation());
+            VariableDeclaration varDecl = ParseVariableDeclaration();
+            return new ExpressionStatement(Expression: new IdentifierExpression(Name: $"var {varDecl.Name}", Location: GetLocation()), Location: GetLocation());
         }
 
         // Expression statement

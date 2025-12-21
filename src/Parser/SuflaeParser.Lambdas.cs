@@ -1,54 +1,18 @@
 using Compilers.Shared.AST;
 using Compilers.Shared.Lexer;
+using Compilers.RazorForge.Parser; // For ParseException
 
-namespace Compilers.RazorForge.Parser;
+namespace Compilers.Suflae.Parser;
 
 /// <summary>
 /// Partial class containing lambda expression and collection literal parsing.
 /// </summary>
-public partial class RazorForgeParser
+public partial class SuflaeParser
 {
-    private LambdaExpression ParseLambdaExpression(SourceLocation location)
-    {
-        // Parse parameters
-        Consume(type: TokenType.LeftParen, errorMessage: "Expected '(' after 'routine' in lambda");
-        var parameters = new List<Parameter>();
-
-        if (!Check(type: TokenType.RightParen))
-        {
-            do
-            {
-                string paramName = ConsumeIdentifier(errorMessage: "Expected parameter name");
-                TypeExpression? paramType = null;
-                Expression? defaultValue = null;
-
-                if (Match(type: TokenType.Colon))
-                {
-                    paramType = ParseType();
-                }
-
-                if (Match(type: TokenType.Assign))
-                {
-                    defaultValue = ParseExpression();
-                }
-
-                parameters.Add(item: new Parameter(Name: paramName,
-                    Type: paramType,
-                    DefaultValue: defaultValue,
-                    Location: GetLocation()));
-            } while (Match(type: TokenType.Comma));
-        }
-
-        Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after lambda parameters");
-
-        // Body - for now just parse expression (block lambdas would need special handling)
-        Expression body = ParseExpression();
-
-        return new LambdaExpression(Parameters: parameters, Body: body, Location: location);
-    }
-
     /// <summary>
     /// Parse arrow lambda with single unparenthesized parameter: x => expr
+    /// Syntax: <c>x => expression</c>
+    /// Lambda bodies must be single expressions (one-liner only).
     /// </summary>
     private LambdaExpression ParseArrowLambdaExpression(SourceLocation location)
     {
@@ -152,8 +116,9 @@ public partial class RazorForgeParser
     }
 
     /// <summary>
-    /// Parse arrow lambda with parenthesized parameters: (x) => expr or (x, y) => expr
+    /// Parse arrow lambda with parenthesized parameters: () => expr, (x) => expr, or (x, y) => expr
     /// Called after '(' has been consumed and IsArrowLambdaParameters() returned true.
+    /// Lambda bodies must be single expressions (one-liner only).
     /// </summary>
     private LambdaExpression ParseParenthesizedArrowLambda(SourceLocation location)
     {
