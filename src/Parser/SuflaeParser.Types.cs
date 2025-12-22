@@ -13,10 +13,29 @@ public partial class SuflaeParser
     /// <summary>
     /// Parses a type expression.
     /// Supports: named types, generic types (Type&lt;T&gt;), Routine types (Routine&lt;A, B, R&gt;),
-    /// and Me (self type).
+    /// Me (self type), and nullable types (T?).
     /// </summary>
     /// <returns>A <see cref="TypeExpression"/> AST node.</returns>
     private TypeExpression ParseType()
+    {
+        TypeExpression baseType = ParseBaseType();
+
+        // Handle nullable suffix: T? -> Maybe<T>
+        if (Match(type: TokenType.Question))
+        {
+            return new TypeExpression(
+                Name: "Maybe",
+                GenericArguments: [baseType],
+                Location: baseType.Location);
+        }
+
+        return baseType;
+    }
+
+    /// <summary>
+    /// Parses a base type expression without nullable suffix.
+    /// </summary>
+    private TypeExpression ParseBaseType()
     {
         SourceLocation location = GetLocation();
 
@@ -117,7 +136,7 @@ public partial class SuflaeParser
         }
 
         // Check for letter/character literal (const generic)
-        if (Match(TokenType.LetterLiteral, TokenType.ByteLiteral))
+        if (Match(TokenType.LetterLiteral, TokenType.ByteLetterLiteral))
         {
             string value = PeekToken(offset: -1)
                .Text;

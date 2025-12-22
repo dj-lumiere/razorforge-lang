@@ -712,17 +712,25 @@ public partial class SuflaeParser
         // Special handling for unary minus on numeric literals
         // This allows parsing negative min values like -9_223_372_036_854_775_808_s64
         if (op.Type == TokenType.Minus && Check(TokenType.Integer,
-                TokenType.S32Literal,
                 TokenType.S64Literal,
-                TokenType.S128Literal,
-                TokenType.SaddrLiteral,
-                TokenType.U32Literal,
                 TokenType.U64Literal,
+                TokenType.S32Literal,
+                TokenType.U32Literal,
+                TokenType.S16Literal,
+                TokenType.U16Literal,
+                TokenType.S8Literal,
+                TokenType.U8Literal,
+                TokenType.S128Literal,
                 TokenType.U128Literal,
+                TokenType.SaddrLiteral,
                 TokenType.UaddrLiteral,
                 TokenType.Decimal,
+                TokenType.F16Literal,
                 TokenType.F32Literal,
                 TokenType.F64Literal,
+                TokenType.F128Literal,
+                TokenType.D32Literal,
+                TokenType.D64Literal,
                 TokenType.D128Literal))
         {
             // Parse the literal

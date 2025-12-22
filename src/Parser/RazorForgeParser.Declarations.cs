@@ -487,8 +487,8 @@ public partial class RazorForgeParser
                 TokenType.U8Literal,
                 TokenType.S128Literal,
                 TokenType.U128Literal,
-                TokenType.F32Literal,
-                TokenType.F64Literal))
+                TokenType.SaddrLiteral,
+                TokenType.UaddrLiteral))
         {
             return Advance()
                .Text;
@@ -744,8 +744,7 @@ public partial class RazorForgeParser
             _genericParameterScopes.Push(item: new HashSet<string>(collection: genericParams));
         }
 
-        // Base entity - can use "from Animal" syntax
-        var interfaces = new List<TypeExpression>();
+        var protocols = new List<TypeExpression>();
 
         // Parse interfaces/protocols the entity follows
         if (Match(type: TokenType.Follows))
@@ -755,7 +754,7 @@ public partial class RazorForgeParser
                 // Skip newlines before protocol name (for multi-line formatting)
                 while (Match(type: TokenType.Newline)) { }
 
-                interfaces.Add(item: ParseType());
+                protocols.Add(item: ParseType());
 
                 // Skip newlines after protocol name (before comma or brace)
                 while (Match(type: TokenType.Newline)) { }
@@ -790,7 +789,7 @@ public partial class RazorForgeParser
         return new EntityDeclaration(Name: name,
             GenericParameters: genericParams,
             GenericConstraints: constraints,
-            Interfaces: interfaces,
+            Protocols: protocols,
             Members: members,
             Visibility: visibility,
             Location: location);

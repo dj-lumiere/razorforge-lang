@@ -83,6 +83,12 @@ public partial class SuflaeParser
     private string ParseAttributeValue()
     {
         // TODO: Should it be really limited by string/number/bool/identifier?
+        // String literal
+        if (Check(TokenType.TextLiteral, TokenType.BytesLiteral))
+        {
+            return Advance()
+               .Text;
+        }
         // Boolean literals
         if (Match(type: TokenType.True))
         {
@@ -106,8 +112,8 @@ public partial class SuflaeParser
                 TokenType.U8Literal,
                 TokenType.S128Literal,
                 TokenType.U128Literal,
-                TokenType.F32Literal,
-                TokenType.F64Literal))
+                TokenType.SaddrLiteral,
+                TokenType.UaddrLiteral))
         {
             return Advance()
                .Text;
@@ -330,7 +336,7 @@ public partial class SuflaeParser
             return new EntityDeclaration(Name: name,
                 GenericParameters: genericParams,
                 GenericConstraints: constraints,
-                Interfaces: interfaces,
+                Protocols: interfaces,
                 Members: members,
                 Visibility: visibility,
                 Location: location);
@@ -361,7 +367,7 @@ public partial class SuflaeParser
             return new EntityDeclaration(Name: name,
                 GenericParameters: genericParams,
                 GenericConstraints: constraints,
-                Interfaces: interfaces,
+                Protocols: interfaces,
                 Members: members,
                 Visibility: visibility,
                 Location: location);
@@ -376,7 +382,7 @@ public partial class SuflaeParser
         return new EntityDeclaration(Name: name,
             GenericParameters: genericParams,
             GenericConstraints: constraints,
-            Interfaces: interfaces,
+            Protocols: interfaces,
             Members: members,
             Visibility: visibility,
             Location: location);
