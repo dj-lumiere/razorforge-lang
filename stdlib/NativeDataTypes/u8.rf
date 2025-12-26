@@ -3,7 +3,7 @@
 namespace core
 # Core u8 type definition - maps to LLVM i8
 record u8 {
-    public value: LlvmNativeI8
+    private value: @intrinsic.i8
 }
 
 # Constants for u8 limits
@@ -12,45 +12,205 @@ preset U8_MAX: u8 = 255_u8
 preset U8_ZERO: u8 = 0_u8
 preset U8_ONE: u8 = 1_u8
 
+imported("C") parse_u8(from: cstr) -> u8
+
+# ============================================================================
+# Checked Constructors (crash on overflow)
+# ============================================================================
+
+# Failable constructor from Text - called as u8!(text)
+# Compiler automatically generates try_u8.__create__(text) -> Maybe<u8>
+routine u8.__create__!(from_text: Text<Letter>) -> u8 {
+    danger! {
+        return parse_u8(from_text.cstr().address)
+    }
+}
+
+# From s8 - crashes if value is negative
+routine u8.__create__!(from: s8) -> u8 {
+    if from < 0_s8 {
+        throw IntegerOverflowError(f"Cannot convert {from} to u8: value out of range [{U8_MIN}, {U8_MAX}]")
+    }
+    danger! {
+        return @intrinsic.bitcast<i8, i8>(from)
+    }
+}
+
+# From s16 - crashes if value out of u8 range
+routine u8.__create__!(from: s16) -> u8 {
+    if not (0_s16 <= from <= 255_s16) {
+        throw IntegerOverflowError(f"Cannot convert {from} to u8: value out of range [{U8_MIN}, {U8_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<i16, i8>(from)
+    }
+}
+
+# From s32 - crashes if value out of u8 range
+routine u8.__create__!(from: s32) -> u8 {
+    if not (0_s32 <= from <= 255_s32) {
+        throw IntegerOverflowError(f"Cannot convert {from} to u8: value out of range [{U8_MIN}, {U8_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<i32, i8>(from)
+    }
+}
+
+# From s64 - crashes if value out of u8 range
+routine u8.__create__!(from: s64) -> u8 {
+    if not (0_s64 <= from <= 255_s64) {
+        throw IntegerOverflowError(f"Cannot convert {from} to u8: value out of range [{U8_MIN}, {U8_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<i64, i8>(from)
+    }
+}
+
+# From s128 - crashes if value out of u8 range
+routine u8.__create__!(from: s128) -> u8 {
+    if not (0_s128 <= from <= 255_s128) {
+        throw IntegerOverflowError(f"Cannot convert {from} to u8: value out of range [{U8_MIN}, {U8_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<i128, i8>(from)
+    }
+}
+
+routine u8.__create__(from: u8) -> u8 {
+    return from
+}
+
+# From u16 - crashes if value > U8_MAX
+routine u8.__create__!(from: u16) -> u8 {
+    if from > 255_u16 {
+        throw IntegerOverflowError(f"Cannot convert {from} to u8: value out of range [{U8_MIN}, {U8_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<i16, i8>(from)
+    }
+}
+
+# From u32 - crashes if value > U8_MAX
+routine u8.__create__!(from: u32) -> u8 {
+    if from > 255_u32 {
+        throw IntegerOverflowError(f"Cannot convert {from} to u8: value out of range [{U8_MIN}, {U8_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<i32, i8>(from)
+    }
+}
+
+# From u64 - crashes if value > U8_MAX
+routine u8.__create__!(from: u64) -> u8 {
+    if from > 255_u64 {
+        throw IntegerOverflowError(f"Cannot convert {from} to u8: value out of range [{U8_MIN}, {U8_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<i64, i8>(from)
+    }
+}
+
+# From u128 - crashes if value > U8_MAX
+routine u8.__create__!(from: u128) -> u8 {
+    if from > 255_u128 {
+        throw IntegerOverflowError(f"Cannot convert {from} to u8: value out of range [{U8_MIN}, {U8_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<i128, i8>(from)
+    }
+}
+
+# From floating point - truncates fractional part and crashes if overflow
+routine u8.__create__!(from: f16) -> u8 {
+    return from.u32!().u8!()
+}
+
+routine u8.__create__!(from: f32) -> u8 {
+    return from.u32!().u8!()
+}
+
+routine u8.__create__!(from: f64) -> u8 {
+    return from.u32!().u8!()
+}
+
+routine u8.__create__!(from: f128) -> u8 {
+    return from.u32!().u8!()
+}
+
+# From decimal - truncates fractional part and crashes if overflow
+routine u8.__create__!(from: d32) -> u8 {
+    return from.u32!().u8!()
+}
+
+routine u8.__create__!(from: d64) -> u8 {
+    return from.u32!().u8!()
+}
+
+routine u8.__create__!(from: d128) -> u8 {
+    return from.u32!().u8!()
+}
+
+# From saddr - crashes if value negative or out of u8 range
+routine u8.__create__!(from: saddr) -> u8 {
+    let val_s64 = from.s64!()
+    if not (0_s64 <= val_s64 <= 255_s64) {
+        throw IntegerOverflowError(f"Cannot convert {from} to u8: value out of range [{U8_MIN}, {U8_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<iptr, i8>(from)
+    }
+}
+
+# From uaddr - crashes if value out of u8 range
+routine u8.__create__!(from: uaddr) -> u8 {
+    let val_u64 = from.u64!()
+    if val_u64 > 255_u64 {
+        throw IntegerOverflowError(f"Cannot convert {from} to u8: value out of range [{U8_MIN}, {U8_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<uptr, i8>(from)
+    }
+}
+
 # ============================================================================
 # Arithmetic Operations (trapping on overflow by default)
 # ============================================================================
 
 @crash_only
-routine u8.__add__!(other: u8) -> u8 {
+routine u8.__add__!(you: u8) -> u8 {
     danger! {
-        return @intrinsic.add<i8>(me, other)
+        return @intrinsic.add<i8>(me, you)
     }
 }
 
 @crash_only
-routine u8.__sub__!(other: u8) -> u8 {
+routine u8.__sub__!(you: u8) -> u8 {
     danger! {
-        return @intrinsic.sub<i8>(me, other)
+        return @intrinsic.sub<i8>(me, you)
     }
 }
 
 @crash_only
-routine u8.__mul__!(other: u8) -> u8 {
+routine u8.__mul__!(you: u8) -> u8 {
     danger! {
-        return @intrinsic.mul<i8>(me, other)
+        return @intrinsic.mul<i8>(me, you)
     }
 }
 
 @crash_only
-routine u8.__floordiv__!(other: u8) -> u8 {
-    if other == 0 {
+routine u8.__floordiv__!(you: u8) -> u8 {
+    if you == 0 {
         throw DivisionByZeroError()
     }
     danger! {
-        return @intrinsic.udiv<i8>(me, other)
+        return @intrinsic.udiv<i8>(me, you)
     }
 }
 
 @crash_only
-routine u8.__mod__!(other: u8) -> u8 {
+routine u8.__mod__!(you: u8) -> u8 {
     danger! {
-        return @intrinsic.urem<i8>(me, other)
+        return @intrinsic.urem<i8>(me, you)
     }
 }
 
@@ -58,21 +218,21 @@ routine u8.__mod__!(other: u8) -> u8 {
 # Wrapping Arithmetic (+%, -%, *%)
 # ============================================================================
 
-routine u8.__add_wrap__(other: u8) -> u8 {
+routine u8.__add_wrap__(you: u8) -> u8 {
     danger! {
-        return @intrinsic.add.wrapping<i8>(me, other)
+        return @intrinsic.add.wrapping<i8>(me, you)
     }
 }
 
-routine u8.__sub_wrap__(other: u8) -> u8 {
+routine u8.__sub_wrap__(you: u8) -> u8 {
     danger! {
-        return @intrinsic.sub.wrapping<i8>(me, other)
+        return @intrinsic.sub.wrapping<i8>(me, you)
     }
 }
 
-routine u8.__mul_wrap__(other: u8) -> u8 {
+routine u8.__mul_wrap__(you: u8) -> u8 {
     danger! {
-        return @intrinsic.mul.wrapping<i8>(me, other)
+        return @intrinsic.mul.wrapping<i8>(me, you)
     }
 }
 
@@ -80,21 +240,21 @@ routine u8.__mul_wrap__(other: u8) -> u8 {
 # Saturating Arithmetic (+^, -^, *^)
 # ============================================================================
 
-routine u8.__add_sat__(other: u8) -> u8 {
+routine u8.__add_sat__(you: u8) -> u8 {
     danger! {
-        return @intrinsic.add.saturating<i8>(me, other)
+        return @intrinsic.add.saturating<i8>(me, you)
     }
 }
 
-routine u8.__sub_sat__(other: u8) -> u8 {
+routine u8.__sub_sat__(you: u8) -> u8 {
     danger! {
-        return @intrinsic.sub.saturating<i8>(me, other)
+        return @intrinsic.sub.saturating<i8>(me, you)
     }
 }
 
-routine u8.__mul_sat__(other: u8) -> u8 {
+routine u8.__mul_sat__(you: u8) -> u8 {
     danger! {
-        return @intrinsic.mul.saturating<i8>(me, other)
+        return @intrinsic.mul.saturating<i8>(me, you)
     }
 }
 
@@ -102,23 +262,23 @@ routine u8.__mul_sat__(other: u8) -> u8 {
 # Checked Arithmetic (+?, -?, *?) - returns Maybe<T>
 # ============================================================================
 
-routine u8.__add_checked__(other: u8) -> Maybe<u8> {
+routine u8.__add_checked__(you: u8) -> Maybe<u8> {
     danger! {
-        let (result, overflow) = @intrinsic.add.overflow<i8>(me, other)
+        let (result, overflow) = @intrinsic.add.overflow<i8>(me, you)
         return if overflow then None else result
     }
 }
 
-routine u8.__sub_checked__(other: u8) -> Maybe<u8> {
+routine u8.__sub_checked__(you: u8) -> Maybe<u8> {
     danger! {
-        let (result, overflow) = @intrinsic.sub.overflow<i8>(me, other)
+        let (result, overflow) = @intrinsic.sub.overflow<i8>(me, you)
         return if overflow then None else result
     }
 }
 
-routine u8.__mul_checked__(other: u8) -> Maybe<u8> {
+routine u8.__mul_checked__(you: u8) -> Maybe<u8> {
     danger! {
-        let (result, overflow) = @intrinsic.mul.overflow<i8>(me, other)
+        let (result, overflow) = @intrinsic.mul.overflow<i8>(me, you)
         return if overflow then None else result
     }
 }
@@ -222,21 +382,21 @@ routine u8.__pow_checked__(exp: u8) -> Maybe<u8> {
 # Bitwise Operations
 # ============================================================================
 
-routine u8.__and__(other: u8) -> u8 {
+routine u8.__and__(you: u8) -> u8 {
     danger! {
-        return @intrinsic.and<i8>(me, other)
+        return @intrinsic.and<i8>(me, you)
     }
 }
 
-routine u8.__or__(other: u8) -> u8 {
+routine u8.__or__(you: u8) -> u8 {
     danger! {
-        return @intrinsic.or<i8>(me, other)
+        return @intrinsic.or<i8>(me, you)
     }
 }
 
-routine u8.__xor__(other: u8) -> u8 {
+routine u8.__xor__(you: u8) -> u8 {
     danger! {
-        return @intrinsic.xor<i8>(me, other)
+        return @intrinsic.xor<i8>(me, you)
     }
 }
 
@@ -299,39 +459,39 @@ routine u8.__lshr__(bits: u32) -> u8 {
 # Comparison Operations
 # ============================================================================
 
-routine u8.__eq__(other: u8) -> bool {
+routine u8.__eq__(you: u8) -> bool {
     danger! {
-        return @intrinsic.icmp.eq<i8>(me, other)
+        return @intrinsic.icmp.eq<i8>(me, you)
     }
 }
 
-routine u8.__ne__(other: u8) -> bool {
+routine u8.__ne__(you: u8) -> bool {
     danger! {
-        return @intrinsic.icmp.ne<i8>(me, other)
+        return @intrinsic.icmp.ne<i8>(me, you)
     }
 }
 
-routine u8.__lt__(other: u8) -> bool {
+routine u8.__lt__(you: u8) -> bool {
     danger! {
-        return @intrinsic.icmp.ult<i8>(me, other)
+        return @intrinsic.icmp.ult<i8>(me, you)
     }
 }
 
-routine u8.__le__(other: u8) -> bool {
+routine u8.__le__(you: u8) -> bool {
     danger! {
-        return @intrinsic.icmp.ule<i8>(me, other)
+        return @intrinsic.icmp.ule<i8>(me, you)
     }
 }
 
-routine u8.__gt__(other: u8) -> bool {
+routine u8.__gt__(you: u8) -> bool {
     danger! {
-        return @intrinsic.icmp.ugt<i8>(me, other)
+        return @intrinsic.icmp.ugt<i8>(me, you)
     }
 }
 
-routine u8.__ge__(other: u8) -> bool {
+routine u8.__ge__(you: u8) -> bool {
     danger! {
-        return @intrinsic.icmp.uge<i8>(me, other)
+        return @intrinsic.icmp.uge<i8>(me, you)
     }
 }
 
@@ -339,12 +499,12 @@ routine u8.__ge__(other: u8) -> bool {
 # Math Operations
 # ============================================================================
 
-routine u8.min(other: u8) -> u8 {
-    return if me <= other then me else other
+routine u8.min(you: u8) -> u8 {
+    return if me <= you then me else you
 }
 
-routine u8.max(other: u8) -> u8 {
-    return if me >= other then me else other
+routine u8.max(you: u8) -> u8 {
+    return if me >= you then me else you
 }
 
 routine u8.clamp(min_val: u8, max_val: u8) -> u8 {
@@ -476,108 +636,6 @@ routine u8.is_odd() -> bool {
 
 routine u8.to_text() -> Text {
     danger! {
-        return @format_u8(me)
-    }
-}
-
-# ============================================================================
-# Checked Constructors (crash on overflow)
-# ============================================================================
-
-# Failable constructor from Text - called as u8!(text)
-# Compiler automatically generates try_u8.__create__(text) -> Maybe<u8>
-routine u8.__create__!(from_text: Text<Letterlikes>) -> u8 {
-    danger! {
-        return @parse_u8(from_text)
-    }
-}
-
-# From s8 - crashes if value is negative
-routine u8.__create__!(from: s8) -> u8 {
-    if from < 0_s8 {
-        throw IntegerOverflowError(f"Cannot convert {from} to u8: value out of range [{U8_MIN}, {U8_MAX}]")
-    }
-    danger! {
-        return @intrinsic.bitcast<i8, i8>(from)
-    }
-}
-
-# From s16 - crashes if value out of u8 range
-routine u8.__create__!(from: s16) -> u8 {
-    if not (0_s16 <= from <= 255_s16) {
-        throw IntegerOverflowError(f"Cannot convert {from} to u8: value out of range [{U8_MIN}, {U8_MAX}]")
-    }
-    danger! {
-        return @intrinsic.trunc<i16, i8>(from)
-    }
-}
-
-# From s32 - crashes if value out of u8 range
-routine u8.__create__!(from: s32) -> u8 {
-    if not (0_s32 <= from <= 255_s32) {
-        throw IntegerOverflowError(f"Cannot convert {from} to u8: value out of range [{U8_MIN}, {U8_MAX}]")
-    }
-    danger! {
-        return @intrinsic.trunc<i32, i8>(from)
-    }
-}
-
-# From s64 - crashes if value out of u8 range
-routine u8.__create__!(from: s64) -> u8 {
-    if not (0_s64 <= from <= 255_s64) {
-        throw IntegerOverflowError(f"Cannot convert {from} to u8: value out of range [{U8_MIN}, {U8_MAX}]")
-    }
-    danger! {
-        return @intrinsic.trunc<i64, i8>(from)
-    }
-}
-
-# From s128 - crashes if value out of u8 range
-routine u8.__create__!(from: s128) -> u8 {
-    if not (0_s128 <= from <= 255_s128) {
-        throw IntegerOverflowError(f"Cannot convert {from} to u8: value out of range [{U8_MIN}, {U8_MAX}]")
-    }
-    danger! {
-        return @intrinsic.trunc<i128, i8>(from)
-    }
-}
-
-# From u16 - crashes if value > U8_MAX
-routine u8.__create__!(from: u16) -> u8 {
-    if from > 255_u16 {
-        throw IntegerOverflowError(f"Cannot convert {from} to u8: value out of range [{U8_MIN}, {U8_MAX}]")
-    }
-    danger! {
-        return @intrinsic.trunc<i16, i8>(from)
-    }
-}
-
-# From u32 - crashes if value > U8_MAX
-routine u8.__create__!(from: u32) -> u8 {
-    if from > 255_u32 {
-        throw IntegerOverflowError(f"Cannot convert {from} to u8: value out of range [{U8_MIN}, {U8_MAX}]")
-    }
-    danger! {
-        return @intrinsic.trunc<i32, i8>(from)
-    }
-}
-
-# From u64 - crashes if value > U8_MAX
-routine u8.__create__!(from: u64) -> u8 {
-    if from > 255_u64 {
-        throw IntegerOverflowError(f"Cannot convert {from} to u8: value out of range [{U8_MIN}, {U8_MAX}]")
-    }
-    danger! {
-        return @intrinsic.trunc<i64, i8>(from)
-    }
-}
-
-# From u128 - crashes if value > U8_MAX
-routine u8.__create__!(from: u128) -> u8 {
-    if from > 255_u128 {
-        throw IntegerOverflowError(f"Cannot convert {from} to u8: value out of range [{U8_MIN}, {U8_MAX}]")
-    }
-    danger! {
-        return @intrinsic.trunc<i128, i8>(from)
+        return @native.rf_format_u8(me)
     }
 }

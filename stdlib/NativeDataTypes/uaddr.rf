@@ -13,7 +13,152 @@ import FFI/cstr
 
 # Core uaddr type definition - maps to LLVM iptr/usize
 record uaddr {
-    public value: LlvmNativePtrSizedUInt
+    public value: @intrinsic.iptr
+}
+
+# ============================================================================
+# Constructors
+# Since they are black hole types, all constructors are automatically wrapped.
+# ============================================================================
+
+routine uaddr.__create__!(from_text: Text<Letter>) -> uaddr {
+    danger! {
+        return @native.rf_parse_uaddr(from_text)
+    }
+}
+
+# From s8 - sign extend then reinterpret (wraps if negative)
+routine uaddr.__create__(from: s8) -> uaddr {
+    danger! {
+        return @intrinsic.sext<i8, uptr>(from)
+    }
+}
+
+# From s16 - sign extend then reinterpret (wraps if negative)
+routine uaddr.__create__(from: s16) -> uaddr {
+    danger! {
+        return @intrinsic.sext<i16, uptr>(from)
+    }
+}
+
+# From s32 - sign extend then reinterpret (wraps if negative)
+routine uaddr.__create__(from: s32) -> uaddr {
+    danger! {
+        return @intrinsic.sext<i32, uptr>(from)
+    }
+}
+
+# From s64 - truncate or bitcast depending on platform (wraps)
+routine uaddr.__create__(from: s64) -> uaddr {
+    danger! {
+        return @intrinsic.trunc<i64, uptr>(from)
+    }
+}
+
+# From s128 - truncate (wraps)
+routine uaddr.__create__(from: s128) -> uaddr {
+    danger! {
+        return @intrinsic.trunc<i128, uptr>(from)
+    }
+}
+
+# From u8 - zero extend
+routine uaddr.__create__(from: u8) -> uaddr {
+    danger! {
+        return @intrinsic.zext<i8, uptr>(from)
+    }
+}
+
+# From u16 - zero extend
+routine uaddr.__create__(from: u16) -> uaddr {
+    danger! {
+        return @intrinsic.zext<i16, uptr>(from)
+    }
+}
+
+# From u32 - zero extend or bitcast depending on platform
+routine uaddr.__create__(from: u32) -> uaddr {
+    danger! {
+        return @intrinsic.zext<i32, uptr>(from)
+    }
+}
+
+# From u64 - truncate or bitcast depending on platform (wraps)
+routine uaddr.__create__(from: u64) -> uaddr {
+    danger! {
+        return @intrinsic.trunc<i64, uptr>(from)
+    }
+}
+
+# From u128 - truncate (wraps)
+routine uaddr.__create__(from: u128) -> uaddr {
+    danger! {
+        return @intrinsic.trunc<i128, uptr>(from)
+    }
+}
+
+# From floating point - truncates
+routine uaddr.__create__(from: f16) -> uaddr {
+    return from.f32().uaddr()
+}
+
+routine uaddr.__create__(from: f32) -> uaddr {
+    danger! {
+        return @intrinsic.fptoui<float, uptr>(from)
+    }
+}
+
+routine uaddr.__create__(from: f64) -> uaddr {
+    danger! {
+        return @intrinsic.fptoui<double, uptr>(from)
+    }
+}
+
+routine uaddr.__create__(from: f128) -> uaddr {
+    return from.f64().uaddr()
+}
+
+# From decimal - truncates fractional part (wraps on overflow)
+routine uaddr.__create__(from: d32) -> uaddr {
+    danger! {
+        let bit_width = @intrinsic.bitwidth<uptr>()
+        if bit_width == 32 {
+            return from.u32().uaddr()
+        } else {
+            return from.u64().uaddr()
+        }
+    }
+}
+
+routine uaddr.__create__(from: d64) -> uaddr {
+    danger! {
+        let bit_width = @intrinsic.bitwidth<uptr>()
+        if bit_width == 32 {
+            return from.u32().uaddr()
+        } else {
+            return from.u64().uaddr()
+        }
+    }
+}
+
+routine uaddr.__create__(from: d128) -> uaddr {
+    danger! {
+        let bit_width = @intrinsic.bitwidth<uptr>()
+        if bit_width == 32 {
+            return from.u32().uaddr()
+        } else {
+            return from.u64().uaddr()
+        }
+    }
+}
+
+routine uaddr.__create__(from: saddr) -> uaddr {
+    return from.u64().saddr()
+}
+
+# Identity conversion for Integral protocol compatibility
+routine uaddr.__create__(from: uaddr) -> uaddr {
+    return from
 }
 
 # ============================================================================
@@ -21,33 +166,33 @@ record uaddr {
 # These explicitly wrap on overflow - use when wrapping is intentional
 # ============================================================================
 
-routine uaddr.__add_wrap__(other: uaddr) -> uaddr {
+routine uaddr.__add_wrap__(you: uaddr) -> uaddr {
     danger! {
-        return @intrinsic.add.wrapping<uptr>(me, other)
+        return @intrinsic.add.wrapping<uptr>(me, you)
     }
 }
 
-routine uaddr.__sub_wrap__(other: uaddr) -> uaddr {
+routine uaddr.__sub_wrap__(you: uaddr) -> uaddr {
     danger! {
-        return @intrinsic.sub.wrapping<uptr>(me, other)
+        return @intrinsic.sub.wrapping<uptr>(me, you)
     }
 }
 
-routine uaddr.__mul_wrap__(other: uaddr) -> uaddr {
+routine uaddr.__mul_wrap__(you: uaddr) -> uaddr {
     danger! {
-        return @intrinsic.mul.wrapping<uptr>(me, other)
+        return @intrinsic.mul.wrapping<uptr>(me, you)
     }
 }
 
-routine uaddr.__floordiv_wrap__(other: uaddr) -> uaddr {
+routine uaddr.__floordiv_wrap__(you: uaddr) -> uaddr {
     danger! {
-        return @intrinsic.udiv<uptr>(me, other)
+        return @intrinsic.udiv<uptr>(me, you)
     }
 }
 
-routine uaddr.__mod_wrap__(other: uaddr) -> uaddr {
+routine uaddr.__mod_wrap__(you: uaddr) -> uaddr {
     danger! {
-        return @intrinsic.urem<uptr>(me, other)
+        return @intrinsic.urem<uptr>(me, you)
     }
 }
 
@@ -56,62 +201,61 @@ routine uaddr.__mod_wrap__(other: uaddr) -> uaddr {
 # These return Maybe<uaddr> - None on overflow
 # ============================================================================
 
-# TODO: These are commented out due to tuple destructuring not being fully supported in code generator
-# routine uaddr.__add_checked__(other: uaddr) -> Maybe<uaddr> {
-#     danger! {
-#         let (result, overflow) = @intrinsic.add.overflow<uptr>(me, other)
-#         return if overflow { None } else { result }
-#     }
-# }
-#
-# routine uaddr.__sub_checked__(other: uaddr) -> Maybe<uaddr> {
-#     danger! {
-#         let (result, overflow) = @intrinsic.sub.overflow<uptr>(me, other)
-#         return if overflow { None } else { result }
-#     }
-# }
-#
-# routine uaddr.__mul_checked__(other: uaddr) -> Maybe<uaddr> {
-#     danger! {
-#         let (result, overflow) = @intrinsic.mul.overflow<uptr>(me, other)
-#         return if overflow { None } else { result }
-#     }
-# }
-#
-# routine uaddr.__floordiv_checked__(other: uaddr) -> Maybe<uaddr> {
-#     if other == 0 {
-#         return None
-#     }
-#     danger! {
-#         return @intrinsic.udiv<uptr>(me, other)
-#     }
-# }
-#
-# routine uaddr.__mod_checked__(other: uaddr) -> Maybe<uaddr> {
-#     if other == 0 {
-#         return None
-#     }
-#     danger! {
-#         return @intrinsic.urem<uptr>(me, other)
-#     }
-# }
-#
-# routine uaddr.__ashl_checked__(bits: u32) -> Maybe<uaddr> {
-#     danger! {
-#         # Check if shift would overflow (bits >= bit width or high bits would be lost)
-#         let bit_width = @intrinsic.bitwidth<uptr>()
-#         if bits >= bit_width {
-#             return None
-#         }
-#         let result = @intrinsic.shl<uptr>(me, bits)
-#         # Check if we can recover the original value by shifting back
-#         let recovered = @intrinsic.lshr<uptr>(result, bits)
-#         if recovered != me {
-#             return None
-#         }
-#         return result
-#     }
-# }
+routine uaddr.__add_checked__(you: uaddr) -> Maybe<uaddr> {
+    danger! {
+        let (result, overflow) = @intrinsic.add.overflow<uptr>(me, you)
+        return if overflow then None else result
+    }
+}
+
+routine uaddr.__sub_checked__(you: uaddr) -> Maybe<uaddr> {
+    danger! {
+        let (result, overflow) = @intrinsic.sub.overflow<uptr>(me, you)
+        return if overflow then None else result
+    }
+}
+
+routine uaddr.__mul_checked__(you: uaddr) -> Maybe<uaddr> {
+    danger! {
+        let (result, overflow) = @intrinsic.mul.overflow<uptr>(me, you)
+        return if overflow then None else result
+    }
+}
+
+routine uaddr.__floordiv_checked__(you: uaddr) -> Maybe<uaddr> {
+    if you == 0 {
+        return None
+    }
+    danger! {
+        return @intrinsic.udiv<uptr>(me, you)
+    }
+}
+
+routine uaddr.__mod_checked__(you: uaddr) -> Maybe<uaddr> {
+    if you == 0 {
+        return None
+    }
+    danger! {
+        return @intrinsic.urem<uptr>(me, you)
+    }
+}
+
+routine uaddr.__ashl_checked__(bits: u32) -> Maybe<uaddr> {
+    danger! {
+        # Check if shift would overflow (bits >= bit width or high bits would be lost)
+        let bit_width = @intrinsic.bitwidth<uptr>()
+        if bits >= bit_width {
+            return None
+        }
+        let result = @intrinsic.shl<uptr>(me, bits)
+        # Check if we can recover the original value by shifting back
+        let recovered = @intrinsic.lshr<uptr>(result, bits)
+        if recovered != me {
+            return None
+        }
+        return result
+    }
+}
 
 # ============================================================================
 # Shift Operations (<<<, >>>)
@@ -135,21 +279,21 @@ routine uaddr.__lshr__(bits: u32) -> uaddr {
 # These cannot overflow
 # ============================================================================
 
-routine uaddr.__and__(other: uaddr) -> uaddr {
+routine uaddr.__and__(you: uaddr) -> uaddr {
     danger! {
-        return @intrinsic.and<uptr>(me, other)
+        return @intrinsic.and<uptr>(me, you)
     }
 }
 
-routine uaddr.__or__(other: uaddr) -> uaddr {
+routine uaddr.__or__(you: uaddr) -> uaddr {
     danger! {
-        return @intrinsic.or<uptr>(me, other)
+        return @intrinsic.or<uptr>(me, you)
     }
 }
 
-routine uaddr.__xor__(other: uaddr) -> uaddr {
+routine uaddr.__xor__(you: uaddr) -> uaddr {
     danger! {
-        return @intrinsic.xor<uptr>(me, other)
+        return @intrinsic.xor<uptr>(me, you)
     }
 }
 
@@ -163,27 +307,27 @@ routine uaddr.__not__() -> uaddr {
 # Comparison Operations (non-overloadable, but provided for completeness)
 # ============================================================================
 
-routine uaddr.__lt__(other: uaddr) -> bool {
+routine uaddr.__lt__(you: uaddr) -> bool {
     danger! {
-        return @intrinsic.icmp.ult<uptr>(me, other)
+        return @intrinsic.icmp.ult<uptr>(me, you)
     }
 }
 
-routine uaddr.__le__(other: uaddr) -> bool {
+routine uaddr.__le__(you: uaddr) -> bool {
     danger! {
-        return @intrinsic.icmp.ule<uptr>(me, other)
+        return @intrinsic.icmp.ule<uptr>(me, you)
     }
 }
 
-routine uaddr.__gt__(other: uaddr) -> bool {
+routine uaddr.__gt__(you: uaddr) -> bool {
     danger! {
-        return @intrinsic.icmp.ugt<uptr>(me, other)
+        return @intrinsic.icmp.ugt<uptr>(me, you)
     }
 }
 
-routine uaddr.__ge__(other: uaddr) -> bool {
+routine uaddr.__ge__(you: uaddr) -> bool {
     danger! {
-        return @intrinsic.icmp.uge<uptr>(me, other)
+        return @intrinsic.icmp.uge<uptr>(me, you)
     }
 }
 
@@ -191,18 +335,18 @@ routine uaddr.__ge__(other: uaddr) -> bool {
 # Utility Methods
 # ============================================================================
 
-routine uaddr.min(other: uaddr) -> uaddr {
-    if me <= other {
+routine uaddr.min(you: uaddr) -> uaddr {
+    if me <= you {
         return me
     }
-    return other
+    return you
 }
 
-routine uaddr.max(other: uaddr) -> uaddr {
-    if me >= other {
+routine uaddr.max(you: uaddr) -> uaddr {
+    if me >= you {
         return me
     }
-    return other
+    return you
 }
 
 routine uaddr.is_power_of_two() -> bool {
@@ -210,85 +354,12 @@ routine uaddr.is_power_of_two() -> bool {
 }
 
 # ============================================================================
-# Type Conversions (constructor syntax)
-# uaddr is a "black hole" type - accepts liberal casts from any unsigned integer
-# ============================================================================
-
-# From uaddr to other types
-routine saddr(from: uaddr) -> saddr {
-    danger! {
-        return @intrinsic.bitcast<uptr, iptr>(from)
-    }
-}
-
-routine u64(from: uaddr) -> u64 {
-    danger! {
-        return @intrinsic.zext<uptr, i64>(from)
-    }
-}
-
-routine bool(from: uaddr) -> bool {
-    return from != 0
-}
-
-# Liberal casts INTO uaddr from any unsigned integer
-routine uaddr(from: u8) -> uaddr {
-    danger! {
-        return @intrinsic.zext<i8, uptr>(from)
-    }
-}
-
-routine uaddr(from: u16) -> uaddr {
-    danger! {
-        return @intrinsic.zext<i16, uptr>(from)
-    }
-}
-
-routine uaddr(from: u32) -> uaddr {
-    danger! {
-        return @intrinsic.zext<i32, uptr>(from)
-    }
-}
-
-routine uaddr(from: u64) -> uaddr {
-    danger! {
-        return @intrinsic.trunc<i64, uptr>(from)  # May truncate on 32-bit
-    }
-}
-
-routine uaddr(from: u128) -> uaddr {
-    danger! {
-        return @intrinsic.trunc<i128, uptr>(from)
-    }
-}
-
-# From signed - reinterpret bits
-routine uaddr(from: saddr) -> uaddr {
-    danger! {
-        return @intrinsic.bitcast<iptr, uptr>(from)
-    }
-}
-
-public routine uaddr(from: MemorySize) -> uaddr {
-    return from.size_byte()
-}
-
-# ============================================================================
 # String Conversion
 # ============================================================================
 
-routine uaddr.to_text() -> Text<letter8> {
+routine uaddr.to_text() -> Bytes {
     danger! {
-        let ptr = @format_u64(me)
-        return Text<letter8>(ptr: cstr(ptr: ptr))
-    }
-}
-
-# Parsing constructors using compiler intrinsics
-
-# Fallible constructor - crashes on invalid input
-routine uaddr.__create__!(from_text: Text) -> uaddr {
-    danger! {
-        return @parse_uaddr(from_text)
+        let ptr = @native.rf_format_u64(me)
+        return Bytes(ptr: cstr(ptr: ptr))
     }
 }

@@ -19,49 +19,195 @@ preset S64_ZERO: s64 = 0_s64
 preset S64_ONE: s64 = 1_s64
 
 # ============================================================================
+# Checked Constructors (crash on overflow)
+# ============================================================================
+
+routine s64.__create__!(from_text: Text<Letter>) -> s64 {
+    danger! {
+        return @native.rf_parse_s64(from_text)
+    }
+}
+
+# From s8 - always fits, no check needed
+routine s64.__create__!(from: s8) -> s64 {
+    danger! {
+        return @intrinsic.sext<i8, i64>(from)
+    }
+}
+
+# From s16 - always fits, no check needed
+routine s64.__create__!(from: s16) -> s64 {
+    danger! {
+        return @intrinsic.sext<i16, i64>(from)
+    }
+}
+
+# From s32 - always fits, no check needed
+routine s64.__create__!(from: s32) -> s64 {
+    danger! {
+        return @intrinsic.sext<i32, i64>(from)
+    }
+}
+
+routine s64.__create__(from: s64) -> s64 {
+    return from
+}
+
+# From s128 - crashes if value out of s64 range
+routine s64.__create__!(from: s128) -> s64 {
+    if not (S64_MIN <= from <= S64_MAX) {
+        throw IntegerOverflowError(f"Cannot convert {from} to s64: value out of range [{S64_MIN}, {S64_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<i128, i64>(from)
+    }
+}
+
+# From u8 - always fits, no check needed
+routine s64.__create__!(from: u8) -> s64 {
+    danger! {
+        return @intrinsic.zext<i8, i64>(from)
+    }
+}
+
+# From u16 - always fits, no check needed
+routine s64.__create__!(from: u16) -> s64 {
+    danger! {
+        return @intrinsic.zext<i16, i64>(from)
+    }
+}
+
+# From u32 - always fits, no check needed
+routine s64.__create__!(from: u32) -> s64 {
+    danger! {
+        return @intrinsic.zext<i32, i64>(from)
+    }
+}
+
+# From u64 - crashes if value > S64_MAX (bit 63 set)
+routine s64.__create__!(from: u64) -> s64 {
+    if from > 9223372036854775807_u64 {
+        throw IntegerOverflowError(f"Cannot convert {from} to s64: value out of range [{S64_MIN}, {S64_MAX}]")
+    }
+    danger! {
+        return @intrinsic.bitcast<i64, i64>(from)
+    }
+}
+
+# From u128 - crashes if value > S64_MAX
+routine s64.__create__!(from: u128) -> s64 {
+    if from > 9223372036854775807_u128 {
+        throw IntegerOverflowError(f"Cannot convert {from} to s64: value out of range [{S64_MIN}, {S64_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<i128, i64>(from)
+    }
+}
+
+# From floating point - truncates
+routine s64.__create__!(from: f16) -> s64 {
+    return from.f32().s64!()
+}
+
+routine s64.__create__!(from: f32) -> s64 {
+    danger! {
+        return @intrinsic.fptosi<float, i64>(from)
+    }
+}
+
+routine s64.__create__!(from: f64) -> s64 {
+    danger! {
+        return @intrinsic.fptosi<double, i64>(from)
+    }
+}
+
+routine s64.__create__!(from: f128) -> s64 {
+    return from.f64!().s64!()
+}
+
+# From decimal - truncates fractional part and can overflow
+routine s64.__create__!(from: d32) -> s64 {
+    danger! {
+        let bits = @intrinsic.bitcast<d32, u32>(from)
+        return d32_to_s64(bits)
+    }
+}
+
+routine s64.__create__!(from: d64) -> s64 {
+    danger! {
+        let bits = @intrinsic.bitcast<d64, u64>(from)
+        return d64_to_s64(bits)
+    }
+}
+
+routine s64.__create__!(from: d128) -> s64 {
+    danger! {
+        return d128_to_s64(from.low, from.high)
+    }
+}
+
+# From saddr - always fits (sign extends from 32 or 64-bit)
+routine s64.__create__!(from: saddr) -> s64 {
+    danger! {
+        return @intrinsic.sext<iptr, i64>(from)
+    }
+}
+
+# From uaddr - crashes if value > S64_MAX
+routine s64.__create__!(from: uaddr) -> s64 {
+    let val_u64 = from.u64!()
+    if val_u64 > 9223372036854775807_u64 {
+        throw IntegerOverflowError(f"Cannot convert {from} to s64: value out of range [{S64_MIN}, {S64_MAX}]")
+    }
+    danger! {
+        return @intrinsic.zext<uptr, i64>(from)
+    }
+}
+
+# ============================================================================
 # Arithmetic Operations
 # ============================================================================
 
 # Addition
 @crash_only
-routine s64.__add__!(other: s64) -> s64 {
+routine s64.__add__!(you: s64) -> s64 {
     danger! {
-        return @intrinsic.add<i64>(me, other)
+        return @intrinsic.add<i64>(me, you)
     }
 }
 
 # Subtraction
 @crash_only
-routine s64.__sub__!(other: s64) -> s64 {
+routine s64.__sub__!(you: s64) -> s64 {
     danger! {
-        return @intrinsic.sub<i64>(me, other)
+        return @intrinsic.sub<i64>(me, you)
     }
 }
 
 # Multiplication
 @crash_only
-routine s64.__mul__!(other: s64) -> s64 {
+routine s64.__mul__!(you: s64) -> s64 {
     danger! {
-        return @intrinsic.mul.wrapping<i64>(me, other)
+        return @intrinsic.mul.wrapping<i64>(me, you)
     }
 }
 
 # Division
 @crash_only
-routine s64.__floordiv__!(other: s64) -> s64 {
-    if other == 0 {
+routine s64.__floordiv__!(you: s64) -> s64 {
+    if you == 0 {
         throw DivisionByZeroError()
     }
     danger! {
-        return @intrinsic.div.wrapping<i64>(me, other)
+        return @intrinsic.div.wrapping<i64>(me, you)
     }
 }
 
 # Remainder
 @crash_only
-routine s64.__rem__!(other: s64) -> s64 {
+routine s64.__rem__!(you: s64) -> s64 {
     danger! {
-        return @intrinsic.rem.wrapping<i64>(me, other)
+        return @intrinsic.rem.wrapping<i64>(me, you)
     }
 }
 
@@ -77,21 +223,21 @@ routine s64.__neg__!() -> s64 {
 # Wrapping Arithmetic (+%, -%, *%)
 # ============================================================================
 
-routine s64.__add_wrap__(other: s64) -> s64 {
+routine s64.__add_wrap__(you: s64) -> s64 {
     danger! {
-        return @intrinsic.add.wrapping<i64>(me, other)
+        return @intrinsic.add.wrapping<i64>(me, you)
     }
 }
 
-routine s64.__sub_wrap__(other: s64) -> s64 {
+routine s64.__sub_wrap__(you: s64) -> s64 {
     danger! {
-        return @intrinsic.sub.wrapping<i64>(me, other)
+        return @intrinsic.sub.wrapping<i64>(me, you)
     }
 }
 
-routine s64.__mul_wrap__(other: s64) -> s64 {
+routine s64.__mul_wrap__(you: s64) -> s64 {
     danger! {
-        return @intrinsic.mul.wrapping<i64>(me, other)
+        return @intrinsic.mul.wrapping<i64>(me, you)
     }
 }
 
@@ -99,21 +245,21 @@ routine s64.__mul_wrap__(other: s64) -> s64 {
 # Saturating Arithmetic (+^, -^, *^)
 # ============================================================================
 
-routine s64.__add_sat__(other: s64) -> s64 {
+routine s64.__add_sat__(you: s64) -> s64 {
     danger! {
-        return @intrinsic.add.saturating<i64>(me, other)
+        return @intrinsic.add.saturating<i64>(me, you)
     }
 }
 
-routine s64.__sub_sat__(other: s64) -> s64 {
+routine s64.__sub_sat__(you: s64) -> s64 {
     danger! {
-        return @intrinsic.sub.saturating<i64>(me, other)
+        return @intrinsic.sub.saturating<i64>(me, you)
     }
 }
 
-routine s64.__mul_sat__(other: s64) -> s64 {
+routine s64.__mul_sat__(you: s64) -> s64 {
     danger! {
-        return @intrinsic.mul.saturating<i64>(me, other)
+        return @intrinsic.mul.saturating<i64>(me, you)
     }
 }
 
@@ -121,41 +267,38 @@ routine s64.__mul_sat__(other: s64) -> s64 {
 # Checked Arithmetic (+?, -?, *?) - returns Maybe<T>
 # ============================================================================
 
-# TODO: Implement tuple destructuring in code generator
-# These functions require tuple destructuring which isn't implemented yet
-# routine s64.__add_checked__(other: s64) -> Maybe<s64> {
-#     danger! {
-#         let (result, overflow) = @intrinsic.add.overflow<i64>(me, other)
-#         if overflow {
-#             return None
-#         } else {
-#             return result
-#         }
-#     }
-# }
-#
-# routine s64.__sub_checked__(other: s64) -> Maybe<s64> {
-#     danger! {
-#         let (result, overflow) = @intrinsic.sub.overflow<i64>(me, other)
-#         if overflow {
-#             return None
-#         } else {
-#             return result
-#         }
-#         }
-#     }
-# }
-#
-# routine s64.__mul_checked__(other: s64) -> Maybe<s64> {
-#     danger! {
-#         let (result, overflow) = @intrinsic.mul.overflow<i64>(me, other)
-#         if overflow {
-#             return None
-#         } else {
-#             return result
-#         }
-#     }
-# }
+routine s64.__add_checked__(you: s64) -> Maybe<s64> {
+    danger! {
+        let (result, overflow) = @intrinsic.add.overflow<i64>(me, you)
+        if overflow {
+            return None
+        } else {
+            return result
+        }
+    }
+}
+
+routine s64.__sub_checked__(you: s64) -> Maybe<s64> {
+    danger! {
+        let (result, overflow) = @intrinsic.sub.overflow<i64>(me, you)
+        if overflow {
+            return None
+        } else {
+            return result
+        }
+    }
+}
+
+routine s64.__mul_checked__(you: s64) -> Maybe<s64> {
+    danger! {
+        let (result, overflow) = @intrinsic.mul.overflow<i64>(me, you)
+        if overflow {
+            return None
+        } else {
+            return result
+        }
+    }
+}
 
 # ============================================================================
 # Power Operations (**)
@@ -229,56 +372,55 @@ routine s64.__pow_sat__!(exp: s64) -> s64 {
 }
 
 # Checked power (**?) - returns Maybe<s64>
-# TODO: Implement tuple destructuring in code generator
-# routine s64.__pow_checked__(exp: s64) -> Maybe<s64> {
-#     danger! {
-#         var result: s64 = 1
-#         var base: s64 = me
-#         var e: u32 = exp
-#         if exp < 0 {
-#             return None
-#         }
-#         if me == 0 {
-#             return None
-#         }
-#         while e > 0 {
-#             if (e & 1) == 1 {
-#                 let (new_result, overflow) = @intrinsic.mul.overflow<i64>(result, base)
-#                 if overflow {
-#                     return None
-#                 }
-#                 result = new_result
-#             }
-#             let (new_base, overflow) = @intrinsic.mul.overflow<i64>(base, base)
-#             if overflow and e > 1 {
-#                 return None
-#             }
-#             base = new_base
-#             e = e >> 1
-#         }
-#         return result
-#     }
-# }
+routine s64.__pow_checked__(exp: s64) -> Maybe<s64> {
+    danger! {
+        var result: s64 = 1
+        var base: s64 = me
+        var e: u32 = exp
+        if exp < 0 {
+            return None
+        }
+        if me == 0 {
+            return None
+        }
+        while e > 0 {
+            if (e & 1) == 1 {
+                let (new_result, overflow) = @intrinsic.mul.overflow<i64>(result, base)
+                if overflow {
+                    return None
+                }
+                result = new_result
+            }
+            let (new_base, overflow) = @intrinsic.mul.overflow<i64>(base, base)
+            if overflow and e > 1 {
+                return None
+            }
+            base = new_base
+            e = e >> 1
+        }
+        return result
+    }
+}
 
 # ============================================================================
 # Bitwise Operations
 # ============================================================================
 
-routine s64.__and__(other: s64) -> s64 {
+routine s64.__and__(you: s64) -> s64 {
     danger! {
-        return @intrinsic.and<i64>(me, other)
+        return @intrinsic.and<i64>(me, you)
     }
 }
 
-routine s64.__or__(other: s64) -> s64 {
+routine s64.__or__(you: s64) -> s64 {
     danger! {
-        return @intrinsic.or<i64>(me, other)
+        return @intrinsic.or<i64>(me, you)
     }
 }
 
-routine s64.__xor__(other: s64) -> s64 {
+routine s64.__xor__(you: s64) -> s64 {
     danger! {
-        return @intrinsic.xor<i64>(me, other)
+        return @intrinsic.xor<i64>(me, you)
     }
 }
 
@@ -340,39 +482,39 @@ routine s64.__lshr__(bits: u32) -> s64 {
 # Comparison Operations
 # ============================================================================
 
-routine s64.__eq__(other: s64) -> bool {
+routine s64.__eq__(you: s64) -> bool {
     danger! {
-        return @intrinsic.icmp.eq<i64>(me, other)
+        return @intrinsic.icmp.eq<i64>(me, you)
     }
 }
 
-routine s64.__ne__(other: s64) -> bool {
+routine s64.__ne__(you: s64) -> bool {
     danger! {
-        return @intrinsic.icmp.ne<i64>(me, other)
+        return @intrinsic.icmp.ne<i64>(me, you)
     }
 }
 
-routine s64.__lt__(other: s64) -> bool {
+routine s64.__lt__(you: s64) -> bool {
     danger! {
-        return @intrinsic.icmp.slt<i64>(me, other)
+        return @intrinsic.icmp.slt<i64>(me, you)
     }
 }
 
-routine s64.__le__(other: s64) -> bool {
+routine s64.__le__(you: s64) -> bool {
     danger! {
-        return @intrinsic.icmp.sle<i64>(me, other)
+        return @intrinsic.icmp.sle<i64>(me, you)
     }
 }
 
-routine s64.__gt__(other: s64) -> bool {
+routine s64.__gt__(you: s64) -> bool {
     danger! {
-        return @intrinsic.icmp.sgt<i64>(me, other)
+        return @intrinsic.icmp.sgt<i64>(me, you)
     }
 }
 
-routine s64.__ge__(other: s64) -> bool {
+routine s64.__ge__(you: s64) -> bool {
     danger! {
-        return @intrinsic.icmp.sge<i64>(me, other)
+        return @intrinsic.icmp.sge<i64>(me, you)
     }
 }
 
@@ -386,19 +528,19 @@ routine s64.abs() -> s64 {
     }
 }
 
-routine s64.min(other: s64) -> s64 {
-    if me <= other {
+routine s64.min(you: s64) -> s64 {
+    if me <= you {
         return me
     } else {
-        return other
+        return you
     }
 }
 
-routine s64.max(other: s64) -> s64 {
-    if me >= other {
+routine s64.max(you: s64) -> s64 {
+    if me >= you {
         return me
     } else {
-        return other
+        return you
     }
 }
 
@@ -453,63 +595,6 @@ routine s64.swap_bytes() -> s64 {
 }
 
 # ============================================================================
-# Type Conversions (constructor syntax)
-# ============================================================================
-
-# Bitcast to unsigned
-routine u64(from: s64) -> u64 {
-    danger! {
-        return @intrinsic.bitcast<i64, i64>(from)
-    }
-}
-
-# Sign-extend to larger types
-routine s128(from: s64) -> s128 {
-    danger! {
-        return @intrinsic.sext<i64, i128>(from)
-    }
-}
-
-# Truncate to smaller signed integers
-routine s32(from: s64) -> s32 {
-    danger! {
-        return @intrinsic.trunc<i64, i32>(from)
-    }
-}
-
-routine s16(from: s64) -> s16 {
-    danger! {
-        return @intrinsic.trunc<i64, i16>(from)
-    }
-}
-
-routine s8(from: s64) -> s8 {
-    danger! {
-        return @intrinsic.trunc<i64, i8>(from)
-    }
-}
-
-# Convert to floating point
-routine f64(from: s64) -> f64 {
-    danger! {
-        return @intrinsic.sitofp<i64, double>(from)
-    }
-}
-
-routine f32(from: s64) -> f32 {
-    danger! {
-        return @intrinsic.sitofp<i64, float>(from)
-    }
-}
-
-# Convert to boolean
-routine bool(from: s64) -> bool {
-    danger! {
-        return @intrinsic.icmp.ne<i64>(from, 0_s64)
-    }
-}
-
-# ============================================================================
 # Utility Methods
 # ============================================================================
 
@@ -559,161 +644,9 @@ routine s64.is_power_of_two() -> bool {
 # String Conversion
 # ============================================================================
 
-routine s64.to_text() -> Text<letter8> {
+routine s64.to_text() -> Bytes {
     danger! {
-        let ptr = @format_s64(me)
-        return Text<letter8>(ptr: cstr(ptr: ptr))
+        let ptr = @native.rf_format_s64(me)
+        return Bytes(ptr: cstr(ptr: ptr))
     }
-}
-
-# ============================================================================
-# Checked Constructors (crash on overflow)
-# ============================================================================
-
-# TODO: Text<Letterlikes> requires Text to be loaded as a generic record template
-# Failable constructor from Text - called as s64!(text)
-# Compiler automatically generates try_s64.__create__(text) -> Maybe<s64>
-# routine s64.__create__!(from_text: Text<Letterlikes>) -> s64 {
-#     danger! {
-#         return @parse_s64(from_text)
-#     }
-# }
-
-# From s8 - always fits, no check needed
-routine s64.__create__!(from: s8) -> s64 {
-    danger! {
-        return @intrinsic.sext<i8, i64>(from)
-    }
-}
-
-# From s16 - always fits, no check needed
-routine s64.__create__!(from: s16) -> s64 {
-    danger! {
-        return @intrinsic.sext<i16, i64>(from)
-    }
-}
-
-# From s32 - always fits, no check needed
-routine s64.__create__!(from: s32) -> s64 {
-    danger! {
-        return @intrinsic.sext<i32, i64>(from)
-    }
-}
-
-# From s128 - crashes if value out of s64 range
-routine s64.__create__!(from: s128) -> s64 {
-    if not (S64_MIN <= from <= S64_MAX) {
-        throw IntegerOverflowError(f"Cannot convert {from} to s64: value out of range [{S64_MIN}, {S64_MAX}]")
-    }
-    danger! {
-        return @intrinsic.trunc<i128, i64>(from)
-    }
-}
-
-# From u8 - always fits, no check needed
-routine s64.__create__!(from: u8) -> s64 {
-    danger! {
-        return @intrinsic.zext<i8, i64>(from)
-    }
-}
-
-# From u16 - always fits, no check needed
-routine s64.__create__!(from: u16) -> s64 {
-    danger! {
-        return @intrinsic.zext<i16, i64>(from)
-    }
-}
-
-# From u32 - always fits, no check needed
-routine s64.__create__!(from: u32) -> s64 {
-    danger! {
-        return @intrinsic.zext<i32, i64>(from)
-    }
-}
-
-# From u64 - crashes if value > S64_MAX (bit 63 set)
-routine s64.__create__!(from: u64) -> s64 {
-    if from > 9223372036854775807_u64 {
-        throw IntegerOverflowError(f"Cannot convert {from} to s64: value out of range [{S64_MIN}, {S64_MAX}]")
-    }
-    danger! {
-        return @intrinsic.bitcast<i64, i64>(from)
-    }
-}
-
-# From u128 - crashes if value > S64_MAX
-routine s64.__create__!(from: u128) -> s64 {
-    if from > 9223372036854775807_u128 {
-        throw IntegerOverflowError(f"Cannot convert {from} to s64: value out of range [{S64_MIN}, {S64_MAX}]")
-    }
-    danger! {
-        return @intrinsic.trunc<i128, i64>(from)
-    }
-}
-
-# From floating point - truncates
-routine s64.__create__(from: f32) -> s64 {
-    danger! {
-        return @intrinsic.fptosi<float, i64>(from)
-    }
-}
-
-routine s64.__create__(from: f64) -> s64 {
-    danger! {
-        return @intrinsic.fptosi<double, i64>(from)
-    }
-}
-
-# From decimal - truncates
-routine s64.__create__(from: d32) -> s64 {
-    return from.to_s64()
-}
-
-routine s64.__create__(from: d64) -> s64 {
-    return from.to_s64()
-}
-
-routine s64.__create__(from: d128) -> s64 {
-    return from.to_s64()
-}
-
-# ============================================================================
-# Example: Fibonacci using s64
-# ============================================================================
-
-routine fibonacci_s64(n: s64) -> s64 {
-    when {
-        n <= 1_s64 => n,
-        _ => {
-            var a: s64 = 0_s64
-            var b: s64 = 1_s64
-            var i: s64 = 2_s64
-
-            while i <= n {
-                let temp = a + b
-                a = b
-                b = temp
-                i = i + 1_s64
-            }
-
-            return b
-        }
-    }
-}
-
-# ============================================================================
-# Example: GCD (Greatest Common Divisor) using intrinsics
-# ============================================================================
-
-routine gcd_s64(a: s64, b: s64) -> s64 {
-    var x = a.abs()
-    var y = b.abs()
-
-    while y != 0_s64 {
-        let temp = y
-        y = x % y
-        x = temp
-    }
-
-    return x
 }

@@ -3,7 +3,7 @@
 namespace core
 # Core f128 type definition - maps to LLVM fp128
 record f128 {
-    public value: LlvmNativeFp128
+    private value: @intrinsic.f128
 }
 
 # IEEE 754 quadruple precision constants
@@ -23,9 +23,126 @@ preset F128_LN_10: f128 = 2.302585092994045684017991454684364208_f128
 
 # Failable constructor from Text - called as f128!(text)
 # Compiler automatically generates try_f128.__create__(text) -> Maybe<f128>
-routine f128.__create__!(from_text: Text<Letterlikes>) -> f128 {
+routine f128.__create__!(from_text: Text<Letter>) -> f128 {
     danger! {
-        return @parse_f128(from_text)
+        return @native.rf_parse_f128(from_text)
+    }
+}
+
+# Convert integers to f128 using LLVM intrinsics (lossless for all integer sizes)
+routine f128.__create__(from: s8) -> f128 {
+    danger! {
+        return @intrinsic.sitofp<i8, fp128>(from)
+    }
+}
+
+routine f128.__create__(from: s16) -> f128 {
+    danger! {
+        return @intrinsic.sitofp<i16, fp128>(from)
+    }
+}
+
+routine f128.__create__(from: s32) -> f128 {
+    danger! {
+        return @intrinsic.sitofp<i32, fp128>(from)
+    }
+}
+
+routine f128.__create__(from: s64) -> f128 {
+    danger! {
+        return @intrinsic.sitofp<i64, fp128>(from)
+    }
+}
+
+routine f128.__create__(from: s128) -> f128 {
+    danger! {
+        return @intrinsic.sitofp<i128, fp128>(from)
+    }
+}
+
+routine f128.__create__(from: u8) -> f128 {
+    danger! {
+        return @intrinsic.uitofp<i8, fp128>(from)
+    }
+}
+
+routine f128.__create__(from: u16) -> f128 {
+    danger! {
+        return @intrinsic.uitofp<i16, fp128>(from)
+    }
+}
+
+routine f128.__create__(from: u32) -> f128 {
+    danger! {
+        return @intrinsic.uitofp<i32, fp128>(from)
+    }
+}
+
+routine f128.__create__(from: u64) -> f128 {
+    danger! {
+        return @intrinsic.uitofp<i64, fp128>(from)
+    }
+}
+
+routine f128.__create__(from: u128) -> f128 {
+    danger! {
+        return @intrinsic.uitofp<i128, fp128>(from)
+    }
+}
+
+# Extend from smaller float types using LLVM intrinsics (lossless widening)
+routine f128.__create__(from: f16) -> f128 {
+    danger! {
+        return @intrinsic.fpext<half, fp128>(from)
+    }
+}
+
+routine f128.__create__(from: f32) -> f128 {
+    danger! {
+        return @intrinsic.fpext<float, fp128>(from)
+    }
+}
+
+routine f128.__create__(from: f64) -> f128 {
+    danger! {
+        return @intrinsic.fpext<double, fp128>(from)
+    }
+}
+
+routine f128.__create__(from: f128) -> f128 {
+    return from
+}
+
+# Convert from decimal types via native runtime (no LLVM intrinsic for decimal)
+routine f128.__create__(from: d32) -> f128 {
+    danger! {
+        return @native.rf_d32_to_f128(from.to_bits())
+    }
+}
+
+routine f128.__create__(from: d64) -> f128 {
+    danger! {
+        return @native.rf_d64_to_f128(from.to_bits())
+    }
+}
+
+routine f128.__create__(from: d128) -> f128 {
+    danger! {
+        return @native.rf_d128_to_f128(from.low_bits(), from.high_bits())
+    }
+}
+
+# From saddr - convert to float using LLVM intrinsic
+routine f128.__create__(from: saddr) -> f128 {
+    danger! {
+        return @intrinsic.sitofp<iptr, fp128>(from)
+    }
+}
+
+# From uaddr - convert to float using LLVM intrinsic
+routine f128.__create__(from: uaddr) -> f128 {
+    danger! {
+        return @intrinsic.uitofp<uptr, fp128>(from)
     }
 }
 
@@ -33,27 +150,27 @@ routine f128.__create__!(from_text: Text<Letterlikes>) -> f128 {
 # Arithmetic Operations (IEEE 754 semantics)
 # ============================================================================
 
-routine f128.__add__(other: f128) -> f128 {
+routine f128.__add__(you: f128) -> f128 {
     danger! {
-        return @intrinsic.add.wrapping<fp128>(me, other)
+        return @intrinsic.add.wrapping<fp128>(me, you)
     }
 }
 
-routine f128.__sub__(other: f128) -> f128 {
+routine f128.__sub__(you: f128) -> f128 {
     danger! {
-        return @intrinsic.sub.wrapping<fp128>(me, other)
+        return @intrinsic.sub.wrapping<fp128>(me, you)
     }
 }
 
-routine f128.__mul__(other: f128) -> f128 {
+routine f128.__mul__(you: f128) -> f128 {
     danger! {
-        return @intrinsic.mul.wrapping<fp128>(me, other)
+        return @intrinsic.mul.wrapping<fp128>(me, you)
     }
 }
 
-routine f128.__truediv__(other: f128) -> f128 {
+routine f128.__truediv__(you: f128) -> f128 {
     danger! {
-        return @intrinsic.div.wrapping<fp128>(me, other)
+        return @intrinsic.div.wrapping<fp128>(me, you)
     }
 }
 
@@ -67,27 +184,27 @@ routine f128.__neg__() -> f128 {
 # Comparison Operations (ordered - false if NaN)
 # ============================================================================
 
-routine f128.__lt__(other: f128) -> bool {
+routine f128.__lt__(you: f128) -> bool {
     danger! {
-        return @intrinsic.fcmp.olt<fp128>(me, other)
+        return @intrinsic.fcmp.olt<fp128>(me, you)
     }
 }
 
-routine f128.__le__(other: f128) -> bool {
+routine f128.__le__(you: f128) -> bool {
     danger! {
-        return @intrinsic.fcmp.ole<fp128>(me, other)
+        return @intrinsic.fcmp.ole<fp128>(me, you)
     }
 }
 
-routine f128.__gt__(other: f128) -> bool {
+routine f128.__gt__(you: f128) -> bool {
     danger! {
-        return @intrinsic.fcmp.ogt<fp128>(me, other)
+        return @intrinsic.fcmp.ogt<fp128>(me, you)
     }
 }
 
-routine f128.__ge__(other: f128) -> bool {
+routine f128.__ge__(you: f128) -> bool {
     danger! {
-        return @intrinsic.fcmp.oge<fp128>(me, other)
+        return @intrinsic.fcmp.oge<fp128>(me, you)
     }
 }
 
@@ -131,47 +248,163 @@ routine f128.trunc() -> f128 {
     }
 }
 
-# Trigonometric functions
+# ============================================================================
+# Trigonometric Functions (via LibBF native runtime)
+# ============================================================================
+
 routine f128.sin() -> f128 {
     danger! {
-        return @intrinsic.sin<fp128>(me)
+        return @native.rf_f128_sin(me)
     }
 }
 
 routine f128.cos() -> f128 {
     danger! {
-        return @intrinsic.cos<fp128>(me)
+        return @native.rf_f128_cos(me)
     }
 }
 
-# Exponential and logarithmic
+routine f128.tan() -> f128 {
+    danger! {
+        return @native.rf_f128_tan(me)
+    }
+}
+
+routine f128.asin() -> f128 {
+    danger! {
+        return @native.rf_f128_asin(me)
+    }
+}
+
+routine f128.acos() -> f128 {
+    danger! {
+        return @native.rf_f128_acos(me)
+    }
+}
+
+routine f128.atan() -> f128 {
+    danger! {
+        return @native.rf_f128_atan(me)
+    }
+}
+
+routine f128.atan2(x: f128) -> f128 {
+    danger! {
+        return @native.rf_f128_atan2(me, x)
+    }
+}
+
+# ============================================================================
+# Hyperbolic Functions (via LibBF native runtime)
+# ============================================================================
+
+routine f128.sinh() -> f128 {
+    danger! {
+        return @native.rf_f128_sinh(me)
+    }
+}
+
+routine f128.cosh() -> f128 {
+    danger! {
+        return @native.rf_f128_cosh(me)
+    }
+}
+
+routine f128.tanh() -> f128 {
+    danger! {
+        return @native.rf_f128_tanh(me)
+    }
+}
+
+routine f128.asinh() -> f128 {
+    danger! {
+        return @native.rf_f128_asinh(me)
+    }
+}
+
+routine f128.acosh() -> f128 {
+    danger! {
+        return @native.rf_f128_acosh(me)
+    }
+}
+
+routine f128.atanh() -> f128 {
+    danger! {
+        return @native.rf_f128_atanh(me)
+    }
+}
+
+# ============================================================================
+# Exponential and Logarithmic Functions (via LibBF native runtime)
+# ============================================================================
+
 routine f128.exp() -> f128 {
     danger! {
-        return @intrinsic.exp<fp128>(me)
+        return @native.rf_f128_exp(me)
+    }
+}
+
+routine f128.exp2() -> f128 {
+    danger! {
+        return @native.rf_f128_exp2(me)
+    }
+}
+
+routine f128.expm1() -> f128 {
+    danger! {
+        return @native.rf_f128_expm1(me)
     }
 }
 
 routine f128.log() -> f128 {
     danger! {
-        return @intrinsic.log<fp128>(me)
+        return @native.rf_f128_log(me)
+    }
+}
+
+routine f128.log2() -> f128 {
+    danger! {
+        return @native.rf_f128_log2(me)
     }
 }
 
 routine f128.log10() -> f128 {
     danger! {
-        return @intrinsic.log10<fp128>(me)
+        return @native.rf_f128_log10(me)
     }
 }
 
+routine f128.log1p() -> f128 {
+    danger! {
+        return @native.rf_f128_log1p(me)
+    }
+}
+
+# ============================================================================
+# Power Functions (via LibBF native runtime)
+# ============================================================================
+
 routine f128.pow(exp: f128) -> f128 {
     danger! {
-        return @intrinsic.pow<fp128>(me, exp)
+        return @native.rf_f128_pow(me, exp)
+    }
+}
+
+routine f128.cbrt() -> f128 {
+    danger! {
+        return @native.rf_f128_cbrt(me)
+    }
+}
+
+routine f128.hypot(y: f128) -> f128 {
+    danger! {
+        return @native.rf_f128_hypot(me, y)
     }
 }
 
 routine f128.copysign(sign: f128) -> f128 {
     danger! {
-        return @intrinsic.copysign<fp128>(me, sign)
+        return @native.rf_f128_copysign(me, sign)
     }
 }
 
@@ -179,12 +412,12 @@ routine f128.copysign(sign: f128) -> f128 {
 # Utility Methods
 # ============================================================================
 
-routine f128.min(other: f128) -> f128 {
-    return if me <= other then me else other
+routine f128.min(you: f128) -> f128 {
+    return if me <= you then me else you
 }
 
-routine f128.max(other: f128) -> f128 {
-    return if me >= other then me else other
+routine f128.max(you: f128) -> f128 {
+    return if me >= you then me else you
 }
 
 routine f128.clamp(min_val: f128, max_val: f128) -> f128 {
@@ -211,46 +444,6 @@ routine f128.signum() -> f128 {
     }
 }
 
-# ============================================================================
-# Type Conversions
-# ============================================================================
-
-routine f128.to_s64() -> s64 {
-    danger! {
-        return @intrinsic.fptosi<fp128, i64>(me)
-    }
-}
-
-routine f128.to_u64() -> u64 {
-    danger! {
-        return @intrinsic.fptoui<fp128, i64>(me)
-    }
-}
-
-routine f128.to_s128() -> s128 {
-    danger! {
-        return @intrinsic.fptosi<fp128, i128>(me)
-    }
-}
-
-routine f128.to_u128() -> u128 {
-    danger! {
-        return @intrinsic.fptoui<fp128, i128>(me)
-    }
-}
-
-routine f128.to_f32() -> f32 {
-    danger! {
-        return @intrinsic.fptrunc<fp128, float>(me)
-    }
-}
-
-routine f128.to_f64() -> f64 {
-    danger! {
-        return @intrinsic.fptrunc<fp128, double>(me)
-    }
-}
-
 # Reinterpret bits as u128 (type punning)
 routine f128.to_bits() -> u128 {
     danger! {
@@ -265,12 +458,8 @@ routine f128.from_bits(bits: u128) -> f128 {
     }
 }
 
-# ============================================================================
-# String Conversion
-# ============================================================================
-
 routine f128.to_text() -> Text {
     danger! {
-        return @format_f128(me)
+        return @native.rf_format_f128(me)
     }
 }

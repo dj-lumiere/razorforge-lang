@@ -3,7 +3,7 @@
 namespace core
 # Core s8 type definition - maps to LLVM i8
 record s8 {
-    public value: LlvmNativeI8
+    private value: @intrinsic.i8
 }
 
 # Constants for s8 limits
@@ -13,44 +13,200 @@ preset S8_ZERO: s8 = 0_s8
 preset S8_ONE: s8 = 1_s8
 
 # ============================================================================
+# Constructors
+# ============================================================================
+
+routine s8.__create__!(from_text: Text<Letter>) -> s8 {
+    danger! {
+        return @native.rf_parse_s8(from_text)
+    }
+}
+
+routine s8.__create__(from: s8) -> s8 {
+    return from
+}
+
+# From s16 - crashes if value out of s8 range
+routine s8.__create__!(from: s16) -> s8 {
+    if not (S8_MIN <= from <= S8_MAX) {
+        throw IntegerOverflowError(f"Cannot convert {from} to s8: value out of range [{S8_MIN}, {S8_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<i16, i8>(from)
+    }
+}
+
+# From s32 - crashes if value out of s8 range
+routine s8.__create__!(from: s32) -> s8 {
+    if not (S8_MIN <= from <= S8_MAX) {
+        throw IntegerOverflowError(f"Cannot convert {from} to s8: value out of range [{S8_MIN}, {S8_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<i32, i8>(from)
+    }
+}
+
+# From s64 - crashes if value out of s8 range
+routine s8.__create__!(from: s64) -> s8 {
+    if not (S8_MIN <= from <= S8_MAX) {
+        throw IntegerOverflowError(f"Cannot convert {from} to s8: value out of range [{S8_MIN}, {S8_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<i64, i8>(from)
+    }
+}
+
+# From s128 - crashes if value out of s8 range
+routine s8.__create__!(from: s128) -> s8 {
+    if not (S8_MIN <= from <= S8_MAX) {
+        throw IntegerOverflowError(f"Cannot convert {from} to s8: value out of range [{S8_MIN}, {S8_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<i128, i8>(from)
+    }
+}
+
+# From u8 - crashes if value > S8_MAX (bit 7 set)
+routine s8.__create__!(from: u8) -> s8 {
+    if from > 127_u8 {
+        throw IntegerOverflowError(f"Cannot convert {from} to s8: value out of range [{S8_MIN}, {S8_MAX}]")
+    }
+    danger! {
+        return @intrinsic.bitcast<i8, i8>(from)
+    }
+}
+
+# From u16 - crashes if value > S8_MAX
+routine s8.__create__!(from: u16) -> s8 {
+    if from > 127_u16 {
+        throw IntegerOverflowError(f"Cannot convert {from} to s8: value out of range [{S8_MIN}, {S8_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<i16, i8>(from)
+    }
+}
+
+# From u32 - crashes if value > S8_MAX
+routine s8.__create__!(from: u32) -> s8 {
+    if from > 127_u32 {
+        throw IntegerOverflowError(f"Cannot convert {from} to s8: value out of range [{S8_MIN}, {S8_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<i32, i8>(from)
+    }
+}
+
+# From u64 - crashes if value > S8_MAX
+routine s8.__create__!(from: u64) -> s8 {
+    if from > 127_u64 {
+        throw IntegerOverflowError(f"Cannot convert {from} to s8: value out of range [{S8_MIN}, {S8_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<i64, i8>(from)
+    }
+}
+
+# From u128 - crashes if value > S8_MAX
+routine s8.__create__!(from: u128) -> s8 {
+    if from > 127_u128 {
+        throw IntegerOverflowError(f"Cannot convert {from} to s8: value out of range [{S8_MIN}, {S8_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<i128, i8>(from)
+    }
+}
+
+# From floating point - truncates fractional part and crashes if overflow
+routine s8.__create__!(from: f16) -> s8 {
+    return from.s32!().s8!()
+}
+
+routine s8.__create__!(from: f32) -> s8 {
+    return from.s32!().s8!()
+}
+
+routine s8.__create__!(from: f64) -> s8 {
+    return from.s32!().s8!()
+}
+
+routine s8.__create__!(from: f128) -> s8 {
+    return from.s32!().s8!()
+}
+
+# From decimal - truncates fractional part and crashes if overflow
+routine s8.__create__!(from: d32) -> s8 {
+    return from.s32!().s8!()
+}
+
+routine s8.__create__!(from: d64) -> s8 {
+    return from.s32!().s8!()
+}
+
+routine s8.__create__!(from: d128) -> s8 {
+    return from.s32!().s8!()
+}
+
+# From saddr - crashes if value out of s8 range
+routine s8.__create__!(from: saddr) -> s8 {
+    let val_s64 = from.s64!()
+    if not (-128_s64 <= val_s64 <= 127_s64) {
+        throw IntegerOverflowError(f"Cannot convert {from} to s8: value out of range [{S8_MIN}, {S8_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<iptr, i8>(from)
+    }
+}
+
+# From uaddr - crashes if value out of s8 range
+routine s8.__create__!(from: uaddr) -> s8 {
+    let val_u64 = from.u64!()
+    if val_u64 > 127_u64 {
+        throw IntegerOverflowError(f"Cannot convert {from} to s8: value out of range [{S8_MIN}, {S8_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<uptr, i8>(from)
+    }
+}
+
+# ============================================================================
 # Arithmetic Operations (trapping on overflow by default)
 # ============================================================================
 
 @crash_only
-routine s8.__add__!(other: s8) -> s8 {
+routine s8.__add__!(you: s8) -> s8 {
     danger! {
-        return @intrinsic.add<i8>(me, other)
+        return @intrinsic.add<i8>(me, you)
     }
 }
 
 @crash_only
-routine s8.__sub__!(other: s8) -> s8 {
+routine s8.__sub__!(you: s8) -> s8 {
     danger! {
-        return @intrinsic.sub<i8>(me, other)
+        return @intrinsic.sub<i8>(me, you)
     }
 }
 
 @crash_only
-routine s8.__mul__!(other: s8) -> s8 {
+routine s8.__mul__!(you: s8) -> s8 {
     danger! {
-        return @intrinsic.mul<i8>(me, other)
+        return @intrinsic.mul<i8>(me, you)
     }
 }
 
 @crash_only
-routine s8.__floordiv__!(other: s8) -> s8 {
-    if other == 0 {
+routine s8.__floordiv__!(you: s8) -> s8 {
+    if you == 0 {
         throw DivisionByZeroError()
     }
     danger! {
-        return @intrinsic.sdiv<i8>(me, other)
+        return @intrinsic.sdiv<i8>(me, you)
     }
 }
 
 @crash_only
-routine s8.__mod__!(other: s8) -> s8 {
+routine s8.__mod__!(you: s8) -> s8 {
     danger! {
-        return @intrinsic.srem<i8>(me, other)
+        return @intrinsic.srem<i8>(me, you)
     }
 }
 
@@ -65,21 +221,21 @@ routine s8.__neg__!() -> s8 {
 # Wrapping Arithmetic (+%, -%, *%)
 # ============================================================================
 
-routine s8.__add_wrap__(other: s8) -> s8 {
+routine s8.__add_wrap__(you: s8) -> s8 {
     danger! {
-        return @intrinsic.add.wrapping<i8>(me, other)
+        return @intrinsic.add.wrapping<i8>(me, you)
     }
 }
 
-routine s8.__sub_wrap__(other: s8) -> s8 {
+routine s8.__sub_wrap__(you: s8) -> s8 {
     danger! {
-        return @intrinsic.sub.wrapping<i8>(me, other)
+        return @intrinsic.sub.wrapping<i8>(me, you)
     }
 }
 
-routine s8.__mul_wrap__(other: s8) -> s8 {
+routine s8.__mul_wrap__(you: s8) -> s8 {
     danger! {
-        return @intrinsic.mul.wrapping<i8>(me, other)
+        return @intrinsic.mul.wrapping<i8>(me, you)
     }
 }
 
@@ -87,21 +243,21 @@ routine s8.__mul_wrap__(other: s8) -> s8 {
 # Saturating Arithmetic (+^, -^, *^)
 # ============================================================================
 
-routine s8.__add_sat__(other: s8) -> s8 {
+routine s8.__add_sat__(you: s8) -> s8 {
     danger! {
-        return @intrinsic.add.saturating<i8>(me, other)
+        return @intrinsic.add.saturating<i8>(me, you)
     }
 }
 
-routine s8.__sub_sat__(other: s8) -> s8 {
+routine s8.__sub_sat__(you: s8) -> s8 {
     danger! {
-        return @intrinsic.sub.saturating<i8>(me, other)
+        return @intrinsic.sub.saturating<i8>(me, you)
     }
 }
 
-routine s8.__mul_sat__(other: s8) -> s8 {
+routine s8.__mul_sat__(you: s8) -> s8 {
     danger! {
-        return @intrinsic.mul.saturating<i8>(me, other)
+        return @intrinsic.mul.saturating<i8>(me, you)
     }
 }
 
@@ -109,23 +265,23 @@ routine s8.__mul_sat__(other: s8) -> s8 {
 # Checked Arithmetic (+?, -?, *?) - returns Maybe<T>
 # ============================================================================
 
-routine s8.__add_checked__(other: s8) -> Maybe<s8> {
+routine s8.__add_checked__(you: s8) -> s8? {
     danger! {
-        let (result, overflow) = @intrinsic.add.overflow<i8>(me, other)
+        let (result, overflow) = @intrinsic.add.overflow<i8>(me, you)
         return if overflow then None else result
     }
 }
 
-routine s8.__sub_checked__(other: s8) -> Maybe<s8> {
+routine s8.__sub_checked__(you: s8) -> s8? {
     danger! {
-        let (result, overflow) = @intrinsic.sub.overflow<i8>(me, other)
+        let (result, overflow) = @intrinsic.sub.overflow<i8>(me, you)
         return if overflow then None else result
     }
 }
 
-routine s8.__mul_checked__(other: s8) -> Maybe<s8> {
+routine s8.__mul_checked__(you: s8) -> s8? {
     danger! {
-        let (result, overflow) = @intrinsic.mul.overflow<i8>(me, other)
+        let (result, overflow) = @intrinsic.mul.overflow<i8>(me, you)
         return if overflow then None else result
     }
 }
@@ -205,7 +361,7 @@ routine s8.__pow_sat__!(exp: s8) -> s8 {
 }
 
 # Checked power (**?) - returns Maybe<s8>
-routine s8.__pow_checked__(exp: s8) -> Maybe<s8> {
+routine s8.__pow_checked__(exp: s8) -> s8? {
     danger! {
         var result: s8 = 1
         var base: s8 = me
@@ -239,21 +395,21 @@ routine s8.__pow_checked__(exp: s8) -> Maybe<s8> {
 # Bitwise Operations
 # ============================================================================
 
-routine s8.__and__(other: s8) -> s8 {
+routine s8.__and__(you: s8) -> s8 {
     danger! {
-        return @intrinsic.and<i8>(me, other)
+        return @intrinsic.and<i8>(me, you)
     }
 }
 
-routine s8.__or__(other: s8) -> s8 {
+routine s8.__or__(you: s8) -> s8 {
     danger! {
-        return @intrinsic.or<i8>(me, other)
+        return @intrinsic.or<i8>(me, you)
     }
 }
 
-routine s8.__xor__(other: s8) -> s8 {
+routine s8.__xor__(you: s8) -> s8 {
     danger! {
-        return @intrinsic.xor<i8>(me, other)
+        return @intrinsic.xor<i8>(me, you)
     }
 }
 
@@ -315,39 +471,39 @@ routine s8.__lshr__(bits: u32) -> s8 {
 # Comparison Operations
 # ============================================================================
 
-routine s8.__eq__(other: s8) -> bool {
+routine s8.__eq__(you: s8) -> bool {
     danger! {
-        return @intrinsic.icmp.eq<i8>(me, other)
+        return @intrinsic.icmp.eq<i8>(me, you)
     }
 }
 
-routine s8.__ne__(other: s8) -> bool {
+routine s8.__ne__(you: s8) -> bool {
     danger! {
-        return @intrinsic.icmp.ne<i8>(me, other)
+        return @intrinsic.icmp.ne<i8>(me, you)
     }
 }
 
-routine s8.__lt__(other: s8) -> bool {
+routine s8.__lt__(you: s8) -> bool {
     danger! {
-        return @intrinsic.icmp.slt<i8>(me, other)
+        return @intrinsic.icmp.slt<i8>(me, you)
     }
 }
 
-routine s8.__le__(other: s8) -> bool {
+routine s8.__le__(you: s8) -> bool {
     danger! {
-        return @intrinsic.icmp.sle<i8>(me, other)
+        return @intrinsic.icmp.sle<i8>(me, you)
     }
 }
 
-routine s8.__gt__(other: s8) -> bool {
+routine s8.__gt__(you: s8) -> bool {
     danger! {
-        return @intrinsic.icmp.sgt<i8>(me, other)
+        return @intrinsic.icmp.sgt<i8>(me, you)
     }
 }
 
-routine s8.__ge__(other: s8) -> bool {
+routine s8.__ge__(you: s8) -> bool {
     danger! {
-        return @intrinsic.icmp.sge<i8>(me, other)
+        return @intrinsic.icmp.sge<i8>(me, you)
     }
 }
 
@@ -361,12 +517,12 @@ routine s8.abs() -> s8 {
     }
 }
 
-routine s8.min(other: s8) -> s8 {
-    return if me <= other then me else other
+routine s8.min(you: s8) -> s8 {
+    return if me <= you then me else you
 }
 
-routine s8.max(other: s8) -> s8 {
-    return if me >= other then me else other
+routine s8.max(you: s8) -> s8 {
+    return if me >= you then me else you
 }
 
 routine s8.clamp(min_val: s8, max_val: s8) -> s8 {
@@ -510,108 +666,6 @@ routine s8.signum() -> s8 {
 
 routine s8.to_text() -> Text {
     danger! {
-        return @format_s8(me)
-    }
-}
-
-# ============================================================================
-# Checked Constructors (crash on overflow)
-# ============================================================================
-
-# Failable constructor from Text - called as s8!(text)
-# Compiler automatically generates try_s8.__create__(text) -> Maybe<s8>
-routine s8.__create__!(from_text: Text<Letterlikes>) -> s8 {
-    danger! {
-        return @parse_s8(from_text)
-    }
-}
-
-# From s16 - crashes if value out of s8 range
-routine s8.__create__!(from: s16) -> s8 {
-    if not (S8_MIN <= from <= S8_MAX) {
-        throw IntegerOverflowError(f"Cannot convert {from} to s8: value out of range [{S8_MIN}, {S8_MAX}]")
-    }
-    danger! {
-        return @intrinsic.trunc<i16, i8>(from)
-    }
-}
-
-# From s32 - crashes if value out of s8 range
-routine s8.__create__!(from: s32) -> s8 {
-    if not (S8_MIN <= from <= S8_MAX) {
-        throw IntegerOverflowError(f"Cannot convert {from} to s8: value out of range [{S8_MIN}, {S8_MAX}]")
-    }
-    danger! {
-        return @intrinsic.trunc<i32, i8>(from)
-    }
-}
-
-# From s64 - crashes if value out of s8 range
-routine s8.__create__!(from: s64) -> s8 {
-    if not (S8_MIN <= from <= S8_MAX) {
-        throw IntegerOverflowError(f"Cannot convert {from} to s8: value out of range [{S8_MIN}, {S8_MAX}]")
-    }
-    danger! {
-        return @intrinsic.trunc<i64, i8>(from)
-    }
-}
-
-# From s128 - crashes if value out of s8 range
-routine s8.__create__!(from: s128) -> s8 {
-    if not (S8_MIN <= from <= S8_MAX) {
-        throw IntegerOverflowError(f"Cannot convert {from} to s8: value out of range [{S8_MIN}, {S8_MAX}]")
-    }
-    danger! {
-        return @intrinsic.trunc<i128, i8>(from)
-    }
-}
-
-# From u8 - crashes if value > S8_MAX (bit 7 set)
-routine s8.__create__!(from: u8) -> s8 {
-    if from > 127_u8 {
-        throw IntegerOverflowError(f"Cannot convert {from} to s8: value out of range [{S8_MIN}, {S8_MAX}]")
-    }
-    danger! {
-        return @intrinsic.bitcast<i8, i8>(from)
-    }
-}
-
-# From u16 - crashes if value > S8_MAX
-routine s8.__create__!(from: u16) -> s8 {
-    if from > 127_u16 {
-        throw IntegerOverflowError(f"Cannot convert {from} to s8: value out of range [{S8_MIN}, {S8_MAX}]")
-    }
-    danger! {
-        return @intrinsic.trunc<i16, i8>(from)
-    }
-}
-
-# From u32 - crashes if value > S8_MAX
-routine s8.__create__!(from: u32) -> s8 {
-    if from > 127_u32 {
-        throw IntegerOverflowError(f"Cannot convert {from} to s8: value out of range [{S8_MIN}, {S8_MAX}]")
-    }
-    danger! {
-        return @intrinsic.trunc<i32, i8>(from)
-    }
-}
-
-# From u64 - crashes if value > S8_MAX
-routine s8.__create__!(from: u64) -> s8 {
-    if from > 127_u64 {
-        throw IntegerOverflowError(f"Cannot convert {from} to s8: value out of range [{S8_MIN}, {S8_MAX}]")
-    }
-    danger! {
-        return @intrinsic.trunc<i64, i8>(from)
-    }
-}
-
-# From u128 - crashes if value > S8_MAX
-routine s8.__create__!(from: u128) -> s8 {
-    if from > 127_u128 {
-        throw IntegerOverflowError(f"Cannot convert {from} to s8: value out of range [{S8_MIN}, {S8_MAX}]")
-    }
-    danger! {
-        return @intrinsic.trunc<i128, i8>(from)
+        return @native.rf_format_s8(me)
     }
 }

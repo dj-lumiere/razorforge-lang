@@ -3,7 +3,7 @@
 namespace core
 # Core u32 type definition - maps to LLVM i32
 record u32 {
-    public value: LlvmNativeI32
+    public value: @intrinsic.i32
 }
 
 # Constants for u32 limits
@@ -18,23 +18,9 @@ preset U32_ONE: u32 = 1_u32
 
 # Failable constructor from Text - called as u32!(text)
 # Compiler automatically generates try_u32.__create__(text) -> Maybe<u32>
-routine u32.__create__!(from_text: Text<Letterlikes>) -> u32 {
+routine u32.__create__!(from_text: Text<Letter>) -> u32 {
     danger! {
-        return @parse_u32(from_text)
-    }
-}
-
-# From u8 - always fits, no check needed
-routine u32.__create__!(from: u8) -> u32 {
-    danger! {
-        return @intrinsic.zext<i8, i32>(from)
-    }
-}
-
-# From u16 - always fits, no check needed
-routine u32.__create__!(from: u16) -> u32 {
-    danger! {
-        return @intrinsic.zext<i16, i32>(from)
+        return @native.rf_parse_u32(from_text)
     }
 }
 
@@ -88,6 +74,24 @@ routine u32.__create__!(from: s128) -> u32 {
     }
 }
 
+# From u8 - always fits, no check needed
+routine u32.__create__!(from: u8) -> u32 {
+    danger! {
+        return @intrinsic.zext<i8, i32>(from)
+    }
+}
+
+# From u16 - always fits, no check needed
+routine u32.__create__!(from: u16) -> u32 {
+    danger! {
+        return @intrinsic.zext<i16, i32>(from)
+    }
+}
+
+routine u32.__create__(from: u32) -> u32 {
+    return from
+}
+
 # From u64 - crashes if value > U32_MAX
 routine u32.__create__!(from: u64) -> u32 {
     if from > 4294967295_u64 {
@@ -109,29 +113,59 @@ routine u32.__create__!(from: u128) -> u32 {
 }
 
 # From floating point - truncates
-routine u32.__create__(from: f32) -> u32 {
+routine u32.__create__!(from: f16) -> u32 {
+    return from.f32().u32!()
+}
+
+routine u32.__create__!(from: f32) -> u32 {
     danger! {
         return @intrinsic.fptoui<float, i32>(from)
     }
 }
 
-routine u32.__create__(from: f64) -> u32 {
+routine u32.__create__!(from: f64) -> u32 {
     danger! {
         return @intrinsic.fptoui<double, i32>(from)
     }
 }
 
-# From decimal - truncates
-routine u32.__create__(from: d32) -> u32 {
-    return from.to_u32()
+routine u32.__create__!(from: f128) -> u32 {
+    return from.f64!().u32!()
 }
 
-routine u32.__create__(from: d64) -> u32 {
-    return from.to_u32()
+# From decimal - truncates fractional part and can overflow
+routine u32.__create__!(from: d32) -> u32 {
+    return from.s64!().u32!()
 }
 
-routine u32.__create__(from: d128) -> u32 {
-    return from.to_u32()
+routine u32.__create__!(from: d64) -> u32 {
+    return from.s64!().u32!()
+}
+
+routine u32.__create__!(from: d128) -> u32 {
+    return from.s64!().u32!()
+}
+
+# From saddr - crashes if value negative or out of u32 range
+routine u32.__create__!(from: saddr) -> u32 {
+    let val_s64 = from.s64!()
+    if not (0_s64 <= val_s64 <= 4294967295_s64) {
+        throw IntegerOverflowError(f"Cannot convert {from} to u32: value out of range [{U32_MIN}, {U32_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<iptr, i32>(from)
+    }
+}
+
+# From uaddr - crashes if value out of u32 range (on 64-bit platforms)
+routine u32.__create__!(from: uaddr) -> u32 {
+    let val_u64 = from.u64!()
+    if val_u64 > 4294967295_u64 {
+        throw IntegerOverflowError(f"Cannot convert {from} to u32: value out of range [{U32_MIN}, {U32_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<uptr, i32>(from)
+    }
 }
 
 # ============================================================================
@@ -139,40 +173,40 @@ routine u32.__create__(from: d128) -> u32 {
 # ============================================================================
 
 @crash_only
-routine u32.__add__!(other: u32) -> u32 {
+routine u32.__add__!(you: u32) -> u32 {
     danger! {
-        return @intrinsic.add<i32>(me, other)
+        return @intrinsic.add<i32>(me, you)
     }
 }
 
 @crash_only
-routine u32.__sub__!(other: u32) -> u32 {
+routine u32.__sub__!(you: u32) -> u32 {
     danger! {
-        return @intrinsic.sub<i32>(me, other)
+        return @intrinsic.sub<i32>(me, you)
     }
 }
 
 @crash_only
-routine u32.__mul__!(other: u32) -> u32 {
+routine u32.__mul__!(you: u32) -> u32 {
     danger! {
-        return @intrinsic.mul<i32>(me, other)
+        return @intrinsic.mul<i32>(me, you)
     }
 }
 
 @crash_only
-routine u32.__floordiv__!(other: u32) -> u32 {
-    if other == 0 {
+routine u32.__floordiv__!(you: u32) -> u32 {
+    if you == 0 {
         throw DivisionByZeroError()
     }
     danger! {
-        return @intrinsic.udiv<i32>(me, other)
+        return @intrinsic.udiv<i32>(me, you)
     }
 }
 
 @crash_only
-routine u32.__mod__!(other: u32) -> u32 {
+routine u32.__mod__!(you: u32) -> u32 {
     danger! {
-        return @intrinsic.urem<i32>(me, other)
+        return @intrinsic.urem<i32>(me, you)
     }
 }
 
@@ -180,21 +214,21 @@ routine u32.__mod__!(other: u32) -> u32 {
 # Wrapping Arithmetic (+%, -%, *%)
 # ============================================================================
 
-routine u32.__add_wrap__(other: u32) -> u32 {
+routine u32.__add_wrap__(you: u32) -> u32 {
     danger! {
-        return @intrinsic.add.wrapping<i32>(me, other)
+        return @intrinsic.add.wrapping<i32>(me, you)
     }
 }
 
-routine u32.__sub_wrap__(other: u32) -> u32 {
+routine u32.__sub_wrap__(you: u32) -> u32 {
     danger! {
-        return @intrinsic.sub.wrapping<i32>(me, other)
+        return @intrinsic.sub.wrapping<i32>(me, you)
     }
 }
 
-routine u32.__mul_wrap__(other: u32) -> u32 {
+routine u32.__mul_wrap__(you: u32) -> u32 {
     danger! {
-        return @intrinsic.mul.wrapping<i32>(me, other)
+        return @intrinsic.mul.wrapping<i32>(me, you)
     }
 }
 
@@ -202,21 +236,21 @@ routine u32.__mul_wrap__(other: u32) -> u32 {
 # Saturating Arithmetic (+^, -^, *^)
 # ============================================================================
 
-routine u32.__add_sat__(other: u32) -> u32 {
+routine u32.__add_sat__(you: u32) -> u32 {
     danger! {
-        return @intrinsic.add.saturating<i32>(me, other)
+        return @intrinsic.add.saturating<i32>(me, you)
     }
 }
 
-routine u32.__sub_sat__(other: u32) -> u32 {
+routine u32.__sub_sat__(you: u32) -> u32 {
     danger! {
-        return @intrinsic.sub.saturating<i32>(me, other)
+        return @intrinsic.sub.saturating<i32>(me, you)
     }
 }
 
-routine u32.__mul_sat__(other: u32) -> u32 {
+routine u32.__mul_sat__(you: u32) -> u32 {
     danger! {
-        return @intrinsic.mul.saturating<i32>(me, other)
+        return @intrinsic.mul.saturating<i32>(me, you)
     }
 }
 
@@ -224,23 +258,23 @@ routine u32.__mul_sat__(other: u32) -> u32 {
 # Checked Arithmetic (+?, -?, *?) - returns Maybe<T>
 # ============================================================================
 
-routine u32.__add_checked__(other: u32) -> Maybe<u32> {
+routine u32.__add_checked__(you: u32) -> Maybe<u32> {
     danger! {
-        let (result, overflow) = @intrinsic.add.overflow<i32>(me, other)
+        let (result, overflow) = @intrinsic.add.overflow<i32>(me, you)
         return if overflow then None else result
     }
 }
 
-routine u32.__sub_checked__(other: u32) -> Maybe<u32> {
+routine u32.__sub_checked__(you: u32) -> Maybe<u32> {
     danger! {
-        let (result, overflow) = @intrinsic.sub.overflow<i32>(me, other)
+        let (result, overflow) = @intrinsic.sub.overflow<i32>(me, you)
         return if overflow then None else result
     }
 }
 
-routine u32.__mul_checked__(other: u32) -> Maybe<u32> {
+routine u32.__mul_checked__(you: u32) -> Maybe<u32> {
     danger! {
-        let (result, overflow) = @intrinsic.mul.overflow<i32>(me, other)
+        let (result, overflow) = @intrinsic.mul.overflow<i32>(me, you)
         return if overflow then None else result
     }
 }
@@ -344,21 +378,21 @@ routine u32.__pow_checked__(exp: u32) -> Maybe<u32> {
 # Bitwise Operations
 # ============================================================================
 
-routine u32.__and__(other: u32) -> u32 {
+routine u32.__and__(you: u32) -> u32 {
     danger! {
-        return @intrinsic.and<i32>(me, other)
+        return @intrinsic.and<i32>(me, you)
     }
 }
 
-routine u32.__or__(other: u32) -> u32 {
+routine u32.__or__(you: u32) -> u32 {
     danger! {
-        return @intrinsic.or<i32>(me, other)
+        return @intrinsic.or<i32>(me, you)
     }
 }
 
-routine u32.__xor__(other: u32) -> u32 {
+routine u32.__xor__(you: u32) -> u32 {
     danger! {
-        return @intrinsic.xor<i32>(me, other)
+        return @intrinsic.xor<i32>(me, you)
     }
 }
 
@@ -421,39 +455,39 @@ routine u32.__lshr__(bits: u32) -> u32 {
 # Comparison Operations
 # ============================================================================
 
-routine u32.__eq__(other: u32) -> bool {
+routine u32.__eq__(you: u32) -> bool {
     danger! {
-        return @intrinsic.icmp.eq<i32>(me, other)
+        return @intrinsic.icmp.eq<i32>(me, you)
     }
 }
 
-routine u32.__ne__(other: u32) -> bool {
+routine u32.__ne__(you: u32) -> bool {
     danger! {
-        return @intrinsic.icmp.ne<i32>(me, other)
+        return @intrinsic.icmp.ne<i32>(me, you)
     }
 }
 
-routine u32.__lt__(other: u32) -> bool {
+routine u32.__lt__(you: u32) -> bool {
     danger! {
-        return @intrinsic.icmp.ult<i32>(me, other)
+        return @intrinsic.icmp.ult<i32>(me, you)
     }
 }
 
-routine u32.__le__(other: u32) -> bool {
+routine u32.__le__(you: u32) -> bool {
     danger! {
-        return @intrinsic.icmp.ule<i32>(me, other)
+        return @intrinsic.icmp.ule<i32>(me, you)
     }
 }
 
-routine u32.__gt__(other: u32) -> bool {
+routine u32.__gt__(you: u32) -> bool {
     danger! {
-        return @intrinsic.icmp.ugt<i32>(me, other)
+        return @intrinsic.icmp.ugt<i32>(me, you)
     }
 }
 
-routine u32.__ge__(other: u32) -> bool {
+routine u32.__ge__(you: u32) -> bool {
     danger! {
-        return @intrinsic.icmp.uge<i32>(me, other)
+        return @intrinsic.icmp.uge<i32>(me, you)
     }
 }
 
@@ -461,12 +495,12 @@ routine u32.__ge__(other: u32) -> bool {
 # Math Operations
 # ============================================================================
 
-routine u32.min(other: u32) -> u32 {
-    return if me <= other then me else other
+routine u32.min(you: u32) -> u32 {
+    return if me <= you then me else you
 }
 
-routine u32.max(other: u32) -> u32 {
-    return if me >= other then me else other
+routine u32.max(you: u32) -> u32 {
+    return if me >= you then me else you
 }
 
 routine u32.clamp(min_val: u32, max_val: u32) -> u32 {
@@ -524,63 +558,6 @@ routine u32.is_power_of_two() -> bool {
 }
 
 # ============================================================================
-# Type Conversions (constructor syntax)
-# ============================================================================
-
-# Bitcast to signed
-routine s32(from: u32) -> s32 {
-    danger! {
-        return @intrinsic.bitcast<i32, i32>(from)
-    }
-}
-
-# Zero-extend to larger types
-routine u64(from: u32) -> u64 {
-    danger! {
-        return @intrinsic.zext<i32, i64>(from)
-    }
-}
-
-routine u128(from: u32) -> u128 {
-    danger! {
-        return @intrinsic.zext<i32, i128>(from)
-    }
-}
-
-# Truncate to smaller types
-routine u16(from: u32) -> u16 {
-    danger! {
-        return @intrinsic.trunc<i32, i16>(from)
-    }
-}
-
-routine u8(from: u32) -> u8 {
-    danger! {
-        return @intrinsic.trunc<i32, i8>(from)
-    }
-}
-
-# Convert to floating point
-routine f32(from: u32) -> f32 {
-    danger! {
-        return @intrinsic.uitofp<i32, float>(from)
-    }
-}
-
-routine f64(from: u32) -> f64 {
-    danger! {
-        return @intrinsic.uitofp<i32, double>(from)
-    }
-}
-
-# Convert to boolean
-routine bool(from: u32) -> bool {
-    danger! {
-        return @intrinsic.icmp.ne<i32>(from, 0_u32)
-    }
-}
-
-# ============================================================================
 # Utility Methods
 # ============================================================================
 
@@ -605,6 +582,6 @@ routine u32.is_odd() -> bool {
 
 routine u32.to_text() -> Text {
     danger! {
-        return @format_u32(me)
+        return @native.rf_format_u32(me)
     }
 }

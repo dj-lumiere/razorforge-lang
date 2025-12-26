@@ -285,7 +285,7 @@ routine Integer.to_text(radix: s32 = 10) -> Text {
     danger! {
         let cstr = @native.rf_bigint_get_str(me.handle, radix)
         let text = Text.from_cstr(cstr)
-        @native.free(cstr)
+        @native.rf_free(cstr)
         return text
     }
 }

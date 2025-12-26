@@ -10,7 +10,151 @@
 namespace core
 # Core saddr type definition - maps to LLVM iptr/isize
 record saddr {
-    public value: LlvmNativePtrSizedInt
+    public value: @intrinsic.iptr
+}
+
+# ============================================================================
+# Constructors
+# Since they are black hole types, all constructors are automatically wrapped.
+# ============================================================================
+
+routine saddr.__create__!(from_text: Text<Letter>) -> saddr {
+    danger! {
+        return @native.rf_parse_saddr(from_text)
+    }
+}
+
+# From s8 - sign extend
+routine saddr.__create__(from: s8) -> saddr {
+    danger! {
+        return @intrinsic.sext<i8, iptr>(from)
+    }
+}
+
+# From s16 - sign extend
+routine saddr.__create__(from: s16) -> saddr {
+    danger! {
+        return @intrinsic.sext<i16, iptr>(from)
+    }
+}
+
+# From s32 - sign extend or bitcast depending on platform
+routine saddr.__create__(from: s32) -> saddr {
+    danger! {
+        return @intrinsic.sext<i32, iptr>(from)
+    }
+}
+
+# From s64 - truncate or bitcast depending on platform (wraps on 32-bit)
+routine saddr.__create__(from: s64) -> saddr {
+    danger! {
+        return @intrinsic.trunc<i64, iptr>(from)
+    }
+}
+
+# From s128 - truncate (wraps)
+routine saddr.__create__(from: s128) -> saddr {
+    danger! {
+        return @intrinsic.trunc<i128, iptr>(from)
+    }
+}
+
+# From u8 - zero extend
+routine saddr.__create__(from: u8) -> saddr {
+    danger! {
+        return @intrinsic.zext<i8, iptr>(from)
+    }
+}
+
+# From u16 - zero extend
+routine saddr.__create__(from: u16) -> saddr {
+    danger! {
+        return @intrinsic.zext<i16, iptr>(from)
+    }
+}
+
+# From u32 - zero extend or bitcast depending on platform
+routine saddr.__create__(from: u32) -> saddr {
+    danger! {
+        return @intrinsic.zext<i32, iptr>(from)
+    }
+}
+
+# From u64 - truncate or bitcast depending on platform (wraps)
+routine saddr.__create__(from: u64) -> saddr {
+    danger! {
+        return @intrinsic.trunc<i64, iptr>(from)
+    }
+}
+
+# From u128 - truncate (wraps)
+routine saddr.__create__(from: u128) -> saddr {
+    danger! {
+        return @intrinsic.trunc<i128, iptr>(from)
+    }
+}
+
+# From floating point - truncates
+routine saddr.__create__(from: f16) -> saddr {
+    return from.f32().saddr()
+}
+
+routine saddr.__create__(from: f32) -> saddr {
+    danger! {
+        return @intrinsic.fptosi<float, iptr>(from)
+    }
+}
+
+routine saddr.__create__(from: f64) -> saddr {
+    danger! {
+        return @intrinsic.fptosi<double, iptr>(from)
+    }
+}
+
+routine saddr.__create__(from: f128) -> saddr {
+    return from.f64().saddr()
+}
+
+# From decimal - truncates fractional part (wraps on overflow)
+routine saddr.__create__(from: d32) -> saddr {
+    danger! {
+        let bit_width = @intrinsic.bitwidth<iptr>()
+        if bit_width == 32 {
+            return from.s32().saddr()
+        } else {
+            return from.s64().saddr()
+        }
+    }
+}
+
+routine saddr.__create__(from: d64) -> saddr {
+    danger! {
+        let bit_width = @intrinsic.bitwidth<iptr>()
+        if bit_width == 32 {
+            return from.s32().saddr()
+        } else {
+            return from.s64().saddr()
+        }
+    }
+}
+
+routine saddr.__create__(from: d128) -> saddr {
+    danger! {
+        let bit_width = @intrinsic.bitwidth<iptr>()
+        if bit_width == 32 {
+            return from.s32().saddr()
+        } else {
+            return from.s64().saddr()
+        }
+    }
+}
+
+routine saddr.__create__(from: saddr) -> saddr {
+    return from
+}
+
+routine saddr.__create__(from: uaddr) -> saddr {
+    return from.s64().uaddr()
 }
 
 # ============================================================================
@@ -18,33 +162,33 @@ record saddr {
 # These explicitly wrap on overflow - use when wrapping is intentional
 # ============================================================================
 
-routine saddr.__add_wrap__(other: saddr) -> saddr {
+routine saddr.__add_wrap__(you: saddr) -> saddr {
     danger! {
-        return @intrinsic.add.wrapping<iptr>(me, other)
+        return @intrinsic.add.wrapping<iptr>(me, you)
     }
 }
 
-routine saddr.__sub_wrap__(other: saddr) -> saddr {
+routine saddr.__sub_wrap__(you: saddr) -> saddr {
     danger! {
-        return @intrinsic.sub.wrapping<iptr>(me, other)
+        return @intrinsic.sub.wrapping<iptr>(me, you)
     }
 }
 
-routine saddr.__mul_wrap__(other: saddr) -> saddr {
+routine saddr.__mul_wrap__(you: saddr) -> saddr {
     danger! {
-        return @intrinsic.mul.wrapping<iptr>(me, other)
+        return @intrinsic.mul.wrapping<iptr>(me, you)
     }
 }
 
-routine saddr.__floordiv_wrap__(other: saddr) -> saddr {
+routine saddr.__floordiv_wrap__(you: saddr) -> saddr {
     danger! {
-        return @intrinsic.sdiv<iptr>(me, other)
+        return @intrinsic.sdiv<iptr>(me, you)
     }
 }
 
-routine saddr.__mod_wrap__(other: saddr) -> saddr {
+routine saddr.__mod_wrap__(you: saddr) -> saddr {
     danger! {
-        return @intrinsic.srem<iptr>(me, other)
+        return @intrinsic.srem<iptr>(me, you)
     }
 }
 
@@ -53,47 +197,47 @@ routine saddr.__mod_wrap__(other: saddr) -> saddr {
 # These return Maybe<saddr> - None on overflow
 # ============================================================================
 
-routine saddr.__add_checked__(other: saddr) -> Maybe<saddr> {
+routine saddr.__add_checked__(you: saddr) -> Maybe<saddr> {
     danger! {
-        let (result, overflow) = @intrinsic.add.overflow<iptr>(me, other)
+        let (result, overflow) = @intrinsic.add.overflow<iptr>(me, you)
         return if overflow then None else result
     }
 }
 
-routine saddr.__sub_checked__(other: saddr) -> Maybe<saddr> {
+routine saddr.__sub_checked__(you: saddr) -> Maybe<saddr> {
     danger! {
-        let (result, overflow) = @intrinsic.sub.overflow<iptr>(me, other)
+        let (result, overflow) = @intrinsic.sub.overflow<iptr>(me, you)
         return if overflow then None else result
     }
 }
 
-routine saddr.__mul_checked__(other: saddr) -> Maybe<saddr> {
+routine saddr.__mul_checked__(you: saddr) -> Maybe<saddr> {
     danger! {
-        let (result, overflow) = @intrinsic.mul.overflow<iptr>(me, other)
+        let (result, overflow) = @intrinsic.mul.overflow<iptr>(me, you)
         return if overflow then None else result
     }
 }
 
-routine saddr.__floordiv_checked__(other: saddr) -> Maybe<saddr> {
+routine saddr.__floordiv_checked__(you: saddr) -> Maybe<saddr> {
     # Division can overflow for MIN_VALUE / -1, and divide by zero
-    if other == 0 {
+    if you == 0 {
         return None
     }
     danger! {
         let min_val = @intrinsic.min_value<iptr>()
-        if me == min_val and other == -1 {
+        if me == min_val and you == -1 {
             return None  # Would overflow
         }
-        return @intrinsic.sdiv<iptr>(me, other)
+        return @intrinsic.sdiv<iptr>(me, you)
     }
 }
 
-routine saddr.__mod_checked__(other: saddr) -> Maybe<saddr> {
-    if other == 0 {
+routine saddr.__mod_checked__(you: saddr) -> Maybe<saddr> {
+    if you == 0 {
         return None
     }
     danger! {
-        return @intrinsic.srem<iptr>(me, other)
+        return @intrinsic.srem<iptr>(me, you)
     }
 }
 
@@ -144,21 +288,21 @@ routine saddr.__lshr__(bits: u32) -> saddr {
 # These cannot overflow
 # ============================================================================
 
-routine saddr.__and__(other: saddr) -> saddr {
+routine saddr.__and__(you: saddr) -> saddr {
     danger! {
-        return @intrinsic.and<iptr>(me, other)
+        return @intrinsic.and<iptr>(me, you)
     }
 }
 
-routine saddr.__or__(other: saddr) -> saddr {
+routine saddr.__or__(you: saddr) -> saddr {
     danger! {
-        return @intrinsic.or<iptr>(me, other)
+        return @intrinsic.or<iptr>(me, you)
     }
 }
 
-routine saddr.__xor__(other: saddr) -> saddr {
+routine saddr.__xor__(you: saddr) -> saddr {
     danger! {
-        return @intrinsic.xor<iptr>(me, other)
+        return @intrinsic.xor<iptr>(me, you)
     }
 }
 
@@ -183,27 +327,27 @@ routine saddr.__neg__() -> saddr {
 # Comparison Operations (non-overloadable, but provided for completeness)
 # ============================================================================
 
-routine saddr.__lt__(other: saddr) -> bool {
+routine saddr.__lt__(you: saddr) -> bool {
     danger! {
-        return @intrinsic.icmp.slt<iptr>(me, other)
+        return @intrinsic.icmp.slt<iptr>(me, you)
     }
 }
 
-routine saddr.__le__(other: saddr) -> bool {
+routine saddr.__le__(you: saddr) -> bool {
     danger! {
-        return @intrinsic.icmp.sle<iptr>(me, other)
+        return @intrinsic.icmp.sle<iptr>(me, you)
     }
 }
 
-routine saddr.__gt__(other: saddr) -> bool {
+routine saddr.__gt__(you: saddr) -> bool {
     danger! {
-        return @intrinsic.icmp.sgt<iptr>(me, other)
+        return @intrinsic.icmp.sgt<iptr>(me, you)
     }
 }
 
-routine saddr.__ge__(other: saddr) -> bool {
+routine saddr.__ge__(you: saddr) -> bool {
     danger! {
-        return @intrinsic.icmp.sge<iptr>(me, other)
+        return @intrinsic.icmp.sge<iptr>(me, you)
     }
 }
 
@@ -215,72 +359,12 @@ routine saddr.abs() -> saddr {
     return if me >= 0 then me else (0 -% me)
 }
 
-routine saddr.min(other: saddr) -> saddr {
-    return if me <= other then me else other
+routine saddr.min(you: saddr) -> saddr {
+    return if me <= you then me else you
 }
 
-routine saddr.max(other: saddr) -> saddr {
-    return if me >= other then me else other
-}
-
-# ============================================================================
-# Type Conversions (constructor syntax)
-# saddr is a "black hole" type - accepts liberal casts from any signed integer
-# ============================================================================
-
-# From saddr to other types
-routine uaddr(from: saddr) -> uaddr {
-    danger! {
-        return @intrinsic.bitcast<iptr, uptr>(from)
-    }
-}
-
-routine s64(from: saddr) -> s64 {
-    danger! {
-        return @intrinsic.sext<iptr, i64>(from)
-    }
-}
-
-routine bool(from: saddr) -> bool {
-    return from != 0
-}
-
-# Liberal casts INTO saddr from any signed integer
-routine saddr(from: s8) -> saddr {
-    danger! {
-        return @intrinsic.sext<i8, iptr>(from)
-    }
-}
-
-routine saddr(from: s16) -> saddr {
-    danger! {
-        return @intrinsic.sext<i16, iptr>(from)
-    }
-}
-
-routine saddr(from: s32) -> saddr {
-    danger! {
-        return @intrinsic.sext<i32, iptr>(from)
-    }
-}
-
-routine saddr(from: s64) -> saddr {
-    danger! {
-        return @intrinsic.trunc<i64, iptr>(from)  # May truncate on 32-bit
-    }
-}
-
-routine saddr(from: s128) -> saddr {
-    danger! {
-        return @intrinsic.trunc<i128, iptr>(from)
-    }
-}
-
-# From unsigned - reinterpret bits
-routine saddr(from: uaddr) -> saddr {
-    danger! {
-        return @intrinsic.bitcast<uptr, iptr>(from)
-    }
+routine saddr.max(you: saddr) -> saddr {
+    return if me >= you then me else you
 }
 
 # ============================================================================
@@ -289,15 +373,6 @@ routine saddr(from: uaddr) -> saddr {
 
 routine saddr.to_text() -> Text {
     danger! {
-        return @format_saddr(me)
-    }
-}
-
-# Parsing constructors using compiler intrinsics
-
-# Fallible constructor - crashes on invalid input
-routine saddr.__create__!(from_text: Text) -> saddr {
-    danger! {
-        return @parse_saddr(from_text)
+        return @native.rf_format_saddr(me)
     }
 }

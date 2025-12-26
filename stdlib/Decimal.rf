@@ -380,7 +380,7 @@ routine Decimal.to_text(decimal_places: s32 = 10) -> Text {
     danger! {
         let cstr = @native.rf_bigdec_get_str(me.handle, decimal_places)
         let text = Text.from_cstr(cstr)
-        @native.free(cstr)
+        @native.rf_free(cstr)
         return text
     }
 }

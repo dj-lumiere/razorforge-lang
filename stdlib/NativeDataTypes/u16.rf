@@ -3,7 +3,7 @@
 namespace core
 # Core u16 type definition - maps to LLVM i16
 record u16 {
-    public value: LlvmNativeI16
+    public value: @intrinsic.i16
 }
 
 # Constants for u16 limits
@@ -13,14 +13,12 @@ preset U16_ZERO: u16 = 0_u16
 preset U16_ONE: u16 = 1_u16
 
 # ============================================================================
-# Checked Constructors (crash on overflow)
+#Constructors
 # ============================================================================
 
-# Failable constructor from Text - called as u16!(text)
-# Compiler automatically generates try_u16.__create__(text) -> Maybe<u16>
-routine u16.__create__!(from_text: Text<Letterlikes>) -> u16 {
+routine u16.__create__!(from_text: Text<Letter>) -> u16 {
     danger! {
-        return @parse_u16(from_text)
+        return @native.rf_parse_u16(from_text)
     }
 }
 
@@ -74,6 +72,17 @@ routine u16.__create__!(from: s128) -> u16 {
     }
 }
 
+# From u8 - always fits, no check needed
+routine u16.__create__!(from: u8) -> u16 {
+    danger! {
+        return @intrinsic.zext<i8, i16>(from)
+    }
+}
+
+routine u16.__create__(from: u16) -> u16 {
+    return from
+}
+
 # From u32 - crashes if value > U16_MAX
 routine u16.__create__!(from: u32) -> u16 {
     if from > 65535_u32 {
@@ -104,45 +113,97 @@ routine u16.__create__!(from: u128) -> u16 {
     }
 }
 
+# From floating point - truncates fractional part and crashes if overflow
+routine u16.__create__!(from: f16) -> u16 {
+    return from.u32!().u16!()
+}
+
+routine u16.__create__!(from: f32) -> u16 {
+    return from.u32!().u16!()
+}
+
+routine u16.__create__!(from: f64) -> u16 {
+    return from.u32!().u16!()
+}
+
+routine u16.__create__!(from: f128) -> u16 {
+    return from.u32!().u16!()
+}
+
+# From decimal - truncates fractional part and crashes if overflow
+routine u16.__create__!(from: d32) -> u16 {
+    return from.u32!().u16!()
+}
+
+routine u16.__create__!(from: d64) -> u16 {
+    return from.u32!().u16!()
+}
+
+routine u16.__create__!(from: d128) -> u16 {
+    return from.u32!().u16!()
+}
+
+# From saddr - crashes if value negative or out of u16 range
+routine u16.__create__!(from: saddr) -> u16 {
+    let val_s64 = from.s64!()
+    if not (0_s64 <= val_s64 <= 65535_s64) {
+        throw IntegerOverflowError(f"Cannot convert {from} to u16: value out of range [{U16_MIN}, {U16_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<iptr, i16>(from)
+    }
+}
+
+# From uaddr - crashes if value out of u16 range
+routine u16.__create__!(from: uaddr) -> u16 {
+    let val_u64 = from.u64!()
+    if val_u64 > 65535_u64 {
+        throw IntegerOverflowError(f"Cannot convert {from} to u16: value out of range [{U16_MIN}, {U16_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<uptr, i16>(from)
+    }
+}
+
 # ============================================================================
 # Arithmetic Operations (trapping on overflow by default)
 # ============================================================================
 
 @crash_only
-routine u16.__add__!(other: u16) -> u16 {
+routine u16.__add__!(you: u16) -> u16 {
     danger! {
-        return @intrinsic.add<i16>(me, other)
+        return @intrinsic.add<i16>(me, you)
     }
 }
 
 @crash_only
-routine u16.__sub__!(other: u16) -> u16 {
+routine u16.__sub__!(you: u16) -> u16 {
     danger! {
-        return @intrinsic.sub<i16>(me, other)
+        return @intrinsic.sub<i16>(me, you)
     }
 }
 
 @crash_only
-routine u16.__mul__!(other: u16) -> u16 {
+routine u16.__mul__!(you: u16) -> u16 {
     danger! {
-        return @intrinsic.mul<i16>(me, other)
+        return @intrinsic.mul<i16>(me, you)
     }
 }
 
 @crash_only
-routine u16.__floordiv__!(other: u16) -> u16 {
-    if other == 0 {
+routine u16.__floordiv__!(you: u16) -> u16 {
+    if you == 0 {
         throw DivisionByZeroError()
     }
     danger! {
-        return @intrinsic.udiv<i16>(me, other)
+        return @intrinsic.udiv<i16>(me, you)
     }
 }
 
 @crash_only
-routine u16.__mod__!(other: u16) -> u16 {
+routine u16.__mod__!(you: u16) -> u16 {
     danger! {
-        return @intrinsic.urem<i16>(me, other)
+        return @intrinsic.urem<i16>(me, you)
     }
 }
 
@@ -150,21 +211,21 @@ routine u16.__mod__!(other: u16) -> u16 {
 # Wrapping Arithmetic (+%, -%, *%)
 # ============================================================================
 
-routine u16.__add_wrap__(other: u16) -> u16 {
+routine u16.__add_wrap__(you: u16) -> u16 {
     danger! {
-        return @intrinsic.add.wrapping<i16>(me, other)
+        return @intrinsic.add.wrapping<i16>(me, you)
     }
 }
 
-routine u16.__sub_wrap__(other: u16) -> u16 {
+routine u16.__sub_wrap__(you: u16) -> u16 {
     danger! {
-        return @intrinsic.sub.wrapping<i16>(me, other)
+        return @intrinsic.sub.wrapping<i16>(me, you)
     }
 }
 
-routine u16.__mul_wrap__(other: u16) -> u16 {
+routine u16.__mul_wrap__(you: u16) -> u16 {
     danger! {
-        return @intrinsic.mul.wrapping<i16>(me, other)
+        return @intrinsic.mul.wrapping<i16>(me, you)
     }
 }
 
@@ -172,21 +233,21 @@ routine u16.__mul_wrap__(other: u16) -> u16 {
 # Saturating Arithmetic (+^, -^, *^)
 # ============================================================================
 
-routine u16.__add_sat__(other: u16) -> u16 {
+routine u16.__add_sat__(you: u16) -> u16 {
     danger! {
-        return @intrinsic.add.saturating<i16>(me, other)
+        return @intrinsic.add.saturating<i16>(me, you)
     }
 }
 
-routine u16.__sub_sat__(other: u16) -> u16 {
+routine u16.__sub_sat__(you: u16) -> u16 {
     danger! {
-        return @intrinsic.sub.saturating<i16>(me, other)
+        return @intrinsic.sub.saturating<i16>(me, you)
     }
 }
 
-routine u16.__mul_sat__(other: u16) -> u16 {
+routine u16.__mul_sat__(you: u16) -> u16 {
     danger! {
-        return @intrinsic.mul.saturating<i16>(me, other)
+        return @intrinsic.mul.saturating<i16>(me, you)
     }
 }
 
@@ -194,23 +255,23 @@ routine u16.__mul_sat__(other: u16) -> u16 {
 # Checked Arithmetic (+?, -?, *?) - returns Maybe<T>
 # ============================================================================
 
-routine u16.__add_checked__(other: u16) -> Maybe<u16> {
+routine u16.__add_checked__(you: u16) -> Maybe<u16> {
     danger! {
-        let (result, overflow) = @intrinsic.add.overflow<i16>(me, other)
+        let (result, overflow) = @intrinsic.add.overflow<i16>(me, you)
         return if overflow then None else result
     }
 }
 
-routine u16.__sub_checked__(other: u16) -> Maybe<u16> {
+routine u16.__sub_checked__(you: u16) -> Maybe<u16> {
     danger! {
-        let (result, overflow) = @intrinsic.sub.overflow<i16>(me, other)
+        let (result, overflow) = @intrinsic.sub.overflow<i16>(me, you)
         return if overflow then None else result
     }
 }
 
-routine u16.__mul_checked__(other: u16) -> Maybe<u16> {
+routine u16.__mul_checked__(you: u16) -> Maybe<u16> {
     danger! {
-        let (result, overflow) = @intrinsic.mul.overflow<i16>(me, other)
+        let (result, overflow) = @intrinsic.mul.overflow<i16>(me, you)
         return if overflow then None else result
     }
 }
@@ -314,21 +375,21 @@ routine u16.__pow_checked__(exp: u16) -> Maybe<u16> {
 # Bitwise Operations
 # ============================================================================
 
-routine u16.__and__(other: u16) -> u16 {
+routine u16.__and__(you: u16) -> u16 {
     danger! {
-        return @intrinsic.and<i16>(me, other)
+        return @intrinsic.and<i16>(me, you)
     }
 }
 
-routine u16.__or__(other: u16) -> u16 {
+routine u16.__or__(you: u16) -> u16 {
     danger! {
-        return @intrinsic.or<i16>(me, other)
+        return @intrinsic.or<i16>(me, you)
     }
 }
 
-routine u16.__xor__(other: u16) -> u16 {
+routine u16.__xor__(you: u16) -> u16 {
     danger! {
-        return @intrinsic.xor<i16>(me, other)
+        return @intrinsic.xor<i16>(me, you)
     }
 }
 
@@ -391,39 +452,39 @@ routine u16.__lshr__(bits: u32) -> u16 {
 # Comparison Operations
 # ============================================================================
 
-routine u16.__eq__(other: u16) -> bool {
+routine u16.__eq__(you: u16) -> bool {
     danger! {
-        return @intrinsic.icmp.eq<i16>(me, other)
+        return @intrinsic.icmp.eq<i16>(me, you)
     }
 }
 
-routine u16.__ne__(other: u16) -> bool {
+routine u16.__ne__(you: u16) -> bool {
     danger! {
-        return @intrinsic.icmp.ne<i16>(me, other)
+        return @intrinsic.icmp.ne<i16>(me, you)
     }
 }
 
-routine u16.__lt__(other: u16) -> bool {
+routine u16.__lt__(you: u16) -> bool {
     danger! {
-        return @intrinsic.icmp.ult<i16>(me, other)
+        return @intrinsic.icmp.ult<i16>(me, you)
     }
 }
 
-routine u16.__le__(other: u16) -> bool {
+routine u16.__le__(you: u16) -> bool {
     danger! {
-        return @intrinsic.icmp.ule<i16>(me, other)
+        return @intrinsic.icmp.ule<i16>(me, you)
     }
 }
 
-routine u16.__gt__(other: u16) -> bool {
+routine u16.__gt__(you: u16) -> bool {
     danger! {
-        return @intrinsic.icmp.ugt<i16>(me, other)
+        return @intrinsic.icmp.ugt<i16>(me, you)
     }
 }
 
-routine u16.__ge__(other: u16) -> bool {
+routine u16.__ge__(you: u16) -> bool {
     danger! {
-        return @intrinsic.icmp.uge<i16>(me, other)
+        return @intrinsic.icmp.uge<i16>(me, you)
     }
 }
 
@@ -431,12 +492,12 @@ routine u16.__ge__(other: u16) -> bool {
 # Math Operations
 # ============================================================================
 
-routine u16.min(other: u16) -> u16 {
-    return if me <= other then me else other
+routine u16.min(you: u16) -> u16 {
+    return if me <= you then me else you
 }
 
-routine u16.max(other: u16) -> u16 {
-    return if me >= other then me else other
+routine u16.max(you: u16) -> u16 {
+    return if me >= you then me else you
 }
 
 routine u16.clamp(min_val: u16, max_val: u16) -> u16 {
@@ -575,6 +636,6 @@ routine u16.is_odd() -> bool {
 
 routine u16.to_text() -> Text {
     danger! {
-        return @format_u16(me)
+        return @native.rf_format_u16(me)
     }
 }

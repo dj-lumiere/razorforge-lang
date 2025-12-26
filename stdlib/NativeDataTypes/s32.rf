@@ -3,7 +3,7 @@
 namespace core
 # Core s32 type definition - maps to LLVM i32
 record s32 {
-    public value: LlvmNativeI32
+    private value: @intrinsic.i32
 }
 
 # Constants for s32 limits
@@ -13,29 +13,33 @@ preset S32_ZERO: s32 = 0_s32
 preset S32_ONE: s32 = 1_s32
 
 # ============================================================================
-# Checked Constructors (crash on overflow)
+# Constructors
 # ============================================================================
 
 # Failable constructor from Text - called as s32!(text)
 # Compiler automatically generates try_s32.__create__(text) -> Maybe<s32>
-routine s32.__create__!(from_text: Text<letter8>) -> s32 {
+routine s32.__create__!(from_text: Bytes) -> s32 {
     danger! {
-        return @parse_s32(from_text)
+        return @native.rf_parse_s32(from_text)
     }
 }
 
 # From s8 - always fits, no check needed
-routine s32.__create__!(from: s8) -> s32 {
+routine s32.__create__(from: s8) -> s32 {
     danger! {
         return @intrinsic.sext<i8, i32>(from)
     }
 }
 
 # From s16 - always fits, no check needed
-routine s32.__create__!(from: s16) -> s32 {
+routine s32.__create__(from: s16) -> s32 {
     danger! {
         return @intrinsic.sext<i16, i32>(from)
     }
+}
+
+routine s32.__create__(from: s32) -> s32 {
+    return from
 }
 
 # From s64 - crashes if value out of s32 range
@@ -59,14 +63,14 @@ routine s32.__create__!(from: s128) -> s32 {
 }
 
 # From u8 - always fits, no check needed
-routine s32.__create__!(from: u8) -> s32 {
+routine s32.__create__(from: u8) -> s32 {
     danger! {
         return @intrinsic.zext<i8, i32>(from)
     }
 }
 
 # From u16 - always fits, no check needed
-routine s32.__create__!(from: u16) -> s32 {
+routine s32.__create__(from: u16) -> s32 {
     danger! {
         return @intrinsic.zext<i16, i32>(from)
     }
@@ -103,29 +107,67 @@ routine s32.__create__!(from: u128) -> s32 {
 }
 
 # From floating point - truncates
-routine s32.__create__(from: f32) -> s32 {
+routine s32.__create__!(from: f16) -> s32 {
+    return from.f32().s32!()
+}
+
+routine s32.__create__!(from: f32) -> s32 {
     danger! {
         return @intrinsic.fptosi<float, i32>(from)
     }
 }
 
-routine s32.__create__(from: f64) -> s32 {
+routine s32.__create__!(from: f64) -> s32 {
     danger! {
         return @intrinsic.fptosi<double, i32>(from)
     }
 }
 
-# From decimal - truncates
-routine s32.__create__(from: d32) -> s32 {
-    return from.to_s32()
+routine s32.__create__!(from: f128) -> s32 {
+    return from.f64!().s32!()
 }
 
-routine s32.__create__(from: d64) -> s32 {
-    return from.to_s32()
+# From decimal - truncates fractional part and can overflow
+routine s32.__create__!(from: d32) -> s32 {
+    danger! {
+        let bits = @intrinsic.bitcast<d32, u32>(from)
+        return d32_to_s32(bits)
+    }
 }
 
-routine s32.__create__(from: d128) -> s32 {
-    return from.to_s32()
+routine s32.__create__!(from: d64) -> s32 {
+    danger! {
+        let bits = @intrinsic.bitcast<d64, u64>(from)
+        return d64_to_s32(bits)
+    }
+}
+
+routine s32.__create__!(from: d128) -> s32 {
+    danger! {
+        return d128_to_s32(from.low, from.high)
+    }
+}
+
+# From saddr - crashes if value out of s32 range (on 64-bit platforms)
+routine s32.__create__!(from: saddr) -> s32 {
+    let val_s64 = from.s64!()
+    if not (-2147483648_s64 <= val_s64 <= 2147483647_s64) {
+        throw IntegerOverflowError(f"Cannot convert {from} to s32: value out of range [{S32_MIN}, {S32_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<iptr, i32>(from)
+    }
+}
+
+# From uaddr - crashes if value out of s32 range
+routine s32.__create__!(from: uaddr) -> s32 {
+    let val_u64 = from.u64!()
+    if val_u64 > 2147483647_u64 {
+        throw IntegerOverflowError(f"Cannot convert {from} to s32: value out of range [{S32_MIN}, {S32_MAX}]")
+    }
+    danger! {
+        return @intrinsic.trunc<uptr, i32>(from)
+    }
 }
 
 # ============================================================================
@@ -133,40 +175,40 @@ routine s32.__create__(from: d128) -> s32 {
 # ============================================================================
 
 @crash_only
-routine s32.__add__!(other: s32) -> s32 {
+routine s32.__add__!(you: s32) -> s32 {
     danger! {
-        return @intrinsic.add<i32>(me, other)
+        return @intrinsic.add<i32>(me, you)
     }
 }
 
 @crash_only
-routine s32.__sub__!(other: s32) -> s32 {
+routine s32.__sub__!(you: s32) -> s32 {
     danger! {
-        return @intrinsic.sub<i32>(me, other)
+        return @intrinsic.sub<i32>(me, you)
     }
 }
 
 @crash_only
-routine s32.__mul__!(other: s32) -> s32 {
+routine s32.__mul__!(you: s32) -> s32 {
     danger! {
-        return @intrinsic.mul<i32>(me, other)
+        return @intrinsic.mul<i32>(me, you)
     }
 }
 
 @crash_only
-routine s32.__floordiv__!(other: s32) -> s32 {
-    if other == 0 {
+routine s32.__floordiv__!(you: s32) -> s32 {
+    if you == 0 {
         throw DivisionByZeroError()
     }
     danger! {
-        return @intrinsic.sdiv<i32>(me, other)
+        return @intrinsic.sdiv<i32>(me, you)
     }
 }
 
 @crash_only
-routine s32.__mod__!(other: s32) -> s32 {
+routine s32.__mod__!(you: s32) -> s32 {
     danger! {
-        return @intrinsic.srem<i32>(me, other)
+        return @intrinsic.srem<i32>(me, you)
     }
 }
 
@@ -181,21 +223,21 @@ routine s32.__neg__!() -> s32 {
 # Wrapping Arithmetic (+%, -%, *%)
 # ============================================================================
 
-routine s32.__add_wrap__(other: s32) -> s32 {
+routine s32.__add_wrap__(you: s32) -> s32 {
     danger! {
-        return @intrinsic.add.wrapping<i32>(me, other)
+        return @intrinsic.add.wrapping<i32>(me, you)
     }
 }
 
-routine s32.__sub_wrap__(other: s32) -> s32 {
+routine s32.__sub_wrap__(you: s32) -> s32 {
     danger! {
-        return @intrinsic.sub.wrapping<i32>(me, other)
+        return @intrinsic.sub.wrapping<i32>(me, you)
     }
 }
 
-routine s32.__mul_wrap__(other: s32) -> s32 {
+routine s32.__mul_wrap__(you: s32) -> s32 {
     danger! {
-        return @intrinsic.mul.wrapping<i32>(me, other)
+        return @intrinsic.mul.wrapping<i32>(me, you)
     }
 }
 
@@ -203,21 +245,21 @@ routine s32.__mul_wrap__(other: s32) -> s32 {
 # Saturating Arithmetic (+^, -^, *^)
 # ============================================================================
 
-routine s32.__add_sat__(other: s32) -> s32 {
+routine s32.__add_sat__(you: s32) -> s32 {
     danger! {
-        return @intrinsic.add.saturating<i32>(me, other)
+        return @intrinsic.add.saturating<i32>(me, you)
     }
 }
 
-routine s32.__sub_sat__(other: s32) -> s32 {
+routine s32.__sub_sat__(you: s32) -> s32 {
     danger! {
-        return @intrinsic.sub.saturating<i32>(me, other)
+        return @intrinsic.sub.saturating<i32>(me, you)
     }
 }
 
-routine s32.__mul_sat__(other: s32) -> s32 {
+routine s32.__mul_sat__(you: s32) -> s32 {
     danger! {
-        return @intrinsic.mul.saturating<i32>(me, other)
+        return @intrinsic.mul.saturating<i32>(me, you)
     }
 }
 
@@ -225,23 +267,23 @@ routine s32.__mul_sat__(other: s32) -> s32 {
 # Checked Arithmetic (+?, -?, *?) - returns Maybe<T>
 # ============================================================================
 
-routine s32.__add_checked__(other: s32) -> Maybe<s32> {
+routine s32.__add_checked__(you: s32) -> Maybe<s32> {
     danger! {
-        let (result, overflow) = @intrinsic.add.overflow<i32>(me, other)
+        let (result, overflow) = @intrinsic.add.overflow<i32>(me, you)
         return if overflow then None else result
     }
 }
 
-routine s32.__sub_checked__(other: s32) -> Maybe<s32> {
+routine s32.__sub_checked__(you: s32) -> Maybe<s32> {
     danger! {
-        let (result, overflow) = @intrinsic.sub.overflow<i32>(me, other)
+        let (result, overflow) = @intrinsic.sub.overflow<i32>(me, you)
         return if overflow then None else result
     }
 }
 
-routine s32.__mul_checked__(other: s32) -> Maybe<s32> {
+routine s32.__mul_checked__(you: s32) -> Maybe<s32> {
     danger! {
-        let (result, overflow) = @intrinsic.mul.overflow<i32>(me, other)
+        let (result, overflow) = @intrinsic.mul.overflow<i32>(me, you)
         return if overflow then None else result
     }
 }
@@ -355,21 +397,21 @@ routine s32.__pow_checked__(exp: s32) -> Maybe<s32> {
 # Bitwise Operations
 # ============================================================================
 
-routine s32.__and__(other: s32) -> s32 {
+routine s32.__and__(you: s32) -> s32 {
     danger! {
-        return @intrinsic.and<i32>(me, other)
+        return @intrinsic.and<i32>(me, you)
     }
 }
 
-routine s32.__or__(other: s32) -> s32 {
+routine s32.__or__(you: s32) -> s32 {
     danger! {
-        return @intrinsic.or<i32>(me, other)
+        return @intrinsic.or<i32>(me, you)
     }
 }
 
-routine s32.__xor__(other: s32) -> s32 {
+routine s32.__xor__(you: s32) -> s32 {
     danger! {
-        return @intrinsic.xor<i32>(me, other)
+        return @intrinsic.xor<i32>(me, you)
     }
 }
 
@@ -431,39 +473,39 @@ routine s32.__lshr__(bits: u32) -> s32 {
 # Comparison Operations
 # ============================================================================
 
-routine s32.__eq__(other: s32) -> bool {
+routine s32.__eq__(you: s32) -> bool {
     danger! {
-        return @intrinsic.icmp.eq<i32>(me, other)
+        return @intrinsic.icmp.eq<i32>(me, you)
     }
 }
 
-routine s32.__ne__(other: s32) -> bool {
+routine s32.__ne__(you: s32) -> bool {
     danger! {
-        return @intrinsic.icmp.ne<i32>(me, other)
+        return @intrinsic.icmp.ne<i32>(me, you)
     }
 }
 
-routine s32.__lt__(other: s32) -> bool {
+routine s32.__lt__(you: s32) -> bool {
     danger! {
-        return @intrinsic.icmp.slt<i32>(me, other)
+        return @intrinsic.icmp.slt<i32>(me, you)
     }
 }
 
-routine s32.__le__(other: s32) -> bool {
+routine s32.__le__(you: s32) -> bool {
     danger! {
-        return @intrinsic.icmp.sle<i32>(me, other)
+        return @intrinsic.icmp.sle<i32>(me, you)
     }
 }
 
-routine s32.__gt__(other: s32) -> bool {
+routine s32.__gt__(you: s32) -> bool {
     danger! {
-        return @intrinsic.icmp.sgt<i32>(me, other)
+        return @intrinsic.icmp.sgt<i32>(me, you)
     }
 }
 
-routine s32.__ge__(other: s32) -> bool {
+routine s32.__ge__(you: s32) -> bool {
     danger! {
-        return @intrinsic.icmp.sge<i32>(me, other)
+        return @intrinsic.icmp.sge<i32>(me, you)
     }
 }
 
@@ -477,12 +519,12 @@ routine s32.abs() -> s32 {
     }
 }
 
-routine s32.min(other: s32) -> s32 {
-    return if me <= other then me else other
+routine s32.min(you: s32) -> s32 {
+    return if me <= you then me else you
 }
 
-routine s32.max(other: s32) -> s32 {
-    return if me >= other then me else other
+routine s32.max(you: s32) -> s32 {
+    return if me >= you then me else you
 }
 
 routine s32.clamp(min_val: s32, max_val: s32) -> s32 {
@@ -532,63 +574,6 @@ routine s32.reverse_bits() -> s32 {
 routine s32.swap_bytes() -> s32 {
     danger! {
         return @intrinsic.bswap<i32>(me)
-    }
-}
-
-# ============================================================================
-# Type Conversions (constructor syntax)
-# ============================================================================
-
-# Bitcast to unsigned
-routine u32(from: s32) -> u32 {
-    danger! {
-        return @intrinsic.bitcast<i32, i32>(from)
-    }
-}
-
-# Sign-extend to larger types
-routine s64(from: s32) -> s64 {
-    danger! {
-        return @intrinsic.sext<i32, i64>(from)
-    }
-}
-
-routine s128(from: s32) -> s128 {
-    danger! {
-        return @intrinsic.sext<i32, i128>(from)
-    }
-}
-
-# Truncate to smaller types (may lose data)
-routine s16(from: s32) -> s16 {
-    danger! {
-        return @intrinsic.trunc<i32, i16>(from)
-    }
-}
-
-routine s8(from: s32) -> s8 {
-    danger! {
-        return @intrinsic.trunc<i32, i8>(from)
-    }
-}
-
-# Convert to floating point
-routine f64(from: s32) -> f64 {
-    danger! {
-        return @intrinsic.sitofp<i32, double>(from)
-    }
-}
-
-routine f32(from: s32) -> f32 {
-    danger! {
-        return @intrinsic.sitofp<i32, float>(from)
-    }
-}
-
-# Convert to boolean
-routine bool(from: s32) -> bool {
-    danger! {
-        return @intrinsic.icmp.ne<i32>(from, 0_s32)
     }
 }
 
@@ -643,44 +628,6 @@ routine s32.is_power_of_two() -> bool {
 
 routine s32.to_text() -> Text {
     danger! {
-        return @format_s32(me)
+        return @native.rf_format_s32(me)
     }
-}
-
-
-# ============================================================================
-# Examples
-# ============================================================================
-
-routine fibonacci_s32(n: s32) -> s32 {
-    when {
-        n <= 1_s32 => n,
-        _ => {
-            var a: s32 = 0_s32
-            var b: s32 = 1_s32
-            var i: s32 = 2_s32
-
-            while i <= n {
-                let temp = a + b
-                a = b
-                b = temp
-                i = i + 1_s32
-            }
-
-            return b
-        }
-    }
-}
-
-routine gcd_s32(a: s32, b: s32) -> s32 {
-    var x = a.abs()
-    var y = b.abs()
-
-    while y != 0_s32 {
-        let temp = y
-        y = x % y
-        x = temp
-    }
-
-    return x
 }

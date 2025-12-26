@@ -3,7 +3,7 @@
 namespace core
 # Core f16 type definition - maps to LLVM half
 record f16 {
-    public value: LlvmNativeHalf
+    private value: @intrinsic.f16
 }
 
 # IEEE 754 half precision constants
@@ -21,9 +21,129 @@ preset F16_SQRT_2: f16 = 1.414063_f16
 
 # Failable constructor from Text - called as f16!(text)
 # Compiler automatically generates try_f16.__create__(text) -> Maybe<f16>
-routine f16.__create__!(from_text: Text<Letterlikes>) -> f16 {
+routine f16.__create__!(from_text: Text<Letter>) -> f16 {
     danger! {
-        return @parse_f16(from_text)
+        return @native.rf_parse_f16(from_text)
+    }
+}
+
+# Convert integers to f16 using LLVM intrinsics
+routine f16.__create__(from: s8) -> f16 {
+    danger! {
+        return @intrinsic.sitofp<i8, half>(from)
+    }
+}
+
+routine f16.__create__(from: s16) -> f16 {
+    danger! {
+        return @intrinsic.sitofp<i16, half>(from)
+    }
+}
+
+routine f16.__create__(from: s32) -> f16 {
+    danger! {
+        return @intrinsic.sitofp<i32, half>(from)
+    }
+}
+
+routine f16.__create__(from: s64) -> f16 {
+    danger! {
+        return @intrinsic.sitofp<i64, half>(from)
+    }
+}
+
+routine f16.__create__(from: s128) -> f16 {
+    danger! {
+        return @intrinsic.sitofp<i128, half>(from)
+    }
+}
+
+routine f16.__create__(from: u8) -> f16 {
+    danger! {
+        return @intrinsic.uitofp<i8, half>(from)
+    }
+}
+
+routine f16.__create__(from: u16) -> f16 {
+    danger! {
+        return @intrinsic.uitofp<i16, half>(from)
+    }
+}
+
+routine f16.__create__(from: u32) -> f16 {
+    danger! {
+        return @intrinsic.uitofp<i32, half>(from)
+    }
+}
+
+routine f16.__create__(from: u64) -> f16 {
+    danger! {
+        return @intrinsic.uitofp<i64, half>(from)
+    }
+}
+
+routine f16.__create__(from: u128) -> f16 {
+    danger! {
+        return @intrinsic.uitofp<i128, half>(from)
+    }
+}
+
+routine f16.__create__(from: f16) -> f16 {
+    return from
+}
+
+# Truncate from larger float types using LLVM intrinsics
+routine f16.__create__(from: f32) -> f16 {
+    danger! {
+        return @intrinsic.fptrunc<float, half>(from)
+    }
+}
+
+routine f16.__create__(from: f64) -> f16 {
+    danger! {
+        return @intrinsic.fptrunc<double, half>(from)
+    }
+}
+
+routine f16.__create__(from: f128) -> f16 {
+    danger! {
+        return @intrinsic.fptrunc<fp128, half>(from)
+    }
+}
+
+# Convert from decimal types via native (no LLVM intrinsic for decimal)
+routine f16.__create__(from: d32) -> f16 {
+    danger! {
+        let f32_val = @native.rf_d32_to_f32(from.to_bits())
+        return @intrinsic.fptrunc<float, half>(f32_val)
+    }
+}
+
+routine f16.__create__(from: d64) -> f16 {
+    danger! {
+        let f32_val = @native.rf_d64_to_f32(from.to_bits())
+        return @intrinsic.fptrunc<float, half>(f32_val)
+    }
+}
+
+routine f16.__create__(from: d128) -> f16 {
+    danger! {
+        let f32_val = @native.rf_d128_to_f32(from.low_bits(), from.high_bits())
+        return @intrinsic.fptrunc<float, half>(f32_val)
+    }
+}
+
+# From saddr - convert using LLVM intrinsic
+routine f16.__create__(from: saddr) -> f16 {
+    danger! {
+        return @intrinsic.sitofp<iptr, half>(from)
+    }
+}
+
+# From uaddr - convert using LLVM intrinsic
+routine f16.__create__(from: uaddr) -> f16 {
+    danger! {
+        return @intrinsic.uitofp<uptr, half>(from)
     }
 }
 
@@ -31,27 +151,27 @@ routine f16.__create__!(from_text: Text<Letterlikes>) -> f16 {
 # Arithmetic Operations (IEEE 754 semantics)
 # ============================================================================
 
-routine f16.__add__(other: f16) -> f16 {
+routine f16.__add__(you: f16) -> f16 {
     danger! {
-        return @intrinsic.add.wrapping<half>(me, other)
+        return @intrinsic.add.wrapping<half>(me, you)
     }
 }
 
-routine f16.__sub__(other: f16) -> f16 {
+routine f16.__sub__(you: f16) -> f16 {
     danger! {
-        return @intrinsic.sub.wrapping<half>(me, other)
+        return @intrinsic.sub.wrapping<half>(me, you)
     }
 }
 
-routine f16.__mul__(other: f16) -> f16 {
+routine f16.__mul__(you: f16) -> f16 {
     danger! {
-        return @intrinsic.mul.wrapping<half>(me, other)
+        return @intrinsic.mul.wrapping<half>(me, you)
     }
 }
 
-routine f16.__truediv__(other: f16) -> f16 {
+routine f16.__truediv__(you: f16) -> f16 {
     danger! {
-        return @intrinsic.div.wrapping<half>(me, other)
+        return @intrinsic.div.wrapping<half>(me, you)
     }
 }
 
@@ -65,27 +185,27 @@ routine f16.__neg__() -> f16 {
 # Comparison Operations (ordered - false if NaN)
 # ============================================================================
 
-routine f16.__lt__(other: f16) -> bool {
+routine f16.__lt__(you: f16) -> bool {
     danger! {
-        return @intrinsic.fcmp.olt<half>(me, other)
+        return @intrinsic.fcmp.olt<half>(me, you)
     }
 }
 
-routine f16.__le__(other: f16) -> bool {
+routine f16.__le__(you: f16) -> bool {
     danger! {
-        return @intrinsic.fcmp.ole<half>(me, other)
+        return @intrinsic.fcmp.ole<half>(me, you)
     }
 }
 
-routine f16.__gt__(other: f16) -> bool {
+routine f16.__gt__(you: f16) -> bool {
     danger! {
-        return @intrinsic.fcmp.ogt<half>(me, other)
+        return @intrinsic.fcmp.ogt<half>(me, you)
     }
 }
 
-routine f16.__ge__(other: f16) -> bool {
+routine f16.__ge__(you: f16) -> bool {
     danger! {
-        return @intrinsic.fcmp.oge<half>(me, other)
+        return @intrinsic.fcmp.oge<half>(me, you)
     }
 }
 
@@ -139,12 +259,12 @@ routine f16.copysign(sign: f16) -> f16 {
 # Utility Methods
 # ============================================================================
 
-routine f16.min(other: f16) -> f16 {
-    return if me <= other then me else other
+routine f16.min(you: f16) -> f16 {
+    return if me <= you then me else you
 }
 
-routine f16.max(other: f16) -> f16 {
-    return if me >= other then me else other
+routine f16.max(you: f16) -> f16 {
+    return if me >= you then me else you
 }
 
 routine f16.clamp(min_val: f16, max_val: f16) -> f16 {
@@ -175,42 +295,6 @@ routine f16.signum() -> f16 {
 # Type Conversions
 # ============================================================================
 
-routine f16.to_s16() -> s16 {
-    danger! {
-        return @intrinsic.fptosi<half, i16>(me)
-    }
-}
-
-routine f16.to_u16() -> u16 {
-    danger! {
-        return @intrinsic.fptoui<half, i16>(me)
-    }
-}
-
-routine f16.to_s32() -> s32 {
-    danger! {
-        return @intrinsic.fptosi<half, i32>(me)
-    }
-}
-
-routine f16.to_u32() -> u32 {
-    danger! {
-        return @intrinsic.fptoui<half, i32>(me)
-    }
-}
-
-routine f16.to_f32() -> f32 {
-    danger! {
-        return @intrinsic.fpext<half, float>(me)
-    }
-}
-
-routine f16.to_f64() -> f64 {
-    danger! {
-        return @intrinsic.fpext<half, double>(me)
-    }
-}
-
 # Reinterpret bits as u16 (type punning)
 routine f16.to_bits() -> u16 {
     danger! {
@@ -231,6 +315,6 @@ routine f16.from_bits(bits: u16) -> f16 {
 
 routine f16.to_text() -> Text {
     danger! {
-        return @format_f16(me)
+        return @native.rf_format_f16(me)
     }
 }

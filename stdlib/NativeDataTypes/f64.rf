@@ -3,7 +3,7 @@
 namespace core
 # Core f64 type definition - maps to LLVM double
 record f64 {
-    public value: LlvmNativeDouble
+    private value: @intrinsic.f64
 }
 
 # IEEE 754 double precision constants
@@ -14,38 +14,160 @@ preset F64_ZERO: f64 = 0.0_f64
 preset F64_ONE: f64 = 1.0_f64
 preset F64_NAN: f64 = 0.0_f64 / 0.0_f64  # TODO: Proper NaN constant
 preset F64_INFINITY: f64 = 1.0_f64 / 0.0_f64  # TODO: Proper infinity constant
-imported routine rf_f64_to_d32(x: f64) -> u32
-imported routine rf_f64_to_d64(x: f64) -> u64
-imported routine rf_f64_to_d128(x: f64) -> d128
-imported routine rf_d32_to_f64(x: u32) -> f64
-imported routine rf_d64_to_f64(x: u64) -> f64
-imported routine rf_d128_to_f64(low: u64, high: u64) -> f64
+
+# ============================================================================
+# Constructors
+# ============================================================================
+
+# Failable constructor from Text - called as f64!(text)
+# Compiler automatically generates try_f64.__create__(text) -> Maybe<f64>
+routine f64.__create__!(from_text: Text<Letter>) -> f64 {
+    danger! {
+        return @native.rf_parse_f64(from_text)
+    }
+}
+
+routine f64.__create__(from: s8) -> f64 {
+    danger! {
+        return @intrinsic.sitofp<i8, double>(from)
+    }
+}
+
+routine f64.__create__(from: s16) -> f64 {
+    danger! {
+        return @intrinsic.sitofp<i16, double>(from)
+    }
+}
+
+routine f64.__create__(from: s32) -> f64 {
+    danger! {
+        return @intrinsic.sitofp<i32, double>(from)
+    }
+}
+
+routine f64.__create__(from: s64) -> f64 {
+    danger! {
+        return @intrinsic.sitofp<i64, double>(from)
+    }
+}
+
+routine f64.__create__(from: s128) -> f64 {
+    danger! {
+        return @intrinsic.sitofp<i128, double>(from)
+    }
+}
+
+routine f64.__create__(from: u8) -> f64 {
+    danger! {
+        return @intrinsic.uitofp<i8, double>(from)
+    }
+}
+
+routine f64.__create__(from: u16) -> f64 {
+    danger! {
+        return @intrinsic.uitofp<i16, double>(from)
+    }
+}
+
+routine f64.__create__(from: u32) -> f64 {
+    danger! {
+        return @intrinsic.uitofp<i32, double>(from)
+    }
+}
+
+routine f64.__create__(from: u64) -> f64 {
+    danger! {
+        return @intrinsic.uitofp<i64, double>(from)
+    }
+}
+
+routine f64.__create__(from: u128) -> f64 {
+    danger! {
+        return @intrinsic.uitofp<i128, double>(from)
+    }
+}
+
+routine f64.__create__(from: f16) -> f64 {
+    danger! {
+        return @intrinsic.fpext<half, double>(from)
+    }
+}
+
+routine f64.__create__(from: f32) -> f64 {
+    danger! {
+        return @intrinsic.fpext<float, double>(from)
+    }
+}
+
+routine f64.__create__(from: f64) -> f64 {
+    return from
+}
+
+routine f64.__create__(from: f128) -> f64 {
+    danger! {
+        return @intrinsic.fptrunc<fp128, double>(from)
+    }
+}
+
+routine f64.__create__(from: d32) -> f64 {
+    danger! {
+        let bits = @intrinsic.bitcast<d32, u32>(from)
+        return @native.rf_d32_to_f64(bits)
+    }
+}
+
+routine f64.__create__(from: d64) -> f64 {
+    danger! {
+        let bits = @intrinsic.bitcast<d64, u64>(from)
+        return @native.rf_d64_to_f64(bits)
+    }
+}
+
+routine f64.__create__(from: d128) -> f64 {
+    danger! {
+        return @native.rf_d128_to_f64(from.low_bits(), from.high_bits())
+    }
+}
+
+# From saddr - convert to float (may lose precision)
+routine f64.__create__(from: saddr) -> f64 {
+    danger! {
+        return @intrinsic.sitofp<iptr, double>(from)
+    }
+}
+
+# From uaddr - convert to float (may lose precision)
+routine f64.__create__(from: uaddr) -> f64 {
+    danger! {
+        return @intrinsic.uitofp<uptr, double>(from)
+    }
+}
 
 # ============================================================================
 # Arithmetic Operations
 # ============================================================================
 
-routine f64.__add__(other: f64) -> f64 {
+routine f64.__add__(you: f64) -> f64 {
     danger! {
-        return @intrinsic.add.wrapping<double>(me, other)
+        return @intrinsic.add.wrapping<double>(me, you)
     }
 }
 
-routine f64.__sub__(other: f64) -> f64 {
+routine f64.__sub__(you: f64) -> f64 {
     danger! {
-        return @intrinsic.sub.wrapping<double>(me, other)
+        return @intrinsic.sub.wrapping<double>(me, you)
     }
 }
 
-routine f64.__mul__(other: f64) -> f64 {
+routine f64.__mul__(you: f64) -> f64 {
     danger! {
-        return @intrinsic.mul.wrapping<double>(me, other)
+        return @intrinsic.mul.wrapping<double>(me, you)
     }
 }
 
-routine f64.__truediv__(other: f64) -> f64 {
+routine f64.__truediv__(you: f64) -> f64 {
     danger! {
-        return @intrinsic.div.wrapping<double>(me, other)
+        return @intrinsic.div.wrapping<double>(me, you)
     }
 }
 
@@ -59,27 +181,27 @@ routine f64.__neg__() -> f64 {
 # Comparison Operations (ordered - false if NaN)
 # ============================================================================
 
-routine f64.__lt__(other: f64) -> bool {
+routine f64.__lt__(you: f64) -> bool {
     danger! {
-        return @intrinsic.fcmp.olt<double>(me, other)
+        return @intrinsic.fcmp.olt<double>(me, you)
     }
 }
 
-routine f64.__le__(other: f64) -> bool {
+routine f64.__le__(you: f64) -> bool {
     danger! {
-        return @intrinsic.fcmp.ole<double>(me, other)
+        return @intrinsic.fcmp.ole<double>(me, you)
     }
 }
 
-routine f64.__gt__(other: f64) -> bool {
+routine f64.__gt__(you: f64) -> bool {
     danger! {
-        return @intrinsic.fcmp.ogt<double>(me, other)
+        return @intrinsic.fcmp.ogt<double>(me, you)
     }
 }
 
-routine f64.__ge__(other: f64) -> bool {
+routine f64.__ge__(you: f64) -> bool {
     danger! {
-        return @intrinsic.fcmp.oge<double>(me, other)
+        return @intrinsic.fcmp.oge<double>(me, you)
     }
 }
 
@@ -171,12 +293,12 @@ routine f64.copysign(sign: f64) -> f64 {
 # Utility Methods
 # ============================================================================
 
-routine f64.min(other: f64) -> f64 {
-    return if me <= other then me else other
+routine f64.min(you: f64) -> f64 {
+    return if me <= you then me else you
 }
 
-routine f64.max(other: f64) -> f64 {
-    return if me >= other then me else other
+routine f64.max(you: f64) -> f64 {
+    return if me >= you then me else you
 }
 
 routine f64.clamp(min_val: f64, max_val: f64) -> f64 {
@@ -209,73 +331,9 @@ routine f64.signum() -> f64 {
     }
 }
 
-# ============================================================================
-# Type Conversions
-# ============================================================================
-
-routine f64.to_s64() -> s64 {
+routine f64.to_text() -> Text {
     danger! {
-        return @intrinsic.fptosi<double, i64>(me)
-    }
-}
-
-routine f64.to_u64() -> u64 {
-    danger! {
-        return @intrinsic.fptoui<double, i64>(me)
-    }
-}
-
-routine f64.to_s32() -> s32 {
-    danger! {
-        return @intrinsic.fptosi<double, i32>(me)
-    }
-}
-
-routine f64.to_u32() -> u32 {
-    danger! {
-        return @intrinsic.fptoui<double, i32>(me)
-    }
-}
-
-routine f64.to_s16() -> s16 {
-    return me.to_s32().to_s16()
-}
-
-routine f64.to_u16() -> u16 {
-    return me.to_u32().to_u16()
-}
-
-routine f64.to_s8() -> s8 {
-    return me.to_s32().to_s8()
-}
-
-routine f64.to_u8() -> u8 {
-    return me.to_u32().to_u8()
-}
-
-routine f64.to_d32() -> d32 {
-    danger! {
-        let bits = rf_f64_to_d32(me)
-        return @intrinsic.bitcast<u32, d32>(bits)
-    }
-}
-
-routine f64.to_d64() -> d64 {
-    danger! {
-        let bits = rf_f64_to_d64(me)
-        return @intrinsic.bitcast<u64, d64>(bits)
-    }
-}
-
-routine f64.to_d128() -> d128 {
-    danger! {
-        return rf_f64_to_d128(me)
-    }
-}
-
-routine f64.to_f32() -> f32 {
-    danger! {
-        return @intrinsic.fptrunc<double, float>(me)
+        return @native.rf_format_f64(me)
     }
 }
 
@@ -291,119 +349,4 @@ routine f64.from_bits(bits: u64) -> f64 {
     danger! {
         return @intrinsic.bitcast<i64, double>(bits)
     }
-}
-
-# ============================================================================
-# String Conversion (placeholder)
-# ============================================================================
-
-routine f64.to_text() -> Text {
-    danger! {
-        return @format_f64(me)
-    }
-}
-
-# Failable constructor from Text - called as f64!(text)
-# Compiler automatically generates try_f64.__create__(text) -> Maybe<f64>
-routine f64.__create__!(from_text: Text<Letterlikes>) -> f64 {
-    danger! {
-        return @parse_f64(from_text)
-    }
-}
-
-routine f64.__create__(from: s8) -> f64 {
-    danger! {
-        return @intrinsic.sitofp<i8, double>(from)
-    }
-}
-
-routine f64.__create__(from: u8) -> f64 {
-    danger! {
-        return @intrinsic.uitofp<i8, double>(from)
-    }
-}
-
-routine f64.__create__(from: s16) -> f64 {
-    danger! {
-        return @intrinsic.sitofp<i16, double>(from)
-    }
-}
-
-routine f64.__create__(from: u16) -> f64 {
-    danger! {
-        return @intrinsic.uitofp<i16, double>(from)
-    }
-}
-
-routine f64.__create__(from: s32) -> f64 {
-    danger! {
-        return @intrinsic.sitofp<i32, double>(from)
-    }
-}
-
-routine f64.__create__(from: u32) -> f64 {
-    danger! {
-        return @intrinsic.uitofp<i32, double>(from)
-    }
-}
-
-routine f64.__create__(from: s64) -> f64 {
-    danger! {
-        return @intrinsic.sitofp<i64, double>(from)
-    }
-}
-
-routine f64.__create__(from: u64) -> f64 {
-    danger! {
-        return @intrinsic.uitofp<i64, double>(from)
-    }
-}
-
-routine f64.__create__(from: f32) -> f64 {
-    danger! {
-        return @intrinsic.fpext<float, double>(from)
-    }
-}
-
-routine f64.__create__(from: d32) -> f64 {
-    danger! {
-        let bits = @intrinsic.bitcast<d32, u32>(from)
-        return rf_d32_to_f64(bits)
-    }
-}
-
-routine f64.__create__(from: d64) -> f64 {
-    danger! {
-        let bits = @intrinsic.bitcast<d64, u64>(from)
-        return rf_d64_to_f64(bits)
-    }
-}
-
-routine f64.__create__(from: d128) -> f64 {
-    danger! {
-        return rf_d128_to_f64(from.low_bits(), from.high_bits())
-    }
-}
-
-
-
-# ============================================================================
-# Examples
-# ============================================================================
-
-# Distance between two points
-routine distance_2d(x1: f64, y1: f64, x2: f64, y2: f64) -> f64 {
-    let dx = x2 - x1
-    let dy = y2 - y1
-    return (dx * dx + dy * dy).sqrt()
-}
-
-# Pythagorean theorem
-routine hypot(a: f64, b: f64) -> f64 {
-    return (a * a + b * b).sqrt()
-}
-
-# Linear interpolation
-routine lerp(a: f64, b: f64, t: f64) -> f64 {
-    return a + (b - a) * t
 }

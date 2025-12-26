@@ -3,7 +3,7 @@
 namespace core
 # Core u64 type definition - maps to LLVM i64
 record u64 {
-    public value: LlvmNativeI64
+    public value: @intrinsic.i64
 }
 
 # Constants for u64 limits
@@ -13,35 +13,12 @@ preset U64_ZERO: u64 = 0_u64
 preset U64_ONE: u64 = 1_u64
 
 # ============================================================================
-# Checked Constructors (crash on overflow)
+# Constructors
 # ============================================================================
 
-# Failable constructor from Text - called as u64!(text)
-# Compiler automatically generates try_u64.__create__(text) -> Maybe<u64>
-routine u64.__create__!(from_text: Text<Letterlikes>) -> u64 {
+routine u64.__create__!(from_text: Text<Letter>) -> u64 {
     danger! {
-        return @parse_u64(from_text)
-    }
-}
-
-# From u8 - always fits, no check needed
-routine u64.__create__!(from: u8) -> u64 {
-    danger! {
-        return @intrinsic.zext<i8, i64>(from)
-    }
-}
-
-# From u16 - always fits, no check needed
-routine u64.__create__!(from: u16) -> u64 {
-    danger! {
-        return @intrinsic.zext<i16, i64>(from)
-    }
-}
-
-# From u32 - always fits, no check needed
-routine u64.__create__!(from: u32) -> u64 {
-    danger! {
-        return @intrinsic.zext<i32, i64>(from)
+        return @native.rf_parse_u64(from_text)
     }
 }
 
@@ -95,6 +72,31 @@ routine u64.__create__!(from: s128) -> u64 {
     }
 }
 
+# From u8 - always fits, no check needed
+routine u64.__create__!(from: u8) -> u64 {
+    danger! {
+        return @intrinsic.zext<i8, i64>(from)
+    }
+}
+
+# From u16 - always fits, no check needed
+routine u64.__create__!(from: u16) -> u64 {
+    danger! {
+        return @intrinsic.zext<i16, i64>(from)
+    }
+}
+
+# From u32 - always fits, no check needed
+routine u64.__create__!(from: u32) -> u64 {
+    danger! {
+        return @intrinsic.zext<i32, i64>(from)
+    }
+}
+
+routine u64.__create__(from: u64) -> u64 {
+    return from
+}
+
 # From u128 - crashes if value > U64_MAX
 routine u64.__create__!(from: u128) -> u64 {
     if from > 18446744073709551615_u128 {
@@ -106,29 +108,55 @@ routine u64.__create__!(from: u128) -> u64 {
 }
 
 # From floating point - truncates
-routine u64.__create__(from: f32) -> u64 {
+routine u64.__create__!(from: f16) -> u64 {
+    return from.f32().u64!()
+}
+
+routine u64.__create__!(from: f32) -> u64 {
     danger! {
         return @intrinsic.fptoui<float, i64>(from)
     }
 }
 
-routine u64.__create__(from: f64) -> u64 {
+routine u64.__create__!(from: f64) -> u64 {
     danger! {
         return @intrinsic.fptoui<double, i64>(from)
     }
 }
 
-# From decimal - truncates
-routine u64.__create__(from: d32) -> u64 {
-    return from.to_u64()
+routine u64.__create__!(from: f128) -> u64 {
+    return from.f64!().u64!()
 }
 
-routine u64.__create__(from: d64) -> u64 {
-    return from.to_u64()
+# From decimal - truncates fractional part and can overflow
+routine u64.__create__!(from: d32) -> u64 {
+    return from.s64!().u64!()
 }
 
-routine u64.__create__(from: d128) -> u64 {
-    return from.to_u64()
+routine u64.__create__!(from: d64) -> u64 {
+    return from.s64!().u64!()
+}
+
+routine u64.__create__!(from: d128) -> u64 {
+    return from.s64!().u64!()
+}
+
+# From saddr - crashes if value is negative
+routine u64.__create__!(from: saddr) -> u64 {
+    let val_s64 = from.s64!()
+    if val_s64 < 0_s64 {
+        throw IntegerOverflowError(f"Cannot convert {from} to u64: value out of range [{U64_MIN}, {U64_MAX}]")
+    }
+    danger! {
+        return @intrinsic.zext<iptr, i64>(from)
+    }
+}
+
+# From uaddr - always fits (zero extends from 32 or 64-bit)
+routine u64.__create__!(from: uaddr) -> u64 {
+    danger! {
+        return @intrinsic.zext<uptr, i64>(from)
+    }
 }
 
 # ============================================================================
@@ -136,40 +164,40 @@ routine u64.__create__(from: d128) -> u64 {
 # ============================================================================
 
 @crash_only
-routine u64.__add__!(other: u64) -> u64 {
+routine u64.__add__!(you: u64) -> u64 {
     danger! {
-        return @intrinsic.add<i64>(me, other)
+        return @intrinsic.add<i64>(me, you)
     }
 }
 
 @crash_only
-routine u64.__sub__!(other: u64) -> u64 {
+routine u64.__sub__!(you: u64) -> u64 {
     danger! {
-        return @intrinsic.sub<i64>(me, other)
+        return @intrinsic.sub<i64>(me, you)
     }
 }
 
 @crash_only
-routine u64.__mul__!(other: u64) -> u64 {
+routine u64.__mul__!(you: u64) -> u64 {
     danger! {
-        return @intrinsic.mul<i64>(me, other)
+        return @intrinsic.mul<i64>(me, you)
     }
 }
 
 @crash_only
-routine u64.__floordiv__!(other: u64) -> u64 {
+routine u64.__floordiv__!(you: u64) -> u64 {
     danger! {
-        return @intrinsic.udiv<i64>(me, other)
+        return @intrinsic.udiv<i64>(me, you)
     }
 }
 
 @crash_only
-routine u64.__mod__!(other: u64) -> u64 {
-    if other == 0 {
+routine u64.__mod__!(you: u64) -> u64 {
+    if you == 0 {
         throw DivisionByZeroError()
     }
     danger! {
-        return @intrinsic.urem<i64>(me, other)
+        return @intrinsic.urem<i64>(me, you)
     }
 }
 
@@ -177,21 +205,21 @@ routine u64.__mod__!(other: u64) -> u64 {
 # Wrapping Arithmetic (+%, -%, *%)
 # ============================================================================
 
-routine u64.__add_wrap__(other: u64) -> u64 {
+routine u64.__add_wrap__(you: u64) -> u64 {
     danger! {
-        return @intrinsic.add.wrapping<i64>(me, other)
+        return @intrinsic.add.wrapping<i64>(me, you)
     }
 }
 
-routine u64.__sub_wrap__(other: u64) -> u64 {
+routine u64.__sub_wrap__(you: u64) -> u64 {
     danger! {
-        return @intrinsic.sub.wrapping<i64>(me, other)
+        return @intrinsic.sub.wrapping<i64>(me, you)
     }
 }
 
-routine u64.__mul_wrap__(other: u64) -> u64 {
+routine u64.__mul_wrap__(you: u64) -> u64 {
     danger! {
-        return @intrinsic.mul.wrapping<i64>(me, other)
+        return @intrinsic.mul.wrapping<i64>(me, you)
     }
 }
 
@@ -199,21 +227,21 @@ routine u64.__mul_wrap__(other: u64) -> u64 {
 # Saturating Arithmetic (+^, -^, *^)
 # ============================================================================
 
-routine u64.__add_sat__(other: u64) -> u64 {
+routine u64.__add_sat__(you: u64) -> u64 {
     danger! {
-        return @intrinsic.add.saturating<i64>(me, other)
+        return @intrinsic.add.saturating<i64>(me, you)
     }
 }
 
-routine u64.__sub_sat__(other: u64) -> u64 {
+routine u64.__sub_sat__(you: u64) -> u64 {
     danger! {
-        return @intrinsic.sub.saturating<i64>(me, other)
+        return @intrinsic.sub.saturating<i64>(me, you)
     }
 }
 
-routine u64.__mul_sat__(other: u64) -> u64 {
+routine u64.__mul_sat__(you: u64) -> u64 {
     danger! {
-        return @intrinsic.mul.saturating<i64>(me, other)
+        return @intrinsic.mul.saturating<i64>(me, you)
     }
 }
 
@@ -221,23 +249,23 @@ routine u64.__mul_sat__(other: u64) -> u64 {
 # Checked Arithmetic (+?, -?, *?) - returns Maybe<T>
 # ============================================================================
 
-routine u64.__add_checked__(other: u64) -> Maybe<u64> {
+routine u64.__add_checked__(you: u64) -> Maybe<u64> {
     danger! {
-        let (result, overflow) = @intrinsic.add.overflow<i64>(me, other)
+        let (result, overflow) = @intrinsic.add.overflow<i64>(me, you)
         return if overflow then None else result
     }
 }
 
-routine u64.__sub_checked__(other: u64) -> Maybe<u64> {
+routine u64.__sub_checked__(you: u64) -> Maybe<u64> {
     danger! {
-        let (result, overflow) = @intrinsic.sub.overflow<i64>(me, other)
+        let (result, overflow) = @intrinsic.sub.overflow<i64>(me, you)
         return if overflow then None else result
     }
 }
 
-routine u64.__mul_checked__(other: u64) -> Maybe<u64> {
+routine u64.__mul_checked__(you: u64) -> Maybe<u64> {
     danger! {
-        let (result, overflow) = @intrinsic.mul.overflow<i64>(me, other)
+        let (result, overflow) = @intrinsic.mul.overflow<i64>(me, you)
         return if overflow then None else result
     }
 }
@@ -341,21 +369,21 @@ routine u64.__pow_checked__(exp: u64) -> Maybe<u64> {
 # Bitwise Operations
 # ============================================================================
 
-routine u64.__and__(other: u64) -> u64 {
+routine u64.__and__(you: u64) -> u64 {
     danger! {
-        return @intrinsic.and<i64>(me, other)
+        return @intrinsic.and<i64>(me, you)
     }
 }
 
-routine u64.__or__(other: u64) -> u64 {
+routine u64.__or__(you: u64) -> u64 {
     danger! {
-        return @intrinsic.or<i64>(me, other)
+        return @intrinsic.or<i64>(me, you)
     }
 }
 
-routine u64.__xor__(other: u64) -> u64 {
+routine u64.__xor__(you: u64) -> u64 {
     danger! {
-        return @intrinsic.xor<i64>(me, other)
+        return @intrinsic.xor<i64>(me, you)
     }
 }
 
@@ -418,39 +446,39 @@ routine u64.__lshr__(bits: u32) -> u64 {
 # Comparison Operations
 # ============================================================================
 
-routine u64.__eq__(other: u64) -> bool {
+routine u64.__eq__(you: u64) -> bool {
     danger! {
-        return @intrinsic.icmp.eq<i64>(me, other)
+        return @intrinsic.icmp.eq<i64>(me, you)
     }
 }
 
-routine u64.__ne__(other: u64) -> bool {
+routine u64.__ne__(you: u64) -> bool {
     danger! {
-        return @intrinsic.icmp.ne<i64>(me, other)
+        return @intrinsic.icmp.ne<i64>(me, you)
     }
 }
 
-routine u64.__lt__(other: u64) -> bool {
+routine u64.__lt__(you: u64) -> bool {
     danger! {
-        return @intrinsic.icmp.ult<i64>(me, other)
+        return @intrinsic.icmp.ult<i64>(me, you)
     }
 }
 
-routine u64.__le__(other: u64) -> bool {
+routine u64.__le__(you: u64) -> bool {
     danger! {
-        return @intrinsic.icmp.ule<i64>(me, other)
+        return @intrinsic.icmp.ule<i64>(me, you)
     }
 }
 
-routine u64.__gt__(other: u64) -> bool {
+routine u64.__gt__(you: u64) -> bool {
     danger! {
-        return @intrinsic.icmp.ugt<i64>(me, other)
+        return @intrinsic.icmp.ugt<i64>(me, you)
     }
 }
 
-routine u64.__ge__(other: u64) -> bool {
+routine u64.__ge__(you: u64) -> bool {
     danger! {
-        return @intrinsic.icmp.uge<i64>(me, other)
+        return @intrinsic.icmp.uge<i64>(me, you)
     }
 }
 
@@ -458,12 +486,12 @@ routine u64.__ge__(other: u64) -> bool {
 # Math Operations
 # ============================================================================
 
-routine u64.min(other: u64) -> u64 {
-    return if me <= other then me else other
+routine u64.min(you: u64) -> u64 {
+    return if me <= you then me else you
 }
 
-routine u64.max(other: u64) -> u64 {
-    return if me >= other then me else other
+routine u64.max(you: u64) -> u64 {
+    return if me >= you then me else you
 }
 
 routine u64.clamp(min_val: u64, max_val: u64) -> u64 {
@@ -539,63 +567,6 @@ routine u64.rotate_right(bits: u32) -> u64 {
 }
 
 # ============================================================================
-# Type Conversions (constructor syntax)
-# ============================================================================
-
-# Bitcast to signed
-routine s64(from: u64) -> s64 {
-    danger! {
-        return @intrinsic.bitcast<i64, i64>(from)
-    }
-}
-
-# Zero-extend to larger types
-routine u128(from: u64) -> u128 {
-    danger! {
-        return @intrinsic.zext<i64, i128>(from)
-    }
-}
-
-# Truncate to smaller types
-routine u32(from: u64) -> u32 {
-    danger! {
-        return @intrinsic.trunc<i64, i32>(from)
-    }
-}
-
-routine u16(from: u64) -> u16 {
-    danger! {
-        return @intrinsic.trunc<i64, i16>(from)
-    }
-}
-
-routine u8(from: u64) -> u8 {
-    danger! {
-        return @intrinsic.trunc<i64, i8>(from)
-    }
-}
-
-# Convert to floating point
-routine f32(from: u64) -> f32 {
-    danger! {
-        return @intrinsic.uitofp<i64, float>(from)
-    }
-}
-
-routine f64(from: u64) -> f64 {
-    danger! {
-        return @intrinsic.uitofp<i64, double>(from)
-    }
-}
-
-# Convert to boolean
-routine bool(from: u64) -> bool {
-    danger! {
-        return @intrinsic.icmp.ne<i64>(from, 0_u64)
-    }
-}
-
-# ============================================================================
 # Utility Methods
 # ============================================================================
 
@@ -620,6 +591,6 @@ routine u64.is_odd() -> bool {
 
 routine u64.to_text() -> Text {
     danger! {
-        return @format_u64(me)
+        return @native.rf_format_u64(me)
     }
 }

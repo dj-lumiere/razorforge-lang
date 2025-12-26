@@ -2,7 +2,8 @@
 # IEEE 754-2008 decimal floating point with 34 significant digits
 # Uses Intel DFP library via imported C functions
 namespace core
-import FFI/ctypes
+
+import FFI/cstr
 
 # Core d128 type definition - stored as 128-bit value in BID encoding
 # Uses two u64 fields (low and high) to represent the 128-bit value
@@ -16,155 +17,154 @@ preset D128_ZERO: d128 = 0.0_d128
 preset D128_ONE: d128 = 1.0_d128
 
 # ============================================================================
-# External C Functions (from decimal_functions.c)
-# Note: d128 is passed/returned as a struct {u64 low, u64 high}
-# ============================================================================
-
-imported routine d128_add(a_low: u64, a_high: u64, b_low: u64, b_high: u64) -> d128
-imported routine d128_sub(a_low: u64, a_high: u64, b_low: u64, b_high: u64) -> d128
-imported routine d128_mul(a_low: u64, a_high: u64, b_low: u64, b_high: u64) -> d128
-imported routine d128_div(a_low: u64, a_high: u64, b_low: u64, b_high: u64) -> d128
-imported routine d128_cmp(a_low: u64, a_high: u64, b_low: u64, b_high: u64) -> s32
-imported routine d128_from_string(str: cstr) -> d128
-imported routine d128_to_string(low: u64, high: u64) -> cstr
-imported routine d128_from_i32(val: s32) -> d128
-imported routine d128_from_u32(val: u32) -> d128
-imported routine d128_from_i64(val: s64) -> d128
-imported routine d128_from_u64(val: u64) -> d128
-imported routine rf_d128_sqrt(low: u64, high: u64) -> d128
-imported routine rf_d128_abs(low: u64, high: u64) -> d128
-imported routine rf_d128_ceil(low: u64, high: u64) -> d128
-imported routine rf_d128_floor(low: u64, high: u64) -> d128
-imported routine rf_d128_round(low: u64, high: u64) -> d128
-imported routine rf_d128_trunc(low: u64, high: u64) -> d128
-imported routine rf_d128_to_f32(low: u64, high: u64) -> f32
-imported routine rf_d128_to_f64(low: u64, high: u64) -> f64
-imported routine rf_d128_to_d32(low: u64, high: u64) -> u32
-imported routine rf_d128_to_d64(low: u64, high: u64) -> u64
-imported routine rf_f32_to_d128(x: f32) -> d128
-imported routine rf_f64_to_d128(x: f64) -> d128
-imported routine rf_d32_to_d128(x: u32) -> d128
-imported routine rf_d64_to_d128(x: u64) -> d128
-imported routine d128_to_i32(low: u64, high: u64) -> s32
-imported routine d128_to_i64(low: u64, high: u64) -> s64
-
-# ============================================================================
 # Constructors
 # ============================================================================
 
-routine d128.__create__!(from_text: Text<letter8>) -> d128 {
+routine d128.__create__!(from_text: Bytes) -> d128 {
     danger! {
         let cstr_val = from_text.to_cstr()
-        return d128_from_string(cstr_val)
+        return @native.rf_d128_from_string(cstr_val)
     }
+}
+
+routine d128.__create__(from: s8) -> d128 {
+    danger! {
+        return @native.rf_d128_from_s32(s32(from))
+    }
+}
+
+routine d128.__create__(from: s16) -> d128 {
+    danger! {
+        return @native.rf_d128_from_s32(s32(from))
+    }
+}
+
+routine d128.__create__(from: s32) -> d128 {
+    danger! {
+        return @native.rf_d128_from_s32(from)
+    }
+}
+
+routine d128.__create__(from: s64) -> d128 {
+    danger! {
+        return @native.rf_d128_from_s64(from)
+    }
+}
+
+routine d128.__create__(from: s128) -> d128 {
+    # Convert through s64 - may lose precision
+    return from.s64!().d128()
+}
+
+routine d128.__create__(from: u8) -> d128 {
+    danger! {
+        return @native.rf_d128_from_u32(u32(from))
+    }
+}
+
+routine d128.__create__(from: u16) -> d128 {
+    danger! {
+        return @native.rf_d128_from_u32(u32(from))
+    }
+}
+
+routine d128.__create__(from: u32) -> d128 {
+    danger! {
+        return @native.rf_d128_from_u32(from)
+    }
+}
+
+routine d128.__create__(from: u64) -> d128 {
+    danger! {
+        return @native.rf_d128_from_u64(from)
+    }
+}
+
+routine d128.__create__(from: u128) -> d128 {
+    # Convert through u64 - may lose precision
+    return from.u64!().d128()
+}
+
+routine d128.__create__(from: f16) -> d128 {
+    return from.f32().d128()
 }
 
 routine d128.__create__(from: f32) -> d128 {
     danger! {
-        return rf_f32_to_d128(from)
+        return @native.rf_f32_to_d128(from)
     }
 }
 
 routine d128.__create__(from: f64) -> d128 {
     danger! {
-        return rf_f64_to_d128(from)
+        return @native.rf_f64_to_d128(from)
     }
+}
+
+routine d128.__create__(from: f128) -> d128 {
+    return from.f64!().d128()
 }
 
 routine d128.__create__(from: d32) -> d128 {
     danger! {
         let bits = from.to_bits()
-        return rf_d32_to_d128(bits)
+        return @native.rf_d32_to_d128(bits)
     }
 }
 
 routine d128.__create__(from: d64) -> d128 {
     danger! {
         let bits = from.to_bits()
-        return rf_d64_to_d128(bits)
+        return @native.rf_d64_to_d128(bits)
     }
 }
 
-routine d128.__create__(from: s8) -> d128 {
-    danger! {
-        return d128_from_i32(from.to_s32())
-    }
+routine d128.__create__(from: d128) -> d128 {
+    return from
 }
 
-routine d128.__create__(from: u8) -> d128 {
-    danger! {
-        return d128_from_u32(from.to_u32())
-    }
+# From saddr - convert through s64
+routine d128.__create__(from: saddr) -> d128 {
+    return from.s64().d128()
 }
 
-routine d128.__create__(from: s16) -> d128 {
-    danger! {
-        return d128_from_i32(from.to_s32())
-    }
-}
-
-routine d128.__create__(from: u16) -> d128 {
-    danger! {
-        return d128_from_u32(from.to_u32())
-    }
-}
-
-routine d128.__create__(from: s32) -> d128 {
-    danger! {
-        return d128_from_i32(from)
-    }
-}
-
-routine d128.__create__(from: u32) -> d128 {
-    danger! {
-        return d128_from_u32(from)
-    }
-}
-
-routine d128.__create__(from: s64) -> d128 {
-    danger! {
-        return d128_from_i64(from)
-    }
-}
-
-routine d128.__create__(from: u64) -> d128 {
-    danger! {
-        return d128_from_u64(from)
-    }
+# From uaddr - convert through u64
+routine d128.__create__(from: uaddr) -> d128 {
+    return from.u64().d128()
 }
 
 # ============================================================================
 # Arithmetic Operations
 # ============================================================================
 
-routine d128.__add__(me: d128, other: d128) -> d128 {
+routine d128.__add__(me: d128, you: d128) -> d128 {
     danger! {
-        return d128_add(me.low, me.high, other.low, other.high)
+        return @native.rf_d128_add(me.low, me.high, you.low, you.high)
     }
 }
 
-routine d128.__sub__(me: d128, other: d128) -> d128 {
+routine d128.__sub__(me: d128, you: d128) -> d128 {
     danger! {
-        return d128_sub(me.low, me.high, other.low, other.high)
+        return @native.rf_d128_sub(me.low, me.high, you.low, you.high)
     }
 }
 
-routine d128.__mul__(me: d128, other: d128) -> d128 {
+routine d128.__mul__(me: d128, you: d128) -> d128 {
     danger! {
-        return d128_mul(me.low, me.high, other.low, other.high)
+        return @native.rf_d128_mul(me.low, me.high, you.low, you.high)
     }
 }
 
-routine d128.__truediv__(me: d128, other: d128) -> d128 {
+routine d128.__truediv__(me: d128, you: d128) -> d128 {
     danger! {
-        return d128_div(me.low, me.high, other.low, other.high)
+        return @native.rf_d128_div(me.low, me.high, you.low, you.high)
     }
 }
 
 routine d128.__neg__(me: d128) -> d128 {
     danger! {
         let zero = D128_ZERO
-        return d128_sub(zero.low, zero.high, me.low, me.high)
+        return @native.rf_d128_sub(zero.low, zero.high, me.low, me.high)
     }
 }
 
@@ -172,39 +172,39 @@ routine d128.__neg__(me: d128) -> d128 {
 # Comparison Operations
 # ============================================================================
 
-routine d128.__lt__(me: d128, other: d128) -> bool {
+routine d128.__lt__(me: d128, you: d128) -> bool {
     danger! {
-        return d128_cmp(me.low, me.high, other.low, other.high) < 0
+        return @native.rf_d128_cmp(me.low, me.high, you.low, you.high) < 0
     }
 }
 
-routine d128.__le__(me: d128, other: d128) -> bool {
+routine d128.__le__(me: d128, you: d128) -> bool {
     danger! {
-        return d128_cmp(me.low, me.high, other.low, other.high) <= 0
+        return @native.rf_d128_cmp(me.low, me.high, you.low, you.high) <= 0
     }
 }
 
-routine d128.__gt__(me: d128, other: d128) -> bool {
+routine d128.__gt__(me: d128, you: d128) -> bool {
     danger! {
-        return d128_cmp(me.low, me.high, other.low, other.high) > 0
+        return @native.rf_d128_cmp(me.low, me.high, you.low, you.high) > 0
     }
 }
 
-routine d128.__ge__(me: d128, other: d128) -> bool {
+routine d128.__ge__(me: d128, you: d128) -> bool {
     danger! {
-        return d128_cmp(me.low, me.high, other.low, other.high) >= 0
+        return @native.rf_d128_cmp(me.low, me.high, you.low, you.high) >= 0
     }
 }
 
-routine d128.__eq__(me: d128, other: d128) -> bool {
+routine d128.__eq__(me: d128, you: d128) -> bool {
     danger! {
-        return d128_cmp(me.low, me.high, other.low, other.high) == 0
+        return @native.rf_d128_cmp(me.low, me.high, you.low, you.high) == 0
     }
 }
 
-routine d128.__ne__(me: d128, other: d128) -> bool {
+routine d128.__ne__(me: d128, you: d128) -> bool {
     danger! {
-        return d128_cmp(me.low, me.high, other.low, other.high) != 0
+        return @native.rf_d128_cmp(me.low, me.high, you.low, you.high) != 0
     }
 }
 
@@ -214,37 +214,161 @@ routine d128.__ne__(me: d128, other: d128) -> bool {
 
 routine d128.sqrt(me: d128) -> d128 {
     danger! {
-        return rf_d128_sqrt(me.low, me.high)
+        return @native.rf_d128_sqrt(me.low, me.high)
     }
 }
 
 routine d128.abs(me: d128) -> d128 {
     danger! {
-        return rf_d128_abs(me.low, me.high)
+        return @native.rf_d128_abs(me.low, me.high)
     }
 }
 
 routine d128.ceil(me: d128) -> d128 {
     danger! {
-        return rf_d128_ceil(me.low, me.high)
+        return @native.rf_d128_ceil(me.low, me.high)
     }
 }
 
 routine d128.floor(me: d128) -> d128 {
     danger! {
-        return rf_d128_floor(me.low, me.high)
+        return @native.rf_d128_floor(me.low, me.high)
     }
 }
 
 routine d128.round(me: d128) -> d128 {
     danger! {
-        return rf_d128_round(me.low, me.high)
+        return @native.rf_d128_round(me.low, me.high)
     }
 }
 
 routine d128.trunc(me: d128) -> d128 {
     danger! {
-        return rf_d128_trunc(me.low, me.high)
+        return @native.rf_d128_trunc(me.low, me.high)
+    }
+}
+
+# ============================================================================
+# Trigonometric Functions (via f128 conversion + LibBF)
+# ============================================================================
+
+routine d128.sin(me: d128) -> d128 {
+    danger! {
+        return @native.rf_d128_sin(me.low, me.high)
+    }
+}
+
+routine d128.cos(me: d128) -> d128 {
+    danger! {
+        return @native.rf_d128_cos(me.low, me.high)
+    }
+}
+
+routine d128.tan(me: d128) -> d128 {
+    danger! {
+        return @native.rf_d128_tan(me.low, me.high)
+    }
+}
+
+routine d128.asin(me: d128) -> d128 {
+    danger! {
+        return @native.rf_d128_asin(me.low, me.high)
+    }
+}
+
+routine d128.acos(me: d128) -> d128 {
+    danger! {
+        return @native.rf_d128_acos(me.low, me.high)
+    }
+}
+
+routine d128.atan(me: d128) -> d128 {
+    danger! {
+        return @native.rf_d128_atan(me.low, me.high)
+    }
+}
+
+routine d128.atan2(me: d128, x: d128) -> d128 {
+    danger! {
+        return @native.rf_d128_atan2(me.low, me.high, x.low, x.high)
+    }
+}
+
+# ============================================================================
+# Hyperbolic Functions (via f128 conversion + LibBF)
+# ============================================================================
+
+routine d128.sinh(me: d128) -> d128 {
+    danger! {
+        return @native.rf_d128_sinh(me.low, me.high)
+    }
+}
+
+routine d128.cosh(me: d128) -> d128 {
+    danger! {
+        return @native.rf_d128_cosh(me.low, me.high)
+    }
+}
+
+routine d128.tanh(me: d128) -> d128 {
+    danger! {
+        return @native.rf_d128_tanh(me.low, me.high)
+    }
+}
+
+# ============================================================================
+# Exponential and Logarithmic Functions (via f128 conversion + LibBF)
+# ============================================================================
+
+routine d128.exp(me: d128) -> d128 {
+    danger! {
+        return @native.rf_d128_exp(me.low, me.high)
+    }
+}
+
+routine d128.exp2(me: d128) -> d128 {
+    danger! {
+        return @native.rf_d128_exp2(me.low, me.high)
+    }
+}
+
+routine d128.log(me: d128) -> d128 {
+    danger! {
+        return @native.rf_d128_log(me.low, me.high)
+    }
+}
+
+routine d128.log2(me: d128) -> d128 {
+    danger! {
+        return @native.rf_d128_log2(me.low, me.high)
+    }
+}
+
+routine d128.log10(me: d128) -> d128 {
+    danger! {
+        return @native.rf_d128_log10(me.low, me.high)
+    }
+}
+
+# ============================================================================
+# Power Functions (via f128 conversion + LibBF)
+# ============================================================================
+
+routine d128.pow(me: d128, exp: d128) -> d128 {
+    danger! {
+        return @native.rf_d128_pow(me.low, me.high, exp.low, exp.high)
+    }
+}
+
+routine d128.cbrt(me: d128) -> d128 {
+    danger! {
+        return @native.rf_d128_cbrt(me.low, me.high)
+    }
+}
+
+routine d128.hypot(me: d128, y: d128) -> d128 {
+    danger! {
+        return @native.rf_d128_hypot(me.low, me.high, y.low, y.high)
     }
 }
 
@@ -252,15 +376,15 @@ routine d128.trunc(me: d128) -> d128 {
 # Utility Methods
 # ============================================================================
 
-routine d128.min(me: d128, other: d128) -> d128 {
+routine d128.min(me: d128, you: d128) -> d128 {
     danger! {
-        return if d128_cmp(me.low, me.high, other.low, other.high) <= 0 then me else other
+        return if @native.rf_d128_cmp(me.low, me.high, you.low, you.high) <= 0 then me else you
     }
 }
 
-routine d128.max(me: d128, other: d128) -> d128 {
+routine d128.max(me: d128, you: d128) -> d128 {
     danger! {
-        return if d128_cmp(me.low, me.high, other.low, other.high) >= 0 then me else other
+        return if @native.rf_d128_cmp(me.low, me.high, you.low, you.high) >= 0 then me else you
     }
 }
 
@@ -271,21 +395,21 @@ routine d128.clamp(me: d128, min_val: d128, max_val: d128) -> d128 {
 routine d128.is_positive(me: d128) -> bool {
     danger! {
         let zero = D128_ZERO
-        return d128_cmp(me.low, me.high, zero.low, zero.high) > 0
+        return @native.rf_d128_cmp(me.low, me.high, zero.low, zero.high) > 0
     }
 }
 
 routine d128.is_negative(me: d128) -> bool {
     danger! {
         let zero = D128_ZERO
-        return d128_cmp(me.low, me.high, zero.low, zero.high) < 0
+        return @native.rf_d128_cmp(me.low, me.high, zero.low, zero.high) < 0
     }
 }
 
 routine d128.is_zero(me: d128) -> bool {
     danger! {
         let zero = D128_ZERO
-        return d128_cmp(me.low, me.high, zero.low, zero.high) == 0
+        return @native.rf_d128_cmp(me.low, me.high, zero.low, zero.high) == 0
     }
 }
 
@@ -294,8 +418,8 @@ routine d128.signum(me: d128) -> d128 {
         let zero = D128_ZERO
         let one = D128_ONE
         when {
-            d128_cmp(me.low, me.high, zero.low, zero.high) > 0 => one,
-            d128_cmp(me.low, me.high, zero.low, zero.high) < 0 => d128_sub(zero.low, zero.high, one.low, one.high),
+            @native.rf_d128_cmp(me.low, me.high, zero.low, zero.high) > 0 => one,
+            @native.rf_d128_cmp(me.low, me.high, zero.low, zero.high) < 0 => @native.rf_d128_sub(zero.low, zero.high, one.low, one.high),
             _ => zero
         }
     }
@@ -304,68 +428,6 @@ routine d128.signum(me: d128) -> d128 {
 # ============================================================================
 # Type Conversions
 # ============================================================================
-
-routine d128.to_f32(me: d128) -> f32 {
-    danger! {
-        return rf_d128_to_f32(me.low, me.high)
-    }
-}
-
-routine d128.to_f64(me: d128) -> f64 {
-    danger! {
-        return rf_d128_to_f64(me.low, me.high)
-    }
-}
-
-routine d128.to_d32(me: d128) -> d32 {
-    danger! {
-        let result = rf_d128_to_d32(me.low, me.high)
-        return d32.from_bits(result)
-    }
-}
-
-routine d128.to_d64(me: d128) -> d64 {
-    danger! {
-        let result = rf_d128_to_d64(me.low, me.high)
-        return d64.from_bits(result)
-    }
-}
-
-routine d128.to_s8(me: d128) -> s8 {
-    return me.to_s32().to_s8()
-}
-
-routine d128.to_u8(me: d128) -> u8 {
-    return me.to_u32().to_u8()
-}
-
-routine d128.to_s16(me: d128) -> s16 {
-    return me.to_s32().to_s16()
-}
-
-routine d128.to_u16(me: d128) -> u16 {
-    return me.to_u32().to_u16()
-}
-
-routine d128.to_s32(me: d128) -> s32 {
-    danger! {
-        return d128_to_i32(me.low, me.high)
-    }
-}
-
-routine d128.to_u32(me: d128) -> u32 {
-    return me.to_s64().to_u32()
-}
-
-routine d128.to_s64(me: d128) -> s64 {
-    danger! {
-        return d128_to_i64(me.low, me.high)
-    }
-}
-
-routine d128.to_u64(me: d128) -> u64 {
-    return me.to_s64().to_u64()
-}
 
 # Get low 64 bits
 routine d128.low_bits(me: d128) -> u64 {
@@ -388,7 +450,7 @@ routine d128.from_bits(low: u64, high: u64) -> d128 {
 
 routine d128.to_text(me: d128) -> Text {
     danger! {
-        let cstr_result = d128_to_string(me.low, me.high)
+        let cstr_result = @native.rf_d128_to_string(me.low, me.high)
         return Text.from_cstr(cstr_result)
     }
 }
