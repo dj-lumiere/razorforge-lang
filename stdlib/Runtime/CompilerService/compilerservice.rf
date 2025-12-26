@@ -5,28 +5,31 @@
 # ============================================================================
 # Type Information
 # ============================================================================
+namespace Runtime/CompilerService
 
 # Returns the memory size of the type in bytes
 # Compiler intrinsic: replaced with constant at compile time
+# Called as: T.data_size() where T is a type
 @intrinsic("size_of")
-routine size_of<T>() -> uaddr
+routine data_size<T>() -> MemorySize
 
 # Returns the memory alignment requirement of the type
+# Called as: T.align_size() where T is a type
 @intrinsic("align_of")
-routine align_of<T>() -> uaddr
+routine align_size<T>() -> MemorySize
 
 # Returns the compile-time type name as it appears in source code
-# Example: get_compile_type_name<List<s32>>() returns "List<s32>"
+# Example: T.type_name() returns "List<s32>" for List<s32>
 @intrinsic("get_compile_type_name")
-routine get_compile_type_name<T>() -> Text<letter8>
+routine type_name<T>() -> Text
 
 # Returns a list of field names for records and entities
 @intrinsic("field_names")
-routine field_names<T>() -> List<Text<letter8>>
+routine field_names<T>() -> List<Text>
 
 # Returns the number of fields in the type
 @intrinsic("field_count")
-routine field_count<T>() -> uaddr
+routine field_count<T>() -> s64
 
 # ============================================================================
 # Source Location
@@ -42,15 +45,16 @@ routine get_column_number() -> s64
 
 # Returns the current source file name
 @intrinsic("get_file_name")
-routine get_file_name() -> Text<letter8>
+routine get_file_name() -> Text
 
 # Returns the name of the calling function
 @intrinsic("get_caller_name")
-routine get_caller_name() -> Text<letter8>
+routine get_caller_name() -> Text
 
 # Returns the variable name as it appears in source code
+# Called as: variable.var_name()
 @intrinsic("get_variable_name")
-routine get_variable_name<T>(var: T) -> Text<letter8>
+routine var_name<T>(value: T) -> Text
 
 # ============================================================================
 # Module and Attributes
@@ -58,7 +62,7 @@ routine get_variable_name<T>(var: T) -> Text<letter8>
 
 # Returns the current module name
 @intrinsic("get_current_module")
-routine get_current_module() -> Text<letter8>
+routine get_current_module() -> Text
 
 # ============================================================================
 # Method Inspection
@@ -66,4 +70,4 @@ routine get_current_module() -> Text<letter8>
 
 # Checks if a type has a method with the given name at compile time
 @intrinsic("has_method")
-routine has_method<T>(name: Text<letter8>) -> bool
+routine has_method<T>(name: Text) -> bool
