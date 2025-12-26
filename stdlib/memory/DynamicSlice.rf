@@ -2,6 +2,7 @@
 # DynamicSlice: Non-generic heap-allocated contiguous memory slice
 namespace core
 import memory/MemorySize
+import memory/wrapper/Snatched
 import errors/MemoryError
 
 #
@@ -13,27 +14,6 @@ record DynamicSlice {
     private starting_address: uaddr
     private allocated_bytes: uaddr
 }
-
-# Native runtime functions for dynamic memory operations
-imported("C") routine claim_dynamic(bytes: uaddr) -> uaddr
-imported("C") routine release_dynamic(address: uaddr)
-imported("C") routine resize_dynamic(address: uaddr, new_bytes: uaddr) -> uaddr
-imported("C") routine memory_copy(src: uaddr, dest: uaddr, bytes: uaddr)
-imported("C") routine memory_fill(address: uaddr, pattern: u8, bytes: uaddr)
-imported("C") routine memory_zero(address: uaddr, bytes: uaddr)
-imported("C") routine memory_read<T>(address: uaddr) -> T
-imported("C") routine memory_write<T>(address: uaddr, value: T)
-imported("C") routine sizeof<T>() -> uaddr
-
-# Danger zone operations - raw memory access without safety checks
-imported("C") routine read_as<T>(address: uaddr) -> T
-imported("C") routine write_as<T>(address: uaddr, value: T)
-imported("C") routine volatile_read<T>(address: uaddr) -> T
-imported("C") routine volatile_write<T>(address: uaddr, value: T)
-imported("C") routine obtain_as<T, U>(object: Snatched<T>) -> U
-imported("C") routine reveal_as<T>(address: uaddr) -> T
-imported("C") routine address_of<T>(object: T) -> uaddr
-imported("C") routine invalidate<T>(object: T)
 
 # Creates a new heap slice with specified byte size
 # @param size - MemorySize specifying bytes to allocate on heap
@@ -49,7 +29,7 @@ routine DynamicSlice.__create__(size: MemorySize) -> DynamicSlice {
     me.allocated_bytes = bytes
 
     # Allocate heap memory
-    me.starting_address = claim_dynamic(bytes)
+    me.starting_address = @native.rf_claim_dynamic_uaddr(bytes)
 
     if me.starting_address == 0 {
         throw MemoryAllocationError(requested_bytes: bytes)
@@ -67,14 +47,14 @@ routine DynamicSlice.copy(other: DynamicSlice) -> DynamicSlice {
     }
 
     var new_slice = DynamicSlice(MemorySize(other.allocated_bytes))
-    memory_copy(other.starting_address, new_slice.starting_address, other.allocated_bytes)
+    @native.rf_memory_copy_uaddr(other.starting_address, new_slice.starting_address, other.allocated_bytes)
     return new_slice
 }
 
 # Destructor that frees heap memory
 routine DynamicSlice.__destroy__() {
     if me.starting_address != 0 {
-        release_dynamic(me.starting_address)
+        @native.rf_release_dynamic_uaddr(me.starting_address)
         me.starting_address = 0
         me.allocated_bytes = 0
     }
@@ -108,7 +88,7 @@ routine DynamicSlice.read_bytes!(offset: uaddr, dest: uaddr, count: uaddr) {
     }
 
     let src_addr = me.starting_address + offset
-    memory_copy(src_addr, dest, count)
+    @native.rf_memory_copy_uaddr(src_addr, dest, count)
 }
 
 # Writes raw bytes to the slice
@@ -121,35 +101,35 @@ routine DynamicSlice.write_bytes!(offset: uaddr, src: uaddr, count: uaddr) {
     }
 
     let dest_addr = me.starting_address + offset
-    memory_copy(src, dest_addr, count)
+    @native.rf_memory_copy_uaddr(src, dest_addr, count)
 }
 
 # Reads a typed value from the slice at given offset
 # @param offset - Byte offset within the slice
 # @return Value of type T read from the slice
-routine DynamicSlice.read<T>!(offset: uaddr) -> T {
-    let type_size = sizeof<T>()
+routine DynamicSlice.read!<T>(offset: uaddr) -> T {
+    let type_size = @native.rf_sizeof<T>()
 
     if offset + type_size > me.allocated_bytes {
         throw MemoryBoundsError(offset: offset, size: type_size, allocated: me.allocated_bytes)
     }
 
     let addr = me.starting_address + offset
-    return memory_read<T>(addr)
+    return @native.rf_memory_read<T>(addr)
 }
 
 # Writes a typed value to the slice at given offset
 # @param offset - Byte offset within the slice
 # @param value - Value of type T to write to the slice
-routine DynamicSlice.write<T>!(offset: uaddr, value: T) {
-    let type_size = sizeof<T>()
+routine DynamicSlice.write!<T>(offset: uaddr, value: T) {
+    let type_size = @native.rf_sizeof<T>()
 
     if offset + type_size > me.allocated_bytes {
         throw MemoryBoundsError(offset: offset, size: type_size, allocated: me.allocated_bytes)
     }
 
     let addr = me.starting_address + offset
-    return memory_write<T>(addr, value)
+    return @native.rf_memory_write<T>(addr, value)
 }
 
 # Gets unsafe pointer to data at offset
@@ -185,11 +165,11 @@ routine DynamicSlice.resize!(new_bytes: uaddr) -> DynamicSlice {
 
     if me.starting_address == 0 {
         # Was empty, allocate new
-        me.starting_address = claim_dynamic(new_bytes)
+        me.starting_address = @native.rf_claim_dynamic_uaddr(new_bytes)
         me.allocated_bytes = new_bytes
     } else {
         # Reallocate existing
-        me.starting_address = resize_dynamic(me.starting_address, new_bytes)
+        me.starting_address = @native.rf_resize_dynamic(me.starting_address, new_bytes)
         me.allocated_bytes = new_bytes
     }
 
@@ -203,7 +183,7 @@ routine DynamicSlice.resize!(new_bytes: uaddr) -> DynamicSlice {
 # Fills the slice with a byte pattern
 # @param pattern - Byte value to fill the entire slice with
 routine DynamicSlice.fill!(pattern: u8) {
-    memory_fill(me.starting_address, pattern, me.allocated_bytes)
+    @native.rf_memory_fill(me.starting_address, pattern, me.allocated_bytes)
 }
 
 # Copies data from another DynamicSlice
@@ -223,12 +203,12 @@ routine DynamicSlice.copy_from!(source: DynamicSlice, src_offset: uaddr,
 
     let src_addr = source.starting_address + src_offset
     let dest_addr = me.starting_address + dest_offset
-    memory_copy(src_addr, dest_addr, count)
+    @native.rf_memory_copy_uaddr(src_addr, dest_addr, count)
 }
 
 # Zeros out all memory in the slice
 routine DynamicSlice.zero!() {
-    memory_zero(me.starting_address, me.allocated_bytes)
+    @native.rf_memory_zero_uaddr(me.starting_address, me.allocated_bytes)
 }
 
 # Transfers ownership from another DynamicSlice (moves data)
