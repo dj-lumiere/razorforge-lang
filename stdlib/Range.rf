@@ -16,10 +16,9 @@
 #   list[5 downto 3]     # elements 5, 4, 3 in reverse order
 #   list[0 to 8 by 2]    # every other element (0, 2, 4, 6, 8)
 namespace core
-import core/Integral
-import core/BackIndex
 
-record Range<I> {
+record Range<I>
+requires I follows Integral{
     start: I
     end: I
     step: uaddr      # step size (always positive, direction determined by ascending)
@@ -54,7 +53,7 @@ routine Range<I>.get_step(me: Range<I>) -> uaddr {
 # ============================================================================
 
 # Resolve Range<Integral> to start/end uaddr indices
-routine Range<I: Integral>.resolve_start(me: Range<I>, length: uaddr) -> uaddr {
+routine Range<I follows Integral>.resolve_start(me: Range<I>, length: uaddr) -> uaddr {
     let idx = me.start.to_uaddr()
     if idx >= length {
         stop!("Range start out of bounds")
@@ -62,7 +61,7 @@ routine Range<I: Integral>.resolve_start(me: Range<I>, length: uaddr) -> uaddr {
     return idx
 }
 
-routine Range<I: Integral>.resolve_end(me: Range<I>, length: uaddr) -> uaddr {
+routine Range<I follows Integral>.resolve_end(me: Range<I>, length: uaddr) -> uaddr {
     let idx = me.end.to_uaddr()
     if idx >= length {
         stop!("Range end out of bounds")
@@ -71,7 +70,7 @@ routine Range<I: Integral>.resolve_end(me: Range<I>, length: uaddr) -> uaddr {
 }
 
 # Check if range is valid (start <= end for ascending, start >= end for descending)
-routine Range<I: Integral>.is_valid(me: Range<I>) -> bool {
+routine Range<I follows Integral>.is_valid(me: Range<I>) -> bool {
     let s = me.start.to_uaddr()
     let e = me.end.to_uaddr()
     if me.ascending {
@@ -82,7 +81,7 @@ routine Range<I: Integral>.is_valid(me: Range<I>) -> bool {
 }
 
 # Get the number of elements in the range (inclusive, accounting for step)
-routine Range<I: Integral>.count(me: Range<I>) -> uaddr {
+routine Range<I follows Integral>.count(me: Range<I>) -> uaddr {
     let s = me.start.to_uaddr()
     let e = me.end.to_uaddr()
     if me.ascending {
@@ -156,7 +155,7 @@ record RangeIterator<I follows Integral> {
 }
 
 routine Range<I>.iter<I>(me: Range<I>) -> RangeIterator<I>
-    where I follows Integral {
+requires I follows Integral {
     return RangeIterator<I>(
         current: me.start.to_uaddr(),
         end: me.end.to_uaddr(),
@@ -167,7 +166,7 @@ routine Range<I>.iter<I>(me: Range<I>) -> RangeIterator<I>
 }
 
 routine RangeIterator<I>.next!<I>(me: RangeIterator<I>) -> uaddr
-    where I follows Integral {
+requires I follows Integral {
     if me.done {
         absent
     }

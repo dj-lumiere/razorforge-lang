@@ -8,21 +8,21 @@
 #   list[^2]     # second-to-last
 #   text[^1]     # last character
 namespace core
-import core/Integral
+
 import NativeDataTypes/uaddr
 
-record BackIndex<I: Integral> {
+record BackIndex<I follows Integral> {
     offset: I
 }
 
 # Constructor from any Integral type
-routine BackIndex<I: Integral>(offset: I) -> BackIndex<I> {
+routine BackIndex<I follows Integral>(offset: I) -> BackIndex<I> {
     return BackIndex<I>(offset: offset)
 }
 
 # Resolve BackIndex to actual index given collection length
-routine BackIndex<I: Integral>.resolve(me: BackIndex<I>, length: uaddr) -> uaddr {
-    let offset_uaddr = me.offset.to_uaddr()
+routine BackIndex<I follows Integral>.resolve(me: BackIndex<I>, length: uaddr) -> uaddr {
+    let offset_uaddr = me.offset.uaddr()
     if offset_uaddr > length {
         stop!("BackIndex out of bounds")
     }
@@ -30,37 +30,37 @@ routine BackIndex<I: Integral>.resolve(me: BackIndex<I>, length: uaddr) -> uaddr
 }
 
 # Get the offset value
-routine BackIndex<I: Integral>.get_offset(me: BackIndex<I>) -> I {
+routine BackIndex<I follows Integral>.get_offset(me: BackIndex<I>) -> I {
     return me.offset
 }
 
 # Convert offset to uaddr
-routine BackIndex<I: Integral>.offset_uaddr(me: BackIndex<I>) -> uaddr {
-    return me.offset.to_uaddr()
+routine BackIndex<I follows Integral>.offset_uaddr(me: BackIndex<I>) -> uaddr {
+    return me.offset.uaddr()
 }
 
 # Comparison operations
-routine BackIndex<I: Integral>.__eq__(me: BackIndex<I>, other: BackIndex<I>) -> bool {
-    return me.offset.to_uaddr() == other.offset.to_uaddr()
+routine BackIndex<I follows Integral>.__eq__(me: BackIndex<I>, other: BackIndex<I>) -> bool {
+    return me.offset.uaddr() == other.offset.uaddr()
 }
 
-routine BackIndex<I: Integral>.__ne__(me: BackIndex<I>, other: BackIndex<I>) -> bool {
-    return me.offset.to_uaddr() != other.offset.to_uaddr()
+routine BackIndex<I follows Integral>.__ne__(me: BackIndex<I>, other: BackIndex<I>) -> bool {
+    return me.offset.uaddr() != other.offset.uaddr()
 }
 
-routine BackIndex<I: Integral>.__lt__(me: BackIndex<I>, other: BackIndex<I>) -> bool {
+routine BackIndex<I follows Integral>.__lt__(me: BackIndex<I>, other: BackIndex<I>) -> bool {
     # ^2 < ^1 because ^2 is further from end
-    return me.offset.to_uaddr() > other.offset.to_uaddr()
+    return me.offset.uaddr() > other.offset.uaddr()
 }
 
-routine BackIndex<I: Integral>.__le__(me: BackIndex<I>, other: BackIndex<I>) -> bool {
-    return me.offset.to_uaddr() >= other.offset.to_uaddr()
+routine BackIndex<I follows Integral>.__le__(me: BackIndex<I>, other: BackIndex<I>) -> bool {
+    return me.offset.uaddr() >= other.offset.uaddr()
 }
 
-routine BackIndex<I: Integral>.__gt__(me: BackIndex<I>, other: BackIndex<I>) -> bool {
-    return me.offset.to_uaddr() < other.offset.to_uaddr()
+routine BackIndex<I follows Integral>.__gt__(me: BackIndex<I>, other: BackIndex<I>) -> bool {
+    return me.offset.uaddr() < other.offset.uaddr()
 }
 
-routine BackIndex<I: Integral>.__ge__(me: BackIndex<I>, other: BackIndex<I>) -> bool {
-    return me.offset.to_uaddr() <= other.offset.to_uaddr()
+routine BackIndex<I follows Integral>.__ge__(me: BackIndex<I>, other: BackIndex<I>) -> bool {
+    return me.offset.uaddr() <= other.offset.uaddr()
 }
