@@ -1,7 +1,8 @@
-# Console I/O - Generic show/alert functions
+# Console I/O - Generic show/alert/get functions
 # According to Console-IO.md:
-# - show() / show_line() for stdout
-# - alert() / alert_line() for stderr
+# - show() for stdout (with sep/end parameters)
+# - alert() for stderr (with sep/end parameters)
+# - get_*() for stdin (Text by default, Bytes opt-in)
 
 namespace Console
 
@@ -9,175 +10,179 @@ import Text/Text
 import FFI/cstr
 
 # ============================================================================
-# External C Runtime Functions
+# Output: show() - Standard Output (stdout)
 # ============================================================================
+# Signature (when variadic is supported):
+#   routine show(value: Representable, sep: Text = " ", end: Text = "\n")           # Static dispatch
+#   routine show(values...: @erased Representable, sep: Text = " ", end: Text = "\n") # Dynamic dispatch
 
-# Core text output functions - take C strings (cstr)
-imported("C") routine rf_console_print_cstr(value: cstr)
-imported("C") routine rf_console_print_line_cstr(value: cstr)
-imported("C") routine rf_console_print_line_empty()
+# show for Text
+@prelude
+routine Console.show(value: Text, end: Text = "\n") {
+    let bytes_value: Bytes = value.to_utf8()
+    let ptr = bytes_value.to_cstr()
+    danger! {
+        @native.rf_console_print_cstr(ptr)
+    }
+    if end.count() > 0u64 {
+        let end_bytes = end.to_utf8()
+        let end_ptr = end_bytes.to_cstr()
+        danger! {
+            @native.rf_console_print_cstr(end_ptr)
+        }
+    }
+}
 
-imported("C") routine rf_console_alert_cstr(value: cstr)
-imported("C") routine rf_console_alert_line_cstr(value: cstr)
-imported("C") routine rf_console_alert_line_empty()
-
-# Utility operations
-imported("C") routine rf_console_flush()
-imported("C") routine rf_console_clear()
-
-# ============================================================================
-# Generic show() - Standard Output (stdout)
-# ============================================================================
-
-# Non-generic show for Text<letter8> (already UTF-8)
-routine Console.show(value: Text<letter8>) {
+# show for Bytes (writes raw bytes directly)
+@prelude
+routine Console.show(value: Bytes, end: Text = "\n") {
     let ptr = value.to_cstr()
     danger! {
-        rf_console_print_cstr(cstr(ptr: ptr))
+        @native.rf_console_print_cstr(ptr)
+    }
+    if end.count() > 0u64 {
+        let end_bytes = end.to_utf8()
+        let end_ptr = end_bytes.to_cstr()
+        danger! {
+            @native.rf_console_print_cstr(end_ptr)
+        }
     }
 }
 
-# Generic show for any type that has a to_text() method
-# Converts to Text<letter8> (UTF-8) for C interop
-routine Console.show<T>(value: T) {
-    let text_value: Text<letter32> = value.to_text()
-    let text8_value: Text<letter8> = text_value.to_8bit()
-    let ptr = text8_value.to_cstr()
+# Generic show for any type that implements Representable
+# Converts to Text via .to_text(), then to Bytes (UTF-8) for C interop
+@prelude
+routine Console.show<T>(value: T, end: Text = "\n")
+where T follows Representable {
+    let text_value: Text = value.to_text()
+    Console.show(text_value, end: end)
+}
+
+# ============================================================================
+# Output: alert() - Standard Error (stderr)
+# ============================================================================
+
+# alert for Text
+@prelude
+routine Console.alert(value: Text, end: Text = "\n") {
+    let bytes_value: Bytes = value.to_utf8()
+    let ptr = bytes_value.to_cstr()
     danger! {
-        rf_console_print_cstr(ptr)
+        @native.rf_console_alert_cstr(ptr)
+    }
+    if end.count() > 0u64 {
+        let end_bytes = end.to_utf8()
+        let end_ptr = end_bytes.to_cstr()
+        danger! {
+            @native.rf_console_alert_cstr(end_ptr)
+        }
     }
 }
 
-# ============================================================================
-# Generic show_line() - Standard Output with newline
-# ============================================================================
-
-# Non-generic show_line for Text<letter8> (already UTF-8)
-routine Console.show_line(value: Text<letter8>) {
+# alert for Bytes (writes raw bytes directly)
+@prelude
+routine Console.alert(value: Bytes, end: Text = "\n") {
     let ptr = value.to_cstr()
     danger! {
-        rf_console_print_line_cstr(cstr(ptr: ptr))
+        @native.rf_console_alert_cstr(ptr)
+    }
+    if end.count() > 0u64 {
+        let end_bytes = end.to_utf8()
+        let end_ptr = end_bytes.to_cstr()
+        danger! {
+            @native.rf_console_alert_cstr(end_ptr)
+        }
     }
 }
 
-# Generic show_line for any type that has a to_text() method
-# routine Console.show_line<T>(value: T) {
-#     let text_value: Text<letter32> = value.to_text()
-#     let text8_value: Text<letter8> = text_value.to_8bit()
-#     let ptr = text8_value.to_cstr()
-#     danger! {
-#         rf_console_print_line_cstr(ptr)
-#     }
-# }
-
-# Empty line version
-routine Console.show_line() {
-    danger! {
-        rf_console_print_line_empty()
-    }
+# Generic alert for any type that implements Representable
+@prelude
+routine Console.alert<T>(value: T, end: Text = "\n")
+where T follows Representable{
+    let text_value: Text = value.to_text()
+    Console.alert(text_value, end: end)
 }
 
 # ============================================================================
-# Generic alert() - Standard Error (stderr)
+# Input: Text functions (default)
 # ============================================================================
 
-# Non-generic alert for Text<letter8> (already UTF-8)
-routine Console.alert(value: Text<letter8>) {
-    let ptr = value.to_cstr()
+# Read text until newline (single line)
+@prelude
+routine Console.get_line() -> Text {
     danger! {
-        rf_console_alert_cstr(cstr(ptr: ptr))
-    }
-}
-
-# Generic alert for any type that has a to_text() method
-# routine Console.alert<T>(value: T) {
-#     let text_value: Text<letter32> = value.to_text()
-#     let text8_value: Text<letter8> = text_value.to_8bit()
-#     let ptr = text8_value.to_cstr()
-#     danger! {
-#         rf_console_alert_cstr(ptr)
-#     }
-# }
-
-# ============================================================================
-# Generic alert_line() - Standard Error with newline
-# ============================================================================
-
-# Non-generic alert_line for Text<letter8> (already UTF-8)
-routine Console.alert_line(value: Text<letter8>) {
-    let ptr = value.to_cstr()
-    danger! {
-        rf_console_alert_line_cstr(cstr(ptr: ptr))
-    }
-}
-
-# Generic alert_line for any type that has a to_text() method
-# routine Console.alert_line<T>(value: T) {
-#     let text_value: Text<letter32> = value.to_text()
-#     let text8_value: Text<letter8> = text_value.to_8bit()
-#     let ptr = text8_value.to_cstr()
-#     danger! {
-#         rf_console_alert_line_cstr(ptr)
-#     }
-# }
-
-# Empty line version
-routine Console.alert_line() {
-    danger! {
-        rf_console_alert_line_empty()
-    }
-}
-
-# ============================================================================
-# Input Functions (get_* series)
-# ============================================================================
-
-# External C runtime input functions (return raw pointers)
-imported("C") routine rf_console_get_letters(count: uaddr) -> cstr
-imported("C") routine rf_console_get_word() -> cstr
-imported("C") routine rf_console_get_line() -> cstr
-imported("C") routine rf_console_get_all() -> cstr
-
-# Read exactly n letters from input
-routine Console.get_letters(count: uaddr) -> Text<letter8> {
-    danger! {
-        let ptr = rf_console_get_letters(count)
-        return Text<letter8>(ptr: ptr)
+        let ptr = @native.rf_console_get_line()
+        let bytes = Bytes(ptr: ptr)
+        return bytes.to_text()
     }
 }
 
 # Read text until whitespace (single word)
-routine Console.get_word() -> Text<letter8> {
+@prelude
+routine Console.get_word() -> Text {
     danger! {
-        let ptr = rf_console_get_word()
-        return Text<letter8>(ptr: ptr)
-    }
-}
-
-# Read text until newline (single line)
-routine Console.get_line() -> Text<letter8> {
-    danger! {
-        let ptr = rf_console_get_line()
-        return Text<letter8>(ptr: ptr)
+        let ptr = @native.rf_console_get_word()
+        let bytes = Bytes(ptr: ptr)
+        return bytes.to_text()
     }
 }
 
 # Read all text until EOF
-routine Console.get_all() -> Text<letter8> {
+@prelude
+routine Console.get_all() -> Text {
     danger! {
-        let ptr = rf_console_get_all()
-        return Text<letter8>(ptr: ptr)
+        let ptr = @native.rf_console_get_all()
+        let bytes = Bytes(ptr: ptr)
+        return bytes.to_text()
     }
 }
 
-# Read all words separated by whitespace
-routine Console.get_words() -> List<Text<letter8>> {
-    throw NotImplementedError("Console.get_words")
+# Read exactly n codepoints from input
+@prelude
+routine Console.get_letters(count: uaddr) -> Text {
+    danger! {
+        let ptr = @native.rf_console_get_letters(count)
+        let bytes = Bytes(ptr: ptr)
+        return bytes.to_text()
+    }
 }
 
 # Read all lines separated by newline
-routine Console.get_lines() -> List<Text<letter8>> {
+@prelude
+routine Console.get_lines() -> List<Text> {
+    let all = Console.get_all()
+    # TODO: Implement split by newline
     throw NotImplementedError("Console.get_lines")
+}
+
+# Read all words separated by whitespace
+@prelude
+routine Console.get_words() -> List<Text> {
+    let all = Console.get_all()
+    # TODO: Implement split by whitespace
+    throw NotImplementedError("Console.get_words")
+}
+
+# ============================================================================
+# Input: Bytes functions (opt-in)
+# ============================================================================
+
+# Read all remaining input as raw bytes
+@prelude
+routine Console.get_raw() -> Bytes {
+    danger! {
+        let ptr = @native.rf_console_get_all()
+        return Bytes(ptr: ptr)
+    }
+}
+
+# Read up to n bytes
+@prelude
+routine Console.get_bytes(count: uaddr) -> Bytes {
+    danger! {
+        let ptr = @native.rf_console_get_bytes(count)
+        return Bytes(ptr: ptr)
+    }
 }
 
 # ============================================================================
@@ -186,12 +191,12 @@ routine Console.get_lines() -> List<Text<letter8>> {
 
 routine Console.flush() {
     danger! {
-        rf_console_flush()
+        @native.rf_console_flush()
     }
 }
 
 routine Console.clear() {
     danger! {
-        rf_console_clear()
+        @native.rf_console_clear()
     }
 }
