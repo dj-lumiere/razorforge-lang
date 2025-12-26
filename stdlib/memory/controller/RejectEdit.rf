@@ -1,0 +1,17 @@
+# RazorForge RejectEdit Lock Policy
+# Immutable policy - no locking needed
+# Data cannot be modified, only read
+# Equivalent to Arc<T> in Rust (without Mutex/RwLock)
+
+namespace core
+
+record RejectEdit follows LockPolicy {
+    pass # Empty - no lock state needed for immutable data
+}
+
+routine RejectEdit.__create__() -> RejectEdit {
+    return RejectEdit()
+}
+
+# No lock/unlock methods needed - data is immutable
+# Direct field access is allowed for Shared<T, RejectEdit>

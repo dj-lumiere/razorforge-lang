@@ -17,8 +17,13 @@
 #
 # This type is a marker for the type system - the compiler handles all operations.
 namespace core
+
 record Hijacked<T> {
-    private address: uaddr
+    private ptr: Snatched<T>
+}
+
+routine T.hijack!() -> Hijacked<T> {
+    return Hijacked<T>(T.snatch())
 }
 
 # NOTE: No constructors, no methods - all operations handled by compiler

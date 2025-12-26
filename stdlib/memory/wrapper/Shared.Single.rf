@@ -1,0 +1,69 @@
+# RazorForge Shared<T> - Single-threaded reference counting
+# Equivalent to Rc<T> in Rust
+namespace core
+
+record Shared<T> {
+    private controller: Snatched<SingleShareController>
+    private data: Snatched<T>
+}
+
+# Create shared reference from owned value
+routine T.share() -> Shared<T> {
+    danger! {
+        # Allocate controller
+        let controller = SingleShareController().snatch()
+        controller.increase_strong_count!()
+
+        # Create Shared record
+        return Shared<T>(
+            controller: controller,
+            data: me.snatch()
+        )
+    }
+}
+
+# Clone the shared reference (increment ref count)
+routine Shared<T>.share() -> Shared<T> {
+    danger! {
+        me.controller.increase_strong_count!()
+    }
+    return me
+}
+
+# Release the shared reference (decrement ref count)
+routine Shared<T>.release!() {
+    danger! {
+        me.controller.decrease_strong_count!()
+
+        when me.controller.strong_count() == 0 {
+            true => {
+                # Deallocate the data
+                me.data.invalidate!()
+
+                # Check if we should also deallocate the controller
+                when me.controller.weak_count() == 0 {
+                    true => me.controller.invalidate!(),
+                    false => pass  # Keep controller alive for weak references
+                }
+            }
+            false => pass  # Still has strong references
+        }
+    }
+}
+
+# Get reference counts for debugging
+routine Shared<T>.strong_count() -> s32 {
+    danger! {
+        return me.controller.strong_count()
+    }
+}
+
+routine Shared<T>.weak_count() -> s32 {
+    danger! {
+        return me.controller.weak_count()
+    }
+}
+
+# Direct field access allowed for single-threaded Shared
+# No locking needed - just dereference the data pointer
+# Use .view() or .hijack() for temporary access

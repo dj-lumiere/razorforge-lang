@@ -1,0 +1,50 @@
+# RazorForge Multi-threaded Share Controller
+# Atomic reference counting mechanism for multi-threaded Shared<T, Policy> memory management
+
+entity MultiShareController {
+    private strong_count: Atomic<s32>
+    private weak_count: Atomic<s32>
+}
+
+# Create new reference count controller with initial counts of 0
+routine MultiShareController.__create__() -> MultiShareController {
+    return MultiShareController(
+        strong_count: Atomic(0),
+        weak_count: Atomic(0)
+    )
+}
+
+# Atomic operations (multi-threaded safe)
+routine MultiShareController.increase_strong_count(me: MultiShareController) {
+    me.strong_count.fetch_add(1)
+}
+
+routine MultiShareController.decrease_strong_count(me: MultiShareController) {
+    me.strong_count.fetch_sub(1)
+}
+
+routine MultiShareController.increase_weak_count(me: MultiShareController) {
+    me.weak_count.fetch_add(1)
+}
+
+routine MultiShareController.decrease_weak_count(me: MultiShareController) {
+    me.weak_count.fetch_sub(1)
+}
+
+# Read-only access to counts
+routine MultiShareController.strong_count(me: MultiShareController) -> s32 {
+    return me.strong_count.load()
+}
+
+routine MultiShareController.weak_count(me: MultiShareController) -> s32 {
+    return me.weak_count.load()
+}
+
+# Check if the controller should be deallocated
+routine MultiShareController.should_deallocate_data(me: MultiShareController) -> bool {
+    return me.strong_count() == 0
+}
+
+routine MultiShareController.should_deallocate_controller(me: MultiShareController) -> bool {
+    return me.strong_count() == 0 and me.weak_count() == 0
+}

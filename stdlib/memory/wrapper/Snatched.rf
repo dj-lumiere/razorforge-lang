@@ -20,37 +20,36 @@
 #
 # This is the "escape hatch" for unsafe code - use with extreme caution!
 namespace core
+
 record Snatched<T> {
     public address: uaddr  # Public direct address access
 }
 
-# Create snatched pointer from any object (danger! only)
-routine T.snatch!() -> Snatched<T> {
+routine T.get_address() -> uaddr {
     danger! {
-        # Get the address of 'me' - this is a compiler built-in
-        # For now we use a placeholder until address_of is implemented
-        return Snatched<T>(
-            address: address_of(me)
-        )
+        return @native.rf_address_of<T>(me)
     }
 }
 
-# Constructor (internal use only)
-routine Snatched<T>.Snatched<T>(address: uaddr) -> Snatched<T> {
-    me.address = address
-    return me
+# Create snatched pointer from any object (danger! only)
+routine T.snatch() -> Snatched<T> {
+    danger! {
+        # Get the address of 'me' using FFI
+        return Snatched<T>(me.get_address())
+    }
 }
 
 # Type-safe read (uses T from Snatched<T>)
 routine Snatched<T>.read() -> T {
     danger! {
-        return @intrinsic.load<T>(me.address)
+        return @native.rf_read_as<T>(me)
     }
 }
 
 # Type-safe write (uses T from Snatched<T>)
 routine Snatched<T>.write(value: T) {
     danger! {
+        # Call via intrinsic since direct FFI calls with multiple params not yet supported
         @intrinsic.store<T>(me.address, value)
     }
 }
@@ -58,40 +57,48 @@ routine Snatched<T>.write(value: T) {
 # Volatile read (prevents compiler optimizations)
 routine Snatched<T>.volatile_read() -> T {
     danger! {
-        return @intrinsic.volatile_load<T>(me.address)
+        return @native.rf_volatile_read_as<T>(me)
     }
 }
 
 # Volatile write (prevents compiler optimizations)
 routine Snatched<T>.volatile_write(value: T) {
     danger! {
-        @intrinsic.volatile_store<T>(me.address, value)
+        # Call via intrinsic since direct FFI calls with multiple params not yet supported
+        @intrinsic.store.volatile<T>(me.address, value)
     }
 }
 
 # Type-pun read - read as different type U
 routine Snatched<T>.reveal_as<U>() -> U {
     danger! {
-        return @intrinsic.load<U>(me.address)
+        # Create Snatched<U> with same address, then read
+        let as_u = Snatched<U>(address: me.address)
+        return as_u.read()
     }
 }
 
 # Type-pun write - write as different type U
 routine Snatched<T>.write_as<U>(value: U) {
     danger! {
-        @intrinsic.store<U>(me.address, value)
+        # Create Snatched<U> with same address, then write
+        let as_u = Snatched<U>(address: me.address)
+        as_u.write(value)
     }
 }
 
 # Cast pointer type - reinterpret Snatched<T> as Snatched<U>
 routine Snatched<T>.obtain_as<U>() -> Snatched<U> {
-    return Snatched<U>(address: me.address)
+    danger! {
+        # Just create new Snatched with same address
+        return Snatched<U>(address: me.address)
+    }
 }
 
 # Free memory at this address
 routine Snatched<T>.invalidate!() {
     danger! {
-        @intrinsic.invalidate(me.address)
+        @native.rf_invalidate<T>(me)
     }
 }
 

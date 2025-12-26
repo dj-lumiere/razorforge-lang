@@ -1,0 +1,35 @@
+# RazorForge Mutex Lock Policy
+# Exclusive locking - only one thread can access at a time
+# Equivalent to std::mutex or pthread_mutex
+
+namespace core
+
+record Mutex follows LockPolicy {
+    private locked: Atomic<bool>
+}
+
+# Acquire exclusive lock (blocking)
+routine Mutex.acquire() {
+    # Spin until we can acquire the lock
+    loop {
+        when me.locked.compare_exchange(expected: false, desired: true) {
+            is true => break,  # Successfully acquired
+            is false => pass   # Someone else has it, keep trying
+        }
+    }
+}
+
+# Try to acquire lock (non-blocking)
+routine Mutex.try_acquire() -> bool {
+    return me.locked.compare_exchange(expected: false, desired: true)
+}
+
+# Release exclusive lock
+routine Mutex.release() {
+    me.locked.store(false)
+}
+
+# Check if locked (for debugging)
+routine Mutex.is_locked() -> bool {
+    return me.locked.load()
+}

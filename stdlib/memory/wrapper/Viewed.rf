@@ -18,9 +18,16 @@
 # - Single-threaded: for multi-threaded use, see Inspected<T>
 #
 # This type is a marker for the type system - the compiler handles all operations.
+
+
+
 namespace core
 record Viewed<T> {
-    private address: uaddr
+    private ptr: Snatched<T>
+}
+
+routine T.view!() -> Viewed<T> {
+    return Viewed<T>(T.snatch())
 }
 
 # NOTE: No constructors, no methods - all operations handled by compiler

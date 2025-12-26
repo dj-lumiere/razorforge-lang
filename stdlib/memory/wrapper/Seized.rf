@@ -28,9 +28,10 @@
 #
 # This type is a marker for the type system - the compiler handles lock operations.
 namespace core
+
 record Seized<T> {
-    private address: uaddr
-    private lock_guard: uaddr
+    private ptr: Snatched<T>    # Generic type - use Snatched<T>
+    private lock_guard: uaddr   # Fixed type - use uaddr
 }
 
 # NOTE: No constructors, no manual methods - all operations handled by compiler

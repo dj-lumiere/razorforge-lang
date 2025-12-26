@@ -1,0 +1,116 @@
+# RazorForge MultiReadLock (Read-Write Lock) Policy
+# Allows multiple concurrent readers OR one exclusive writer
+# Equivalent to std::shared_mutex or pthread_rwlock
+
+namespace core
+
+record MultiReadLock follows LockPolicy {
+    private readers: Atomic<s32>  # Number of active readers
+    private writer: Atomic<bool>  # Is a writer active?
+}
+
+routine MultiReadLock.__create__() -> MultiReadLock {
+    return MultiReadLock(
+        readers: Atomic(0),
+        writer: Atomic(false)
+    )
+}
+
+# Acquire shared read lock (blocking)
+# Multiple readers can hold this simultaneously
+routine MultiReadLock.acquire_read(me: MultiReadLock) {
+    loop {
+        # Wait for no writer
+        when me.writer.load() {
+            false => {
+                # Try to increment reader count
+                me.readers.fetch_add(1)
+
+                # Double-check writer didn't sneak in
+                when me.writer.load() {
+                    false => break,  # Success!
+                    true => {
+                        # Writer appeared, back out
+                        me.readers.fetch_sub(1)
+                    }
+                }
+            },
+            true => pass  # Writer active, keep waiting
+        }
+    }
+}
+
+# Try to acquire shared read lock (non-blocking)
+routine MultiReadLock.try_acquire_read(me: MultiReadLock) -> bool {
+    when me.writer.load() {
+        false => {
+            me.readers.fetch_add(1)
+            when me.writer.load() {
+                is false => return true,
+                is true => {
+                    me.readers.fetch_sub(1)
+                    return false
+                }
+            }
+        },
+        true => return false
+    }
+}
+
+# Release shared read lock
+routine MultiReadLock.release_read(me: MultiReadLock) {
+    me.readers.fetch_sub(1)
+}
+
+# Acquire exclusive write lock (blocking)
+# Only one writer can hold this, blocks all readers
+routine MultiReadLock.acquire_write(me: MultiReadLock) {
+    # First, acquire writer flag
+    loop {
+        when me.writer.compare_exchange(expected: false, desired: true) {
+            true => break,  # Got writer flag
+            false => pass   # Keep trying
+        }
+    }
+
+    # Wait for all readers to finish
+    loop {
+        when me.readers.load() {
+            0 => break,  # No readers, we can proceed
+            else => pass    # Wait for readers to finish
+        }
+    }
+}
+
+# Try to acquire exclusive write lock (non-blocking)
+routine MultiReadLock.try_acquire_write(me: MultiReadLock) -> bool {
+    # Try to acquire writer flag
+    when me.writer.compare_exchange(expected: false, desired: true) {
+        true => {
+            # Got writer flag, check for readers
+            when me.readers.load() {
+                0 => return true,  # Success!
+                else => {
+                    # Readers present, back out
+                    me.writer.store(false)
+                    return false
+                }
+            }
+        },
+        false => return false  # Another writer has it
+    }
+}
+
+# Release exclusive write lock
+routine MultiReadLock.release_write(me: MultiReadLock) {
+    me.writer.store(false)
+}
+
+# Check status (for debugging)
+routine MultiReadLock.reader_count(me: MultiReadLock) -> s32 {
+    return me.readers.load()
+}
+
+routine MultiReadLock.is_write_locked(me: MultiReadLock) -> bool {
+    return me.writer.load()
+}

@@ -1,0 +1,59 @@
+# RazorForge Tracked<T, P> - Weak reference to Shared<T, P>
+# Multi-threaded weak references
+namespace core
+
+record Tracked<T, P>
+requires P follows LockPolicy {
+    private controller: Snatched<MultiShareController>
+    private data: Snatched<T>
+    private lock: Snatched<P>
+}
+
+# Create weak reference from Shared<T, P>
+routine Shared<T, P>.track() -> Tracked<T, P> {
+    danger! {
+        me.controller.increase_weak_count!()
+        return me
+    }
+}
+
+# Check if the tracked data is still alive
+routine Tracked<T, P>.is_alive() -> bool {
+    danger! {
+        return me.controller.strong_count() > 0
+    }
+}
+
+# Clone the weak reference
+routine Tracked<T, P>.track() -> Tracked<T, P> {
+    danger! {
+        me.controller.increase_weak_count!()
+        return me
+    }
+}
+
+# Release the weak reference
+routine Tracked<T, P>.release!() {
+    danger! {
+        me.controller.decrease_weak_count!()
+
+        # If both strong and weak counts are 0, deallocate controller
+        when me.controller.strong_count() == 0 and me.controller.weak_count() == 0 {
+            true => me.controller.invalidate!()
+            false => pass
+        }
+    }
+}
+
+# Get reference counts for debugging
+routine Tracked<T, P>.strong_count() -> s32 {
+    danger! {
+        return me.controller.strong_count()
+    }
+}
+
+routine Tracked<T, P>.weak_count() -> s32 {
+    danger! {
+        return me.controller.weak_count()
+    }
+}

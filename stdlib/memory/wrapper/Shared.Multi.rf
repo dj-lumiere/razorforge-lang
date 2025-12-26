@@ -1,0 +1,78 @@
+# RazorForge Shared<T, P> - Thread-safe reference counting with locking policy
+# Supports Mutex, MultiReadLock, and RejectEdit policies
+namespace core
+
+record Shared<T, P>
+requires P follows LockPolicy {
+    private controller: Snatched<MultiShareController>
+    private data: Snatched<T>
+    private lock: Snatched<P>
+}
+
+# Generic factory method - create Shared with any lock policy
+routine T.share<P>() -> Shared<T, P>
+requires P follows LockPolicy {
+    danger! {
+        # Allocate control block with atomic ref counting
+        let controller = MultiShareController().snatch()
+        controller.increase_strong_count!()
+
+        # Allocate policy-specific lock
+        let lock = P().snatch()
+
+        # Create Shared record
+        return Shared<T, P>(
+            controller: controller,
+            data: me.snatch(),
+            lock: lock
+        )
+    }
+}
+
+# Clone the shared reference (increment atomic ref count)
+routine Shared<T, P>.share() -> Shared<T, P> {
+    danger! {
+        me.controller.increase_strong_count!()  # Atomic increment
+    }
+    return me
+}
+
+# Release the shared reference (decrement atomic ref count)
+routine Shared<T, P>.release!() {
+    danger! {
+        me.controller.decrease_strong_count!()  # Atomic decrement
+
+        when me.controller.strong_count() == 0 {
+            true => {
+                # Deallocate the data
+                me.data.invalidate!()
+
+                # Deallocate the lock
+                me.lock.invalidate!()
+
+                # Check if we should also deallocate the controller
+                when me.controller.weak_count() == 0 {
+                    true => me.controller.invalidate!(),
+                    false => pass  # Keep controller alive for weak references
+                }
+            }
+            false => pass  # Still has strong references
+        }
+    }
+}
+
+# Get atomic reference counts for debugging
+routine Shared<T, P>.strong_count() -> s32 {
+    danger! {
+        return me.controller.strong_count()
+    }
+}
+
+routine Shared<T, P>.weak_count() -> s32 {
+    danger! {
+        return me.controller.weak_count()
+    }
+}
+
+# Access to data is done through inspecting/seizing scoped blocks
+# which handle lock acquisition and release automatically
