@@ -9,7 +9,7 @@ routine MemorySize.__create__(bytes: uaddr) {
 }
 
 # Gets the size in bytes
-routine MemorySize.size() -> uaddr {
+routine MemorySize.byte_size() -> uaddr {
     return me.value
 }
 
