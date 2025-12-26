@@ -458,7 +458,7 @@ public partial class RazorForgeParser
     {
         // TODO: Should it be really limited by string/number/bool/identifier?
         // String literal
-        if (Check(TokenType.TextLiteral, TokenType.Text16Literal, TokenType.Text8Literal))
+        if (Check(TokenType.TextLiteral, TokenType.BytesLiteral))
         {
             return Advance()
                .Text;
@@ -512,8 +512,8 @@ public partial class RazorForgeParser
     /// <param name="visibility">The visibility modifier for the function.</param>
     /// <param name="attributes">List of attributes applied to the function (e.g., @intrinsic).</param>
     /// <param name="allowNoBody">If true, allows signature-only declarations (for protocols/intrinsics/imported).</param>
-    /// <returns>A <see cref="FunctionDeclaration"/> AST node.</returns>
-    private FunctionDeclaration ParseRoutineDeclaration(VisibilityModifier visibility = VisibilityModifier.Public, List<string>? attributes = null, bool allowNoBody = false)
+    /// <returns>A <see cref="RoutineDeclaration"/> AST node.</returns>
+    private RoutineDeclaration ParseRoutineDeclaration(VisibilityModifier visibility = VisibilityModifier.Public, List<string>? attributes = null, bool allowNoBody = false)
     {
         // Visibility: public, internal, private, common, global, imported
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
@@ -697,7 +697,7 @@ public partial class RazorForgeParser
             _genericParameterScopes.Pop();
         }
 
-        return new FunctionDeclaration(Name: name,
+        return new RoutineDeclaration(Name: name,
             Parameters: parameters,
             ReturnType: returnType,
             Body: body,
@@ -882,7 +882,7 @@ public partial class RazorForgeParser
         return new RecordDeclaration(Name: name,
             GenericParameters: genericParams,
             GenericConstraints: constraints,
-            Interfaces: interfaces,
+            Protocols: interfaces,
             Members: members,
             Visibility: visibility,
             Location: location);
@@ -969,7 +969,7 @@ public partial class RazorForgeParser
         return new ResidentDeclaration(Name: name,
             GenericParameters: genericParams,
             GenericConstraints: constraints,
-            Interfaces: interfaces,
+            Protocols: interfaces,
             Members: members,
             Visibility: visibility,
             Location: location);
@@ -1024,20 +1024,19 @@ public partial class RazorForgeParser
         Consume(type: TokenType.RightBrace, errorMessage: "Expected '}' after choice body");
 
         return new ChoiceDeclaration(Name: name,
-            Variants: variants,
-            Methods: new List<FunctionDeclaration>(),
+            Cases: variants,
+            Methods: new List<RoutineDeclaration>(),
             Visibility: visibility,
             Location: location);
     }
 
     /// <summary>
     /// Parses a variant declaration (Rust-style tagged union with associated data).
-    /// Syntax: <c>variant Name&lt;T&gt; { Case1, Case2(Type1, Type2) }</c>
+    /// Syntax: <c>variant Name&lt;T&gt; { Case1, Case2(Type) }</c>
     /// </summary>
-    /// <param name="visibility">The visibility modifier for the variant.</param>
     /// <param name="kind">The variant kind: Variant (immutable) or Mutant (mutable).</param>
     /// <returns>A <see cref="VariantDeclaration"/> AST node.</returns>
-    private VariantDeclaration ParseVariantDeclaration(VisibilityModifier visibility = VisibilityModifier.Public, VariantKind kind = VariantKind.Variant)
+    private VariantDeclaration ParseVariantDeclaration(VariantKind kind = VariantKind.Variant)
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
 
@@ -1070,7 +1069,6 @@ public partial class RazorForgeParser
         Consume(type: TokenType.LeftBrace, errorMessage: "Expected '{' after variant header");
 
         var cases = new List<VariantCase>();
-        var methods = new List<FunctionDeclaration>();
 
         while (!Check(type: TokenType.RightBrace) && !IsAtEnd)
         {
@@ -1079,39 +1077,25 @@ public partial class RazorForgeParser
                 continue;
             }
 
-            // Try to parse as function - no visibility modifiers allowed in variant/mutant
-            if (Check(type: TokenType.Routine))
+            // Parse variant case
+            string caseName = ConsumeIdentifier(errorMessage: "Expected variant case name");
+
+            TypeExpression? associatedType = null;
+            if (Match(type: TokenType.LeftParen))
             {
-                Advance(); // consume 'routine'
-                FunctionDeclaration method = ParseRoutineDeclaration();
-                methods.Add(item: method);
+                if (!Check(type: TokenType.RightParen))
+                {
+                    associatedType = ParseType();
+                }
+
+                Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after variant case type");
             }
-            else
+
+            cases.Add(item: new VariantCase(Name: caseName, AssociatedTypes: associatedType, Location: GetLocation()));
+
+            if (!Match(type: TokenType.Comma))
             {
-                // Parse variant case
-                string caseName = ConsumeIdentifier(errorMessage: "Expected variant case name");
-
-                List<TypeExpression>? associatedTypes = null;
-                if (Match(type: TokenType.LeftParen))
-                {
-                    associatedTypes = new List<TypeExpression>();
-                    if (!Check(type: TokenType.RightParen))
-                    {
-                        do
-                        {
-                            associatedTypes.Add(item: ParseType());
-                        } while (Match(type: TokenType.Comma));
-                    }
-
-                    Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after variant case types");
-                }
-
-                cases.Add(item: new VariantCase(Name: caseName, AssociatedTypes: associatedTypes, Location: GetLocation()));
-
-                if (!Match(type: TokenType.Comma))
-                {
-                    Match(type: TokenType.Newline);
-                }
+                Match(type: TokenType.Newline);
             }
         }
 
@@ -1127,16 +1111,14 @@ public partial class RazorForgeParser
             GenericParameters: genericParams,
             GenericConstraints: constraints,
             Cases: cases,
-            Methods: methods,
-            Visibility: visibility,
             Kind: kind,
             Location: location);
     }
 
     /// <summary>
     /// Parses a protocol declaration (interface/trait definition).
-    /// Syntax: <c>protocol Name&lt;T&gt; { routine method(me) -&gt; Type }</c>
-    /// Supports method signatures (without bodies) and field requirements.
+    /// Syntax: <c>protocol Name&lt;T&gt; follows Parent { routine method(me) -&gt; Type }</c>
+    /// Supports method signatures (without bodies), field requirements, and protocol inheritance.
     /// </summary>
     /// <param name="visibility">The visibility modifier for the protocol.</param>
     /// <returns>A <see cref="ProtocolDeclaration"/> AST node.</returns>
@@ -1168,6 +1150,23 @@ public partial class RazorForgeParser
         if (genericParams != null && genericParams.Count > 0)
         {
             _genericParameterScopes.Push(item: new HashSet<string>(collection: genericParams));
+        }
+
+        // Parse parent protocols (protocol X follows Y, Z)
+        var parentProtocols = new List<TypeExpression>();
+        if (Match(type: TokenType.Follows))
+        {
+            do
+            {
+                // Skip newlines before protocol name (for multi-line formatting)
+                while (Match(type: TokenType.Newline)) { }
+
+                parentProtocols.Add(item: ParseType());
+
+                // Skip newlines after protocol name (before comma or brace)
+                while (Match(type: TokenType.Newline)) { }
+            }
+            while (Match(type: TokenType.Comma));
         }
 
         Consume(type: TokenType.LeftBrace, errorMessage: "Expected '{' after protocol header");
@@ -1256,6 +1255,7 @@ public partial class RazorForgeParser
                 methods.Add(item: new RoutineSignature(Name: methodName,
                     Parameters: parameters,
                     ReturnType: returnType,
+                    Attributes: attributes.Count > 0 ? attributes : null,
                     Location: GetLocation()));
 
                 ConsumeStatementTerminator();
@@ -1277,10 +1277,11 @@ public partial class RazorForgeParser
 
         return new ProtocolDeclaration(Name: name,
             GenericParameters: genericParams,
-            GenericConstraints: constraints,
+            ParentProtocols: parentProtocols,
             Methods: methods,
             Visibility: visibility,
-            Location: location);
+            Location: location,
+            GenericConstraints: constraints);
     }
 
     /// <summary>

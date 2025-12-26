@@ -9,6 +9,87 @@ namespace Compilers.RazorForge.Parser;
 /// </summary>
 public partial class RazorForgeParser
 {
+    #region Operator Desugaring
+
+    /// <summary>
+    /// Creates a method call expression that desugars a binary operator.
+    /// Converts: a + b → a.__add__(b)
+    /// </summary>
+    /// <param name="left">The left operand (becomes the receiver of the method call).</param>
+    /// <param name="op">The binary operator to desugar.</param>
+    /// <param name="right">The right operand (becomes the argument to the method call).</param>
+    /// <param name="location">Source location for error reporting.</param>
+    /// <returns>A CallExpression representing the desugared operator, or null if operator is not desugared.</returns>
+    private Expression? TryDesugarBinaryOperator(Expression left, BinaryOperator op, Expression right,
+        SourceLocation location)
+    {
+        string? methodName = op.GetMethodName();
+        if (methodName == null)
+        {
+            // Operator is not overloadable (and, or, ??, ===, etc.)
+            return null;
+        }
+
+        // Create: left.__methodName__(right)
+        MemberExpression memberExpr = new(Object: left, PropertyName: methodName, Location: location);
+
+        return new CallExpression(Callee: memberExpr, Arguments: [right], Location: location);
+    }
+
+    /// <summary>
+    /// Creates either a desugared method call or a BinaryExpression based on whether the operator is overloadable.
+    /// </summary>
+    private Expression CreateBinaryExpression(Expression left, BinaryOperator op, Expression right,
+        SourceLocation location)
+    {
+        // Try to desugar to method call for overloadable operators
+        Expression? desugared = TryDesugarBinaryOperator(left: left,
+            op: op,
+            right: right,
+            location: location);
+        // Non-overloadable operators stay as BinaryExpression
+        return desugared ?? new BinaryExpression(Left: left,
+            Operator: op,
+            Right: right,
+            Location: location);
+    }
+
+    /// <summary>
+    /// Creates a method call expression that desugars a unary operator.
+    /// Converts: -a → a.__neg__()
+    /// </summary>
+    /// <param name="op">The unary operator to desugar.</param>
+    /// <param name="operand">The operand.</param>
+    /// <param name="location">Source location for error reporting.</param>
+    /// <returns>A CallExpression representing the desugared operator, or null if operator is not desugared.</returns>
+    private Expression? TryDesugarUnaryOperator(UnaryOperator op, Expression operand, SourceLocation location)
+    {
+        string? methodName = op.GetMethodName();
+        if (methodName == null)
+        {
+            // Operator is not overloadable (logical not stays as UnaryExpression)
+            return null;
+        }
+
+        // Create: operand.__methodName__()
+        MemberExpression memberExpr = new(Object: operand, PropertyName: methodName, Location: location);
+
+        return new CallExpression(Callee: memberExpr, Arguments: [], Location: location);
+    }
+
+    /// <summary>
+    /// Creates either a desugared method call or a UnaryExpression based on whether the operator is overloadable.
+    /// </summary>
+    private Expression CreateUnaryExpression(UnaryOperator op, Expression operand, SourceLocation location)
+    {
+        // Try to desugar to method call for overloadable operators
+        Expression? desugared = TryDesugarUnaryOperator(op: op, operand: operand, location: location);
+        // Non-overloadable operators stay as UnaryExpression
+        return desugared ?? new UnaryExpression(Operator: op, Operand: operand, Location: location);
+    }
+
+    #endregion
+
     /// <summary>
     /// Parses an intrinsic function call.
     /// Syntax: <c>@intrinsic.operation&lt;T&gt;(args)</c>

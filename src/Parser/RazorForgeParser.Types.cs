@@ -98,8 +98,8 @@ public partial class RazorForgeParser
 
     /// <summary>
     /// Parses a type expression or a const generic literal.
-    /// Used for generic arguments like ValueText&lt;letter32, 256&gt;.
-    /// Supports: integers, booleans, letters, and choice values (e.g., Color.Red).
+    /// Used for generic arguments like ValueText&lt;256&gt;.
+    /// Supports: integers, booleans, letters, bytes, and choice values (e.g., Color.Red).
     /// </summary>
     private TypeExpression ParseTypeOrConstGeneric()
     {
@@ -134,8 +134,8 @@ public partial class RazorForgeParser
             return new TypeExpression(Name: value, GenericArguments: null, Location: location);
         }
 
-        // Check for letter/character literal (const generic)
-        if (Match(TokenType.LetterLiteral, TokenType.Letter16Literal, TokenType.Letter8Literal))
+        // Check for letter/byte character literal (const generic)
+        if (Match(TokenType.LetterLiteral, TokenType.ByteLetterLiteral))
         {
             string value = PeekToken(offset: -1)
                .Text;

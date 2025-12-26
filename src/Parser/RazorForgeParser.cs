@@ -196,7 +196,7 @@ public partial class RazorForgeParser(List<Token> tokens, string? fileName = nul
             // Check for calling convention: imported("C")
             if (Match(type: TokenType.LeftParen))
             {
-                if (Check(TokenType.TextLiteral, TokenType.Text8Literal))
+                if (Check(TokenType.TextLiteral, TokenType.BytesLiteral))
                 {
                     Token conventionToken = Advance();
                     // Remove quotes from the text literal
@@ -267,13 +267,13 @@ public partial class RazorForgeParser(List<Token> tokens, string? fileName = nul
         // Variant declarations (tagged unions/sum types)
         if (Match(type: TokenType.Variant))
         {
-            return ParseVariantDeclaration(visibility: getterVisibility, kind: VariantKind.Variant);
+            return ParseVariantDeclaration(kind: VariantKind.Variant);
         }
 
         // Mutant declarations (mutable variants)
         if (Match(type: TokenType.Mutant))
         {
-            return ParseVariantDeclaration(visibility: getterVisibility, kind: VariantKind.Mutant);
+            return ParseVariantDeclaration(kind: VariantKind.Mutant);
         }
 
         // Protocol declarations (interface/trait definitions)

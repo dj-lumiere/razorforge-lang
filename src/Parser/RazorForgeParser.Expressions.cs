@@ -42,21 +42,23 @@ public partial class RazorForgeParser
 
         // Check for compound assignment operators
         BinaryOperator? compoundOp = TryMatchCompoundAssignment();
-        if (compoundOp.HasValue)
+        if (!compoundOp.HasValue)
+        {
+            return expr;
+        }
+
         {
             Expression value = ParseAssignment();
-            // Desugar: a += b becomes a = a + b
-            Expression binaryExpr = new BinaryExpression(Left: expr,
-                Operator: compoundOp.Value,
-                Right: value,
-                Location: expr.Location);
+            // Desugar: a += b becomes a = a.__add__(b) (the inner binary op is desugared to method call)
+            Expression binaryExpr = CreateBinaryExpression(left: expr,
+                op: compoundOp.Value,
+                right: value,
+                location: expr.Location);
             return new BinaryExpression(Left: expr,
                 Operator: BinaryOperator.Assign,
                 Right: binaryExpr,
                 Location: expr.Location);
         }
-
-        return expr;
     }
 
     /// <summary>
@@ -68,24 +70,24 @@ public partial class RazorForgeParser
     private Expression ParseInlineConditional()
     {
         // Check for inline if-then-else expression
-        if (Match(type: TokenType.If))
+        if (!Match(type: TokenType.If))
         {
-            SourceLocation location = GetLocation(token: PeekToken(offset: -1));
-            Expression condition = ParseNoneCoalesce();
-
-            Consume(type: TokenType.Then, errorMessage: "Expected 'then' after condition in inline if");
-            Expression thenExpr = ParseNoneCoalesce();
-
-            Consume(type: TokenType.Else, errorMessage: "Expected 'else' in inline if expression");
-            Expression elseExpr = ParseNoneCoalesce();
-
-            return new ConditionalExpression(Condition: condition,
-                TrueExpression: thenExpr,
-                FalseExpression: elseExpr,
-                Location: location);
+            return ParseNoneCoalesce();
         }
 
-        return ParseNoneCoalesce();
+        SourceLocation location = GetLocation(token: PeekToken(offset: -1));
+        Expression condition = ParseNoneCoalesce();
+
+        Consume(type: TokenType.Then, errorMessage: "Expected 'then' after condition in inline if");
+        Expression thenExpr = ParseNoneCoalesce();
+
+        Consume(type: TokenType.Else, errorMessage: "Expected 'else' in inline if expression");
+        Expression elseExpr = ParseNoneCoalesce();
+
+        return new ConditionalExpression(Condition: condition,
+            TrueExpression: thenExpr,
+            FalseExpression: elseExpr,
+            Location: location);
     }
 
     /// <summary>
@@ -261,10 +263,10 @@ public partial class RazorForgeParser
         {
             Token op = PeekToken(offset: -1);
             Expression right = ParseComparison();
-            expr = new BinaryExpression(Left: expr,
-                Operator: TokenToBinaryOperator(tokenType: op.Type),
-                Right: right,
-                Location: GetLocation(token: op));
+            expr = CreateBinaryExpression(left: expr,
+                op: TokenToBinaryOperator(tokenType: op.Type),
+                right: right,
+                location: GetLocation(token: op));
         }
 
         return expr;
@@ -299,21 +301,18 @@ public partial class RazorForgeParser
             operands.Add(item: right);
         }
 
-        // If we have chained comparisons, create a ChainedComparisonExpression
-        if (operators.Count > 1)
+        return operators.Count switch
         {
-            return new ChainedComparisonExpression(Operands: operands, Operators: operators, Location: GetLocation());
-        }
-        else if (operators.Count == 1)
-        {
-            // Single comparison, create regular BinaryExpression
-            return new BinaryExpression(Left: operands[index: 0],
-                Operator: operators[index: 0],
-                Right: operands[index: 1],
-                Location: GetLocation());
-        }
-
-        return expr;
+            // If we have chained comparisons, create a ChainedComparisonExpression
+            // Note: Chained comparisons are NOT desugared because they need special
+            // handling to evaluate middle operands only once (a < b < c)
+            > 1 => new ChainedComparisonExpression(Operands: operands, Operators: operators, Location: GetLocation()),
+            1 => CreateBinaryExpression(left: operands[index: 0],
+                op: operators[index: 0],
+                right: operands[index: 1],
+                location: GetLocation()),
+            _ => expr
+        };
     }
 
     /// <summary>
@@ -342,7 +341,7 @@ public partial class RazorForgeParser
             Token op = PeekToken(offset: -1);
             SourceLocation location = GetLocation(token: op);
 
-            if (op.Type == TokenType.Is || op.Type == TokenType.IsNot)
+            if (op.Type is TokenType.Is or TokenType.IsNot)
             {
                 bool isNegated = op.Type == TokenType.IsNot;
                 TypeExpression type = ParseType();
@@ -495,10 +494,10 @@ public partial class RazorForgeParser
         {
             Token op = PeekToken(offset: -1);
             Expression right = ParseBitwiseXor();
-            expr = new BinaryExpression(Left: expr,
-                Operator: TokenToBinaryOperator(tokenType: op.Type),
-                Right: right,
-                Location: GetLocation(token: op));
+            expr = CreateBinaryExpression(left: expr,
+                op: TokenToBinaryOperator(tokenType: op.Type),
+                right: right,
+                location: GetLocation(token: op));
         }
 
         return expr;
@@ -517,10 +516,10 @@ public partial class RazorForgeParser
         {
             Token op = PeekToken(offset: -1);
             Expression right = ParseBitwiseAnd();
-            expr = new BinaryExpression(Left: expr,
-                Operator: TokenToBinaryOperator(tokenType: op.Type),
-                Right: right,
-                Location: GetLocation(token: op));
+            expr = CreateBinaryExpression(left: expr,
+                op: TokenToBinaryOperator(tokenType: op.Type),
+                right: right,
+                location: GetLocation(token: op));
         }
 
         return expr;
@@ -539,10 +538,10 @@ public partial class RazorForgeParser
         {
             Token op = PeekToken(offset: -1);
             Expression right = ParseShift();
-            expr = new BinaryExpression(Left: expr,
-                Operator: TokenToBinaryOperator(tokenType: op.Type),
-                Right: right,
-                Location: GetLocation(token: op));
+            expr = CreateBinaryExpression(left: expr,
+                op: TokenToBinaryOperator(tokenType: op.Type),
+                right: right,
+                location: GetLocation(token: op));
         }
 
         return expr;
@@ -565,10 +564,10 @@ public partial class RazorForgeParser
         {
             Token op = PeekToken(offset: -1);
             Expression right = ParseAdditive();
-            expr = new BinaryExpression(Left: expr,
-                Operator: TokenToBinaryOperator(tokenType: op.Type),
-                Right: right,
-                Location: GetLocation(token: op));
+            expr = CreateBinaryExpression(left: expr,
+                op: TokenToBinaryOperator(tokenType: op.Type),
+                right: right,
+                location: GetLocation(token: op));
         }
 
         return expr;
@@ -594,10 +593,10 @@ public partial class RazorForgeParser
         {
             Token op = PeekToken(offset: -1);
             Expression right = ParseMultiplicative();
-            expr = new BinaryExpression(Left: expr,
-                Operator: TokenToBinaryOperator(tokenType: op.Type),
-                Right: right,
-                Location: GetLocation(token: op));
+            expr = CreateBinaryExpression(left: expr,
+                op: TokenToBinaryOperator(tokenType: op.Type),
+                right: right,
+                location: GetLocation(token: op));
         }
 
         return expr;
@@ -624,10 +623,10 @@ public partial class RazorForgeParser
         {
             Token op = PeekToken(offset: -1);
             Expression right = ParsePower();
-            expr = new BinaryExpression(Left: expr,
-                Operator: TokenToBinaryOperator(tokenType: op.Type),
-                Right: right,
-                Location: GetLocation(token: op));
+            expr = CreateBinaryExpression(left: expr,
+                op: TokenToBinaryOperator(tokenType: op.Type),
+                right: right,
+                location: GetLocation(token: op));
         }
 
         return expr;
@@ -650,10 +649,10 @@ public partial class RazorForgeParser
         {
             Token op = PeekToken(offset: -1);
             Expression right = ParseUnary();
-            expr = new BinaryExpression(Left: expr,
-                Operator: TokenToBinaryOperator(tokenType: op.Type),
-                Right: right,
-                Location: GetLocation(token: op));
+            expr = CreateBinaryExpression(left: expr,
+                op: TokenToBinaryOperator(tokenType: op.Type),
+                right: right,
+                location: GetLocation(token: op));
         }
 
         return expr;
@@ -661,7 +660,7 @@ public partial class RazorForgeParser
 
     /// <summary>
     /// Parses unary prefix expressions.
-    /// Syntax: <c>+x</c>, <c>-x</c>, <c>not x</c>, <c>~x</c>
+    /// Syntax: <c>-x</c>, <c>not x</c>, <c>~x</c>
     /// Special handling for unary minus on numeric literals to support min values.
     /// </summary>
     /// <returns>The parsed expression.</returns>
@@ -712,10 +711,23 @@ public partial class RazorForgeParser
 
                 return litExpr.Value switch
                 {
-                    // Negate the value
-                    // TODO: This should be arbitrary precision imo.
+                    // Negate numeric values with C# equivalents
+                    sbyte sbyteVal => new LiteralExpression(Value: (sbyte)-sbyteVal, LiteralType: litExpr.LiteralType, Location: opLocation),
+                    short shortVal => new LiteralExpression(Value: (short)-shortVal, LiteralType: litExpr.LiteralType, Location: opLocation),
+                    int intVal => new LiteralExpression(Value: -intVal, LiteralType: litExpr.LiteralType, Location: opLocation),
                     long longVal => new LiteralExpression(Value: -longVal, LiteralType: litExpr.LiteralType, Location: opLocation),
+                    Int128 int128Val => new LiteralExpression(Value: -int128Val, LiteralType: litExpr.LiteralType, Location: opLocation),
+                    float floatVal => new LiteralExpression(Value: -floatVal, LiteralType: litExpr.LiteralType, Location: opLocation),
                     double doubleVal => new LiteralExpression(Value: -doubleVal, LiteralType: litExpr.LiteralType, Location: opLocation),
+                    Half halfVal => new LiteralExpression(Value: -halfVal, LiteralType: litExpr.LiteralType, Location: opLocation),
+
+                    // Deferred types stored as strings - prepend negative sign
+                    // f128, d32, d64, d128, Integer, Decimal are parsed at compile-time by native libraries
+                    string strVal => new LiteralExpression(
+                        Value: strVal.StartsWith(value: "-") ? strVal.Substring(startIndex: 1) : "-" + strVal,
+                        LiteralType: litExpr.LiteralType,
+                        Location: opLocation),
+
                     _ => literal
                 };
 
@@ -804,13 +816,13 @@ public partial class RazorForgeParser
 
                             break;
                         }
-                        else if (depth < 0)
+                        if (depth < 0)
                         {
                             // Went negative, not a valid generic pattern
                             break;
                         }
                     }
-                    else if (tt == TokenType.Newline || tt == TokenType.LeftBrace)
+                    else if (tt is TokenType.Newline or TokenType.LeftBrace)
                     {
                         // Hit statement boundary without finding matching >, this is a comparison
                         break;
@@ -844,18 +856,18 @@ public partial class RazorForgeParser
                     Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after arguments");
 
                     // Append ! to method name if it's a failable call
-                    string methodName = ((IdentifierExpression)expr).Name;
+                    string methodName = beforeExpr.Name;
                     if (isMemoryOperation)
                     {
                         methodName += "!";
                     }
 
-                    expr = new GenericMethodCallExpression(Object: expr,
+                    expr = new GenericMethodCallExpression(Object: beforeExpr,
                         MethodName: methodName,
                         TypeArguments: typeArgs,
                         Arguments: args,
                         IsMemoryOperation: isMemoryOperation,
-                        Location: expr.Location);
+                        Location: beforeExpr.Location);
                 }
                 else
                 {
@@ -1330,14 +1342,10 @@ public partial class RazorForgeParser
                 TokenType.FormattedText,
                 TokenType.RawText,
                 TokenType.RawFormattedText,
-                TokenType.Text8Literal,
-                TokenType.Text8FormattedText,
-                TokenType.Text8RawText,
-                TokenType.Text8RawFormattedText,
-                TokenType.Text16Literal,
-                TokenType.Text16FormattedText,
-                TokenType.Text16RawText,
-                TokenType.Text16RawFormattedText))
+                TokenType.BytesLiteral,
+                TokenType.BytesFormatted,
+                TokenType.BytesRawLiteral,
+                TokenType.BytesRawFormatted))
         {
             return false;
         }
@@ -1370,7 +1378,7 @@ public partial class RazorForgeParser
     {
         result = null;
 
-        if (!Match(TokenType.Letter8Literal, TokenType.Letter16Literal, TokenType.LetterLiteral))
+        if (!Match(TokenType.LetterLiteral, TokenType.ByteLetterLiteral))
         {
             return false;
         }
@@ -1418,24 +1426,10 @@ public partial class RazorForgeParser
         if (!Match(TokenType.ByteLiteral,
                 TokenType.KilobyteLiteral,
                 TokenType.KibibyteLiteral,
-                TokenType.KilobitLiteral,
-                TokenType.KibibitLiteral,
                 TokenType.MegabyteLiteral,
                 TokenType.MebibyteLiteral,
-                TokenType.MegabitLiteral,
-                TokenType.MebibitLiteral,
                 TokenType.GigabyteLiteral,
-                TokenType.GibibyteLiteral,
-                TokenType.GigabitLiteral,
-                TokenType.GibibitLiteral,
-                TokenType.TerabyteLiteral,
-                TokenType.TebibyteLiteral,
-                TokenType.TerabitLiteral,
-                TokenType.TebibitLiteral,
-                TokenType.PetabyteLiteral,
-                TokenType.PebibyteLiteral,
-                TokenType.PetabitLiteral,
-                TokenType.PebibitLiteral))
+                TokenType.GibibyteLiteral))
         {
             return false;
         }

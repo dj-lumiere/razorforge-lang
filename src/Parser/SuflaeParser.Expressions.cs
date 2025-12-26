@@ -49,11 +49,12 @@ public partial class SuflaeParser
         }
 
         value = ParseAssignment();
-        // Desugar: a += b becomes a = a + b
-        Expression binaryExpr = new BinaryExpression(Left: expr,
-            Operator: compoundOp.Value,
-            Right: value,
-            Location: expr.Location);
+        // Desugar: a += b becomes a = a.__add__(b)
+        Expression binaryExpr = CreateBinaryExpression(
+            left: expr,
+            op: compoundOp.Value,
+            right: value,
+            location: expr.Location);
         return new BinaryExpression(Left: expr,
             Operator: BinaryOperator.Assign,
             Right: binaryExpr,
@@ -266,10 +267,11 @@ public partial class SuflaeParser
         {
             Token op = PeekToken(offset: -1);
             Expression right = ParseComparison();
-            expr = new BinaryExpression(Left: expr,
-                Operator: TokenToBinaryOperator(tokenType: op.Type),
-                Right: right,
-                Location: GetLocation(token: op));
+            expr = CreateBinaryExpression(
+                left: expr,
+                op: TokenToBinaryOperator(tokenType: op.Type),
+                right: right,
+                location: GetLocation(token: op));
         }
 
         return expr;
@@ -335,17 +337,20 @@ public partial class SuflaeParser
         }
 
         // If we have chained comparisons, create a ChainedComparisonExpression
+        // Note: Chained comparisons are NOT desugared because they need special
+        // handling to evaluate middle operands only once (a < b < c)
         if (operators.Count > 1)
         {
             return new ChainedComparisonExpression(Operands: operands, Operators: operators, Location: GetLocation());
         }
         else if (operators.Count == 1)
         {
-            // Single comparison, create regular BinaryExpression
-            return new BinaryExpression(Left: operands[index: 0],
-                Operator: operators[index: 0],
-                Right: operands[index: 1],
-                Location: GetLocation());
+            // Single comparison - desugar to method call
+            return CreateBinaryExpression(
+                left: operands[index: 0],
+                op: operators[index: 0],
+                right: operands[index: 1],
+                location: GetLocation());
         }
 
         return expr;
@@ -530,10 +535,11 @@ public partial class SuflaeParser
         {
             Token op = PeekToken(offset: -1);
             Expression right = ParseBitwiseXor();
-            expr = new BinaryExpression(Left: expr,
-                Operator: TokenToBinaryOperator(tokenType: op.Type),
-                Right: right,
-                Location: GetLocation(token: op));
+            expr = CreateBinaryExpression(
+                left: expr,
+                op: TokenToBinaryOperator(tokenType: op.Type),
+                right: right,
+                location: GetLocation(token: op));
         }
 
         return expr;
@@ -552,10 +558,11 @@ public partial class SuflaeParser
         {
             Token op = PeekToken(offset: -1);
             Expression right = ParseBitwiseAnd();
-            expr = new BinaryExpression(Left: expr,
-                Operator: TokenToBinaryOperator(tokenType: op.Type),
-                Right: right,
-                Location: GetLocation(token: op));
+            expr = CreateBinaryExpression(
+                left: expr,
+                op: TokenToBinaryOperator(tokenType: op.Type),
+                right: right,
+                location: GetLocation(token: op));
         }
 
         return expr;
@@ -574,10 +581,11 @@ public partial class SuflaeParser
         {
             Token op = PeekToken(offset: -1);
             Expression right = ParseShift();
-            expr = new BinaryExpression(Left: expr,
-                Operator: TokenToBinaryOperator(tokenType: op.Type),
-                Right: right,
-                Location: GetLocation(token: op));
+            expr = CreateBinaryExpression(
+                left: expr,
+                op: TokenToBinaryOperator(tokenType: op.Type),
+                right: right,
+                location: GetLocation(token: op));
         }
 
         return expr;
@@ -600,10 +608,11 @@ public partial class SuflaeParser
         {
             Token op = PeekToken(offset: -1);
             Expression right = ParseAdditive();
-            expr = new BinaryExpression(Left: expr,
-                Operator: TokenToBinaryOperator(tokenType: op.Type),
-                Right: right,
-                Location: GetLocation(token: op));
+            expr = CreateBinaryExpression(
+                left: expr,
+                op: TokenToBinaryOperator(tokenType: op.Type),
+                right: right,
+                location: GetLocation(token: op));
         }
 
         return expr;
@@ -629,10 +638,11 @@ public partial class SuflaeParser
         {
             Token op = PeekToken(offset: -1);
             Expression right = ParseMultiplicative();
-            expr = new BinaryExpression(Left: expr,
-                Operator: TokenToBinaryOperator(tokenType: op.Type),
-                Right: right,
-                Location: GetLocation(token: op));
+            expr = CreateBinaryExpression(
+                left: expr,
+                op: TokenToBinaryOperator(tokenType: op.Type),
+                right: right,
+                location: GetLocation(token: op));
         }
 
         return expr;
@@ -659,10 +669,11 @@ public partial class SuflaeParser
         {
             Token op = PeekToken(offset: -1);
             Expression right = ParsePower();
-            expr = new BinaryExpression(Left: expr,
-                Operator: TokenToBinaryOperator(tokenType: op.Type),
-                Right: right,
-                Location: GetLocation(token: op));
+            expr = CreateBinaryExpression(
+                left: expr,
+                op: TokenToBinaryOperator(tokenType: op.Type),
+                right: right,
+                location: GetLocation(token: op));
         }
 
         return expr;
@@ -684,10 +695,11 @@ public partial class SuflaeParser
         {
             Token op = PeekToken(offset: -1);
             Expression right = ParseUnary();
-            expr = new BinaryExpression(Left: expr,
-                Operator: TokenToBinaryOperator(tokenType: op.Type),
-                Right: right,
-                Location: GetLocation(token: op));
+            expr = CreateBinaryExpression(
+                left: expr,
+                op: TokenToBinaryOperator(tokenType: op.Type),
+                right: right,
+                location: GetLocation(token: op));
         }
 
         return expr;
@@ -741,9 +753,23 @@ public partial class SuflaeParser
             {
                 return litExpr.Value switch
                 {
-                    // Negate the value
+                    // Negate numeric values with C# equivalents
+                    sbyte sbyteVal => new LiteralExpression(Value: (sbyte)-sbyteVal, LiteralType: litExpr.LiteralType, Location: opLocation),
+                    short shortVal => new LiteralExpression(Value: (short)-shortVal, LiteralType: litExpr.LiteralType, Location: opLocation),
+                    int intVal => new LiteralExpression(Value: -intVal, LiteralType: litExpr.LiteralType, Location: opLocation),
                     long longVal => new LiteralExpression(Value: -longVal, LiteralType: litExpr.LiteralType, Location: opLocation),
+                    Int128 int128Val => new LiteralExpression(Value: -int128Val, LiteralType: litExpr.LiteralType, Location: opLocation),
+                    float floatVal => new LiteralExpression(Value: -floatVal, LiteralType: litExpr.LiteralType, Location: opLocation),
                     double doubleVal => new LiteralExpression(Value: -doubleVal, LiteralType: litExpr.LiteralType, Location: opLocation),
+                    Half halfVal => new LiteralExpression(Value: -halfVal, LiteralType: litExpr.LiteralType, Location: opLocation),
+
+                    // Deferred types stored as strings - prepend negative sign
+                    // d128, Integer, Decimal are parsed at compile-time by native libraries
+                    string strVal => new LiteralExpression(
+                        Value: strVal.StartsWith(value: "-") ? strVal.Substring(startIndex: 1) : "-" + strVal,
+                        LiteralType: litExpr.LiteralType,
+                        Location: opLocation),
+
                     _ => literal
                 };
             }
@@ -1347,7 +1373,7 @@ public partial class SuflaeParser
     {
         result = null;
 
-        if (!Match(TokenType.Letter8Literal, TokenType.Letter16Literal, TokenType.LetterLiteral, TokenType.ByteLetterLiteral))
+        if (!Match(TokenType.LetterLiteral, TokenType.ByteLetterLiteral))
         {
             return false;
         }
@@ -1368,24 +1394,10 @@ public partial class SuflaeParser
         if (!Match(TokenType.ByteLiteral,
                 TokenType.KilobyteLiteral,
                 TokenType.KibibyteLiteral,
-                TokenType.KilobitLiteral,
-                TokenType.KibibitLiteral,
                 TokenType.MegabyteLiteral,
                 TokenType.MebibyteLiteral,
-                TokenType.MegabitLiteral,
-                TokenType.MebibitLiteral,
                 TokenType.GigabyteLiteral,
-                TokenType.GibibyteLiteral,
-                TokenType.GigabitLiteral,
-                TokenType.GibibitLiteral,
-                TokenType.TerabyteLiteral,
-                TokenType.TebibyteLiteral,
-                TokenType.TerabitLiteral,
-                TokenType.TebibitLiteral,
-                TokenType.PetabyteLiteral,
-                TokenType.PebibyteLiteral,
-                TokenType.PetabitLiteral,
-                TokenType.PebibitLiteral))
+                TokenType.GibibyteLiteral))
         {
             return false;
         }

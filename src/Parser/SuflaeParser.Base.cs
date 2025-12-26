@@ -468,6 +468,10 @@ public partial class SuflaeParser
     /// <summary>
     /// Parse numeric literal value
     /// </summary>
+    /// <remarks>
+    /// Types without direct C# equivalents (d128, Integer, Decimal) are stored
+    /// as raw strings in the AST. The semantic analyzer handles parsing these using native libraries.
+    /// </remarks>
     protected object ParseNumericLiteral(Token token)
     {
         string text = token.Text;
@@ -475,23 +479,44 @@ public partial class SuflaeParser
         // Parse based on token type to preserve type information
         return token.Type switch
         {
+            // Fixed-width integers with C# equivalents - parse immediately
             TokenType.S32Literal => ParseTypedInteger<int>(text: text, suffix: "s32"),
             TokenType.S64Literal => ParseTypedInteger<long>(text: text, suffix: "s64"),
             TokenType.S128Literal => ParseTypedInteger<Int128>(text: text, suffix: "s128"),
             TokenType.U32Literal => ParseTypedInteger<uint>(text: text, suffix: "u32"),
             TokenType.U64Literal => ParseTypedInteger<ulong>(text: text, suffix: "u64"),
             TokenType.U128Literal => ParseTypedInteger<UInt128>(text: text, suffix: "u128"),
+
+            // Fixed-width floats with C# equivalents - parse immediately
             TokenType.F32Literal => ParseTypedFloat<float>(text: text, suffix: "f32"),
             TokenType.F64Literal => ParseTypedFloat<double>(text: text, suffix: "f64"),
-            // D128 uses .NET decimal as runtime representation (close approximation)
-            // Full IEEE 754 decimal128 support requires native Intel DFPL integration
-            TokenType.D128Literal => ParseDecimal128(text: text),
-            TokenType.Integer => BigInteger.Parse(value: text), // Variable-sized integer
-            TokenType.Decimal => ParseBigDecimal(text: text), // Variable-sized decimal
+
+            // Deferred types - store raw string for semantic analyzer to parse with native libraries
+            // d128: IEEE decimal floating-point, requires Intel DFP library
+            // Integer/Decimal: arbitrary precision, requires LibBF/MAPM
+            TokenType.D128Literal => CleanNumericSuffix(text: text, suffix: "d128"),
+            TokenType.Integer => text,
+            TokenType.Decimal => text,
+
             _ => text.Contains(value: '.')
                 ? double.Parse(s: text)
-                : BigInteger.Parse(value: text)
+                : text // Store as string for unknown numeric types
         };
+    }
+
+    /// <summary>
+    /// Cleans a numeric literal by removing the type suffix and underscores.
+    /// Returns raw string for deferred parsing by semantic analyzer.
+    /// </summary>
+    /// <param name="text">The literal text including suffix.</param>
+    /// <param name="suffix">The type suffix to remove.</param>
+    /// <returns>Cleaned string representation of the number.</returns>
+    private static string CleanNumericSuffix(string text, string suffix)
+    {
+        string cleaned = text.EndsWith(value: suffix)
+            ? text.Substring(startIndex: 0, length: text.Length - suffix.Length)
+            : text;
+        return cleaned.Replace(oldValue: "_", newValue: "");
     }
 
     private T ParseTypedInteger<T>(string text, string suffix) where T : struct
@@ -516,28 +541,6 @@ public partial class SuflaeParser
         }
 
         return (T)Convert.ChangeType(value: cleanText, conversionType: typeof(T));
-    }
-
-    /// <summary>
-    /// Parses a D128 literal (IEEE 754 decimal128).
-    /// Uses .NET decimal as approximation; native library integration provides full precision.
-    /// </summary>
-    private decimal ParseDecimal128(string text)
-    {
-        // Remove the d128 suffix if present
-        string cleanText = text.EndsWith(value: "d128", comparisonType: StringComparison.OrdinalIgnoreCase)
-            ? text.Substring(startIndex: 0, length: text.Length - 4)
-            : text;
-        return decimal.Parse(s: cleanText);
-    }
-
-    /// <summary>
-    /// Parses an arbitrary-precision decimal value.
-    /// Currently uses .NET decimal; full arbitrary precision requires MAPM library integration.
-    /// </summary>
-    private decimal ParseBigDecimal(string text)
-    {
-        return decimal.Parse(s: text);
     }
 
     #endregion

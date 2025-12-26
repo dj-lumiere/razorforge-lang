@@ -209,8 +209,8 @@ public partial class SuflaeParser
     /// </summary>
     /// <param name="visibility">Access modifier for the routine.</param>
     /// <param name="attributes">List of attributes applied to the routine.</param>
-    /// <returns>A <see cref="FunctionDeclaration"/> AST node.</returns>
-    private FunctionDeclaration ParseRoutineDeclaration(VisibilityModifier visibility = VisibilityModifier.Public, List<string>? attributes = null)
+    /// <returns>A <see cref="RoutineDeclaration"/> AST node.</returns>
+    private RoutineDeclaration ParseRoutineDeclaration(VisibilityModifier visibility = VisibilityModifier.Public, List<string>? attributes = null)
     {
         // Visibility: public, internal, private, common, global, imported
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
@@ -263,7 +263,7 @@ public partial class SuflaeParser
         // Body (indented block)
         Statement body = ParseIndentedBlock();
 
-        return new FunctionDeclaration(Name: name,
+        return new RoutineDeclaration(Name: name,
             Parameters: parameters,
             ReturnType: returnType,
             Body: body,
@@ -486,7 +486,7 @@ public partial class SuflaeParser
         return new RecordDeclaration(Name: name,
             GenericParameters: genericParams,
             GenericConstraints: constraints,
-            Interfaces: interfaces,
+            Protocols: interfaces,
             Members: members,
             Visibility: visibility,
             Location: location);
@@ -512,7 +512,7 @@ public partial class SuflaeParser
         Consume(type: TokenType.Colon, errorMessage: "Expected ':' after option header");
 
         var variants = new List<ChoiceCase>();
-        var methods = new List<FunctionDeclaration>();
+        var methods = new List<RoutineDeclaration>();
 
         // Parse option body as indented block
         Consume(type: TokenType.Newline, errorMessage: "Expected newline after ':'");
@@ -520,7 +520,7 @@ public partial class SuflaeParser
         if (!Check(type: TokenType.Indent))
         {
             return new ChoiceDeclaration(Name: name,
-                Variants: variants,
+                Cases: variants,
                 Methods: methods,
                 Visibility: visibility,
                 Location: location);
@@ -539,7 +539,7 @@ public partial class SuflaeParser
             if (Check(type: TokenType.Routine))
             {
                 Advance(); // consume 'routine'
-                FunctionDeclaration method = ParseRoutineDeclaration();
+                RoutineDeclaration method = ParseRoutineDeclaration();
                 methods.Add(item: method);
             }
             else
@@ -572,7 +572,7 @@ public partial class SuflaeParser
         }
 
         return new ChoiceDeclaration(Name: name,
-            Variants: variants,
+            Cases: variants,
             Methods: methods,
             Visibility: visibility,
             Location: location);
@@ -583,10 +583,9 @@ public partial class SuflaeParser
     /// Syntax: <c>variant Name:</c> followed by indented cases with optional associated types.
     /// Variants are sum types where each case can carry different data.
     /// </summary>
-    /// <param name="visibility">Access modifier for the variant.</param>
     /// <param name="kind">Whether this is a Variant or Mutant (mutable variant).</param>
     /// <returns>A <see cref="VariantDeclaration"/> AST node.</returns>
-    private VariantDeclaration ParseVariantDeclaration(VisibilityModifier visibility = VisibilityModifier.Public, VariantKind kind = VariantKind.Variant)
+    private VariantDeclaration ParseVariantDeclaration(VariantKind kind = VariantKind.Variant)
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
 
@@ -618,7 +617,6 @@ public partial class SuflaeParser
         Consume(type: TokenType.Colon, errorMessage: "Expected ':' after variant header");
 
         var cases = new List<VariantCase>();
-        var methods = new List<FunctionDeclaration>();
 
         // Parse variant body as indented block
         Consume(type: TokenType.Newline, errorMessage: "Expected newline after ':'");
@@ -634,8 +632,6 @@ public partial class SuflaeParser
             return new VariantDeclaration(Name: name,
                 GenericParameters: genericParams,
                 Cases: cases,
-                Methods: methods,
-                Visibility: visibility,
                 Kind: kind,
                 Location: location);
         }
@@ -649,36 +645,22 @@ public partial class SuflaeParser
                 continue;
             }
 
-            // Check if it's a method (routine) - no visibility modifiers allowed in variant/mutant
-            if (Check(type: TokenType.Routine))
-            {
-                Advance(); // consume 'routine'
-                FunctionDeclaration method = ParseRoutineDeclaration();
-                methods.Add(item: method);
-            }
-            else
-            {
-                // Parse variant case
-                string caseName = ConsumeIdentifier(errorMessage: "Expected variant case name");
+            // Parse variant case
+            string caseName = ConsumeIdentifier(errorMessage: "Expected variant case name");
 
-                List<TypeExpression>? associatedTypes = null;
-                if (Match(type: TokenType.LeftParen))
+            TypeExpression? associatedType = null;
+            if (Match(type: TokenType.LeftParen))
+            {
+                if (!Check(type: TokenType.RightParen))
                 {
-                    associatedTypes = new List<TypeExpression>();
-                    if (!Check(type: TokenType.RightParen))
-                    {
-                        do
-                        {
-                            associatedTypes.Add(item: ParseType());
-                        } while (Match(type: TokenType.Comma));
-                    }
-
-                    Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after variant case types");
+                    associatedType = ParseType();
                 }
 
-                cases.Add(item: new VariantCase(Name: caseName, AssociatedTypes: associatedTypes, Location: GetLocation()));
-                Match(type: TokenType.Newline);
+                Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after variant case type");
             }
+
+            cases.Add(item: new VariantCase(Name: caseName, AssociatedTypes: associatedType, Location: GetLocation()));
+            Match(type: TokenType.Newline);
         }
 
         if (Check(type: TokenType.Dedent))
@@ -699,8 +681,6 @@ public partial class SuflaeParser
         return new VariantDeclaration(Name: name,
             GenericParameters: genericParams,
             Cases: cases,
-            Methods: methods,
-            Visibility: visibility,
             Kind: kind,
             Location: location);
     }
@@ -721,6 +701,17 @@ public partial class SuflaeParser
         // Register this type name for generic disambiguation
         _knownTypeNames.Add(item: name);
 
+        // Parse parent protocols (protocol X follows Y, Z)
+        var parentProtocols = new List<TypeExpression>();
+        if (Match(type: TokenType.Follows))
+        {
+            do
+            {
+                parentProtocols.Add(item: ParseType());
+            }
+            while (Match(type: TokenType.Comma));
+        }
+
         // Colon to start indented block
         Consume(type: TokenType.Colon, errorMessage: "Expected ':' after protocol header");
 
@@ -733,6 +724,7 @@ public partial class SuflaeParser
         {
             return new ProtocolDeclaration(Name: name,
                 GenericParameters: null,
+                ParentProtocols: parentProtocols,
                 Methods: methods,
                 Visibility: visibility,
                 Location: location);
@@ -781,6 +773,7 @@ public partial class SuflaeParser
             methods.Add(item: new RoutineSignature(Name: methodName,
                 Parameters: parameters,
                 ReturnType: returnType,
+                Attributes: null,
                 Location: GetLocation()));
             Match(type: TokenType.Newline);
         }
@@ -796,6 +789,7 @@ public partial class SuflaeParser
 
         return new ProtocolDeclaration(Name: name,
             GenericParameters: null,
+            ParentProtocols: parentProtocols,
             Methods: methods,
             Visibility: visibility,
             Location: location);

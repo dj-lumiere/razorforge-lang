@@ -512,10 +512,14 @@ public partial class RazorForgeParser
     /// <summary>
     /// Parses a numeric literal token into its runtime value.
     /// Handles all numeric types including sized integers (s8-s128, u8-u128),
-    /// floats (f16-f128), and arbitrary precision Integer/Decimal.
+    /// floats (f16-f64), and deferred types (f128, d32, d64, d128, Integer, Decimal).
     /// </summary>
     /// <param name="token">The numeric literal token to parse.</param>
-    /// <returns>The parsed value as the appropriate numeric type.</returns>
+    /// <returns>The parsed value as the appropriate numeric type, or raw string for deferred types.</returns>
+    /// <remarks>
+    /// Types without direct C# equivalents (f128, d32, d64, d128, Integer, Decimal) are stored
+    /// as raw strings in the AST. The semantic analyzer handles parsing these using native libraries.
+    /// </remarks>
     protected object ParseNumericLiteral(Token token)
     {
         string text = token.Text;
@@ -523,6 +527,7 @@ public partial class RazorForgeParser
         // Parse based on token type to preserve type information
         return token.Type switch
         {
+            // Fixed-width integers with C# equivalents - parse immediately
             TokenType.S8Literal => ParseTypedInteger<sbyte>(text: text, suffix: "s8"),
             TokenType.S16Literal => ParseTypedInteger<short>(text: text, suffix: "s16"),
             TokenType.S32Literal => ParseTypedInteger<int>(text: text, suffix: "s32"),
@@ -533,16 +538,42 @@ public partial class RazorForgeParser
             TokenType.U32Literal => ParseTypedInteger<uint>(text: text, suffix: "u32"),
             TokenType.U64Literal => ParseTypedInteger<ulong>(text: text, suffix: "u64"),
             TokenType.U128Literal => ParseTypedInteger<UInt128>(text: text, suffix: "u128"),
+
+            // Fixed-width floats with C# equivalents - parse immediately
             TokenType.F16Literal => ParseTypedFloat<Half>(text: text, suffix: "f16"),
             TokenType.F32Literal => ParseTypedFloat<float>(text: text, suffix: "f32"),
             TokenType.F64Literal => ParseTypedFloat<double>(text: text, suffix: "f64"),
-            TokenType.F128Literal => ParseTypedFloat<decimal>(text: text, suffix: "f128"), // TODO: This should use BigFloat library.
-            TokenType.Integer => BigInteger.Parse(value: text), // Variable-sized integer
-            TokenType.Decimal => ParseBigDecimal(text: text), // Variable-sized decimal
+
+            // Deferred types - store raw string for semantic analyzer to parse with native libraries
+            // f128: IEEE binary128, requires LibBF
+            // d32/d64/d128: IEEE decimal floating-point, requires Intel DFP library
+            // Integer/Decimal: arbitrary precision, requires LibBF/MAPM
+            TokenType.F128Literal => CleanNumericSuffix(text: text, suffix: "f128"),
+            TokenType.D32Literal => CleanNumericSuffix(text: text, suffix: "d32"),
+            TokenType.D64Literal => CleanNumericSuffix(text: text, suffix: "d64"),
+            TokenType.D128Literal => CleanNumericSuffix(text: text, suffix: "d128"),
+            TokenType.Integer => text,
+            TokenType.Decimal => text,
+
             _ => text.Contains(value: '.')
                 ? double.Parse(s: text)
-                : BigInteger.Parse(value: text)
+                : text // Store as string for unknown numeric types
         };
+    }
+
+    /// <summary>
+    /// Cleans a numeric literal by removing the type suffix and underscores.
+    /// Returns raw string for deferred parsing by semantic analyzer.
+    /// </summary>
+    /// <param name="text">The literal text including suffix.</param>
+    /// <param name="suffix">The type suffix to remove.</param>
+    /// <returns>Cleaned string representation of the number.</returns>
+    private static string CleanNumericSuffix(string text, string suffix)
+    {
+        string cleaned = text.EndsWith(value: suffix)
+            ? text.Substring(startIndex: 0, length: text.Length - suffix.Length)
+            : text;
+        return cleaned.Replace(oldValue: "_", newValue: "");
     }
 
     /// <summary>
