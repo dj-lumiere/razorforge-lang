@@ -12,13 +12,17 @@
 import Collections/List
 import errors/IndexOutOfBoundsError
 
+namespace Collections
+
 # Element with priority
-record PQEntry<TElement, TPriority> {
+record PQEntry<TElement, TPriority>
+requires TPriority follows Comparable {
     element: TElement
     priority: TPriority
 }
 
-entity PriorityQueue<TElement, TPriority> {
+entity PriorityQueue<TElement, TPriority>
+requires TPriority follows Comparable {
     private heap: List<PQEntry<TElement, TPriority>>
 }
 
@@ -42,15 +46,15 @@ routine PriorityQueue<TElement, TPriority>.__create__(capacity: uaddr) -> Priori
 # Internal Heap Operations
 # ============================================================================
 
-routine PriorityQueue<TElement, TPriority>.parent(index: uaddr) -> uaddr {
+routine PriorityQueue<TElement, TPriority>.parent_index(me: PriorityQueue<TElement, TPriority>, index: uaddr) -> uaddr {
     return (index - 1uaddr) // 2uaddr
 }
 
-routine PriorityQueue<TElement, TPriority>.left_child(index: uaddr) -> uaddr {
+routine PriorityQueue<TElement, TPriority>.left_child(me: PriorityQueue<TElement, TPriority>, index: uaddr) -> uaddr {
     return 2uaddr * index + 1uaddr
 }
 
-routine PriorityQueue<TElement, TPriority>.right_child(index: uaddr) -> uaddr {
+routine PriorityQueue<TElement, TPriority>.right_child(me: PriorityQueue<TElement, TPriority>, index: uaddr) -> uaddr {
     return 2uaddr * index + 2uaddr
 }
 
@@ -63,7 +67,7 @@ routine PriorityQueue<TElement, TPriority>.swap(me: PriorityQueue<TElement, TPri
 routine PriorityQueue<TElement, TPriority>.sift_up(me: PriorityQueue<TElement, TPriority>, index: uaddr) {
     var i = index
     while i > 0uaddr {
-        let p = PriorityQueue<TElement, TPriority>.parent(i)
+        let p = me.parent_index(i)
         if me.heap[i].priority < me.heap[p].priority {
             me.swap(i, p)
             i = p
@@ -78,8 +82,8 @@ routine PriorityQueue<TElement, TPriority>.sift_down(me: PriorityQueue<TElement,
     let size = me.heap.count()
 
     loop {
-        let left = PriorityQueue<TElement, TPriority>.left_child(i)
-        let right = PriorityQueue<TElement, TPriority>.right_child(i)
+        let left = me.left_child(i)
+        let right = me.right_child(i)
         var smallest = i
 
         if left < size and me.heap[left].priority < me.heap[smallest].priority {
@@ -228,7 +232,7 @@ routine PriorityQueue<TElement, TPriority>.iter(me: PriorityQueue<TElement, TPri
     )
 }
 
-record PriorityQueueIterator<TElement, TPriority> {
+entity PriorityQueueIterator<TElement, TPriority> {
     queue: PriorityQueue<TElement, TPriority>
     index: uaddr
 }

@@ -11,12 +11,13 @@
 #   if flags.is_full() { }
 
 import errors/IndexOutOfBoundsError
-import core/Integral
-import core/BackIndex
+
+namespace Collections
 
 # Fixed-capacity bit list with reference semantics
 # N bits stored inline, packed into bytes by compiler
-resident FixedBitList<N> {
+resident FixedBitList<N>
+requires N is uaddr {
     count: uaddr    # Current number of bits (0 to N)
     # Bits stored inline by compiler - approximately (N + 7) / 8 bytes
 }
@@ -105,7 +106,7 @@ routine FixedBitList<N>.set_bit(me: FixedBitList<N>, index: uaddr, value: bool) 
 # ============================================================================
 
 routine FixedBitList<N>.__getitem__!<I>(me: FixedBitList<N>, index: I) -> bool
-    where I follows Integral {
+requires I follows Integral {
     let idx = index.to_uaddr()
     if idx >= me.count {
         throw IndexOutOfBoundsError(index: idx, count: me.count)
@@ -114,7 +115,7 @@ routine FixedBitList<N>.__getitem__!<I>(me: FixedBitList<N>, index: I) -> bool
 }
 
 routine FixedBitList<N>.__setitem__!<I>(me: FixedBitList<N>, index: I, value: bool)
-    where I follows Integral {
+requires I follows Integral {
     let idx = index.to_uaddr()
     if idx >= me.count {
         throw IndexOutOfBoundsError(index: idx, count: me.count)
@@ -127,13 +128,13 @@ routine FixedBitList<N>.__setitem__!<I>(me: FixedBitList<N>, index: I, value: bo
 # ============================================================================
 
 routine FixedBitList<N>.__getitem__!<I>(me: FixedBitList<N>, index: BackIndex<I>) -> bool
-    where I follows Integral {
+requires I follows Integral {
     let idx = index.resolve(me.count)
     return me.get_bit(idx)
 }
 
 routine FixedBitList<N>.__setitem__!<I>(me: FixedBitList<N>, index: BackIndex<I>, value: bool)
-    where I follows Integral {
+requires I follows Integral {
     let idx = index.resolve(me.count)
     me.set_bit(idx, value)
 }
@@ -143,12 +144,12 @@ routine FixedBitList<N>.__setitem__!<I>(me: FixedBitList<N>, index: BackIndex<I>
 # ============================================================================
 
 routine FixedBitList<N>.get!<I>(me: FixedBitList<N>, index: I) -> bool
-    where I follows Integral {
+requires I follows Integral {
     return me.__getitem__!(index)
 }
 
 routine FixedBitList<N>.set!<I>(me: FixedBitList<N>, index: I, value: bool)
-    where I follows Integral {
+requires I follows Integral {
     me.__setitem__!(index, value)
 }
 
@@ -213,7 +214,7 @@ routine FixedBitList<N>.fill(me: FixedBitList<N>, value: bool) {
 }
 
 routine FixedBitList<N>.flip!<I>(me: FixedBitList<N>, index: I)
-    where I follows Integral {
+requires I follows Integral {
     let idx = index.to_uaddr()
     if idx >= me.count {
         throw IndexOutOfBoundsError(index: idx, count: me.count)

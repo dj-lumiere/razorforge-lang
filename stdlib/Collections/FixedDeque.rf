@@ -12,12 +12,13 @@
 #   buffer.rotate_left(1)
 
 import errors/IndexOutOfBoundsError
-import core/Integral
-import core/BackIndex
+
+namespace Collections
 
 # Fixed-capacity deque with reference semantics
 # N elements of T stored inline by compiler, ring buffer structure
-resident FixedDeque<T, N> {
+resident FixedDeque<T, N>
+requires N is uaddr {
     private start: uaddr      # Index of first element
     private count: uaddr      # Current number of elements (0 to N)
     # N elements of T stored inline by compiler
@@ -133,7 +134,7 @@ routine FixedDeque<T, N>.pop_front!(me: FixedDeque<T, N>) -> T {
 # ============================================================================
 
 routine FixedDeque<T, N>.__getitem__!<I>(me: FixedDeque<T, N>, index: I) -> T
-    where I follows Integral {
+requires I follows Integral {
     let idx = index.to_uaddr()
     if idx >= me.count {
         throw IndexOutOfBoundsError(index: idx, count: me.count)
@@ -143,7 +144,7 @@ routine FixedDeque<T, N>.__getitem__!<I>(me: FixedDeque<T, N>, index: I) -> T
 }
 
 routine FixedDeque<T, N>.__setitem__!<I>(me: FixedDeque<T, N>, index: I, value: T)
-    where I follows Integral {
+requires I follows Integral {
     let idx = index.to_uaddr()
     if idx >= me.count {
         throw IndexOutOfBoundsError(index: idx, count: me.count)
@@ -157,14 +158,14 @@ routine FixedDeque<T, N>.__setitem__!<I>(me: FixedDeque<T, N>, index: I, value: 
 # ============================================================================
 
 routine FixedDeque<T, N>.__getitem__!<I>(me: FixedDeque<T, N>, index: BackIndex<I>) -> T
-    where I follows Integral {
+requires I follows Integral {
     let idx = index.resolve(me.count)
     let physical = me.physical_index(idx)
     return me[physical]
 }
 
 routine FixedDeque<T, N>.__setitem__!<I>(me: FixedDeque<T, N>, index: BackIndex<I>, value: T)
-    where I follows Integral {
+requires I follows Integral {
     let idx = index.resolve(me.count)
     let physical = me.physical_index(idx)
     me[physical] = value
@@ -175,12 +176,12 @@ routine FixedDeque<T, N>.__setitem__!<I>(me: FixedDeque<T, N>, index: BackIndex<
 # ============================================================================
 
 routine FixedDeque<T, N>.get!<I>(me: FixedDeque<T, N>, index: I) -> T
-    where I follows Integral {
+requires I follows Integral {
     return me.__getitem__!(index)
 }
 
 routine FixedDeque<T, N>.set!<I>(me: FixedDeque<T, N>, index: I, value: T)
-    where I follows Integral {
+requires I follows Integral {
     me.__setitem__!(index, value)
 }
 
@@ -275,8 +276,8 @@ routine FixedDeque<T, N>.index_of!(me: FixedDeque<T, N>, value: T) -> uaddr {
 }
 
 routine FixedDeque<T, N>.swap!<I, J>(me: FixedDeque<T, N>, i: I, j: J)
-    where I follows Integral
-    where J follows Integral {
+requires I follows Integral
+requires J follows Integral {
     let idx_i = i.to_uaddr()
     let idx_j = j.to_uaddr()
     if idx_i >= me.count or idx_j >= me.count {

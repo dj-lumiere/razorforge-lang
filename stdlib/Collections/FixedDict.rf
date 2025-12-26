@@ -11,8 +11,9 @@
 #   if cache.contains_key("key3") { }
 
 import errors/IndexOutOfBoundsError
-import core/Integral
 import Collections/List
+
+namespace Collections
 
 # Slot states for robin hood hashing
 preset FDICT_SLOT_EMPTY: u8 = 0u8
@@ -20,14 +21,17 @@ preset FDICT_SLOT_OCCUPIED: u8 = 1u8
 preset FDICT_SLOT_TOMBSTONE: u8 = 2u8
 
 # Key-value entry for iteration
-record FixedDictEntry<K, V> {
+record FixedDictEntry<K, V>
+requires K follows Hashable {
     key: K
     value: V
 }
 
 # Fixed-capacity hash map with reference semantics
 # Uses robin hood open addressing for cache-friendly probing
-resident FixedDict<K, V, N> {
+resident FixedDict<K, V, N>
+requires K follows Hashable
+requires N is uaddr {
     private count: uaddr           # Current number of entries
     private tombstones: uaddr      # Number of tombstones
     # N slots of (K key, V value, u8 state, uaddr probe_distance) stored inline
@@ -194,7 +198,7 @@ routine FixedDict<K, V, N>.insert!(me: FixedDict<K, V, N>, key: K, value: V) -> 
     # First check if key exists and update
     let existing_slot = me.find_slot(key)
     if existing_slot is Some {
-        me.set_value(existing_slot!, value)
+        me.set_value(existing_slot, value)
         return false
     }
 
@@ -309,7 +313,7 @@ routine FixedDict<K, V, N>.get!(me: FixedDict<K, V, N>, key: K) -> V {
     if slot is None {
         absent
     }
-    return me.get_value(slot!)
+    return me.get_value(slot)
 }
 
 routine FixedDict<K, V, N>.get_or_default(me: FixedDict<K, V, N>, key: K, default_value: V) -> V {
@@ -317,7 +321,7 @@ routine FixedDict<K, V, N>.get_or_default(me: FixedDict<K, V, N>, key: K, defaul
     if slot is None {
         return default_value
     }
-    return me.get_value(slot!)
+    return me.get_value(slot)
 }
 
 # ============================================================================
@@ -423,8 +427,4 @@ routine FixedDict<K, V, N>.__eq__(me: FixedDict<K, V, N>, other: FixedDict<K, V,
         i = i + 1uaddr
     }
     return true
-}
-
-routine FixedDict<K, V, N>.__ne__(me: FixedDict<K, V, N>, other: FixedDict<K, V, N>) -> bool {
-    return not (me == other)
 }

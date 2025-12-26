@@ -13,22 +13,24 @@
 import memory/DynamicSlice
 import memory/MemorySize
 import errors/IndexOutOfBoundsError
-import core/Integral
-import core/BackIndex
 import Collections/List
+
+namespace Collections
 
 # B-tree order (max children per node)
 preset B_LIST: uaddr = 32uaddr
 
 # B-tree node for SortedList
-entity BTreeListNode<T> {
+entity BTreeListNode<T>
+requires T follows Comparable {
     keys: List<T>                        # Keys in this node
     children: List<BTreeListNode<T>>     # Child pointers (empty for leaf)
     subtree_size: uaddr                  # Total elements in this subtree
     is_leaf: bool
 }
 
-entity SortedList<T> {
+entity SortedList<T>
+requires T follows Comparable {
     private root: BTreeListNode<T>
     private count: uaddr
 }
@@ -370,7 +372,7 @@ routine SortedList<T>.remove_all(me: SortedList<T>, value: T) -> uaddr {
 # ============================================================================
 
 routine SortedList<T>.__getitem__!<I>(me: SortedList<T>, index: I) -> T
-    where I follows Integral {
+requires I follows Integral {
     let idx = index.to_uaddr()
     if idx >= me.count {
         throw IndexOutOfBoundsError(index: idx, count: me.count)
@@ -379,7 +381,7 @@ routine SortedList<T>.__getitem__!<I>(me: SortedList<T>, index: I) -> T
 }
 
 routine SortedList<T>.__getitem__!<I>(me: SortedList<T>, index: BackIndex<I>) -> T
-    where I follows Integral {
+requires I follows Integral {
     let idx = index.resolve(me.count)
     return me.get_by_rank(me.root!, idx)
 }
@@ -415,7 +417,7 @@ routine SortedList<T>.get_by_rank(me: SortedList<T>, node: BTreeListNode<T>, ran
 }
 
 routine SortedList<T>.get!<I>(me: SortedList<T>, index: I) -> T
-    where I follows Integral {
+requires I follows Integral {
     return me.__getitem__!(index)
 }
 
@@ -518,7 +520,7 @@ routine SortedList<T>.collect_inorder(me: SortedList<T>, node: BTreeListNode<T>,
     }
 }
 
-record SortedListIterator<T> {
+entity SortedListIterator<T> {
     list: SortedList<T>
     index: uaddr
 }

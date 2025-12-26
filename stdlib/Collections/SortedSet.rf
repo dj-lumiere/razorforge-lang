@@ -15,9 +15,9 @@
 import memory/DynamicSlice
 import memory/MemorySize
 import errors/IndexOutOfBoundsError
-import core/Integral
-import core/BackIndex
 import Collections/List
+
+namespace Collections
 
 # B-tree order (max children per node)
 # B = 32 means each node has 16-31 keys (except root)
@@ -25,14 +25,16 @@ preset B: uaddr = 32uaddr
 preset MIN_KEYS: uaddr = 15uaddr  # B/2 - 1
 
 # B-tree node
-entity BTreeSetNode<T> {
+entity BTreeSetNode<T>
+requires T follows Comparable {
     keys: List<T>                       # Keys in this node
     children: List<BTreeSetNode<T>>     # Child pointers (empty for leaf)
     subtree_size: uaddr                 # Total elements in this subtree
     is_leaf: bool
 }
 
-entity SortedSet<T> {
+entity SortedSet<T>
+requires T follows Comparable {
     private root: BTreeSetNode<T>
     private count: uaddr
 }
@@ -360,7 +362,7 @@ routine SortedSet<T>.get_predecessor(me: SortedSet<T>, node: BTreeSetNode<T>, id
 # ============================================================================
 
 routine SortedSet<T>.__getitem__!<I>(me: SortedSet<T>, index: I) -> T
-    where I follows Integral {
+requires I follows Integral {
     let idx = index.to_uaddr()
     if idx >= me.count {
         throw IndexOutOfBoundsError(index: idx, count: me.count)
@@ -369,7 +371,7 @@ routine SortedSet<T>.__getitem__!<I>(me: SortedSet<T>, index: I) -> T
 }
 
 routine SortedSet<T>.__getitem__!<I>(me: SortedSet<T>, index: BackIndex<I>) -> T
-    where I follows Integral {
+requires I follows Integral {
     let idx = index.resolve(me.count)
     return me.get_by_rank(me.root!, idx)
 }
@@ -409,7 +411,7 @@ routine SortedSet<T>.get_by_rank(me: SortedSet<T>, node: BTreeSetNode<T>, rank: 
 }
 
 routine SortedSet<T>.get!<I>(me: SortedSet<T>, index: I) -> T
-    where I follows Integral {
+requires I follows Integral {
     return me.__getitem__!(index)
 }
 
@@ -516,7 +518,7 @@ routine SortedSet<T>.collect_inorder(me: SortedSet<T>, node: BTreeSetNode<T>, re
     }
 }
 
-record SortedSetIterator<T> {
+entity SortedSetIterator<T> {
     set: SortedSet<T>
     index: uaddr
 }

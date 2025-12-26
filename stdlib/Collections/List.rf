@@ -5,9 +5,9 @@
 import memory/DynamicSlice
 import memory/MemorySize
 import errors/IndexOutOfBoundsError
-import core/Integral
-import core/BackIndex
-import core/Range
+import Runtime/CompilerService
+
+namespace Collections
 
 entity List<T> {
     private data: DynamicSlice      # Heap-allocated byte array (non-generic)
@@ -28,7 +28,7 @@ routine List<T>.__create__() -> List<T> {
 
 routine List<T>.__create__(capacity: u64) -> List<T> {
     # Create list with pre-allocated capacity
-    let byte_size = capacity * @intrinsic.sizeof<T>()
+    let byte_size = capacity * data_size<T>()
     return List<T>(
         data: DynamicSlice(MemorySize(byte_size)),
         count: 0u64,
@@ -61,8 +61,8 @@ routine List<T>.push(me: List<T>, value: T) {
     }
 
     # Store element at byte offset
-    let byte_offset = me.count * @intrinsic.sizeof<T>()
-    me.data.write<T>(byte_offset, value)
+    let byte_offset = me.count * data_size<T>()
+    me.data.write!<T>(byte_offset, value)
     me.count = me.count + 1u64
 }
 
@@ -75,8 +75,8 @@ routine List<T>.pop!(me: List<T>) -> T {
     }
 
     me.count = me.count - 1u64
-    let byte_offset = me.count * @intrinsic.sizeof<T>()
-    return me.data.read<T>(byte_offset)
+    let byte_offset = me.count * data_size<T>()
+    return me.data.read!<T>(byte_offset)
 }
 
 # ============================================================================
@@ -84,27 +84,27 @@ routine List<T>.pop!(me: List<T>) -> T {
 # ============================================================================
 
 routine List<T>.__getitem__!<I>(me: List<T>, index: I) -> T
-    where I follows Integral {
+requires I follows Integral {
     # Get element at index - O(1)
     # Uses throw with IndexOutOfBoundsError for invalid index
     let idx = index.to_uaddr()
     if idx >= me.count {
         throw IndexOutOfBoundsError(index: idx, count: me.count)
     }
-    let byte_offset = idx * @intrinsic.sizeof<T>()
-    return me.data.read<T>(byte_offset)
+    let byte_offset = idx * data_size<T>()
+    return me.data.read!<T>(byte_offset)
 }
 
 routine List<T>.__setitem__!<I>(me: List<T>, index: I, value: T)
-    where I follows Integral {
+requires I follows Integral {
     # Set element at index - O(1)
     # Uses throw with IndexOutOfBoundsError for invalid index
     let idx = index.to_uaddr()
     if idx >= me.count {
         throw IndexOutOfBoundsError(index: idx, count: me.count)
     }
-    let byte_offset = idx * @intrinsic.sizeof<T>()
-    me.data.write<T>(byte_offset, value)
+    let byte_offset = idx * data_size<T>()
+    me.data.write!<T>(byte_offset, value)
 }
 
 # ============================================================================
@@ -112,19 +112,19 @@ routine List<T>.__setitem__!<I>(me: List<T>, index: I, value: T)
 # ============================================================================
 
 routine List<T>.__getitem__!<I>(me: List<T>, index: BackIndex<I>) -> T
-    where I follows Integral {
+requires I follows Integral {
     # Get element from end - ^1 is last, ^2 is second-to-last
     let idx = index.resolve(me.count)
-    let byte_offset = idx * @intrinsic.sizeof<T>()
-    return me.data.read<T>(byte_offset)
+    let byte_offset = idx * data_size<T>()
+    return me.data.read!<T>(byte_offset)
 }
 
 routine List<T>.__setitem__!<I>(me: List<T>, index: BackIndex<I>, value: T)
-    where I follows Integral {
+requires I follows Integral {
     # Set element from end - ^1 is last, ^2 is second-to-last
     let idx = index.resolve(me.count)
-    let byte_offset = idx * @intrinsic.sizeof<T>()
-    me.data.write<T>(byte_offset, value)
+    let byte_offset = idx * data_size<T>()
+    me.data.write!<T>(byte_offset, value)
 }
 
 # ============================================================================
@@ -132,7 +132,7 @@ routine List<T>.__setitem__!<I>(me: List<T>, index: BackIndex<I>, value: T)
 # ============================================================================
 
 routine List<T>.__getitem__!<I>(me: List<T>, range: Range<I>) -> List<T>
-    where I follows Integral {
+requires I follows Integral {
     # Get slice of list - inclusive on both ends, with step
     let start = range.resolve_start(me.count)
     let end = range.resolve_end(me.count)
@@ -146,15 +146,15 @@ routine List<T>.__getitem__!<I>(me: List<T>, range: Range<I>) -> List<T>
             if i > end {
                 break
             }
-            let byte_offset = i * @intrinsic.sizeof<T>()
-            result.push(me.data.read<T>(byte_offset))
+            let byte_offset = i * data_size<T>()
+            result.push(me.data.read!<T>(byte_offset))
             i = i + step
         }
     } else {
         var i = start
         loop {
-            let byte_offset = i * @intrinsic.sizeof<T>()
-            result.push(me.data.read<T>(byte_offset))
+            let byte_offset = i * data_size<T>()
+            result.push(me.data.read!<T>(byte_offset))
             if i <= end or i < step {
                 break
             }
@@ -170,7 +170,7 @@ routine List<T>.__getitem__!<I>(me: List<T>, range: Range<I>) -> List<T>
 # ============================================================================
 
 routine List<T>.__getitem__!<I>(me: List<T>, range: Range<BackIndex<I>>) -> List<T>
-    where I follows Integral {
+requires I follows Integral {
     # Get slice using backward indices - ^3 to ^1 gets last 3 elements, with step
     let start = range.resolve_start(me.count)
     let end = range.resolve_end(me.count)
@@ -184,15 +184,15 @@ routine List<T>.__getitem__!<I>(me: List<T>, range: Range<BackIndex<I>>) -> List
             if i > end {
                 break
             }
-            let byte_offset = i * @intrinsic.sizeof<T>()
-            result.push(me.data.read<T>(byte_offset))
+            let byte_offset = i * data_size<T>()
+            result.push(me.data.read!<T>(byte_offset))
             i = i + step
         }
     } else {
         var i = start
         loop {
-            let byte_offset = i * @intrinsic.sizeof<T>()
-            result.push(me.data.read<T>(byte_offset))
+            let byte_offset = i * data_size<T>()
+            result.push(me.data.read!<T>(byte_offset))
             if i <= end or i < step {
                 break
             }
@@ -205,12 +205,12 @@ routine List<T>.__getitem__!<I>(me: List<T>, range: Range<BackIndex<I>>) -> List
 
 # Legacy get/set methods (delegate to __getitem__/__setitem__)
 routine List<T>.get!<I>(me: List<T>, index: I) -> T
-    where I follows Integral {
+requires I follows Integral {
     return me.__getitem__!(index)
 }
 
 routine List<T>.set!<I>(me: List<T>, index: I, value: T)
-    where I follows Integral {
+requires I follows Integral {
     me.__setitem__!(index, value)
 }
 
@@ -218,12 +218,12 @@ routine List<T>.reserve(me: List<T>, new_capacity: u64) {
     # Ensure capacity is at least new_capacity
     if new_capacity > me.capacity {
         # Allocate new buffer
-        let new_byte_size = new_capacity * @intrinsic.sizeof<T>()
+        let new_byte_size = new_capacity * data_size<T>()
         let new_data = DynamicSlice(MemorySize(new_byte_size))
 
         # Copy existing elements byte-by-byte
         if me.count > 0u64 {
-            let copy_bytes = me.count * @intrinsic.sizeof<T>()
+            let copy_bytes = me.count * data_size<T>()
             new_data.copy_from(me.data, 0, 0, copy_bytes)
         }
 
@@ -246,7 +246,7 @@ routine List<T>.iter(me: List<T>) -> ListIterator<T> {
     )
 }
 
-record ListIterator<T> {
+entity ListIterator<T> {
     list: List<T>
     index: u64
 }
@@ -277,8 +277,8 @@ routine List<T>.select<U>(me: List<T>, mapper: Routine<(T), U>) -> List<U> {
     return result
 }
 
-# Filter elements - where(x => predicate(x))
-routine List<T>.where(me: List<T>, predicate: Routine<(T), bool>) -> List<T> {
+# Filter elements - requires(x => predicate(x))
+routine List<T>.requires(me: List<T>, predicate: Routine<(T), bool>) -> List<T> {
     let result = List<T>()
     let i = 0u64
     while i < me.count() {
@@ -292,7 +292,7 @@ routine List<T>.where(me: List<T>, predicate: Routine<(T), bool>) -> List<T> {
 }
 
 # Filter out elements NOT matching predicate
-routine List<T>.where_not(me: List<T>, predicate: Routine<(T), bool>) -> List<T> {
+routine List<T>.requires_not(me: List<T>, predicate: Routine<(T), bool>) -> List<T> {
     let result = List<T>()
     let i = 0u64
     while i < me.count() {

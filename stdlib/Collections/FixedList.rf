@@ -11,12 +11,13 @@
 #   if buffer.is_full() { }
 
 import errors/IndexOutOfBoundsError
-import core/Integral
-import core/BackIndex
+
+namespace Collections
 
 # Fixed-capacity list with reference semantics
 # N elements of T stored inline, count tracks active elements
-resident FixedList<T, N> {
+resident FixedList<T, N>
+requires N is uaddr {
     private count: uaddr    # Current number of elements (0 to N)
     # N elements of T stored inline by compiler
 }
@@ -81,7 +82,7 @@ routine FixedList<T, N>.clear(me: FixedList<T, N>) {
 # ============================================================================
 
 routine FixedList<T, N>.__getitem__!<I>(me: FixedList<T, N>, index: I) -> T
-    where I follows Integral {
+requires I follows Integral {
     let idx = index.to_uaddr()
     if idx >= me.count {
         throw IndexOutOfBoundsError(index: idx, count: me.count)
@@ -90,7 +91,7 @@ routine FixedList<T, N>.__getitem__!<I>(me: FixedList<T, N>, index: I) -> T
 }
 
 routine FixedList<T, N>.__setitem__!<I>(me: FixedList<T, N>, index: I, value: T)
-    where I follows Integral {
+requires I follows Integral {
     let idx = index.to_uaddr()
     if idx >= me.count {
         throw IndexOutOfBoundsError(index: idx, count: me.count)
@@ -103,13 +104,13 @@ routine FixedList<T, N>.__setitem__!<I>(me: FixedList<T, N>, index: I, value: T)
 # ============================================================================
 
 routine FixedList<T, N>.__getitem__!<I>(me: FixedList<T, N>, index: BackIndex<I>) -> T
-    where I follows Integral {
+requires I follows Integral {
     let idx = index.resolve(me.count)
     return me[idx]
 }
 
 routine FixedList<T, N>.__setitem__!<I>(me: FixedList<T, N>, index: BackIndex<I>, value: T)
-    where I follows Integral {
+requires I follows Integral {
     let idx = index.resolve(me.count)
     me[idx] = value
 }
@@ -119,12 +120,12 @@ routine FixedList<T, N>.__setitem__!<I>(me: FixedList<T, N>, index: BackIndex<I>
 # ============================================================================
 
 routine FixedList<T, N>.get!<I>(me: FixedList<T, N>, index: I) -> T
-    where I follows Integral {
+requires I follows Integral {
     return me.__getitem__!(index)
 }
 
 routine FixedList<T, N>.set!<I>(me: FixedList<T, N>, index: I, value: T)
-    where I follows Integral {
+requires I follows Integral {
     me.__setitem__!(index, value)
 }
 
@@ -133,7 +134,7 @@ routine FixedList<T, N>.set!<I>(me: FixedList<T, N>, index: I, value: T)
 # ============================================================================
 
 routine FixedList<T, N>.insert!<I>(me: FixedList<T, N>, index: I, value: T)
-    where I follows Integral {
+requires I follows Integral {
     # Insert at index, shifting elements right - O(n)
     let idx = index.to_uaddr()
     if idx > me.count {
@@ -154,7 +155,7 @@ routine FixedList<T, N>.insert!<I>(me: FixedList<T, N>, index: I, value: T)
 }
 
 routine FixedList<T, N>.remove!<I>(me: FixedList<T, N>, index: I) -> T
-    where I follows Integral {
+requires I follows Integral {
     # Remove at index, shifting elements left - O(n)
     let idx = index.to_uaddr()
     if idx >= me.count {

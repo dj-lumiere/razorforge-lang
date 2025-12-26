@@ -16,27 +16,30 @@
 import memory/DynamicSlice
 import memory/MemorySize
 import errors/IndexOutOfBoundsError
-import core/Integral
-import core/BackIndex
 import Collections/List
+
+namespace Collections
 
 # B-tree order
 preset B_DICT: uaddr = 32uaddr
 
 # Key-value pair
-record KVPair<K, V> {
+record KVPair<K, V>
+requires K follows Comparable {
     key: K
     value: V
 }
 
 # B-tree node for SortedDict
-entity BTreeDictNode<K, V> {
+entity BTreeDictNode<K, V>
+requires K follows Comparable {
     entries: List<KVPair<K, V>>              # Key-value pairs in this node
     children: List<BTreeDictNode<K, V>>      # Child pointers (empty for leaf)
     is_leaf: bool
 }
 
-entity SortedDict<K, V> {
+entity SortedDict<K, V>
+requires K follows Comparable {
     private root: BTreeDictNode<K, V>
     private count: uaddr
 }
@@ -109,34 +112,19 @@ routine SortedDict<K, V>.search_node!(me: SortedDict<K, V>, node: BTreeDictNode<
     return me.search_node(node.children[i], key)
 }
 
-routine SortedDict<K, V>.get!(me: SortedDict<K, V>, key: K) -> V {
-    if me.root is None {
-        absent
-    }
-    let result = me.search_node(me.root!, key)
-    if result is None {
-        absent
-    }
-    return result!
-}
-
-routine SortedDict<K, V>.get_or_default(me: SortedDict<K, V>, key: K, default_value: V) -> V {
-    if me.root is None {
-        return default_value
-    }
-    let result = me.search_node(me.root!, key)
-    if result is None {
-        return default_value
-    }
-    return result!
-}
-
 # ============================================================================
 # Indexing (by key)
 # ============================================================================
 
 routine SortedDict<K, V>.__getitem__!(me: SortedDict<K, V>, key: K) -> V {
-    return me.get!(key)
+    if me.root is None {
+        absent
+    }
+    let result = me.search_node(me.root, key)
+    if result is None {
+        absent
+    }
+    return result
 }
 
 routine SortedDict<K, V>.__setitem__(me: SortedDict<K, V>, key: K, value: V) {
@@ -527,7 +515,7 @@ routine SortedDict<K, V>.collect_inorder(me: SortedDict<K, V>, node: BTreeDictNo
     }
 }
 
-record SortedDictIterator<K, V> {
+entity SortedDictIterator<K, V> {
     entries: List<KVPair<K, V>>
     index: uaddr
 }

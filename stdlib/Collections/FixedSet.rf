@@ -11,8 +11,9 @@
 #   ids.remove(13)
 
 import errors/IndexOutOfBoundsError
-import core/Integral
 import Collections/List
+
+namespace Collections
 
 # Slot states for robin hood hashing
 preset SLOT_EMPTY: u8 = 0u8
@@ -21,7 +22,9 @@ preset SLOT_TOMBSTONE: u8 = 2u8
 
 # Fixed-capacity hash set with reference semantics
 # Uses robin hood open addressing for cache-friendly probing
-resident FixedSet<T, N> {
+resident FixedSet<T, N>
+requires T follows Hashable
+requires N is uaddr {
     private count: uaddr           # Current number of elements
     private tombstones: uaddr      # Number of tombstones (for load factor)
     # N slots of (T, u8 state, uaddr probe_distance) stored inline by compiler

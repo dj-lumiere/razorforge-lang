@@ -10,12 +10,13 @@
 #   let moved = coords with { [0]: 5.0 }
 
 import errors/IndexOutOfBoundsError
-import core/Integral
-import core/BackIndex
+
+namespace Collections
 
 # Fixed-size array with value semantics
 # Compiler lays out N elements of T inline
-record ValueList<T, N> {
+record ValueList<T, N>
+requires N is uaddr {
     # N elements of T stored inline by compiler - no explicit fields needed
 }
 
@@ -24,7 +25,7 @@ record ValueList<T, N> {
 # ============================================================================
 
 routine ValueList<T, N>.__getitem__!<I>(me: ValueList<T, N>, index: I) -> T
-    where I follows Integral {
+requires I follows Integral {
     let idx = index.to_uaddr()
     if idx >= N {
         throw IndexOutOfBoundsError(index: idx, count: N)
@@ -37,7 +38,7 @@ routine ValueList<T, N>.__getitem__!<I>(me: ValueList<T, N>, index: I) -> T
 # ============================================================================
 
 routine ValueList<T, N>.__getitem__!<I>(me: ValueList<T, N>, index: BackIndex<I>) -> T
-    where I follows Integral {
+requires I follows Integral {
     let idx = index.resolve(N)
     return me[idx]
 }
@@ -47,7 +48,7 @@ routine ValueList<T, N>.__getitem__!<I>(me: ValueList<T, N>, index: BackIndex<I>
 # ============================================================================
 
 routine ValueList<T, N>.get!<I>(me: ValueList<T, N>, index: I) -> T
-    where I follows Integral {
+requires I follows Integral {
     return me.__getitem__!(index)
 }
 

@@ -12,8 +12,9 @@
 import memory/DynamicSlice
 import memory/MemorySize
 import errors/IndexOutOfBoundsError
-import core/Integral
-import core/BackIndex
+import Runtime/CompilerService
+
+namespace Collections
 
 entity Deque<T> {
     private data: DynamicSlice    # Circular buffer
@@ -36,7 +37,7 @@ routine Deque<T>.__create__() -> Deque<T> {
 }
 
 routine Deque<T>.__create__(capacity: uaddr) -> Deque<T> {
-    let byte_size = capacity * sizeof<T>()
+    let byte_size = capacity * data_size<T>()
     return Deque<T>(
         data: DynamicSlice(MemorySize(byte_size)),
         start: 0uaddr,
@@ -63,12 +64,12 @@ routine Deque<T>.physical_index(me: Deque<T>, logical_index: uaddr) -> uaddr {
 }
 
 routine Deque<T>.read_at(me: Deque<T>, physical_idx: uaddr) -> T {
-    let byte_offset = physical_idx * sizeof<T>()
+    let byte_offset = physical_idx * data_size<T>()
     return me.data.read<T>(byte_offset)
 }
 
 routine Deque<T>.write_at(me: Deque<T>, physical_idx: uaddr, value: T) {
-    let byte_offset = physical_idx * sizeof<T>()
+    let byte_offset = physical_idx * data_size<T>()
     me.data.write<T>(byte_offset, value)
 }
 
@@ -170,7 +171,7 @@ routine Deque<T>.reserve(me: Deque<T>, new_capacity: uaddr) {
         return
     }
 
-    let new_byte_size = new_capacity * sizeof<T>()
+    let new_byte_size = new_capacity * data_size<T>()
     let new_data = DynamicSlice(MemorySize(new_byte_size))
 
     # Copy elements in logical order (unwrap the ring)
@@ -178,7 +179,7 @@ routine Deque<T>.reserve(me: Deque<T>, new_capacity: uaddr) {
     while i < me.count {
         let old_idx = me.physical_index(i)
         let value = me.read_at(old_idx)
-        let new_byte_offset = i * sizeof<T>()
+        let new_byte_offset = i * data_size<T>()
         new_data.write<T>(new_byte_offset, value)
         i = i + 1uaddr
     }
@@ -193,7 +194,7 @@ routine Deque<T>.reserve(me: Deque<T>, new_capacity: uaddr) {
 # ============================================================================
 
 routine Deque<T>.__getitem__!<I>(me: Deque<T>, index: I) -> T
-    where I follows Integral {
+requires I follows Integral {
     let idx = index.to_uaddr()
     if idx >= me.count {
         throw IndexOutOfBoundsError(index: idx, count: me.count)
@@ -203,7 +204,7 @@ routine Deque<T>.__getitem__!<I>(me: Deque<T>, index: I) -> T
 }
 
 routine Deque<T>.__setitem__!<I>(me: Deque<T>, index: I, value: T)
-    where I follows Integral {
+requires I follows Integral {
     let idx = index.to_uaddr()
     if idx >= me.count {
         throw IndexOutOfBoundsError(index: idx, count: me.count)
@@ -217,14 +218,14 @@ routine Deque<T>.__setitem__!<I>(me: Deque<T>, index: I, value: T)
 # ============================================================================
 
 routine Deque<T>.__getitem__!<I>(me: Deque<T>, index: BackIndex<I>) -> T
-    where I follows Integral {
+requires I follows Integral {
     let idx = index.resolve(me.count)
     let physical_idx = me.physical_index(idx)
     return me.read_at(physical_idx)
 }
 
 routine Deque<T>.__setitem__!<I>(me: Deque<T>, index: BackIndex<I>, value: T)
-    where I follows Integral {
+requires I follows Integral {
     let idx = index.resolve(me.count)
     let physical_idx = me.physical_index(idx)
     me.write_at(physical_idx, value)
@@ -235,12 +236,12 @@ routine Deque<T>.__setitem__!<I>(me: Deque<T>, index: BackIndex<I>, value: T)
 # ============================================================================
 
 routine Deque<T>.get!<I>(me: Deque<T>, index: I) -> T
-    where I follows Integral {
+requires I follows Integral {
     return me.__getitem__!(index)
 }
 
 routine Deque<T>.set!<I>(me: Deque<T>, index: I, value: T)
-    where I follows Integral {
+requires I follows Integral {
     me.__setitem__!(index, value)
 }
 
@@ -280,7 +281,7 @@ routine Deque<T>.iter(me: Deque<T>) -> DequeIterator<T> {
     return DequeIterator<T>(deque: me, index: 0uaddr)
 }
 
-record DequeIterator<T> {
+entity DequeIterator<T> {
     deque: Deque<T>
     index: uaddr
 }

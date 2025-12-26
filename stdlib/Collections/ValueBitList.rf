@@ -10,12 +10,13 @@
 #   let toggled = flags with { [0]: true }
 
 import errors/IndexOutOfBoundsError
-import core/Integral
-import core/BackIndex
+
+namespace Collections
 
 # Fixed-size bit array with value semantics
 # Compiler lays out ceil(N/8) bytes inline to store N bits
-record ValueBitList<N> {
+record ValueBitList<N>
+requires N is uaddr {
     # N bits stored inline by compiler - no explicit fields needed
 }
 
@@ -24,7 +25,7 @@ record ValueBitList<N> {
 # ============================================================================
 
 routine ValueBitList<N>.__getitem__!<I>(me: ValueBitList<N>, index: I) -> bool
-    where I follows Integral {
+requires I follows Integral {
     let idx = index.to_uaddr()
     if idx >= N {
         throw IndexOutOfBoundsError(index: idx, count: N)
@@ -37,7 +38,7 @@ routine ValueBitList<N>.__getitem__!<I>(me: ValueBitList<N>, index: I) -> bool
 # ============================================================================
 
 routine ValueBitList<N>.__getitem__!<I>(me: ValueBitList<N>, index: BackIndex<I>) -> bool
-    where I follows Integral {
+requires I follows Integral {
     let idx = index.resolve(N)
     return me[idx]
 }
@@ -47,7 +48,7 @@ routine ValueBitList<N>.__getitem__!<I>(me: ValueBitList<N>, index: BackIndex<I>
 # ============================================================================
 
 routine ValueBitList<N>.get!<I>(me: ValueBitList<N>, index: I) -> bool
-    where I follows Integral {
+requires I follows Integral {
     return me.__getitem__!(index)
 }
 
@@ -138,7 +139,7 @@ routine ValueBitList<N>.__and__(me: ValueBitList<N>, other: ValueBitList<N>) -> 
     var i = 0uaddr
     var result = me
     while i < N {
-        result = result with { [i]: me[i] and other[i] }
+        result = result with ([i]: me[i] and other[i])
         i = i + 1uaddr
     }
     return result
@@ -149,7 +150,7 @@ routine ValueBitList<N>.__or__(me: ValueBitList<N>, other: ValueBitList<N>) -> V
     var i = 0uaddr
     var result = me
     while i < N {
-        result = result with { [i]: me[i] or other[i] }
+        result = result with ([i]: me[i] or other[i])
         i = i + 1uaddr
     }
     return result
@@ -160,7 +161,10 @@ routine ValueBitList<N>.__xor__(me: ValueBitList<N>, other: ValueBitList<N>) -> 
     var i = 0uaddr
     var result = me
     while i < N {
-        result = result with { [i]: me[i] xor other[i] }
+        # Parser doesn't support array indexing in with expressions yet
+        # TODO: Use with ([i]: ...) syntax when parser supports it
+        let new_value = me[i] xor other[i]
+        result[i] = new_value
         i = i + 1uaddr
     }
     return result
@@ -171,7 +175,7 @@ routine ValueBitList<N>.__not__(me: ValueBitList<N>) -> ValueBitList<N> {
     var i = 0uaddr
     var result = me
     while i < N {
-        result = result with { [i]: not me[i] }
+        result = result with ([i]: not me[i])
         i = i + 1uaddr
     }
     return result

@@ -13,7 +13,8 @@
 import Collections/List
 import Collections/SortedDict
 import errors/IndexOutOfBoundsError
-import core/Integral
+
+namespace Collections
 
 # Initial number of buckets
 preset DICT_INITIAL_BUCKETS: uaddr = 16uaddr
@@ -21,14 +22,16 @@ preset DICT_INITIAL_BUCKETS: uaddr = 16uaddr
 preset DICT_LOAD_FACTOR: uaddr = 75uaddr
 
 # Key-value pair for iteration
-record DictEntry<K, V> {
+record DictEntry<K, V>
+requires K follows Hashable, Comparable {
     key: K
     value: V
 }
 
-entity Dict<K, V> {
-    private buckets: List<SortedDict<K, V>>
-    private count: uaddr
+entity Dict<K, V>
+requires K follows Hashable, Comparable {
+    private var buckets: List<SortedDict<K, V>>
+    private var count: uaddr
 }
 
 # ============================================================================
@@ -250,7 +253,7 @@ routine Dict<K, V>.iter(me: Dict<K, V>) -> DictIterator<K, V> {
     )
 }
 
-record DictIterator<K, V> {
+entity DictIterator<K, V> {
     dict: Dict<K, V>
     bucket_idx: uaddr
     entry_idx: uaddr

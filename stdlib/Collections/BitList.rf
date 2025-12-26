@@ -14,8 +14,8 @@
 import memory/DynamicSlice
 import memory/MemorySize
 import errors/IndexOutOfBoundsError
-import core/Integral
-import core/BackIndex
+
+namespace Collections
 
 entity BitList {
     private data: DynamicSlice      # Heap-allocated byte array (8 bits per byte)
@@ -38,7 +38,7 @@ routine BitList.__create__() -> BitList {
 
 routine BitList.__create__(capacity: u64) -> BitList {
     # Create bit list with pre-allocated capacity (in bits)
-    let byte_size = (capacity + 7u64) / 8u64  # Round up to nearest byte
+    let byte_size = (capacity + 7u64) // 8u64  # Round up to nearest byte
     return BitList(
         data: DynamicSlice(MemorySize(byte_size)),
         count: 0u64,
@@ -52,7 +52,7 @@ routine BitList.__create__(capacity: u64) -> BitList {
 
 routine BitList.byte_index(bit_index: u64) -> u64 {
     # Get the byte index for a given bit index
-    return bit_index / 8u64
+    return bit_index // 8u64
 }
 
 routine BitList.bit_offset(bit_index: u64) -> u8 {
@@ -152,7 +152,7 @@ routine BitList.clear(me: BitList) {
 # ============================================================================
 
 routine BitList.__getitem__!<I>(me: BitList, index: I) -> bool
-    where I follows Integral {
+requires I follows Integral {
     # Get bit at index - O(1)
     let idx = index.to_uaddr()
     if idx >= me.count {
@@ -162,7 +162,7 @@ routine BitList.__getitem__!<I>(me: BitList, index: I) -> bool
 }
 
 routine BitList.__setitem__!<I>(me: BitList, index: I, value: bool)
-    where I follows Integral {
+requires I follows Integral {
     # Set bit at index - O(1)
     let idx = index.to_uaddr()
     if idx >= me.count {
@@ -176,14 +176,14 @@ routine BitList.__setitem__!<I>(me: BitList, index: I, value: bool)
 # ============================================================================
 
 routine BitList.__getitem__!<I>(me: BitList, index: BackIndex<I>) -> bool
-    where I follows Integral {
+requires I follows Integral {
     # Get bit from end - ^1 is last, ^2 is second-to-last
     let idx = index.resolve(me.count)
     return me.get_bit_internal(u64(idx))
 }
 
 routine BitList.__setitem__!<I>(me: BitList, index: BackIndex<I>, value: bool)
-    where I follows Integral {
+requires I follows Integral {
     # Set bit from end - ^1 is last, ^2 is second-to-last
     let idx = index.resolve(me.count)
     me.set_bit_internal(u64(idx), value)
@@ -194,12 +194,12 @@ routine BitList.__setitem__!<I>(me: BitList, index: BackIndex<I>, value: bool)
 # ============================================================================
 
 routine BitList.get!<I>(me: BitList, index: I) -> bool
-    where I follows Integral {
+requires I follows Integral {
     return me.__getitem__!(index)
 }
 
 routine BitList.set!<I>(me: BitList, index: I, value: bool)
-    where I follows Integral {
+requires I follows Integral {
     me.__setitem__!(index, value)
 }
 
@@ -215,7 +215,7 @@ routine BitList.set_all(me: BitList, value: bool) {
 }
 
 routine BitList.flip!<I>(me: BitList, index: I)
-    where I follows Integral {
+requires I follows Integral {
     # Toggle bit at index
     let idx = index.to_uaddr()
     if idx >= me.count {
@@ -354,7 +354,7 @@ routine BitList.iter(me: BitList) -> BitListIterator {
     )
 }
 
-record BitListIterator {
+entity BitListIterator {
     list: BitList
     index: u64
 }

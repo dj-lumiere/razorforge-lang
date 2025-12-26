@@ -13,14 +13,16 @@
 import Collections/List
 import Collections/SortedSet
 import errors/IndexOutOfBoundsError
-import core/Integral
+
+namespace Collections
 
 # Initial number of buckets
 preset SET_INITIAL_BUCKETS: uaddr = 16uaddr
 # Load factor threshold for rehashing (as percentage)
 preset SET_LOAD_FACTOR: uaddr = 75uaddr
 
-entity Set<T> {
+entity Set<T>
+requires T follows Hashable, Comparable {
     private buckets: List<SortedSet<T>>
     private count: uaddr
 }
@@ -345,7 +347,7 @@ routine Set<T>.iter(me: Set<T>) -> SetIterator<T> {
     )
 }
 
-record SetIterator<T> {
+entity SetIterator<T> {
     set: Set<T>
     bucket_idx: uaddr
     element_idx: uaddr
