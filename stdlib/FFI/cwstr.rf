@@ -27,15 +27,7 @@ import memory/MemorySize
 import Collections/List
 import Text/Text
 import Text/letter16
-import Text/letter32
-
-# ============================================================================
-# External C Runtime Functions
-# ============================================================================
-
-imported("C") routine rf_wcslen(str: uaddr) -> uaddr
-imported("C") routine rf_wcscpy(dest: uaddr, src: uaddr) -> uaddr
-imported("C") routine rf_wcscmp(s1: uaddr, s2: uaddr) -> s32
+import Text/letter
 
 # ============================================================================
 # Platform-Dependent Wide Character Type
@@ -76,7 +68,7 @@ routine cwstr.__create__(from_ptr: uaddr) -> cwstr {
 # The caller is responsible for freeing this memory when done
 routine cwstr.__create__(from_utf16: Text<letter16>) -> cwstr {
     danger! {
-        let len = from_utf16.length()
+        let len = from_utf16.count()
         let byte_len = (len + 1u64) * 2u64  # 2 bytes per u16 + null terminator
         let buffer = DynamicSlice(MemorySize(byte_len))
 
@@ -85,22 +77,22 @@ routine cwstr.__create__(from_utf16: Text<letter16>) -> cwstr {
             if i >= len {
                 break
             }
-            buffer.write<u16>!(i * 2u64, from_utf16[i].codepoint())
+            buffer.write!<u16>(i * 2u64, from_utf16[i].codepoint())
             i = i + 1u64
         }
         # Null terminator (2 bytes)
-        buffer.write<u16>!(len * 2u64, 0u16)
+        buffer.write!<u16>(len * 2u64, 0u16)
 
-        return cwstr(ptr: buffer.snatch!(0u64))
+        return cwstr(ptr: buffer.snatch(0u64))
     }
 }
 
-# Create cwstr from Text<letter32> (encodes codepoints to UTF-16 with surrogates)
+# Create cwstr from Text (encodes codepoints to UTF-16 with surrogates)
 # For Windows compatibility - encodes supplementary characters as surrogate pairs
 # The caller is responsible for freeing this memory when done
-routine cwstr.__create__(from_codepoints: Text<letter32>) -> cwstr {
+routine cwstr.__create__(from_codepoints: Text) -> cwstr {
     danger! {
-        let len = from_codepoints.length()
+        let len = from_codepoints.count()
         # Worst case: each codepoint needs 2 code units (surrogate pair)
         let max_units = len * 2u64
         let byte_len = (max_units + 1u64) * 2u64
@@ -116,28 +108,28 @@ routine cwstr.__create__(from_codepoints: Text<letter32>) -> cwstr {
 
             if codepoint <= 0xFFFFu32 {
                 # BMP character - single code unit
-                buffer.write<u16>!(write_pos * 2u64, u16!(codepoint))
+                buffer.write!<u16>(write_pos * 2u64, u16!(codepoint))
                 write_pos = write_pos + 1u64
             } else if codepoint <= 0x10FFFFu32 {
                 # Supplementary character - surrogate pair
                 let adjusted = codepoint - 0x10000u32
                 let high = u16!((adjusted >> 10u32) + 0xD800u32)
                 let low = u16!((adjusted & 0x3FFu32) + 0xDC00u32)
-                buffer.write<u16>!(write_pos * 2u64, high)
-                buffer.write<u16>!((write_pos + 1u64) * 2u64, low)
+                buffer.write!<u16>(write_pos * 2u64, high)
+                buffer.write!<u16>((write_pos + 1u64) * 2u64, low)
                 write_pos = write_pos + 2u64
             } else {
                 # Invalid codepoint - use replacement character
-                buffer.write<u16>!(write_pos * 2u64, 0xFFFDu16)
+                buffer.write!<u16>(write_pos * 2u64, 0xFFFDu16)
                 write_pos = write_pos + 1u64
             }
 
             i = i + 1u64
         }
         # Null terminator (2 bytes)
-        buffer.write<u16>!(write_pos * 2u64, 0u16)
+        buffer.write!<u16>(write_pos * 2u64, 0u16)
 
-        return cwstr(ptr: buffer.snatch!(0u64))
+        return cwstr(ptr: buffer.snatch(0u64))
     }
 }
 
@@ -146,7 +138,7 @@ routine cwstr.__create__(from_codepoints: Text<letter32>) -> cwstr {
 # The caller is responsible for freeing this memory when done
 routine cwstr.__create__(from_units: List<u16>) -> cwstr {
     danger! {
-        let len = from_units.len()
+        let len = from_units.count()
         let byte_len = (len + 1u64) * 2u64
         let buffer = DynamicSlice(MemorySize(byte_len))
 
@@ -155,11 +147,11 @@ routine cwstr.__create__(from_units: List<u16>) -> cwstr {
             if i >= len {
                 break
             }
-            buffer.write<u16>!(i * 2u64, from_units[i])
+            buffer.write!<u16>(i * 2u64, from_units[i])
             i = i + 1u64
         }
         # Null terminator
-        buffer.write<u16>!(len * 2u64, 0u16)
+        buffer.write!<u16>(len * 2u64, 0u16)
 
         return cwstr(ptr: buffer.snatch!(0u64))
     }
@@ -178,7 +170,7 @@ routine cwstr.raw(me: cwstr) -> uaddr {
 # O(n) - must scan for null terminator
 routine cwstr.length(me: cwstr) -> uaddr {
     danger! {
-        return rf_wcslen(me.ptr)
+        return @native.rf_wcslen(me.ptr)
     }
 }
 
@@ -202,7 +194,7 @@ routine cwstr.__getitem__!(me: cwstr, index: uaddr) -> u16 {
         throw IndexOutOfBoundsError()
     }
     danger! {
-        return read_as<u16>!(me.ptr + (index * 2uaddr))
+        return read_as!<u16>(me.ptr + (index * 2uaddr))
     }
 }
 
@@ -214,7 +206,7 @@ routine cwstr.__getitem__!(me: cwstr, index: uaddr) -> u16 {
 # Returns: 0 if equal, negative if me < other, positive if me > other
 routine cwstr.compare(me: cwstr, other: cwstr) -> s32 {
     danger! {
-        return rf_wcscmp(me.ptr, other.ptr)
+        return @native.rf_wcscmp(me.ptr, other.ptr)
     }
 }
 
@@ -254,8 +246,8 @@ routine cwstr.copy(me: cwstr) -> cwstr {
         let len = me.length()
         let byte_len = (len + 1uaddr) * 2uaddr  # Assuming 16-bit wchar_t
         let buffer = DynamicSlice(MemorySize(byte_len))
-        let dest = buffer.snatch!(0uaddr)
-        rf_wcscpy(dest, me.ptr)
+        let dest = buffer.snatch(0uaddr)
+        @native.rf_wcscpy(dest, me.ptr)
         return cwstr(ptr: dest)
     }
 }
@@ -279,7 +271,7 @@ routine cwstr.to_text16(me: cwstr) -> Text<letter16> {
             if i >= len {
                 break
             }
-            let code_unit = read_as<u16>!(me.ptr + (i * 2uaddr))
+            let code_unit = read_as!<u16>(me.ptr + (i * 2uaddr))
             list.push(letter16(codepoint: code_unit))
             i = i + 1uaddr
         }
@@ -287,50 +279,50 @@ routine cwstr.to_text16(me: cwstr) -> Text<letter16> {
     }
 }
 
-# Convert cwstr to Text<letter32> (decodes UTF-16 surrogate pairs to codepoints)
+# Convert cwstr to Text (decodes UTF-16 surrogate pairs to codepoints)
 # Handles surrogate pairs correctly for supplementary characters
-routine cwstr.to_text32(me: cwstr) -> Text<letter32> {
+routine cwstr.to_text(me: cwstr) -> Text {
     danger! {
         let len = me.length()
         if len == 0uaddr {
-            return Text<letter32>()
+            return Text()
         }
 
-        let list = List<letter32>()
+        let list = List<letter>()
         var i: uaddr = 0uaddr
         loop {
             if i >= len {
                 break
             }
-            let high = read_as<u16>!(me.ptr + (i * 2uaddr))
+            let high = read_as!<u16>(me.ptr + (i * 2uaddr))
 
             # Check for high surrogate (U+D800 to U+DBFF)
             if high >= 0xD800u16 and high <= 0xDBFFu16 and i + 1uaddr < len {
-                let low = read_as<u16>!(me.ptr + ((i + 1uaddr) * 2uaddr))
+                let low = read_as!<u16>(me.ptr + ((i + 1uaddr) * 2uaddr))
                 # Check for low surrogate (U+DC00 to U+DFFF)
                 if low >= 0xDC00u16 and low <= 0xDFFFu16 {
                     # Valid surrogate pair - decode to codepoint
                     let high_bits = (u32(high) - 0xD800u32) << 10u32
                     let low_bits = u32(low) - 0xDC00u32
                     let codepoint = high_bits | low_bits + 0x10000u32
-                    list.push(letter32(codepoint: codepoint))
+                    list.push(letter(codepoint: codepoint))
                     i = i + 2uaddr
                 } else {
                     # Invalid low surrogate - use replacement character
-                    list.push(letter32(codepoint: 0xFFFDu32))
+                    list.push(letter(codepoint: 0xFFFDu32))
                     i = i + 1uaddr
                 }
             } else if high >= 0xDC00u16 and high <= 0xDFFFu16 {
                 # Orphan low surrogate - use replacement character
-                list.push(letter32(codepoint: 0xFFFDu32))
+                list.push(letter(codepoint: 0xFFFDu32))
                 i = i + 1uaddr
             } else {
                 # BMP character (not a surrogate)
-                list.push(letter32(codepoint: u32(high)))
+                list.push(letter(codepoint: u32(high)))
                 i = i + 1uaddr
             }
         }
-        return Text<letter32>(from_list: list)
+        return Text(from_list: list)
     }
 }
 
@@ -345,7 +337,7 @@ routine cwstr.to_units(me: cwstr) -> List<u16> {
             if i >= len {
                 break
             }
-            let code_unit = read_as<u16>!(me.ptr + (i * 2uaddr))
+            let code_unit = read_as!<u16>(me.ptr + (i * 2uaddr))
             list.push(code_unit)
             i = i + 1uaddr
         }

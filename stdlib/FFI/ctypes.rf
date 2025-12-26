@@ -22,10 +22,10 @@ preset cnullptr: uaddr = 0uaddr
 # ============================================================================
 
 # Wide character (platform-dependent)
-@config(target="windows")
+@config(target: "windows")
 define cwchar as u16
 
-@config(target="unix")
+@config(target: "unix")
 define cwchar as u32
 
 # ============================================================================
@@ -37,16 +37,16 @@ define cint as s32
 define cuint as u32
 
 # long types (32-bit Windows, 64-bit Unix)
-@config(target="windows")
+@config(target: "windows")
 define clong as s32
 
-@config(target="windows")
+@config(target: "windows")
 define culong as u32
 
-@config(target="unix")
+@config(target: "unix")
 define clong as s64
 
-@config(target="unix")
+@config(target: "unix")
 define culong as u64
 
 # long long types (64-bit everywhere)
