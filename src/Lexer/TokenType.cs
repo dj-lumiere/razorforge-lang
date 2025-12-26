@@ -36,18 +36,15 @@ public enum TokenType
     /// <summary>Mutant declaration keyword (untagged union)</summary>
     Mutant,
 
-    /// <summary>Single 8-bit character literal with explicit prefix (l8'a')</summary>
-    Letter8Literal,
-
-    /// <summary>Single 16-bit character literal with explicit prefix (l16'a')</summary>
-    Letter16Literal,
+    /// <summary> Byte letter literal with prefix (b'a') </summary>
+    ByteLetterLiteral,
 
     /// <summary>Single character literal - default for plain quotes ('a', '\n')</summary>
     LetterLiteral,
 
     #endregion
 
-    #region String Literals
+    #region Text Literals
 
     // Basic 32-bit texts (default)
     /// <summary>Text literal - default for plain quotes ("hello world")</summary>
@@ -61,34 +58,6 @@ public enum TokenType
 
     /// <summary>Raw formatted text combining raw and interpolation (rf"path: {dir}\file")</summary>
     RawFormattedText,
-
-    // Explicit width text literals
-    /// <summary>8-bit text literal with explicit prefix (t8"hello")</summary>
-    Text8Literal,
-
-    /// <summary>8-bit raw text literal with explicit prefix (t8r"C:\path")</summary>
-    Text8RawText,
-
-    /// <summary>8-bit formatted text literal with explicit prefix (t8f"value: {x}")</summary>
-    Text8FormattedText,
-
-    /// <summary>8-bit raw formatted text literal with explicit prefix (t8rf"dir: {path}\file")</summary>
-    Text8RawFormattedText,
-
-    /// <summary>16-bit text literal with explicit prefix (t16"hello")</summary>
-    Text16Literal,
-
-    /// <summary>16-bit raw text literal with explicit prefix (t16r"C:\path")</summary>
-    Text16RawText,
-
-    /// <summary>16-bit formatted text literal with explicit prefix (t16f"value: {x}")</summary>
-    Text16FormattedText,
-
-    /// <summary>16-bit raw formatted text literal with explicit prefix (t16rf"dir: {path}\file")</summary>
-    Text16RawFormattedText,
-
-    /// <summary> Byte letter literal with prefix (b'a') </summary>
-    ByteLetterLiteral,
 
     /// <summary>Bytes literal with explicit prefix (b"hello")</summary>
     BytesLiteral,
@@ -181,12 +150,6 @@ public enum TokenType
     /// <summary>Kibibyte memory size literal using binary (1024 bytes) (8kib)</summary>
     KibibyteLiteral,
 
-    /// <summary>Kilobit memory size literal using decimal (1000 bits) (8kbit)</summary>
-    KilobitLiteral,
-
-    /// <summary>Kibibit memory size literal using binary (1024 bits) (8kibit)</summary>
-    KibibitLiteral,
-
     // Megabyte variants
     /// <summary>Megabyte memory size literal using decimal (1000² bytes) (100mb)</summary>
     MegabyteLiteral,
@@ -194,50 +157,12 @@ public enum TokenType
     /// <summary>Mebibyte memory size literal using binary (1024² bytes) (100mib)</summary>
     MebibyteLiteral,
 
-    /// <summary>Megabit memory size literal using decimal (1000² bits) (100mbit)</summary>
-    MegabitLiteral,
-
-    /// <summary>Mebibit memory size literal using binary (1024² bits) (100mibit)</summary>
-    MebibitLiteral,
-
     // Gigabyte variants
     /// <summary>Gigabyte memory size literal using decimal (1000³ bytes) (4gb)</summary>
     GigabyteLiteral,
 
     /// <summary>Gibibyte memory size literal using binary (1024³ bytes) (4gib)</summary>
     GibibyteLiteral,
-
-    /// <summary>Gigabit memory size literal using decimal (1000³ bits) (4gbit)</summary>
-    GigabitLiteral,
-
-    /// <summary>Gibibit memory size literal using binary (1024³ bits) (4gibit)</summary>
-    GibibitLiteral,
-
-    // Terabyte variants
-    /// <summary>Terabyte memory size literal using decimal (1000⁴ bytes) (1tb)</summary>
-    TerabyteLiteral,
-
-    /// <summary>Tebibyte memory size literal using binary (1024⁴ bytes) (1tib)</summary>
-    TebibyteLiteral,
-
-    /// <summary>Terabit memory size literal using decimal (1000⁴ bits) (1tbit)</summary>
-    TerabitLiteral,
-
-    /// <summary>Tebibit memory size literal using binary (1024⁴ bits) (1tibit)</summary>
-    TebibitLiteral,
-
-    // Petabyte variants
-    /// <summary>Petabyte memory size literal using decimal (1000⁵ bytes) (5pb)</summary>
-    PetabyteLiteral,
-
-    /// <summary>Pebibyte memory size literal using binary (1024⁵ bytes) (5pib)</summary>
-    PebibyteLiteral,
-
-    /// <summary>Petabit memory size literal using decimal (1000⁵ bits) (5pbit)</summary>
-    PetabitLiteral,
-
-    /// <summary>Pebibit memory size literal using binary (1024⁵ bits) (5pibit)</summary>
-    PebibitLiteral,
 
     #endregion
 

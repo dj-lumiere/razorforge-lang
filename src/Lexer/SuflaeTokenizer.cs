@@ -212,24 +212,10 @@ public partial class SuflaeTokenizer
         [key: "b"] = TokenType.ByteLiteral,
         [key: "kb"] = TokenType.KilobyteLiteral,
         [key: "kib"] = TokenType.KibibyteLiteral,
-        [key: "kbit"] = TokenType.KilobitLiteral,
-        [key: "kibit"] = TokenType.KibibitLiteral,
         [key: "mb"] = TokenType.MegabyteLiteral,
         [key: "mib"] = TokenType.MebibyteLiteral,
-        [key: "mbit"] = TokenType.MegabitLiteral,
-        [key: "mibit"] = TokenType.MebibitLiteral,
         [key: "gb"] = TokenType.GigabyteLiteral,
         [key: "gib"] = TokenType.GibibyteLiteral,
-        [key: "gbit"] = TokenType.GigabitLiteral,
-        [key: "gibit"] = TokenType.GibibitLiteral,
-        [key: "tb"] = TokenType.TerabyteLiteral,
-        [key: "tib"] = TokenType.TebibyteLiteral,
-        [key: "tbit"] = TokenType.TerabitLiteral,
-        [key: "tibit"] = TokenType.TebibitLiteral,
-        [key: "pb"] = TokenType.PetabyteLiteral,
-        [key: "pib"] = TokenType.PebibyteLiteral,
-        [key: "pbit"] = TokenType.PetabitLiteral,
-        [key: "pibit"] = TokenType.PebibitLiteral
     };
 
     /// <summary>

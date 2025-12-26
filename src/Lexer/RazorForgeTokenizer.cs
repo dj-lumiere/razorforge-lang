@@ -15,8 +15,8 @@ using Compilers.Shared.Lexer;
 /// <list type="bullet">
 ///   <item><description>Keywords and identifiers (snake_case vs PascalCase detection)</description></item>
 ///   <item><description>Numeric literals with type suffixes (s32, u64, f32, etc.)</description></item>
-///   <item><description>Text literals with prefixes (r"raw", f"formatted", t8"utf8", t16"utf16")</description></item>
-///   <item><description>Character literals with bit-width prefixes (letter8, letter16, letter32)</description></item>
+///   <item><description>Text literals with prefixes (r"raw", f"formatted", b"bytes")</description></item>
+///   <item><description>Character literals: 'x' (letter, 32-bit) and b'x' (byte, 8-bit)</description></item>
 ///   <item><description>Overflow operators (+%, -^, *?, etc.)</description></item>
 ///   <item><description>Memory size literals (1kb, 2mib, etc.)</description></item>
 ///   <item><description>Duration literals (1s, 500ms, 2h, etc.)</description></item>
@@ -231,32 +231,19 @@ public partial class RazorForgeTokenizer
     /// Maps memory size suffixes to their corresponding token types.
     /// </summary>
     /// <remarks>
-    /// Supports both SI units (kb, mb, gb, tb, pb) and binary units (kib, mib, gib, tib, pib),
-    /// as well as bit-based units (kbit, mbit, etc.).
+    /// Supports byte (b), SI units (kb, mb, gb), and binary units (kib, mib, gib).
+    /// Larger sizes (tb/tib, pb/pib) and bit units are not supported as literals;
+    /// use constructors like Memory.terabytes(n) instead.
     /// </remarks>
     private readonly Dictionary<string, TokenType> _memorySuffixToTokenType = new()
     {
         [key: "b"] = TokenType.ByteLiteral,
         [key: "kb"] = TokenType.KilobyteLiteral,
         [key: "kib"] = TokenType.KibibyteLiteral,
-        [key: "kbit"] = TokenType.KilobitLiteral,
-        [key: "kibit"] = TokenType.KibibitLiteral,
         [key: "mb"] = TokenType.MegabyteLiteral,
         [key: "mib"] = TokenType.MebibyteLiteral,
-        [key: "mbit"] = TokenType.MegabitLiteral,
-        [key: "mibit"] = TokenType.MebibitLiteral,
         [key: "gb"] = TokenType.GigabyteLiteral,
         [key: "gib"] = TokenType.GibibyteLiteral,
-        [key: "gbit"] = TokenType.GigabitLiteral,
-        [key: "gibit"] = TokenType.GibibitLiteral,
-        [key: "tb"] = TokenType.TerabyteLiteral,
-        [key: "tib"] = TokenType.TebibyteLiteral,
-        [key: "tbit"] = TokenType.TerabitLiteral,
-        [key: "tibit"] = TokenType.TebibitLiteral,
-        [key: "pb"] = TokenType.PetabyteLiteral,
-        [key: "pib"] = TokenType.PebibyteLiteral,
-        [key: "pbit"] = TokenType.PetabitLiteral,
-        [key: "pibit"] = TokenType.PebibitLiteral
     };
 
     /// <summary>
@@ -287,9 +274,10 @@ public partial class RazorForgeTokenizer
     ///   <item><description>r - Raw text (no escape processing)</description></item>
     ///   <item><description>f - Formatted text (interpolation)</description></item>
     ///   <item><description>rf - Raw formatted text</description></item>
-    ///   <item><description>t8 - UTF-8 text</description></item>
-    ///   <item><description>t16 - UTF-16 text</description></item>
-    ///   <item><description>Combinations: t8r, t8f, t8rf, t16r, t16f, t16rf</description></item>
+    ///   <item><description>b - Bytes literal (UTF-8)</description></item>
+    ///   <item><description>br - Raw bytes literal</description></item>
+    ///   <item><description>bf - Formatted bytes literal</description></item>
+    ///   <item><description>brf - Raw formatted bytes literal</description></item>
     /// </list>
     /// </remarks>
     private readonly Dictionary<string, TokenType> _textPrefixToTokenType = new()
@@ -297,14 +285,10 @@ public partial class RazorForgeTokenizer
         [key: "r"] = TokenType.RawText,
         [key: "f"] = TokenType.FormattedText,
         [key: "rf"] = TokenType.RawFormattedText,
-        [key: "t8"] = TokenType.Text8Literal,
-        [key: "t8r"] = TokenType.Text8RawText,
-        [key: "t8f"] = TokenType.Text8FormattedText,
-        [key: "t8rf"] = TokenType.Text8RawFormattedText,
-        [key: "t16"] = TokenType.Text16Literal,
-        [key: "t16r"] = TokenType.Text16RawText,
-        [key: "t16f"] = TokenType.Text16FormattedText,
-        [key: "t16rf"] = TokenType.Text16RawFormattedText
+        [key: "b"] = TokenType.BytesLiteral,
+        [key: "br"] = TokenType.BytesRawLiteral,
+        [key: "bf"] = TokenType.BytesFormatted,
+        [key: "brf"] = TokenType.BytesRawFormatted
     };
 
     /// <summary>
@@ -316,7 +300,7 @@ public partial class RazorForgeTokenizer
     /// </remarks>
     private readonly List<string> _textPrefixes =
     [
-        "r", "f", "rf", "t8", "t8r", "t8f", "t8rf", "t16", "t16r", "t16f", "t16rf"
+        "r", "f", "rf", "b", "br", "bf", "brf"
     ];
 
     #endregion

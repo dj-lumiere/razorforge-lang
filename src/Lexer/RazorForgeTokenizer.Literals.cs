@@ -9,42 +9,42 @@ using Compilers.Shared.Lexer;
 /// <para>
 /// This file handles all text-based literal scanning including:
 /// <list type="bullet">
-///   <item><description>Basic string literals ("hello")</description></item>
-///   <item><description>Prefixed strings (r"raw", f"formatted", t8"utf8", t16"utf16")</description></item>
-///   <item><description>Character literals ('a' - 32-bit UTF-32 by default, emits LetterLiteral)</description></item>
-///   <item><description>Prefixed character literals (l8'x' - 8-bit, l16'y' - 16-bit)</description></item>
-///   <item><description>Escape sequence processing (\n, \t, \uXXXX, etc.)</description></item>
+///   <item><description>Basic string literals ("hello") - Text (UTF-32)</description></item>
+///   <item><description>Prefixed strings (r"raw", f"formatted", b"bytes")</description></item>
+///   <item><description>Character literals ('a' - letter, 32-bit UTF-32)</description></item>
+///   <item><description>Byte character literals (b'x' - byte, 8-bit)</description></item>
+///   <item><description>Escape sequence processing (\n, \t, \uXXXXXXXX, etc.)</description></item>
 /// </list>
 /// </para>
 /// </remarks>
 public partial class RazorForgeTokenizer
 {
-    #region String Literals
+    #region Text Literals
 
     /// <summary>
-    /// Scans a basic string literal (without prefix).
+    /// Scans a basic text literal (without prefix).
     /// </summary>
     /// <remarks>
     /// <para>
-    /// In RazorForge, unprefixed strings are treated as UTF-8 text (Text8).
+    /// In RazorForge, unprefixed texts are Text (UTF-32, 32-bit characters).
     /// The opening quote has already been consumed when this method is called.
     /// </para>
     /// <para>
-    /// Escape sequences are processed by default. For raw strings without
+    /// Escape sequences are processed by default. For raw texts without
     /// escape processing, use the r"..." prefix.
     /// </para>
     /// </remarks>
-    /// <exception cref="LexerException">Thrown when the string is unterminated.</exception>
+    /// <exception cref="LexerException">Thrown when the text is unterminated.</exception>
     private void ScanString()
     {
         ScanTextLiteral(isRaw: false,
             isFormatted: false,
-            tokenType: TokenType.Text8Literal,
-            bitWidth: 8);
+            tokenType: TokenType.TextLiteral,
+            bitWidth: 32);
     }
 
     /// <summary>
-    /// Attempts to parse a text prefix (r, f, t8, t16, etc.) followed by a quoted string.
+    /// Attempts to parse a text prefix (r, f, b, br, bf, brf) followed by a quoted string.
     /// </summary>
     /// <returns>
     /// <c>true</c> if a valid text prefix was found and the string was processed;
@@ -53,7 +53,7 @@ public partial class RazorForgeTokenizer
     /// <remarks>
     /// <para>
     /// This method uses greedy matching to find the longest valid prefix.
-    /// For example, "t16rf" would match before "t16r" or "t16".
+    /// For example, "brf" would match before "br" or "b".
     /// </para>
     /// <para>
     /// If a valid prefix is found but not followed by a quote, the method
@@ -65,8 +65,10 @@ public partial class RazorForgeTokenizer
     /// <list type="bullet">
     ///   <item><description>r - Raw (no escape processing)</description></item>
     ///   <item><description>f - Formatted (string interpolation)</description></item>
-    ///   <item><description>t8 - UTF-8 encoding</description></item>
-    ///   <item><description>t16 - UTF-16 encoding</description></item>
+    ///   <item><description>b - Bytes (UTF-8, 8-bit)</description></item>
+    ///   <item><description>br - Raw bytes</description></item>
+    ///   <item><description>bf - Formatted bytes</description></item>
+    ///   <item><description>brf - Raw formatted bytes</description></item>
     /// </list>
     /// </para>
     /// </remarks>
@@ -115,16 +117,8 @@ public partial class RazorForgeTokenizer
         bool isRaw = prefix.Contains(value: 'r');
         bool isFormatted = prefix.Contains(value: 'f');
 
-        // Determine bit width from prefix
-        int bitWidth = 32; // default
-        if (prefix.Contains(value: "t8"))
-        {
-            bitWidth = 8;
-        }
-        else if (prefix.Contains(value: "t16"))
-        {
-            bitWidth = 16;
-        }
+        // Determine bit width from prefix: b prefix means 8-bit (Bytes), otherwise 32-bit (Text)
+        int bitWidth = prefix.Contains(value: 'b') ? 8 : 32;
 
         ScanTextLiteral(isRaw: isRaw,
             isFormatted: isFormatted,
@@ -236,24 +230,23 @@ public partial class RazorForgeTokenizer
     }
 
     /// <summary>
-    /// Attempts to parse a letter prefix (l8, l16) followed by a character literal.
+    /// Attempts to parse a byte character prefix (b) followed by a character literal.
     /// </summary>
     /// <returns>
-    /// <c>true</c> if a valid letter prefix was found and the character was processed;
+    /// <c>true</c> if a valid byte prefix was found and the character was processed;
     /// <c>false</c> if no valid prefix was found (position is restored).
     /// </returns>
     /// <remarks>
     /// <para>
-    /// Letter prefixes specify the bit width of the character:
+    /// Character types:
     /// <list type="bullet">
-    ///   <item><description>l8'x' - 8-bit character (ASCII/Latin-1)</description></item>
-    ///   <item><description>l16'x' - 16-bit character (BMP Unicode)</description></item>
-    ///   <item><description>'x' (no prefix) - 32-bit character (full Unicode, default)</description></item>
+    ///   <item><description>b'x' - 8-bit byte character</description></item>
+    ///   <item><description>'x' (no prefix) - 32-bit letter (full Unicode, default)</description></item>
     /// </list>
     /// </para>
     /// <para>
     /// The prefix affects the number of hex digits required for \u escapes:
-    /// l8 requires 2, l16 requires 4, unprefixed requires 8.
+    /// b requires 2 (\uXX), unprefixed requires 8 (\uXXXXXXXX).
     /// </para>
     /// </remarks>
     private bool TryParseLetterPrefix()
@@ -262,16 +255,15 @@ public partial class RazorForgeTokenizer
         int originalPos = _position;
         int originalCol = _column;
 
-        string prefix = _source[index: startPos]
-           .ToString();
+        char firstChar = _source[index: startPos];
 
-        // Build the complete prefix (l8 or l16)
-        while (!IsAtEnd() && char.IsLetterOrDigit(c: Peek()))
+        // Only 'b' prefix is valid for byte literals
+        if (firstChar != 'b')
         {
-            prefix += Advance();
+            return false;
         }
 
-        // Must be followed by a quote
+        // Must be followed by a single quote (not a double quote for string)
         if (Peek() != '\'')
         {
             _position = originalPos;
@@ -279,22 +271,9 @@ public partial class RazorForgeTokenizer
             return false;
         }
 
-        switch (prefix)
-        {
-            case "l8":
-                Advance(); // consume opening quote
-                ScanCharLiteral(tokenType: TokenType.Letter8Literal, bitWidth: 8);
-                return true;
-            case "l16":
-                Advance();
-                ScanCharLiteral(tokenType: TokenType.Letter16Literal, bitWidth: 16);
-                return true;
-            default:
-                // No l32 - unprefixed 'x' is the 32-bit default
-                _position = originalPos;
-                _column = originalCol;
-                return false;
-        }
+        Advance(); // consume opening quote
+        ScanCharLiteral(tokenType: TokenType.ByteLetterLiteral, bitWidth: 8);
+        return true;
     }
 
     /// <summary>

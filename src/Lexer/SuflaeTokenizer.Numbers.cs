@@ -14,8 +14,8 @@ using Compilers.Shared.Lexer;
 ///   <item><description>Integers: s32, s64, s128, saddr, u32, u64, u128, uaddr</description></item>
 ///   <item><description>Floats: f32, f64</description></item>
 ///   <item><description>Decimals: d128</description></item>
-///   <item><description>Memory sizes: b, kb, mb, gb, tb, pb (and binary variants)</description></item>
-///   <item><description>Durations: s, ms, us, ns, m, h, d, w</description></item>
+///   <item><description>Memory sizes: b, kb, kib, mb, mib, gb, gib</description></item>
+///   <item><description>Durations: w, d, h, m, s, ms, us, ns</description></item>
 /// </list>
 /// <para>
 /// The 8-bit and 16-bit types (s8, s16, u8, u16, f16) are not available in Suflae.
