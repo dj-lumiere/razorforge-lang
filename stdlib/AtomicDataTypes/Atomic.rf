@@ -1,0 +1,271 @@
+# RazorForge Atomic<T> - Lock-free atomic operations
+# Provides thread-safe atomic operations for simple types
+# Equivalent to std::atomic<T> in C++ or AtomicUsize/AtomicBool in Rust
+
+namespace core
+
+### Generic atomic wrapper for lock-free operations
+###
+### Supports atomic operations on primitive types (bool, integers, pointers)
+### All operations use sequentially consistent memory ordering
+###
+### Example:
+###   let counter = Atomic(0)
+###   counter.fetch_add(1)
+###   let value = counter.load()
+record Atomic<T> {
+    private value: T
+}
+
+### Create a new atomic with an initial value
+###
+### Args:
+###   initial: The initial value for the atomic
+###
+### Returns:
+###   A new Atomic<T> wrapping the initial value
+###
+### Example:
+###   let flag = Atomic(false)
+###   let counter = Atomic(0)
+routine Atomic<T>.__create__(initial: T) -> Atomic<T> {
+    return Atomic<T>(value: initial)
+}
+
+### Atomically load the current value
+###
+### Returns:
+###   The current value stored in the atomic
+###
+### Memory ordering: Sequentially consistent
+###
+### Example:
+###   let counter = Atomic(42)
+###   let current = counter.load()  # Returns 42
+routine Atomic<T>.load() -> T {
+    danger! {
+        # SAFETY: Atomic load with seq_cst ordering
+        # Ensures proper synchronization across threads
+        return @intrinsic.atomic.load<T>(me.value.get_address())
+    }
+}
+
+### Atomically store a new value
+###
+### Args:
+###   new_value: The value to store
+###
+### Memory ordering: Sequentially consistent
+###
+### Example:
+###   let flag = Atomic(false)
+###   flag.store(true)
+routine Atomic<T>.store(new_value: T) {
+    danger! {
+        # SAFETY: Atomic store with seq_cst ordering
+        # Ensures proper synchronization across threads
+        @intrinsic.atomic.store<T>(me.value.get_address(), new_value)
+    }
+}
+
+### Atomically swap the value
+###
+### Args:
+###   new_value: The value to swap in
+###
+### Returns:
+###   The previous value
+###
+### Memory ordering: Sequentially consistent
+###
+### Example:
+###   let counter = Atomic(10)
+###   let old = counter.swap(20)  # old = 10, counter now 20
+routine Atomic<T>.swap(new_value: T) -> T {
+    danger! {
+        # SAFETY: Atomic swap with seq_cst ordering
+        return @intrinsic.atomic.xchg<T>(me.value.get_address(), new_value)
+    }
+}
+
+### Compare-and-exchange operation (CAS)
+###
+### Compares the current value with expected.
+### If equal, stores desired and returns true.
+### If not equal, does nothing and returns false.
+###
+### Args:
+###   expected: The value we expect to find
+###   desired: The value to store if expectation is met
+###
+### Returns:
+###   true if the exchange happened, false otherwise
+###
+### Memory ordering: Sequentially consistent
+###
+### Example:
+###   let lock = Atomic(false)
+###   when lock.compare_exchange(expected: false, desired: true) {
+###       true => show("Lock acquired"),
+###       false => show("Lock was already held")
+###   }
+routine Atomic<T>.compare_exchange(expected: T, desired: T) -> bool {
+    danger! {
+        # SAFETY: Atomic compare-exchange with seq_cst ordering
+        # Returns true if successful, false otherwise
+        return @intrinsic.atomic.cmpxchg<T>(
+            me.value.get_address(),
+            expected,
+            desired
+        )
+    }
+}
+
+### Atomically add to the value and return the old value
+###
+### Only available for numeric types (s8, s16, s32, s64, u8, u16, u32, u64)
+###
+### Args:
+###   delta: The amount to add
+###
+### Returns:
+###   The value before addition
+###
+### Memory ordering: Sequentially consistent
+###
+### Example:
+###   let counter = Atomic(10)
+###   let old = counter.fetch_add(5)  # old = 10, counter now 15
+routine Atomic<T>.fetch_add(delta: T) -> T
+requires T in [s8, s16, s32, s64, s128, u8, u16, u32, u64, u128, saddr, uaddr] {
+    danger! {
+        # SAFETY: Atomic fetch-add with seq_cst ordering
+        # Hardware guarantees atomicity for supported integer types
+        return @intrinsic.atomic.add<T>(me.value.get_address(), delta)
+    }
+}
+
+### Atomically subtract from the value and return the old value
+###
+### Only available for numeric types (s8, s16, s32, s64, u8, u16, u32, u64)
+###
+### Args:
+###   delta: The amount to subtract
+###
+### Returns:
+###   The value before subtraction
+###
+### Memory ordering: Sequentially consistent
+###
+### Example:
+###   let counter = Atomic(10)
+###   let old = counter.fetch_sub(3)  # old = 10, counter now 7
+routine Atomic<T>.fetch_sub(delta: T) -> T
+requires T in [s8, s16, s32, s64, s128, u8, u16, u32, u64, u128, saddr, uaddr] {
+    danger! {
+        # SAFETY: Atomic fetch-sub with seq_cst ordering
+        # Hardware guarantees atomicity for supported integer types
+        return @intrinsic.atomic.sub<T>(me.value.get_address(), delta)
+    }
+}
+
+### Atomically perform bitwise AND and return the old value
+###
+### Only available for integer types
+###
+### Args:
+###   mask: The bitmask to AND with
+###
+### Returns:
+###   The value before the AND operation
+###
+### Memory ordering: Sequentially consistent
+###
+### Example:
+###   let flags = Atomic(0b1111u8)
+###   let old = flags.fetch_and(0b1100u8)  # old = 0b1111, flags now 0b1100
+routine Atomic<T>.fetch_and(mask: T) -> T
+requires T in [s8, s16, s32, s64, s128, u8, u16, u32, u64, u128, saddr, uaddr] {
+    danger! {
+        # SAFETY: Atomic fetch-and with seq_cst ordering
+        return @intrinsic.atomic.and<T>(me.value.get_address(), mask)
+    }
+}
+
+### Atomically perform bitwise OR and return the old value
+###
+### Only available for integer types
+###
+### Args:
+###   mask: The bitmask to OR with
+###
+### Returns:
+###   The value before the OR operation
+###
+### Memory ordering: Sequentially consistent
+###
+### Example:
+###   let flags = Atomic(0b0011u8)
+###   let old = flags.fetch_or(0b1100u8)  # old = 0b0011, flags now 0b1111
+routine Atomic<T>.fetch_or(mask: T) -> T
+requires T in [s8, s16, s32, s64, s128, u8, u16, u32, u64, u128, saddr, uaddr] {
+    danger! {
+        # SAFETY: Atomic fetch-or with seq_cst ordering
+        return @intrinsic.atomic.or<T>(me.value.get_address(), mask)
+    }
+}
+
+### Atomically perform bitwise XOR and return the old value
+###
+### Only available for integer types
+###
+### Args:
+###   mask: The bitmask to XOR with
+###
+### Returns:
+###   The value before the XOR operation
+###
+### Memory ordering: Sequentially consistent
+###
+### Example:
+###   let flags = Atomic(0b0011u8)
+###   let old = flags.fetch_xor(0b1100u8)  # old = 0b0011, flags now 0b1111
+routine Atomic<T>.fetch_xor(mask: T) -> T
+requires T in [s8, s16, s32, s64, s128, u8, u16, u32, u64, u128, saddr, uaddr] {
+    danger! {
+        # SAFETY: Atomic fetch-xor with seq_cst ordering
+        return @intrinsic.atomic.xor<T>(me.value.get_address(), mask)
+    }
+}
+
+### Atomically increment the value and return the old value
+###
+### Convenience method equivalent to fetch_add(1)
+### Only available for numeric types
+###
+### Returns:
+###   The value before incrementing
+###
+### Example:
+###   let counter = Atomic(5)
+###   let old = counter.fetch_inc()  # old = 5, counter now 6
+routine Atomic<T>.fetch_inc() -> T
+requires T in [s8, s16, s32, s64, s128, u8, u16, u32, u64, u128, saddr, uaddr] {
+    return me.fetch_add(1)
+}
+
+### Atomically decrement the value and return the old value
+###
+### Convenience method equivalent to fetch_sub(1)
+### Only available for numeric types
+###
+### Returns:
+###   The value before decrementing
+###
+### Example:
+###   let counter = Atomic(5)
+###   let old = counter.fetch_dec()  # old = 5, counter now 4
+routine Atomic<T>.fetch_dec() -> T
+requires T in [s8, s16, s32, s64, s128, u8, u16, u32, u64, u128, saddr, uaddr] {
+    return me.fetch_sub(1)
+}
