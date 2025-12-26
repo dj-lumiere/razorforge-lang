@@ -2,5 +2,5 @@ namespace core
 
 record Lookup<T> {
     private state: DataState
-    private handle: DataHandle
+    private handle: Snatched<T>
 }

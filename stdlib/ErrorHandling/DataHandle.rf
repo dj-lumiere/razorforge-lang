@@ -1,9 +1,0 @@
-namespace core
-
-record DataHandle {
-    private value: uaddr
-}
-
-public routine DataHandle.unwrap<T>() {
-    return Snatched<T>(me.value).read_as<T>()
-}
