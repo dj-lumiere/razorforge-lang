@@ -2,6 +2,6 @@
 record DivisionByZeroError follows Crashable {
 }
 
-routine DivisionByZeroError.crash_message() -> Text<letter32> {
+routine DivisionByZeroError.crash_message() -> Text {
     return "You tried to divide by zero, which is not allowed."
 }

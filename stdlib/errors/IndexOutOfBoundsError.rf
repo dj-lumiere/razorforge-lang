@@ -8,21 +8,21 @@ record IndexOutOfBoundsError follows Crashable {
     public count: u64
 }
 
-routine IndexOutOfBoundsError.crash_message() -> Text<letter32> {
+routine IndexOutOfBoundsError.crash_message() -> Text {
     return f"Index {me.index} is out of bounds for collection with {me.count} elements"
 }
 
 record EmptyCollectionError follows Crashable {
-    public operation: Text<letter32>
+    public operation: Text
 }
 
-routine EmptyCollectionError.crash_message() -> Text<letter32> {
+routine EmptyCollectionError.crash_message() -> Text {
     return f"Cannot {me.operation} on empty collection"
 }
 
 record ElementNotFoundError follows Crashable {
 }
 
-routine ElementNotFoundError.crash_message() -> Text<letter32> {
+routine ElementNotFoundError.crash_message() -> Text {
     return "No matching element found"
 }

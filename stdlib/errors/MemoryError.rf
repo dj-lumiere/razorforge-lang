@@ -4,7 +4,7 @@ record MemoryAllocationError follows Crashable {
     public requested_bytes: uaddr
 }
 
-routine MemoryAllocationError.crash_message() -> Text<letter32> {
+routine MemoryAllocationError.crash_message() -> Text {
     return f"Failed to allocate {me.requested_bytes} bytes"
 }
 
@@ -14,7 +14,7 @@ record MemoryBoundsError follows Crashable {
     public allocated: uaddr
 }
 
-routine MemoryBoundsError.crash_message() -> Text<letter32> {
+routine MemoryBoundsError.crash_message() -> Text {
     return f"Memory access at offset {me.offset} with size {me.size} exceeds allocated {me.allocated} bytes"
 }
 
@@ -24,6 +24,6 @@ record SliceBoundsError follows Crashable {
     public allocated: uaddr
 }
 
-routine SliceBoundsError.crash_message() -> Text<letter32> {
+routine SliceBoundsError.crash_message() -> Text {
     return f"Slice from {me.offset} with length {me.length} exceeds allocated {me.allocated} bytes"
 }

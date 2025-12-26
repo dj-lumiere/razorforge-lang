@@ -4,6 +4,6 @@
 record IntegerOverflowError follows Crashable {
 }
 
-routine IntegerOverflowError.crash_message(message: Text<letter32>) -> Text<letter32> {
+routine IntegerOverflowError.crash_message(message: Text) -> Text {
     return message
 }

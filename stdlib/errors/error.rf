@@ -11,7 +11,7 @@ import errors/stacktrace
 record RuntimeError follows Crashable {
 }
 
-routine RuntimeError.crash_message() -> Text<letter32> {
+routine RuntimeError.crash_message() -> Text {
     # Dereference the message pointer to get the string
     # This is handled by compiler intrinsic
     return @intrinsic.ptr_to_text(me.message_handle.ptr)

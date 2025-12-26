@@ -7,7 +7,7 @@
 record AbsentValueError follows Crashable {
 }
 
-routine AbsentValueError.crash_message() -> Text<letter32> {
+routine AbsentValueError.crash_message() -> Text {
     return @intrinsic.ptr_to_text(me.message_handle.ptr)
 }
 
@@ -15,7 +15,7 @@ routine AbsentValueError.crash_message() -> Text<letter32> {
 record UserTerminationError follows Crashable {
 }
 
-routine UserTerminationError.crash_message() -> Text<letter32> {
+routine UserTerminationError.crash_message() -> Text {
     return @intrinsic.ptr_to_text(me.message_handle.ptr)
 }
 
@@ -23,7 +23,7 @@ routine UserTerminationError.crash_message() -> Text<letter32> {
 record VerificationFailedError follows Crashable {
 }
 
-routine VerificationFailedError.crash_message() -> Text<letter32> {
+routine VerificationFailedError.crash_message() -> Text {
     return @intrinsic.ptr_to_text(me.message_handle.ptr)
 }
 
@@ -31,6 +31,6 @@ routine VerificationFailedError.crash_message() -> Text<letter32> {
 record LogicBreachedError follows Crashable {
 }
 
-routine LogicBreachedError.crash_message() -> Text<letter32> {
+routine LogicBreachedError.crash_message() -> Text {
     return @intrinsic.ptr_to_text(me.message_handle.ptr)
 }

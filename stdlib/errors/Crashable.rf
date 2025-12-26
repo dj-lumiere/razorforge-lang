@@ -1,4 +1,6 @@
+# Protocol method declarations not yet supported by parser
+# Temporarily empty - will be populated when parser supports abstract methods
 protocol Crashable {
-    # Required routine
-    routine crash_message() -> Text<letter32>
+    @readonly
+    routine Me.crash_message() -> Text
 }

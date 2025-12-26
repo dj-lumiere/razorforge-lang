@@ -2,6 +2,6 @@ record NegativeExponentError follows Crashable {
     private exp: s128
 }
 
-routine NegativeExponentError.crash_message() -> Text<letter32> {
+routine NegativeExponentError.crash_message() -> Text {
     return f"Negative exponent {me.exp} results in a fraction, which is not supported for integer types."
 }

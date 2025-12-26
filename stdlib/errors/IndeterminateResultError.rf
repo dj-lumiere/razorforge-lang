@@ -2,6 +2,6 @@ record IndeterminateResultError follows Crashable {
     # No fields needed, as this error only has one cause (0**0)
 }
 
-routine IndeterminateResultError.crash_message() -> Text<letter32> {
+routine IndeterminateResultError.crash_message() -> Text {
     return "Indeterminate form encountered: 0 ** 0 is undefined for integer arithmetic."
 }
