@@ -1,9 +1,0 @@
-# Test @native call syntax
-
-routine start() {
-    danger! {
-        let ptr = @native.malloc(1024)
-        @native.free(ptr)
-    }
-    return 0
-}

@@ -1,8 +1,0 @@
-# Test file for import system
-
-import Test/SimpleModule
-
-routine start() {
-    let result: s32 = add(10, 20)
-    return result
-}

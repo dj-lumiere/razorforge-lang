@@ -1,9 +1,0 @@
-# Test file for external function calls via module system
-import Console from "stdlib/Console"
-
-routine start() {
-    Console.show_line("Enter your name:")
-    let name = Console.get_line()
-    Console.show("Hello, ")
-    Console.show_line(name)
-}

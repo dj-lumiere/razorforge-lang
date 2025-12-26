@@ -1,6 +1,0 @@
-routine test(capacity: u64, new_capacity: u64) {
-    if new_capacity <= capacity then {
-        return
-    }
-    let x = 42
-}

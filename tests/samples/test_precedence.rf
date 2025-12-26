@@ -1,9 +1,0 @@
-# Test operator precedence
-routine test() -> i32 {
-    let a = 2 + 3 * 4      # Should be 2 + (3 * 4) = 14
-    let b = 2 ** 3 * 4     # Should be (2 ** 3) * 4 = 32
-    let c = 1 + 2 < 5 and 6 > 3  # Should be ((1 + 2) < 5) and (6 > 3) = true
-    let d = arr[0] + 5     # Should be (arr[0]) + 5
-    let e = -x * 2         # Should be (-x) * 2
-    return a
-}

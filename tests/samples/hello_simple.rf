@@ -1,3 +1,0 @@
-routine start() {
-    return 42
-}

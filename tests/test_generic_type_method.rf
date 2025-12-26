@@ -1,3 +1,0 @@
-routine List<T>.select<U>(me: List<T>, mapper: s32) -> List<U> {
-    let x = 42
-}

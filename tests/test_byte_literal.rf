@@ -1,5 +1,0 @@
-routine test() -> s32 {
-    let size = 0b  # 0 bytes
-    let binary = 0b1010  # binary 10
-    return 0
-}

@@ -1,3 +1,0 @@
-routine Console.show<T>(value: T) {
-    let x = 42
-}
