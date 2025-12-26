@@ -1,4 +1,4 @@
-# RazorForge letter8 - UTF-8 code unit
+# RazorForge byte - UTF-8 code unit
 #
 # Represents a single byte in UTF-8 encoded text.
 # In UTF-8, characters are encoded as 1-4 bytes:
@@ -7,69 +7,69 @@
 # - Most CJK: 3 bytes
 # - Emoji and rare characters: 4 bytes
 #
-# For character-level operations, use letter32 (Unicode codepoint).
-# letter8 is primarily for UTF-8 I/O and storage.
+# For character-level operations, use letter (Unicode codepoint).
+# byte is primarily for UTF-8 I/O and storage.
 #
 # For legacy encodings (Latin-1, etc.), use List<u8> instead.
 namespace core
-import Text/LetterType
-import core/Integral
+import Text/Letter
 
-record letter8 follows LetterType {
+
+record byte {
     private value: u8
 }
 
 # UTF-8 constants
-preset LETTER8_NULL: letter8 = letter8(value: 0x00)
-preset LETTER8_SPACE: letter8 = letter8(value: 0x20)
-preset LETTER8_NEWLINE: letter8 = letter8(value: 0x0A)
-preset LETTER8_TAB: letter8 = letter8(value: 0x09)
+preset byte_NULL: byte = byte(value: 0x00)
+preset byte_SPACE: byte = byte(value: 0x20)
+preset byte_NEWLINE: byte = byte(value: 0x0A)
+preset byte_TAB: byte = byte(value: 0x09)
 
 # ============================================================================
-# LetterType trait implementation
+# Letter trait implementation
 # ============================================================================
 
-routine letter8.codepoint(me: letter8) -> u32 {
+routine byte.codepoint(me: byte) -> u32 {
     return u32(me.value)
 }
 
-routine letter8.is_valid(me: letter8) -> bool {
+routine byte.is_valid(me: byte) -> bool {
     # In UTF-8 context, check if this is a valid lead byte or continuation byte
     let v = me.value
     # Invalid: 0xC0, 0xC1 (overlong), 0xF5-0xFF (out of Unicode range)
     return v <= 0xF4 and v != 0xC0 and v != 0xC1
 }
 
-routine letter8.is_ascii(me: letter8) -> bool {
+routine byte.is_ascii(me: byte) -> bool {
     return me.value <= 0x7F
 }
 
-routine letter8.is_alphabetic(me: letter8) -> bool {
+routine byte.is_alphabetic(me: byte) -> bool {
     let v = me.value
     return (0x41u8 <= v <= 0x5Au8) or    # A-Z
            (0x61u8 <= v <= 0x7Au8)       # a-z
 }
 
-routine letter8.is_numeric(me: letter8) -> bool {
+routine byte.is_numeric(me: byte) -> bool {
     let v = me.value
     return 0x30u8 <= v <= 0x39u8  # 0-9
 }
 
-routine letter8.is_alphanumeric(me: letter8) -> bool {
+routine byte.is_alphanumeric(me: byte) -> bool {
     return me.is_alphabetic() or me.is_numeric()
 }
 
-routine letter8.is_uppercase(me: letter8) -> bool {
+routine byte.is_uppercase(me: byte) -> bool {
     let v = me.value
     return 0x41u8 <= v <= 0x5Au8  # A-Z
 }
 
-routine letter8.is_lowercase(me: letter8) -> bool {
+routine byte.is_lowercase(me: byte) -> bool {
     let v = me.value
     return 0x61u8 <= v <= 0x7Au8  # a-z
 }
 
-routine letter8.is_whitespace(me: letter8) -> bool {
+routine byte.is_whitespace(me: byte) -> bool {
     let v = me.value
     return v == 0x20 or    # Space
            v == 0x09 or    # Tab
@@ -78,21 +78,21 @@ routine letter8.is_whitespace(me: letter8) -> bool {
            v == 0x0C       # Form feed
 }
 
-routine letter8.is_control(me: letter8) -> bool {
+routine byte.is_control(me: byte) -> bool {
     let v = me.value
     return v <= 0x1F or v == 0x7F
 }
 
-routine letter8.to_uppercase(me: letter8) -> letter8 {
+routine byte.to_uppercase(me: byte) -> byte {
     if me.is_lowercase() {
-        return letter8(value: me.value - 32u8)
+        return byte(value: me.value - 32u8)
     }
     return me
 }
 
-routine letter8.to_lowercase(me: letter8) -> letter8 {
+routine byte.to_lowercase(me: byte) -> byte {
     if me.is_uppercase() {
-        return letter8(value: me.value + 32u8)
+        return byte(value: me.value + 32u8)
     }
     return me
 }
@@ -102,20 +102,20 @@ routine letter8.to_lowercase(me: letter8) -> letter8 {
 # ============================================================================
 
 # Check if this byte is a UTF-8 lead byte (starts a multi-byte sequence)
-routine letter8.is_lead_byte(me: letter8) -> bool {
+routine byte.is_lead_byte(me: byte) -> bool {
     let v = me.value
     return v < 0x80u8 or (0xC2u8 <= v <= 0xF4u8)
 }
 
 # Check if this byte is a UTF-8 continuation byte
-routine letter8.is_continuation_byte(me: letter8) -> bool {
+routine byte.is_continuation_byte(me: byte) -> bool {
     let v = me.value
     return (v & 0xC0) == 0x80  # 10xxxxxx pattern
 }
 
 # Get the number of bytes in the UTF-8 sequence starting with this byte
 # Returns 0 if this is not a valid lead byte
-routine letter8.sequence_length(me: letter8) -> u8 {
+routine byte.sequence_length(me: byte) -> u8 {
     let v = me.value
     when true {
         v < 0x80 => return 1u8,           # ASCII
@@ -131,27 +131,27 @@ routine letter8.sequence_length(me: letter8) -> u8 {
 # Comparison operations
 # ============================================================================
 
-routine letter8.__eq__(me: letter8, other: letter8) -> bool {
+routine byte.__eq__(me: byte, other: byte) -> bool {
     return me.value == other.value
 }
 
-routine letter8.__ne__(me: letter8, other: letter8) -> bool {
+routine byte.__ne__(me: byte, other: byte) -> bool {
     return me.value != other.value
 }
 
-routine letter8.__lt__(me: letter8, other: letter8) -> bool {
+routine byte.__lt__(me: byte, other: byte) -> bool {
     return me.value < other.value
 }
 
-routine letter8.__le__(me: letter8, other: letter8) -> bool {
+routine byte.__le__(me: byte, other: byte) -> bool {
     return me.value <= other.value
 }
 
-routine letter8.__gt__(me: letter8, other: letter8) -> bool {
+routine byte.__gt__(me: byte, other: byte) -> bool {
     return me.value > other.value
 }
 
-routine letter8.__ge__(me: letter8, other: letter8) -> bool {
+routine byte.__ge__(me: byte, other: byte) -> bool {
     return me.value >= other.value
 }
 
@@ -159,52 +159,52 @@ routine letter8.__ge__(me: letter8, other: letter8) -> bool {
 # Type conversions
 # ============================================================================
 
-routine letter8.to_u8(me: letter8) -> u8 {
+routine byte.to_u8(me: byte) -> u8 {
     return me.value
 }
 
-routine letter8.to_letter16(me: letter8) -> letter16 {
+routine byte.to_letter16(me: byte) -> letter16 {
     # Only valid for ASCII range
     return letter16(codepoint: u16(me.value))
 }
 
-routine letter8.to_letter32(me: letter8) -> letter32 {
+routine byte.to_letter(me: byte) -> letter {
     # Only valid for ASCII range - for multi-byte UTF-8, use Text conversion
-    return letter32(codepoint: u32(me.value))
+    return letter(codepoint: u32(me.value))
 }
 
 # ============================================================================
 # Utility methods
 # ============================================================================
 
-routine letter8.is_digit(me: letter8) -> bool {
+routine byte.is_digit(me: byte) -> bool {
     return me.is_numeric()
 }
 
-routine letter8.is_letter(me: letter8) -> bool {
+routine byte.is_letter(me: byte) -> bool {
     return me.is_alphabetic()
 }
 
-routine letter8.digit_value(me: letter8) -> s8 {
+routine byte.digit_value(me: byte) -> s8 {
     if me.is_numeric() {
         return s8(me.value - 0x30u8)
     }
     return -1s8
 }
 
-routine letter8.is_printable(me: letter8) -> bool {
+routine byte.is_printable(me: byte) -> bool {
     let v = me.value
     return 0x20u8 <= v <= 0x7Eu8
 }
 
-routine letter8.is_hex_digit(me: letter8) -> bool {
+routine byte.is_hex_digit(me: byte) -> bool {
     let v = me.value
     return (0x30u8 <= v <= 0x39u8) or    # 0-9
            (0x41u8 <= v <= 0x46u8) or    # A-F
            (0x61u8 <= v <= 0x66u8)       # a-f
 }
 
-routine letter8.hex_value(me: letter8) -> s8 {
+routine byte.hex_value(me: byte) -> s8 {
     let v = me.value
     when true {
         0x30u8 <= v <= 0x39u8 => return s8(v - 0x30u8),  # 0-9
@@ -218,7 +218,7 @@ routine letter8.hex_value(me: letter8) -> s8 {
 # Codepoint offset
 # ============================================================================
 
-routine letter8.offset!<I: Integral>(me: letter8, delta: I) -> letter8 {
+routine byte.offset!<I follows Integral>(me: byte, delta: I) -> byte {
     let new_value = saddr(me.value) + delta.to_saddr()
-    return letter8(value: u8(new_value))
+    return byte(value: u8(new_value))
 }

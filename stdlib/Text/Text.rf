@@ -1,486 +1,540 @@
-# RazorForge Text<T> - Generic immutable text type
-# Entity type with heap allocation
-# T can be letter (32-bit), letter8 (8-bit), or letter16 (16-bit)
-# Immutable - use TextBuffer<T> for mutable text
+# RazorForge Text and Bytes - Immutable text types
+#
+# Text  - UTF-32 encoded, uses `letter` (32-bit codepoints)
+#       - O(1) indexing, ideal for text manipulation
+#       - Use for in-memory text editing
+#
+# Bytes - UTF-8 encoded, uses `byte` (8-bit code units)
+#       - Compact storage, ideal for I/O
+#       - Use for file/network operations
+#
+# Both are immutable - use TextBuffer/BytesBuffer for mutable text
 
 import Collections/List
 import memory/DynamicSlice
 import memory/MemorySize
 import FFI/ctypes
 import FFI/cstr
-import core/Integral
-import core/BackIndex
-import core/Range
 
-entity Text<T> {
-    private letters: List<T>  # Dynamic array of letters
+# ============================================================================
+# Text - UTF-32 immutable text
+# ============================================================================
+
+entity Text {
+    private letters: List<letter>
 }
 
 # Constructors
 
-routine Text<T>.__create__() -> Text<T> {
-    # Create empty text
-    return Text<T>(letters: List<T>())
+routine Text.__create__() -> Text {
+    return Text(letters: List<letter>())
 }
 
-routine Text<T>.__create__(from_list: List<T>) -> Text<T> {
-    # Create text from list of letters
-    return Text<T>(letters: from_list)
+routine Text.__create__(from_list: List<letter>) -> Text {
+    return Text(letters: from_list)
 }
 
-
-routine Text<T>.__create__(from_letter: T) -> Text<T> {
-    # Create text from single letter
-    let list = List<T>()
+routine Text.__create__(from_letter: letter) -> Text {
+    let list = List<letter>()
     list.push(from_letter)
-    return Text<T>(letters: list)
-}
-
-routine Text<letter8>.__create__(from_ptr: Snatched<letter8>) -> Text<letter8> {
-    # Create Text<letter8> from null-terminated C string pointer
-    danger! {
-        # Get length first (find null terminator)
-        var len: u64 = 0u64
-        loop {
-            if from_ptr.offset(len).read() == 0u8 {
-                break
-            }
-            len = len + 1u64
-        }
-
-        # Pre-allocate list with known size
-        let list = List<letter8>(len)
-
-        # Copy characters
-        var i: u64 = 0u64
-        loop {
-            if i >= len {
-                break
-            }
-            list.push(from_ptr.offset(i).read())
-            i = i + 1u64
-        }
-
-        return Text<letter8>(letters: list)
-    }
+    return Text(letters: list)
 }
 
 # Core operations
 
-routine Text<T>.length(me: Text<T>) -> u64 {
-    # Get length in characters (letters/codepoints)
-    return me.letters.len()
+routine Text.count(me: Text) -> u64 {
+    return me.letters.count()
 }
 
-routine Text<T>.is_empty(me: Text<T>) -> bool {
+routine Text.is_empty(me: Text) -> bool {
     return me.letters.is_empty()
 }
 
-# ============================================================================
-# Indexing with Integral (forward index)
-# ============================================================================
+# Indexing
 
-routine Text<T>.__getitem__<Integral>(me: Text<T>, index: I) -> T {
-    # Get letter at index - O(1)
-    # Text is immutable so this is read-only
+routine Text.__getitem__<I follows Integral>(me: Text, index: I) -> letter {
     return me.letters[index]
 }
 
-# ============================================================================
-# Indexing with BackIndex (backward index using ^)
-# ============================================================================
-
-routine Text<T>.__getitem__<Integral>(me: Text<T>, index: BackIndex<I>) -> T {
-    # Get letter from end - ^1 is last, ^2 is second-to-last
+routine Text.__getitem__<I follows Integral>(me: Text, index: BackIndex<I>) -> letter {
     return me.letters[index]
 }
 
-# ============================================================================
-# Indexing with Range<Integral> (forward range slicing)
-# ============================================================================
-
-routine Text<T>.__getitem__<Integral>(me: Text<T>, range: Range<I>) -> Text<T> {
-    # Get substring - inclusive on both ends
+routine Text.__getitem__<I follows Integral>(me: Text, range: Range<I>) -> Text {
     let sliced_list = me.letters[range]
-    return Text<T>(from_list: sliced_list)
+    return Text(from_list: sliced_list)
 }
 
-# ============================================================================
-# Indexing with Range<BackIndex> (backward range slicing)
-# ============================================================================
-
-routine Text<T>.__getitem__<Integral>(me: Text<T>, range: Range<BackIndex<I>>) -> Text<T> {
-    # Get substring using backward indices - ^3 to ^1 gets last 3 characters
+routine Text.__getitem__<I follows Integral>(me: Text, range: Range<BackIndex<I>>) -> Text {
     let sliced_list = me.letters[range]
-    return Text<T>(from_list: sliced_list)
+    return Text(from_list: sliced_list)
 }
 
-# Legacy get method (delegate to __getitem__)
-routine Text<T>.get<Integral>(me: Text<T>, index: I) -> T {
-    return me[index]
-}
+# String operations
 
-# String operations (all create new Text - immutable!)
-
-routine Text<T>.concat(me: Text<T>, other: Text<T>) -> Text<T> {
-    # Concatenate two texts - creates NEW text
-    let result = List<T>()
-
-    # Copy first text
+routine Text.concat(me: Text, other: Text) -> Text {
+    let result = List<letter>()
     var i: u64 = 0u64
     loop {
-        if i >= me.length() {
+        if i >= me.count() {
             break
         }
         result.push(me[i])
-        i = i + 1u64
+        i += 1u64
     }
-
-    # Copy second text
     i = 0u64
     loop {
-        if i >= other.length() {
+        if i >= other.count() {
             break
         }
         result.push(other[i])
-        i = i + 1u64
+        i += 1u64
     }
-
-    return Text<T>(from_list: result)
+    return Text(from_list: result)
 }
 
-routine Text<T>.slice(me: Text<T>, start: u64, end: u64) -> Text<T> {
-    # Get substring [start, end) - creates NEW text
-    if start >= end or end > me.length() {
+routine Text.__add__(me: Text, other: Text) -> Text {
+    return me.concat(other)
+}
+
+routine Text.slice(me: Text, start: u64, end: u64) -> Text {
+    if start >= end or end > me.count() {
         stop!("Invalid slice range")
     }
-
-    let result = List<T>()
+    let result = List<letter>()
     var i = start
     loop {
         if i >= end {
             break
         }
         result.push(me[i])
-        i = i + 1u64
+        i += 1u64
     }
-
-    return Text<T>(from_list: result)
+    return Text(from_list: result)
 }
 
-routine Text<T>.__eq__(me: Text<T>, other: Text<T>) -> bool {
-    # Compare texts for equality
-    if me.length() != other.length() {
+routine Text.__eq__(me: Text, other: Text) -> bool {
+    if me.count() != other.count() {
         return false
     }
-
     var i: u64 = 0u64
     loop {
-        if i >= me.length() {
+        if i >= me.count() {
             break
         }
-
         if me[i] != other[i] {
             return false
         }
-
-        i = i + 1u64
+        i += 1u64
     }
-
     return true
 }
 
-# Conversion
+# Conversion to mutable
 
-routine Text<T>.to_buffer(me: Text<T>) -> TextBuffer<T> {
-    # Convert immutable Text to mutable TextBuffer
-    let buffer = TextBuffer<T>()
-
+routine Text.to_buffer(me: Text) -> TextBuffer {
+    let buffer = TextBuffer()
     var i: u64 = 0u64
     loop {
-        if i >= me.length() {
+        if i >= me.count() {
             break
         }
         buffer.append(me[i])
-        i = i + 1u64
+        i += 1u64
     }
-
     return buffer
 }
 
-# Iteration support
+# Iteration
 
-routine Text<T>.iter(me: Text<T>) -> TextIterator<T> {
-    return TextIterator<T> {
-        text: me,
-        index: 0u64
-    }
-}
-
-record TextIterator<T> {
-    text: Text<T>
+entity TextIterator {
+    text: Text
     index: u64
 }
 
-routine TextIterator<T>.next!(me: TextIterator<T>) -> T {
-    if me.index >= me.text.length() {
-        return None
+routine Text.iter(me: Text) -> TextIterator {
+    return TextIterator(text: me, index: 0u64)
+}
+
+routine TextIterator.next!(me: TextIterator) -> letter {
+    if me.index >= me.text.count() {
+        absent
     }
     let value = me.text[me.index]
     me.index = me.index + 1u64
-    return some(value)
+    return value
 }
 
-# C-String Conversion (for runtime interop)
+# ============================================================================
+# Bytes - UTF-8 immutable text
+# ============================================================================
 
-# External C runtime functions for cstr operations
-imported("C") routine rf_cstr_len(ptr: cstr) -> uaddr
+entity Bytes {
+    private letters: List<byte>
+}
 
-# Create Text<letter8> from null-terminated C string (cstr)
-# This copies the data into a new Text
-routine Text<letter8>.__create__(ptr: cstr) -> Text<letter8> {
+# Constructors
+
+routine Bytes.__create__() -> Bytes {
+    return Bytes(letters: List<byte>())
+}
+
+routine Bytes.__create__(from_list: List<byte>) -> Bytes {
+    return Bytes(letters: from_list)
+}
+
+routine Bytes.__create__(from_byte: byte) -> Bytes {
+    let list = List<byte>()
+    list.push(from_byte)
+    return Bytes(letters: list)
+}
+
+routine Bytes.__create__(ptr: Snatched<byte>) -> Bytes {
     danger! {
-        let len = rf_cstr_len(ptr)
-
-        if len == 0uaddr {
-            return Text<letter8>()
+        var len: u64 = 0u64
+        loop {
+            if ptr.offset(len).read() == byte_NULL {
+                break
+            }
+            len += 1u64
         }
+        let list = List<byte>(len)
+        var i: u64 = 0u64
+        loop {
+            if i >= len {
+                break
+            }
+            list.push(ptr.offset(i).read())
+            i += 1u64
+        }
+        return Bytes(letters: list)
+    }
+}
 
-        # Pre-allocate list with known size
-        let list = List<letter8>(len)
-
-        # Copy characters using pointer arithmetic
+routine Bytes.__create__(ptr: cstr) -> Bytes {
+    danger! {
+        let len = @native.rf_cstr_len(ptr)
+        if len == 0uaddr {
+            return Bytes()
+        }
+        let list = List<byte>(len)
         var i: uaddr = 0uaddr
         loop {
             if i >= len {
                 break
             }
-            # Read byte at offset i from cstr pointer
             let byte_ptr = ptr + i
-            let byte_val = read_as<letter8>!(byte_ptr)
+            let byte_val = read_as!<byte>(byte_ptr)
             list.push(byte_val)
-            i = i + 1uaddr
+            i += 1uaddr
         }
-
-        return Text<letter8>(from_list: list)
+        return Bytes(from_list: list)
     }
 }
 
-# Wrap cstr pointer as Text<letter8> WITHOUT copying
-# The Text will reference the original cstr memory
-# WARNING: The cstr must remain valid for the lifetime of the Text
-private routine Text<letter8>.wrap_cstr(ptr: cstr) -> Text<letter8> {
-    danger! {
-        let len = rf_cstr_len(ptr)
+# Core operations
 
-        # Create a List that wraps the cstr memory directly
-        # This is unsafe but efficient for temporary use
-        let list = List<letter8> {
-            data: DynamicSlice {
-                starting_address: ptr,
-                allocated_bytes: len
-            },
-            count: len,
-            capacity: len
-        }
-
-        return Text<letter8>(from_list: list)
-    }
+routine Bytes.count(me: Bytes) -> u64 {
+    return me.letters.count()
 }
 
-routine Text<letter8>.to_cstr(me: Text<letter8>) -> uaddr {
-    # Convert Text<letter8> to null-terminated C string
-    # Returns pointer to newly allocated memory (caller must free)
-    let len = me.length()
-    let buffer = DynamicSlice(MemorySize(len + 1u64))  # +1 for null terminator
+routine Bytes.is_empty(me: Bytes) -> bool {
+    return me.letters.is_empty()
+}
 
-    # Copy characters
+# Indexing
+
+routine Bytes.__getitem__<I follows Integral>(me: Bytes, index: I) -> byte {
+    return me.letters[index]
+}
+
+routine Bytes.__getitem__<I follows Integral>(me: Bytes, index: BackIndex<I>) -> byte {
+    return me.letters[index]
+}
+
+routine Bytes.__getitem__<I follows Integral>(me: Bytes, range: Range<I>) -> Bytes {
+    let sliced_list = me.letters[range]
+    return Bytes(from_list: sliced_list)
+}
+
+routine Bytes.__getitem__<I follows Integral>(me: Bytes, range: Range<BackIndex<I>>) -> Bytes {
+    let sliced_list = me.letters[range]
+    return Bytes(from_list: sliced_list)
+}
+
+# String operations
+
+routine Bytes.concat(me: Bytes, other: Bytes) -> Bytes {
+    let result = List<byte>()
+    var i: u64 = 0u64
+    loop {
+        if i >= me.count() {
+            break
+        }
+        result.push(me[i])
+        i += 1u64
+    }
+    i = 0u64
+    loop {
+        if i >= other.count() {
+            break
+        }
+        result.push(other[i])
+        i += 1u64
+    }
+    return Bytes(from_list: result)
+}
+
+routine Bytes.__add__(me: Bytes, other: Bytes) -> Bytes {
+    return me.concat(other)
+}
+
+routine Bytes.slice(me: Bytes, start: u64, end: u64) -> Bytes {
+    if start >= end or end > me.count() {
+        stop!("Invalid slice range")
+    }
+    let result = List<byte>()
+    var i = start
+    loop {
+        if i >= end {
+            break
+        }
+        result.push(me[i])
+        i += 1u64
+    }
+    return Bytes(from_list: result)
+}
+
+routine Bytes.__eq__(me: Bytes, other: Bytes) -> bool {
+    if me.count() != other.count() {
+        return false
+    }
+    var i: u64 = 0u64
+    loop {
+        if i >= me.count() {
+            break
+        }
+        if me[i] != other[i] {
+            return false
+        }
+        i += 1u64
+    }
+    return true
+}
+
+# Conversion to mutable
+
+routine Bytes.to_buffer(me: Bytes) -> BytesBuffer {
+    let buffer = BytesBuffer()
+    var i: u64 = 0u64
+    loop {
+        if i >= me.count() {
+            break
+        }
+        buffer.append(me[i])
+        i += 1u64
+    }
+    return buffer
+}
+
+# Iteration
+
+entity BytesIterator {
+    bytes: Bytes
+    index: u64
+}
+
+routine Bytes.iter(me: Bytes) -> BytesIterator {
+    return BytesIterator(bytes: me, index: 0u64)
+}
+
+routine BytesIterator.next!(me: BytesIterator) -> byte {
+    if me.index >= me.bytes.count() {
+        absent
+    }
+    let value = me.bytes[me.index]
+    me.index = me.index + 1u64
+    return value
+}
+
+# ============================================================================
+# Encoding Conversions
+# ============================================================================
+
+# Text (UTF-32) -> Bytes (UTF-8)
+routine Text.to_utf8(me: Text) -> Bytes {
+    let result = List<byte>()
+    let len = me.count()
     var i: u64 = 0u64
     loop {
         if i >= len {
             break
         }
-        buffer.write<letter8>!(i, me[i])
-        i = i + 1u64
-    }
-
-    # Add null terminator
-    buffer.write<letter8>!(len, 0u8)
-
-    # Return raw pointer (caller owns the memory)
-    return buffer.snatch!(0u64)
-}
-
-routine Text<letter32>.to_cstr(me: Text<letter>) -> uaddr {
-    # Convert Text<letter32> (UTF-32) to null-terminated UTF-8 C string
-    # Returns pointer to newly allocated memory (caller must free)
-    # Note: Each letter (u32 codepoint) may need 1-4 bytes in UTF-8
-    let len = me.length()
-
-    # Worst case: 4 bytes per codepoint + null terminator
-    let max_size = (len * 4u64) + 1u64
-    let buffer = DynamicSlice(MemorySize(max_size))
-
-    var write_pos: u64 = 0u64
-    var i: u64 = 0u64
-    loop {
-        if i >= len {
-            break
-        }
-        let codepoint = u32!(me[i])
-
-        when true {
-            codepoint <= 0x7Fu32 => {
-                # 1-byte UTF-8 (ASCII)
-                buffer.write<u8>!(write_pos, u8!(codepoint))
-                write_pos = write_pos + 1u64
-            }
-            codepoint <= 0x7FFu32 => {
-                # 2-byte UTF-8
-                buffer.write<u8>!(write_pos, u8!(0xC0u32 | (codepoint >> 6u32)))
-                buffer.write<u8>!(write_pos + 1u64, u8!(0x80u32 | (codepoint & 0x3Fu32)))
-                write_pos = write_pos + 2u64
-            }
-            codepoint <= 0xFFFFu32 => {
-                # 3-byte UTF-8
-                buffer.write<u8>!(write_pos, u8!(0xE0u32 | (codepoint >> 12u32)))
-                buffer.write<u8>!(write_pos + 1u64, u8!(0x80u32 | ((codepoint >> 6u32) & 0x3Fu32)))
-                buffer.write<u8>!(write_pos + 2u64, u8!(0x80u32 | (codepoint & 0x3Fu32)))
-                write_pos = write_pos + 3u64
-            }
-            _ => {
-                # 4-byte UTF-8
-                buffer.write<u8>!(write_pos, u8!(0xF0u32 | (codepoint >> 18u32)))
-                buffer.write<u8>!(write_pos + 1u64, u8!(0x80u32 | ((codepoint >> 12u32) & 0x3Fu32)))
-                buffer.write<u8>!(write_pos + 2u64, u8!(0x80u32 | ((codepoint >> 6u32) & 0x3Fu32)))
-                buffer.write<u8>!(write_pos + 3u64, u8!(0x80u32 | (codepoint & 0x3Fu32)))
-                write_pos = write_pos + 4u64
-            }
-        }
-
-        i = i + 1u64
-    }
-
-    # Add null terminator
-    buffer.write<u8>!(write_pos, 0u8)
-
-    # Return raw pointer (caller owns the memory)
-    return buffer.snatch!(0u64)
-}
-
-# Encoding conversion routines
-
-# Convert Text<letter32> (UTF-32) to Text<letter8> (UTF-8)
-routine Text<letter32>.to_utf8(me: Text<letter32>) -> Text<letter8> {
-    let result = List<letter8>()
-    let len = me.length()
-
-    var i: u64 = 0u64
-    loop {
-        if i >= len {
-            break
-        }
-
         let current_letter = me[i]
         let codepoint = current_letter.codepoint()
-
-        when true {
+        when {
             codepoint <= 0x7Fu32 => {
-                # 1-byte UTF-8 (ASCII)
-                result.push(letter8(codepoint: u8(codepoint)))
+                result.push(byte(codepoint: u8(codepoint)))
             }
             codepoint <= 0x7FFu32 => {
-                # 2-byte UTF-8
-                result.push(letter8(codepoint: u8!(0xC0u32 | (codepoint >> 6u32))))
-                result.push(letter8(codepoint: u8!(0x80u32 | (codepoint & 0x3Fu32))))
+                result.push(byte(codepoint: u8!(0xC0u32 | (codepoint >> 6u32))))
+                result.push(byte(codepoint: u8!(0x80u32 | (codepoint & 0x3Fu32))))
             }
             codepoint <= 0xFFFFu32 => {
-                # 3-byte UTF-8
-                result.push(letter8(codepoint: u8!(0xE0u32 | (codepoint >> 12u32))))
-                result.push(letter8(codepoint: u8!(0x80u32 | ((codepoint >> 6u32) & 0x3Fu32))))
-                result.push(letter8(codepoint: u8!(0x80u32 | (codepoint & 0x3Fu32))))
+                result.push(byte(codepoint: u8!(0xE0u32 | (codepoint >> 12u32))))
+                result.push(byte(codepoint: u8!(0x80u32 | ((codepoint >> 6u32) & 0x3Fu32))))
+                result.push(byte(codepoint: u8!(0x80u32 | (codepoint & 0x3Fu32))))
             }
             _ => {
-                # 4-byte UTF-8
-                result.push(letter8(codepoint: u8!(0xF0u32 | (codepoint >> 18u32))))
-                result.push(letter8(codepoint: u8!(0x80u32 | ((codepoint >> 12u32) & 0x3Fu32))))
-                result.push(letter8(codepoint: u8!(0x80u32 | ((codepoint >> 6u32) & 0x3Fu32))))
-                result.push(letter8(codepoint: u8!(0x80u32 | (codepoint & 0x3Fu32))))
+                result.push(byte(codepoint: u8!(0xF0u32 | (codepoint >> 18u32))))
+                result.push(byte(codepoint: u8!(0x80u32 | ((codepoint >> 12u32) & 0x3Fu32))))
+                result.push(byte(codepoint: u8!(0x80u32 | ((codepoint >> 6u32) & 0x3Fu32))))
+                result.push(byte(codepoint: u8!(0x80u32 | (codepoint & 0x3Fu32))))
             }
         }
-
-        i = i + 1u64
+        i += 1u64
     }
-
-    return Text<letter8>(from_list: result)
+    return Bytes(from_list: result)
 }
 
-# Convert Text<letter8> (UTF-8) to Text<letter32> (UTF-32)
-routine Text<letter8>.to_codepoints(me: Text<letter8>) -> Text<letter32> {
-    let result = List<letter32>()
-    let len = me.length()
-
+# Bytes (UTF-8) -> Text (UTF-32)
+routine Bytes.to_text(me: Bytes) -> Text {
+    let result = List<letter>()
+    let len = me.count()
     var i: u64 = 0u64
     loop {
         if i >= len {
             break
         }
-
         let b0 = u32(me[i].codepoint())
         var codepoint: u32 = 0u32
-
-        when true {
+        when {
             (b0 & 0x80u32) == 0u32 => {
-                # 1-byte UTF-8 (ASCII)
                 codepoint = b0
-                i = i + 1u64
+                i += 1u64
             }
             (b0 & 0xE0u32) == 0xC0u32 => {
-                # 2-byte UTF-8
                 if i + 1u64 < len {
                     let b1 = u32(me[i + 1u64].codepoint())
                     codepoint = ((b0 & 0x1Fu32) << 6u32) | (b1 & 0x3Fu32)
-                    i = i + 2u64
+                    i += 2u64
                 } else {
-                    # Invalid sequence, use replacement character
                     codepoint = 0xFFFDu32
-                    i = i + 1u64
+                    i += 1u64
                 }
             }
             (b0 & 0xF0u32) == 0xE0u32 => {
-                # 3-byte UTF-8
                 if i + 2u64 < len {
                     let b1 = u32(me[i + 1u64].codepoint())
                     let b2 = u32(me[i + 2u64].codepoint())
                     codepoint = ((b0 & 0x0Fu32) << 12u32) | ((b1 & 0x3Fu32) << 6u32) | (b2 & 0x3Fu32)
-                    i = i + 3u64
+                    i += 3u64
                 } else {
                     codepoint = 0xFFFDu32
-                    i = i + 1u64
+                    i += 1u64
                 }
             }
             (b0 & 0xF8u32) == 0xF0u32 => {
-                # 4-byte UTF-8
                 if i + 3u64 < len {
                     let b1 = u32(me[i + 1u64].codepoint())
                     let b2 = u32(me[i + 2u64].codepoint())
                     let b3 = u32(me[i + 3u64].codepoint())
                     codepoint = ((b0 & 0x07u32) << 18u32) | ((b1 & 0x3Fu32) << 12u32) | ((b2 & 0x3Fu32) << 6u32) | (b3 & 0x3Fu32)
-                    i = i + 4u64
+                    i += 4u64
                 } else {
                     codepoint = 0xFFFDu32
-                    i = i + 1u64
+                    i += 1u64
                 }
             }
             _ => {
-                # Invalid byte, use replacement character
                 codepoint = 0xFFFDu32
-                i = i + 1u64
+                i += 1u64
             }
         }
-
-        result.push(letter32(codepoint: codepoint))
+        result.push(letter(codepoint: codepoint))
     }
+    return Text(from_list: result)
+}
 
-    return Text<letter32>(from_list: result)
+# ============================================================================
+# C-String Interop
+# ============================================================================
+
+# Bytes -> null-terminated C string (UTF-8)
+routine Bytes.to_cstr(me: Bytes) -> uaddr {
+    let len = me.count()
+    let buffer = DynamicSlice(MemorySize(len + 1u64))
+    var i: u64 = 0u64
+    loop {
+        if i >= len {
+            break
+        }
+        buffer.write!<byte>(i, me[i])
+        i += 1u64
+    }
+    buffer.write!<byte>(len, byte_NULL)
+    return buffer.snatch(0u64)
+}
+
+# Text -> null-terminated C string (UTF-8 encoded)
+routine Text.to_cstr(me: Text) -> uaddr {
+    let bytes = me.to_utf8()
+    return bytes.to_cstr()
+}
+
+# ============================================================================
+# UTF-16 Conversion (for Windows interop)
+# ============================================================================
+
+# Text (UTF-32) -> List<u16> (UTF-16)
+routine Text.to_utf16(me: Text) -> List<u16> {
+    let result = List<u16>()
+    let len = me.count()
+    var i: u64 = 0u64
+    loop {
+        if i >= len {
+            break
+        }
+        let codepoint = me[i].codepoint()
+        if codepoint <= 0xFFFFu32 {
+            result.push(u16(codepoint))
+        } else {
+            let cp = codepoint - 0x10000u32
+            result.push(u16((cp >> 10u32) + 0xD800u32))
+            result.push(u16((cp & 0x3FFu32) + 0xDC00u32))
+        }
+        i += 1u64
+    }
+    return result
+}
+
+# List<u16> (UTF-16) -> Text (UTF-32)
+routine Text.from_utf16(utf16: List<u16>) -> Text {
+    let result = List<letter>()
+    let len = utf16.count()
+    var i: u64 = 0u64
+    loop {
+        if i >= len {
+            break
+        }
+        let w1 = u32(utf16[i])
+        if w1 < 0xD800u32 or w1 > 0xDFFFu32 {
+            result.push(letter(codepoint: w1))
+            i += 1u64
+        } else if 0xD800u32 <= w1 <= 0xDBFFu32 and i + 1u64 < len {
+            let w2 = u32(utf16[i + 1u64])
+            if 0xDC00u32 <= w2 <= 0xDFFFu32 {
+                let codepoint = ((w1 - 0xD800u32) << 10u32) + (w2 - 0xDC00u32) + 0x10000u32
+                result.push(letter(codepoint: codepoint))
+                i += 2u64
+            } else {
+                result.push(letter(codepoint: 0xFFFDu32))
+                i += 1u64
+            }
+        } else {
+            result.push(letter(codepoint: 0xFFFDu32))
+            i += 1u64
+        }
+    }
+    return Text(from_list: result)
 }

@@ -1,4 +1,4 @@
-# RazorForge letter32 - Unicode codepoint (UTF-32 code unit)
+# RazorForge letter - Unicode codepoint (UTF-32 code unit)
 #
 # Represents a full Unicode codepoint (U+0000 to U+10FFFF).
 # In UTF-32, every character is exactly 4 bytes, providing O(1) indexing.
@@ -6,49 +6,49 @@
 # This is the recommended type for text editing and manipulation
 # because character boundaries are trivial to find.
 #
-# For I/O and storage, convert to Text<letter8> (UTF-8).
+# For I/O and storage, convert to Bytes (UTF-8).
 # For Windows API interop, use cwstr with Text<letter16>.
 #
 # For legacy 32-bit encodings, use List<u32> instead.
 namespace core
-import Text/LetterType
-import core/Integral
+import Text/Letter
 
-record letter32 follows LetterType {
+
+record letter {
     private value: u32
 }
 
 # Unicode constants
-preset LETTER32_NULL: letter32 = letter32(value: 0x0000)
-preset LETTER32_SPACE: letter32 = letter32(value: 0x0020)
-preset LETTER32_NEWLINE: letter32 = letter32(value: 0x000A)
-preset LETTER32_TAB: letter32 = letter32(value: 0x0009)
-preset LETTER32_REPLACEMENT: letter32 = letter32(value: 0xFFFD)
-preset LETTER32_MAX_UNICODE: letter32 = letter32(value: 0x10FFFF)
+preset letter_NULL: letter = letter(value: 0x0000)
+preset letter_SPACE: letter = letter(value: 0x0020)
+preset letter_NEWLINE: letter = letter(value: 0x000A)
+preset letter_TAB: letter = letter(value: 0x0009)
+preset letter_REPLACEMENT: letter = letter(value: 0xFFFD)
+preset letter_MAX_UNICODE: letter = letter(value: 0x10FFFF)
 
 # Surrogate range (invalid for standalone codepoints)
-preset LETTER32_SURROGATE_START: u32 = 0xD800
-preset LETTER32_SURROGATE_END: u32 = 0xDFFF
+preset letter_SURROGATE_START: u32 = 0xD800
+preset letter_SURROGATE_END: u32 = 0xDFFF
 
 # ============================================================================
-# LetterType protocol implementation
+# Letter protocol implementation
 # ============================================================================
 
-routine letter32.codepoint(me: letter32) -> u32 {
+routine letter.codepoint(me: letter) -> u32 {
     return me.value
 }
 
-routine letter32.is_valid(me: letter32) -> bool {
+routine letter.is_valid(me: letter) -> bool {
     let cp = me.value
     # Valid if within Unicode range and not a surrogate
-    return cp <= 0x10FFFFu32 and not (LETTER32_SURROGATE_START <= cp <= LETTER32_SURROGATE_END)
+    return cp <= 0x10FFFFu32 and not (letter_SURROGATE_START <= cp <= letter_SURROGATE_END)
 }
 
-routine letter32.is_ascii(me: letter32) -> bool {
+routine letter.is_ascii(me: letter) -> bool {
     return me.value <= 0x007Fu32
 }
 
-routine letter32.is_alphabetic(me: letter32) -> bool {
+routine letter.is_alphabetic(me: letter) -> bool {
     let v = me.value
     return (0x0041u32 <= v <= 0x005Au32) or    # A-Z
            (0x0061u32 <= v <= 0x007Au32) or    # a-z
@@ -57,26 +57,26 @@ routine letter32.is_alphabetic(me: letter32) -> bool {
            (0x0180u32 <= v <= 0x024Fu32)       # Latin Extended-B
 }
 
-routine letter32.is_numeric(me: letter32) -> bool {
+routine letter.is_numeric(me: letter) -> bool {
     let v = me.value
     return 0x0030u32 <= v <= 0x0039u32  # 0-9
 }
 
-routine letter32.is_alphanumeric(me: letter32) -> bool {
+routine letter.is_alphanumeric(me: letter) -> bool {
     return me.is_alphabetic() or me.is_numeric()
 }
 
-routine letter32.is_uppercase(me: letter32) -> bool {
+routine letter.is_uppercase(me: letter) -> bool {
     let v = me.value
     return 0x0041u32 <= v <= 0x005Au32  # A-Z (ASCII only)
 }
 
-routine letter32.is_lowercase(me: letter32) -> bool {
+routine letter.is_lowercase(me: letter) -> bool {
     let v = me.value
     return 0x0061u32 <= v <= 0x007Au32  # a-z (ASCII only)
 }
 
-routine letter32.is_whitespace(me: letter32) -> bool {
+routine letter.is_whitespace(me: letter) -> bool {
     let v = me.value
     return v == 0x0020u32 or    # Space
            v == 0x0009u32 or    # Tab
@@ -90,21 +90,21 @@ routine letter32.is_whitespace(me: letter32) -> bool {
            v == 0x2003u32       # Em space
 }
 
-routine letter32.is_control(me: letter32) -> bool {
+routine letter.is_control(me: letter) -> bool {
     let v = me.value
     return (v <= 0x001Fu32) or (0x007Fu32 <= v <= 0x009Fu32)
 }
 
-routine letter32.to_uppercase(me: letter32) -> letter32 {
+routine letter.to_uppercase(me: letter) -> letter {
     if me.is_lowercase() {
-        return letter32(value: me.value - 32u32)
+        return letter(value: me.value - 32u32)
     }
     return me
 }
 
-routine letter32.to_lowercase(me: letter32) -> letter32 {
+routine letter.to_lowercase(me: letter) -> letter {
     if me.is_uppercase() {
-        return letter32(value: me.value + 32u32)
+        return letter(value: me.value + 32u32)
     }
     return me
 }
@@ -113,11 +113,11 @@ routine letter32.to_lowercase(me: letter32) -> letter32 {
 # UTF-16 surrogate pair helpers
 # ============================================================================
 
-routine letter32.needs_surrogate_pair(me: letter32) -> bool {
+routine letter.needs_surrogate_pair(me: letter) -> bool {
     return me.value > 0xFFFFu32
 }
 
-routine letter32.to_high_surrogate(me: letter32) -> letter16 {
+routine letter.to_high_surrogate(me: letter) -> letter16 {
     if me.needs_surrogate_pair() {
         let cp = me.value - 0x10000u32
         return letter16(codepoint: u16((cp >> 10u32) + 0xD800u32))
@@ -125,7 +125,7 @@ routine letter32.to_high_surrogate(me: letter32) -> letter16 {
     return letter16(codepoint: u16(me.value))
 }
 
-routine letter32.to_low_surrogate(me: letter32) -> letter16 {
+routine letter.to_low_surrogate(me: letter) -> letter16 {
     if me.needs_surrogate_pair() {
         let cp = me.value - 0x10000u32
         return letter16(codepoint: u16((cp & 0x3FFu32) + 0xDC00u32))
@@ -137,27 +137,27 @@ routine letter32.to_low_surrogate(me: letter32) -> letter16 {
 # Comparison operations
 # ============================================================================
 
-routine letter32.__eq__(me: letter32, other: letter32) -> bool {
+routine letter.__eq__(me: letter, other: letter) -> bool {
     return me.value == other.value
 }
 
-routine letter32.__ne__(me: letter32, other: letter32) -> bool {
+routine letter.__ne__(me: letter, other: letter) -> bool {
     return me.value != other.value
 }
 
-routine letter32.__lt__(me: letter32, other: letter32) -> bool {
+routine letter.__lt__(me: letter, other: letter) -> bool {
     return me.value < other.value
 }
 
-routine letter32.__le__(me: letter32, other: letter32) -> bool {
+routine letter.__le__(me: letter, other: letter) -> bool {
     return me.value <= other.value
 }
 
-routine letter32.__gt__(me: letter32, other: letter32) -> bool {
+routine letter.__gt__(me: letter, other: letter) -> bool {
     return me.value > other.value
 }
 
-routine letter32.__ge__(me: letter32, other: letter32) -> bool {
+routine letter.__ge__(me: letter, other: letter) -> bool {
     return me.value >= other.value
 }
 
@@ -165,16 +165,16 @@ routine letter32.__ge__(me: letter32, other: letter32) -> bool {
 # Type conversions
 # ============================================================================
 
-routine letter32.to_u32(me: letter32) -> u32 {
+routine letter.to_u32(me: letter) -> u32 {
     return me.value
 }
 
-routine letter32.to_letter8(me: letter32) -> letter8 {
+routine letter.to_byte(me: letter) -> byte {
     # Only valid for ASCII range - truncates
-    return letter8(codepoint: u8(me.value & 0x7Fu32))
+    return byte(codepoint: u8(me.value & 0x7Fu32))
 }
 
-routine letter32.to_letter16(me: letter32) -> letter16 {
+routine letter.to_letter16(me: letter) -> letter16 {
     # Only valid for BMP - truncates supplementary characters
     return letter16(codepoint: u16(me.value & 0xFFFFu32))
 }
@@ -183,36 +183,36 @@ routine letter32.to_letter16(me: letter32) -> letter16 {
 # Utility methods
 # ============================================================================
 
-routine letter32.is_digit(me: letter32) -> bool {
+routine letter.is_digit(me: letter) -> bool {
     return me.is_numeric()
 }
 
-routine letter32.is_letter(me: letter32) -> bool {
+routine letter.is_letter(me: letter) -> bool {
     return me.is_alphabetic()
 }
 
-routine letter32.digit_value(me: letter32) -> s32 {
+routine letter.digit_value(me: letter) -> s32 {
     if me.is_numeric() {
         return s32(me.value - 0x0030u32)
     }
     return -1s32
 }
 
-routine letter32.is_printable(me: letter32) -> bool {
+routine letter.is_printable(me: letter) -> bool {
     return me.is_valid() and not me.is_control()
 }
 
-routine letter32.is_bmp(me: letter32) -> bool {
+routine letter.is_bmp(me: letter) -> bool {
     # Basic Multilingual Plane: U+0000 to U+FFFF (excluding surrogates)
-    return me.value <= 0xFFFFu32 and not (LETTER32_SURROGATE_START <= me.value <= LETTER32_SURROGATE_END)
+    return me.value <= 0xFFFFu32 and not (letter_SURROGATE_START <= me.value <= letter_SURROGATE_END)
 }
 
-routine letter32.is_supplementary(me: letter32) -> bool {
+routine letter.is_supplementary(me: letter) -> bool {
     # Supplementary planes: U+10000 to U+10FFFF
     return 0x10000u32 <= me.value <= 0x10FFFFu32
 }
 
-routine letter32.is_cjk(me: letter32) -> bool {
+routine letter.is_cjk(me: letter) -> bool {
     let v = me.value
     return (0x4E00u32 <= v <= 0x9FFFu32) or    # CJK Unified Ideographs
            (0x3400u32 <= v <= 0x4DBFu32) or    # CJK Extension A
@@ -220,7 +220,7 @@ routine letter32.is_cjk(me: letter32) -> bool {
            (0x2A700u32 <= v <= 0x2B73Fu32)     # CJK Extension C
 }
 
-routine letter32.is_latin(me: letter32) -> bool {
+routine letter.is_latin(me: letter) -> bool {
     let v = me.value
     return (0x0000u32 <= v <= 0x007Fu32) or    # Basic Latin
            (0x0080u32 <= v <= 0x00FFu32) or    # Latin-1 Supplement
@@ -228,7 +228,7 @@ routine letter32.is_latin(me: letter32) -> bool {
            (0x0180u32 <= v <= 0x024Fu32)       # Latin Extended-B
 }
 
-routine letter32.is_emoji(me: letter32) -> bool {
+routine letter.is_emoji(me: letter) -> bool {
     let v = me.value
     return (0x1F600u32 <= v <= 0x1F64Fu32) or  # Emoticons
            (0x1F300u32 <= v <= 0x1F5FFu32) or  # Misc Symbols and Pictographs
@@ -240,7 +240,7 @@ routine letter32.is_emoji(me: letter32) -> bool {
 # Codepoint offset
 # ============================================================================
 
-routine letter32.offset!<I: Integral>(me: letter32, delta: I) -> letter32 {
+routine letter.offset!<I follows Integral>(me: letter, delta: I) -> letter {
     let new_value = saddr(me.value) + delta.to_saddr()
-    return letter32(value: u32(new_value))
+    return letter(value: u32(new_value))
 }

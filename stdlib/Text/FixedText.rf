@@ -1,3 +1,4 @@
-resident FixedText<T, N> {
-    private letters: FixedList<T, N>
+resident FixedText<N>
+requires N is uaddr {
+    private letters: FixedList<letter, N>
 }
