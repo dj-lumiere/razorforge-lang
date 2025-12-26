@@ -1,6 +1,6 @@
 record None {
 }
 
-routine None.to_text() -> Text<letter32> {
+routine None.to_text() -> Text {
     return "None"
 }

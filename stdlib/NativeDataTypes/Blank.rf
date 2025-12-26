@@ -1,10 +1,10 @@
-### Blank - Unit type representing "completed with no value"
-### Used for void failable functions: Maybe<Blank>, Result<Blank>, Lookup<Blank>
+# Blank - Unit type representing "completed with no value"
+# Used for void failable functions: Maybe<Blank>, Result<Blank>, Lookup<Blank>
 namespace core
 
 record Blank {
 }
 
-routine Blank.to_text() -> Text<letter32> {
+routine Blank.to_text() -> Text {
     return "Blank"
 }
