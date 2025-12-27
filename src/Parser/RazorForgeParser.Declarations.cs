@@ -597,9 +597,14 @@ public partial class RazorForgeParser
         }
 
         // Support ! suffix for failable routines
-        if (Match(type: TokenType.Bang))
+        // Note: ConsumeMethodName may have already consumed ! and included it in the name
+        bool isFailable = Match(type: TokenType.Bang);
+
+        // Also check if the name already ends with ! (from ConsumeMethodName in method case)
+        if (name.EndsWith("!"))
         {
-            name = name + "!";
+            isFailable = true;
+            name = name.Substring(0, name.Length - 1);
         }
 
         // Parameters
@@ -705,7 +710,8 @@ public partial class RazorForgeParser
             Attributes: attributes ?? new List<string>(),
             Location: location,
             GenericParameters: genericParams,
-            GenericConstraints: constraints);
+            GenericConstraints: constraints,
+            IsFailable: isFailable);
     }
 
     /// <summary>
@@ -1003,13 +1009,15 @@ public partial class RazorForgeParser
 
             string variantName = ConsumeIdentifier(errorMessage: "Expected choice variant name");
 
-            int? value = null;
-            if (Match(type: TokenType.Assign))
+            // CASE: value syntax for choice values
+            long? value = null;
+            if (Match(type: TokenType.Colon))
             {
                 Expression expr = ParseExpression();
-                if (expr is LiteralExpression literal && literal.Value is int intVal)
+                // RazorForge uses s64 (long) for integer literals
+                if (expr is LiteralExpression literal && literal.Value is long longVal)
                 {
-                    value = intVal;
+                    value = longVal;
                 }
             }
 
@@ -1080,15 +1088,11 @@ public partial class RazorForgeParser
             // Parse variant case
             string caseName = ConsumeIdentifier(errorMessage: "Expected variant case name");
 
+            // CASE: Type syntax for associated types
             TypeExpression? associatedType = null;
-            if (Match(type: TokenType.LeftParen))
+            if (Match(type: TokenType.Colon))
             {
-                if (!Check(type: TokenType.RightParen))
-                {
-                    associatedType = ParseType();
-                }
-
-                Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after variant case type");
+                associatedType = ParseType();
             }
 
             cases.Add(item: new VariantCase(Name: caseName, AssociatedTypes: associatedType, Location: GetLocation()));

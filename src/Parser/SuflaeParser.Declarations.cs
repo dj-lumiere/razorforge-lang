@@ -218,10 +218,7 @@ public partial class SuflaeParser
         string name = ConsumeIdentifier(errorMessage: "Expected routine name");
 
         // Support ! suffix for failable functions
-        if (Match(type: TokenType.Bang))
-        {
-            name += "!";
-        }
+        bool isFailable = Match(type: TokenType.Bang);
 
         // Parameters
         Consume(type: TokenType.LeftParen, errorMessage: "Expected '(' after routine name");
@@ -269,7 +266,8 @@ public partial class SuflaeParser
             Body: body,
             Visibility: visibility,
             Attributes: attributes ?? [],
-            Location: location);
+            Location: location,
+            IsFailable: isFailable);
     }
 
     /// <summary>
@@ -547,13 +545,18 @@ public partial class SuflaeParser
                 // Parse enum variant
                 string variantName = ConsumeIdentifier(errorMessage: "Expected option variant name");
 
-                int? value = null;
-                if (Match(type: TokenType.Assign))
+                // CASE: value syntax for choice values
+                long? value = null;
+                if (Match(type: TokenType.Colon))
                 {
                     Expression expr = ParseExpression();
-                    if (expr is LiteralExpression literal && literal.Value is int intVal)
+                    // Accept both long (s64) and BigInteger for integer literals
+                    if (expr is LiteralExpression literal)
                     {
-                        value = intVal;
+                        if (literal.Value is long longVal)
+                            value = longVal;
+                        else if (literal.Value is System.Numerics.BigInteger bigVal)
+                            value = (long)bigVal;
                     }
                 }
 
@@ -648,15 +651,11 @@ public partial class SuflaeParser
             // Parse variant case
             string caseName = ConsumeIdentifier(errorMessage: "Expected variant case name");
 
+            // CASE: Type syntax for associated types
             TypeExpression? associatedType = null;
-            if (Match(type: TokenType.LeftParen))
+            if (Match(type: TokenType.Colon))
             {
-                if (!Check(type: TokenType.RightParen))
-                {
-                    associatedType = ParseType();
-                }
-
-                Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after variant case type");
+                associatedType = ParseType();
             }
 
             cases.Add(item: new VariantCase(Name: caseName, AssociatedTypes: associatedType, Location: GetLocation()));
