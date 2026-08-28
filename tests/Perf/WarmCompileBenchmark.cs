@@ -178,4 +178,73 @@ public sealed class WarmCompileBenchmark
         Assert.Empty(warmResult.Errors);
         Assert.Equal(coldDefs, warmDefs);
     }
+
+    private static System.Collections.Generic.HashSet<string> DefineSet(string ll) =>
+        ll.Split('\n')
+          .Where(l => l.StartsWith("define ", System.StringComparison.Ordinal))
+          .Select(l => System.Text.RegularExpressions.Regex.Replace(
+              l.Split(" {", 2)[0], @" !dbg ![0-9]+", ""))
+          .ToHashSet(System.StringComparer.Ordinal);
+
+    /// <summary>
+    /// STAGE 0 SPIKE (daemon P2 — cross-build poisoning): a compile daemon captures the fully-processed
+    /// stdlib ONCE and reuses that ONE <see cref="SemanticVerifier.CompiledStdlibState"/> for EVERY build.
+    /// The warm state SHARES stdlib RoutineInfo/TypeInfo/body-AST objects across builds (only the dicts are
+    /// per-build copies), so if any pass mutates a shared stdlib object in place, build N poisons build N+1.
+    /// This exercises that: build the SAME file TWICE from ONE warm state, plus a THIRD DIFFERENT file, and
+    /// assert every build emits the cold-equivalent define set. A divergence here is exactly the P2 bug the
+    /// daemon must fix before it can reuse warm state.
+    /// </summary>
+    [Fact]
+    public void WarmCompile_Repeatable_FromSharedState_NoPoisoning()
+    {
+        // Cold reference define sets for each source.
+        string SrcB = """
+                      module Bench2
+                      import IO/Console
+                      routine start()
+                        var xs = List[S32]()
+                        xs.add_last(value: 7)
+                        show(f"n={xs.count()}")
+                        return
+                      """;
+        Program ParseB() => new Compiler.Parser.Parser(
+            tokens: new Tokenizer(source: SrcB, fileName: "b.rf", language: Language.RazorForge).Tokenize(),
+            language: Language.RazorForge, fileName: "b.rf").Parse();
+
+        var coldADefs = DefineSet(Codegen(new SemanticVerifier(Language.RazorForge).Analyze(ParseTrivial())));
+        var coldBDefs = DefineSet(Codegen(new SemanticVerifier(Language.RazorForge).Analyze(ParseB())));
+
+        // Capture the warm state ONCE — the daemon's resident in-RAM stdlib.
+        SemanticVerifier.CompiledStdlibState warm =
+            SemanticVerifier.CaptureCompiledStdlib(Language.RazorForge);
+
+        // Reuse it across builds, as a daemon would: A, A again, then a DIFFERENT file B.
+        AnalysisResult a1 = new SemanticVerifier(Language.RazorForge, warm).Analyze(ParseTrivial());
+        var a1Defs = DefineSet(Codegen(a1));
+        AnalysisResult a2 = new SemanticVerifier(Language.RazorForge, warm).Analyze(ParseTrivial());
+        var a2Defs = DefineSet(Codegen(a2));
+        AnalysisResult b1 = new SemanticVerifier(Language.RazorForge, warm).Analyze(ParseB());
+        var b1Defs = DefineSet(Codegen(b1));
+        // A THIRD build of A after B — catches poisoning that only a DIFFERENT-file build introduces.
+        AnalysisResult a3 = new SemanticVerifier(Language.RazorForge, warm).Analyze(ParseTrivial());
+        var a3Defs = DefineSet(Codegen(a3));
+
+        _out.WriteLine($"errors: a1={a1.Errors.Count} a2={a2.Errors.Count} b1={b1.Errors.Count} a3={a3.Errors.Count}");
+        _out.WriteLine($"defines: coldA={coldADefs.Count} a1={a1Defs.Count} a2={a2Defs.Count} a3={a3Defs.Count} | coldB={coldBDefs.Count} b1={b1Defs.Count}");
+        _out.WriteLine($"a1 vs a2 diff: -{string.Join(",", a1Defs.Except(a2Defs).Take(6))} +{string.Join(",", a2Defs.Except(a1Defs).Take(6))}");
+        _out.WriteLine($"a1 vs a3 diff: -{string.Join(",", a1Defs.Except(a3Defs).Take(6))} +{string.Join(",", a3Defs.Except(a1Defs).Take(6))}");
+        _out.WriteLine($"coldB vs b1 diff: -{string.Join(",", coldBDefs.Except(b1Defs).Take(6))} +{string.Join(",", b1Defs.Except(coldBDefs).Take(6))}");
+
+        Assert.Empty(a1.Errors);
+        Assert.Empty(a2.Errors);
+        Assert.Empty(b1.Errors);
+        Assert.Empty(a3.Errors);
+        // P2: every warm build must match its cold reference, and repeated builds must be identical —
+        // i.e. reusing the shared warm state does NOT poison it.
+        Assert.Equal(coldADefs, a1Defs);
+        Assert.Equal(a1Defs, a2Defs);
+        Assert.Equal(coldBDefs, b1Defs);
+        Assert.Equal(a1Defs, a3Defs);
+    }
 }
