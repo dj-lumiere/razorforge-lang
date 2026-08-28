@@ -127,8 +127,20 @@ internal static unsafe class OrcJitExecutor
         LLVMOrcOpaqueThreadSafeModule* tsm = LLVM.OrcCreateNewThreadSafeModule(M: mod, TSCtx: tsCtx);
 
         LLVMOrcOpaqueLLJITBuilder* builder = LLVM.OrcCreateLLJITBuilder();
+        // Windows: link each object into ONE contiguous slab so SEH-unwind IMAGE_REL_AMD64_ADDR32NB
+        // relocations resolve (default SectionMemoryManager lays sections out unordered → intermittent
+        // "relocation requires an ordered section layout" crash). No-op elsewhere.
+        bool traceJit = Environment.GetEnvironmentVariable(variable: "RAZORFORGE_JIT_TRACE") is not (null or "" or "0");
+        void JitStage(string s) { if (traceJit) { Console.Error.WriteLine(value: $"[jit-stage] {s}"); Console.Error.Flush(); } }
+        JitStage(s: "IR parsed, builder created");
+        if (OperatingSystem.IsWindows())
+        {
+            OrcContiguousMemoryManager.InstallOn(builder: builder);
+            JitStage(s: "contiguous MM installed on builder");
+        }
         LLVMOrcOpaqueLLJIT* jit;
         CheckErr(err: LLVM.OrcCreateLLJIT(Result: &jit, Builder: builder), what: "OrcCreateLLJIT");
+        JitStage(s: "LLJIT created");
 
         LLVMOrcOpaqueJITDylib* dylib = LLVM.OrcLLJITGetMainJITDylib(J: jit);
 
@@ -142,6 +154,7 @@ internal static unsafe class OrcJitExecutor
         LLVM.OrcJITDylibAddGenerator(JD: dylib, DG: gen);
 
         CheckErr(err: LLVM.OrcLLJITAddLLVMIRModule(J: jit, JD: dylib, TSM: tsm), what: "OrcLLJITAddLLVMIRModule");
+        JitStage(s: "IR module added");
 
         byte[] mainName = Encoding.ASCII.GetBytes(s: "main\0");
         ulong addr;
@@ -149,6 +162,7 @@ internal static unsafe class OrcJitExecutor
         {
             CheckErr(err: LLVM.OrcLLJITLookup(J: jit, Result: &addr, Name: (sbyte*)sp), what: "OrcLLJITLookup(main)");
         }
+        JitStage(s: $"main resolved @ 0x{addr:X} — calling");
         if (addr == 0)
         {
             throw new InvalidOperationException(message: "JIT could not resolve @main.");
