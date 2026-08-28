@@ -505,16 +505,27 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private void RunPhase6GlobalDesugaring()
     {
+        var swSub = SaTiming ? Stopwatch.StartNew() : null;
+        void SubMark(string label)
+        {
+            if (swSub == null) return;
+            swSub.Stop();
+            Console.Error.WriteLine(value: $"[SA]     P6sub - {label}: {swSub.ElapsedMilliseconds} ms");
+            swSub.Restart();
+        }
+
         var ctx = new DesugaringContext(registry: _registry,
             routineBodies: _routineBodies,
             target: _target,
             buildMode: _buildMode) { VariantBodies = _variantBodies };
         new DesugaringPipeline(ctx: ctx).RunGlobal();
+        SubMark(label: "DesugaringPipeline.RunGlobal");
         // Capture variant bodies produced by ErrorHandlingVariantPass for codegen. On the warm-restore
         // path _variantBodies is pre-seeded with the captured stdlib variants, so ErrorHandlingVariantPass
         // only ADDS user variants here — the seeded restored ones survive for codegen.
         _variantBodies = ctx.VariantBodies;
         AnalyzeVariantBodies();
+        SubMark(label: "AnalyzeVariantBodies");
 
         // Phase 8 global: lower variant bodies and stdlib programs with type-aware passes.
         // Also pass synthesized operator bodies so CallOverloadResolutionPass can classify
@@ -534,6 +545,7 @@ public sealed partial class SemanticVerifier
             target: _target,
             buildMode: _buildMode) { VariantBodies = _variantBodies };
         new WiredRoutinePass(ctx: lateCtx).RunGlobal();
+        SubMark(label: "AutoRegisterWiredRoutines + WiredRoutinePass.RunGlobal");
 
         var p7ctx = new PostprocessingContext(registry: _registry,
             variantBodies: _variantBodies,
@@ -542,6 +554,7 @@ public sealed partial class SemanticVerifier
             buildMode: _buildMode,
             monomorphizedBodies: _instantiatedGenericBodies as Dictionary<string, MonomorphizedBody>);
         new PostprocessingPipeline(ctx: p7ctx).RunGlobal();
+        SubMark(label: "PostprocessingPipeline.RunGlobal");
     }
 
     /// <summary>
