@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System.Linq;
 using Compiler.Desugaring;
 using Compiler.Desugaring.Passes;
 using Compiler.Postprocessing.Passes;
@@ -17,6 +19,13 @@ internal sealed class GenericClosurePass(InstantiationContext ctx)
             routineBodies: ctx.RoutineBodies,
             target: ctx.Target,
             buildMode: ctx.BuildMode) { SaTiming = ctx.SaTiming };
+
+        // Warm-restore incrementalization: the instantiated bodies already in the context on entry were
+        // captured POST-lowering (empty on a cold compile — nothing seeds this map before Phase 8), so the
+        // per-body lowering chain below only needs to touch the NEW bodies GMP builds this run. Skipping the
+        // (potentially thousands of) already-lowered restored bodies is the bulk of the warm-compile win;
+        // an empty pre-existing set makes this a no-op for cold builds.
+        var preExistingInstantiationKeys = new HashSet<string>(collection: ctx.InstantiatedGenericBodies.Keys);
 
         foreach ((string key, Statement body) in ctx.VariantBodies)
         {
@@ -70,23 +79,33 @@ internal sealed class GenericClosurePass(InstantiationContext ctx)
             // walked-body sets keep the re-run bounded to NEW work).
             gmp.RunIncremental();
         }
+        // The NEW bodies GMP produced this run (everything not already lowered on entry). The restored
+        // bodies stay in adapter.InstantiatedGenericBodies for LOOKUPS (iterator inlining, etc.) but are
+        // excluded from the per-body lowering ITERATION below. Cold: preExisting is empty → freshBodies is
+        // the full set (unchanged behavior).
+        var freshBodies = preExistingInstantiationKeys.Count == 0
+            ? adapter.InstantiatedGenericBodies
+            : adapter.InstantiatedGenericBodies
+                     .Where(predicate: kv => !preExistingInstantiationKeys.Contains(item: kv.Key))
+                     .ToDictionary(keySelector: kv => kv.Key, elementSelector: kv => kv.Value);
+
         // ControlFlowLowering for instantiated bodies: protocol-default-impl clones (from
         // ProtocolDefaultImplLoweringPass above) carry raw `for` loops from the stdlib AST
         // that never went through Phase 6 desugaring. Lower them before subsequent passes.
         new ControlFlowLoweringPass(ctx: adapter)
-            .RunOnInstantiatedGenericBodies(adapter.InstantiatedGenericBodies);
+            .RunOnInstantiatedGenericBodies(freshBodies);
         // Inline simple iterator `emit!` bodies into their for-loops, replacing the `try_emit`
         // call with the spliced advance. Runs AFTER ControlFlowLowering (which produced the flagged
         // iterator loops) and AFTER monomorphization (so the concrete `emit!` bodies exist in
         // InstantiatedGenericBodies for lookup). Composed/filtering iterators fall back to try_emit.
         new IteratorInlineLoweringPass(registry: ctx.Registry, monoBodies: adapter.InstantiatedGenericBodies)
-            .RunOnInstantiatedGenericBodies(adapter.InstantiatedGenericBodies);
+            .RunOnInstantiatedGenericBodies(freshBodies);
         // Lower the cycle-collector hook intrinsics (`<entity>.roam_trace_ref()` /
         // `.roam_free_ref()`) into explicit routine-VALUE references now that GMP has substituted the
         // generic `RoamController[T]` receiver to a concrete entity. Codegen then materializes the
         // closure from the stamped ResolvedRoutine — it no longer picks the impl via LookupMemberRoutine.
         new RoamHookRefLoweringPass(registry: ctx.Registry)
-            .RunOnInstantiatedGenericBodies(adapter.InstantiatedGenericBodies);
+            .RunOnInstantiatedGenericBodies(freshBodies);
         new GenericCallLoweringPass(ctx: adapter).RunOnInstantiatedGenericBodies();
         new BuilderQueryInliningPass(ctx: adapter).RunOnInstantiatedGenericBodies();
         // Operator lowering for instantiated bodies: GMP's clones inherit unlowered
@@ -103,7 +122,7 @@ internal sealed class GenericClosurePass(InstantiationContext ctx)
         // monomorphized represent/diagnose bodies need f-strings lowered to represent/diagnose
         // memberRoutine calls + Text.add before operator lowering can fold the `+` chain.
         new FStringLoweringPass(ctx: postCtx)
-            .RunOnInstantiatedGenericBodies(adapter.InstantiatedGenericBodies);
+            .RunOnInstantiatedGenericBodies(freshBodies);
         // ExpressionLoweringPass: handles RangeExpression, UnaryExpression(Not), pattern lowering
         // etc. Must run before OperatorLoweringPass — operator lowering folds the BinaryExpressions
         // ExpressionLowering produces (e.g. `1 til n` -> a range record with `+ 1` / `< n` checks).
@@ -114,25 +133,37 @@ internal sealed class GenericClosurePass(InstantiationContext ctx)
         // over `Maybe[Wrapper[T]]` reaches codegen as raw TypePattern/ElsePattern; the codegen
         // TypePattern path falls through to an unconditional match → the first arm always wins.
         new PatternLoweringPass(ctx: postCtx)
-            .RunOnInstantiatedGenericBodies(adapter.InstantiatedGenericBodies);
+            .RunOnInstantiatedGenericBodies(freshBodies);
         new ExpressionLoweringPass(ctx: postCtx)
-            .RunOnInstantiatedGenericBodies(adapter.InstantiatedGenericBodies);
+            .RunOnInstantiatedGenericBodies(freshBodies);
         new PatternLoweringPass(ctx: postCtx)
-            .RunOnInstantiatedGenericBodies(adapter.InstantiatedGenericBodies);
+            .RunOnInstantiatedGenericBodies(freshBodies);
         new ExpressionLoweringPass(ctx: postCtx)
-            .RunOnInstantiatedGenericBodies(adapter.InstantiatedGenericBodies);
+            .RunOnInstantiatedGenericBodies(freshBodies);
         new OperatorLoweringPass(ctx: postCtx)
-            .RunOnInstantiatedGenericBodies(adapter.InstantiatedGenericBodies);
+            .RunOnInstantiatedGenericBodies(freshBodies);
         // Copy lowering for instantiated bodies: at generic-def time a field of generic type T looks
         // borrow-tier (no retaining store), so a monomorphized body that returns/stores a value with
         // a now-concrete refcounted field (e.g. DictEntry[Text, S64] from entry_get) never retained
         // it — torn down per use then freed again at container teardown. Re-run here, post-mono, so
         // GetLifecycle sees the concrete field types and injects the balancing store.
         new RecordCopyLoweringPass(ctx: postCtx)
-            .RunOnInstantiatedGenericBodies(adapter.InstantiatedGenericBodies);
+            .RunOnInstantiatedGenericBodies(freshBodies);
         // NOTE: RcRetainLoweringPass deleted. The per-field retain on a record copy lives in the type's
         // own assign/copy derive (post-mono, RecordCopyLoweringPass above routes the copy through it);
         // the pass bumping on top double-counted → teardown double-free. Decrement = scope-exit teardown.
+
+        // The lowering passes REASSIGN dict entries (`dict[key] = body with { ... }`, MonomorphizedBody is
+        // a record), so when freshBodies is a separate (warm-restore) dict the lowered results live there,
+        // not in the adapter. Merge them back so codegen sees the lowered fresh bodies. No-op on cold
+        // (freshBodies IS the adapter map).
+        if (!ReferenceEquals(objA: freshBodies, objB: adapter.InstantiatedGenericBodies))
+        {
+            foreach ((string key, MonomorphizedBody body) in freshBodies)
+            {
+                adapter.InstantiatedGenericBodies[key] = body;
+            }
+        }
 
         // Track-C tripwire (C1): after all instantiated-body lowering, assert every fully-concrete
         // monomorphized body is free of residual generics. This replaces the codegen-time guards —
