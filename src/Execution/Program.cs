@@ -103,6 +103,20 @@ internal partial class Program
             return LspServer.Run();
         }
 
+        // `daemon`: run the warm-compile daemon (foreground). Captures the fully-processed stdlib in RAM
+        // and serves warm build/check/buildandrun requests over a per-user named pipe, so a client skips
+        // the ~5 s stdlib reprocessing on every invocation. Started explicitly by the developer; clients
+        // opt in via RAZORFORGE_DAEMON=1. Ctrl-C / `daemon-stop` shuts it down.
+        if (command is "daemon")
+        {
+            return CompileDaemon.RunServer();
+        }
+
+        if (command is "daemon-stop")
+        {
+            return CompileDaemon.StopServer();
+        }
+
         if (!isCommand)
         {
             // A bare source file RUNS (build + execute) when it is a Suflae script — either the `.sf`
@@ -170,6 +184,12 @@ internal partial class Program
                     return 1;
                 }
 
+                // Warm-daemon path: delegate the compile to a running daemon (skips stdlib reprocessing).
+                if (CompileDaemon.TryClientBuild(resolved: resolved, exitCode: out int dbrc))
+                {
+                    return dbrc;
+                }
+
                 int buildRc = BuildExecutable(entryFile: resolved.EntryFile,
                     exeFile: out string builtExe,
                     projectRoot: resolved.ProjectRoot,
@@ -196,6 +216,20 @@ internal partial class Program
                 if (resolved.EntryFile == null)
                 {
                     return 1;
+                }
+
+                // ORC-JIT dev-loop path (RAZORFORGE_JIT=1): JIT the module in-process — no opt/clang/link,
+                // no exe, no spawn. IR comes warm from the daemon when it's up, else a local cold compile.
+                if (CompileDaemon.TryClientJitRun(resolved: resolved, exitCode: out int jrc))
+                {
+                    return jrc;
+                }
+
+                // Warm-daemon path: delegate the COMPILE to a running daemon (skips stdlib reprocessing),
+                // then run the produced exe locally so interactive stdin/stdout stays with this process.
+                if (CompileDaemon.TryClientBuildAndRun(resolved: resolved, exitCode: out int drc))
+                {
+                    return drc;
                 }
 
                 return BuildAndRun(entryFile: resolved.EntryFile,
@@ -252,7 +286,7 @@ internal partial class Program
     /// FAILURE is signalled by <see cref="EntryFile"/> being null (all other fields keep their defaults).
     /// Replaces a former 12-tuple — the field count outgrew a tuple's readability.
     /// </summary>
-    private sealed record ResolvedEntry
+    internal sealed record ResolvedEntry
     {
         /// <summary>The entry source file, or null when resolution failed (error already printed).</summary>
         public string? EntryFile { get; init; }
@@ -952,7 +986,8 @@ internal partial class Program
         out IReadOnlyList<string> discoveredLinkLibraries,
         string? projectRoot = null, RfBuildMode buildMode = RfBuildMode.Debug,
         bool dumpAst = false, bool saTiming = false, bool requireStartRoutine = true,
-        bool showBuildStages = false, IReadOnlyList<string>? libraryRoots = null)
+        bool showBuildStages = false, IReadOnlyList<string>? libraryRoots = null,
+        Func<Language, SemanticVerifier.CompiledStdlibState?>? warmProvider = null)
     {
         // C libraries declared in source via `@link("...")` on `C::` externs, gathered from the files
         // that actually compile (post `@target` gate) and surfaced to the link step. Assigned once the
@@ -1094,8 +1129,15 @@ internal partial class Program
             }
 
             var target = TargetConfig.ForCurrentHost();
-            var analyzer = new SemanticVerifier(language: language,
-                target: target, buildMode: buildMode) { SaTiming = saTiming };
+            // Warm path: a daemon supplies a fully-processed stdlib snapshot for this language, so the
+            // restore ctor skips the ~5 s of stdlib desugaring/verification/monomorphization and only the
+            // user program is analyzed. Cold path (warm == null) constructs a fresh verifier as before.
+            SemanticVerifier.CompiledStdlibState? warm = warmProvider?.Invoke(language);
+            var analyzer = warm != null
+                ? new SemanticVerifier(language: language, warm: warm,
+                    target: target, buildMode: buildMode) { SaTiming = saTiming }
+                : new SemanticVerifier(language: language,
+                    target: target, buildMode: buildMode) { SaTiming = saTiming };
             // Share the driver's fully-indexed resolver so SA-phase imports see the same
             // module set the build graph resolved (incl. [target] library directories).
             analyzer.Registry.UseModuleResolver(resolver: driver.Resolver);
@@ -1715,12 +1757,64 @@ internal partial class Program
         return libs;
     }
 
+    /// <summary>
+    /// Compiles a source file all the way to LLVM-IR TEXT (no opt/clang/link), returning the IR string.
+    /// This is the front half of <see cref="BuildExecutable"/> — used by the ORC-JIT dev-loop path, which
+    /// JITs the IR in-process instead of producing a native exe. Honors a warm-stdlib provider so a daemon
+    /// can supply the fast path. Returns the build exit code (0 = success, and <paramref name="ir"/> holds
+    /// the module); diagnostics are printed by <see cref="BuildMultiFile"/> as usual.
+    /// </summary>
+    private static int BuildToIr(string entryFile, out string ir, string? projectRoot = null,
+        RfBuildMode buildMode = RfBuildMode.Debug, bool requireStartRoutine = true,
+        IReadOnlyList<string>? libraryRoots = null,
+        Func<Language, SemanticVerifier.CompiledStdlibState?>? warmProvider = null)
+    {
+        ir = "";
+        string tmp = Path.Combine(path1: Path.GetTempPath(),
+            path2: $"{Path.GetFileNameWithoutExtension(path: entryFile)}.{Guid.NewGuid():N}.ll");
+        try
+        {
+            int rc = BuildMultiFile(entryFile: entryFile,
+                outputFile: tmp,
+                discoveredLinkLibraries: out _,
+                projectRoot: projectRoot,
+                buildMode: buildMode,
+                dumpAst: false,
+                saTiming: false,
+                requireStartRoutine: requireStartRoutine,
+                showBuildStages: false,
+                libraryRoots: libraryRoots,
+                warmProvider: warmProvider);
+            if (rc == 0 && File.Exists(path: tmp))
+            {
+                ir = File.ReadAllText(path: tmp);
+            }
+
+            return rc;
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(path: tmp))
+                {
+                    File.Delete(path: tmp);
+                }
+            }
+            catch
+            {
+                // Best-effort temp cleanup.
+            }
+        }
+    }
+
     private static int BuildExecutable(string entryFile, out string exeFile, string? projectRoot = null,
         RfBuildMode buildMode = RfBuildMode.Debug, bool dumpAst = false, bool saTiming = false,
         bool requireStartRoutine = true, bool showBuildStages = false,
         IReadOnlyList<string>? libraryRoots = null, IReadOnlyList<string>? cLibraries = null,
         IReadOnlyList<string>? libraryPaths = null,
-        IReadOnlyDictionary<string, CLibrary>? libraryConfigs = null)
+        IReadOnlyDictionary<string, CLibrary>? libraryConfigs = null,
+        Func<Language, SemanticVerifier.CompiledStdlibState?>? warmProvider = null)
     {
         // Remove stale per-target outputs before rebuilding.
         string llFile = Path.ChangeExtension(path: entryFile, extension: ".ll");
@@ -1739,7 +1833,8 @@ internal partial class Program
             saTiming: saTiming,
             requireStartRoutine: requireStartRoutine,
             showBuildStages: showBuildStages,
-            libraryRoots: libraryRoots);
+            libraryRoots: libraryRoots,
+            warmProvider: warmProvider);
         if (buildResult != 0)
         {
             return buildResult;
@@ -1827,7 +1922,8 @@ internal partial class Program
         bool requireStartRoutine = true,
         bool showBuildStages = false, IReadOnlyList<string>? libraryRoots = null,
         IReadOnlyList<string>? cLibraries = null, IReadOnlyList<string>? libraryPaths = null,
-        IReadOnlyDictionary<string, CLibrary>? libraryConfigs = null)
+        IReadOnlyDictionary<string, CLibrary>? libraryConfigs = null,
+        Func<Language, SemanticVerifier.CompiledStdlibState?>? warmProvider = null)
     {
         int buildResult = BuildExecutable(entryFile: entryFile,
             exeFile: out string exeFile,
@@ -1840,13 +1936,23 @@ internal partial class Program
             libraryRoots: libraryRoots,
             cLibraries: cLibraries,
             libraryPaths: libraryPaths,
-            libraryConfigs: libraryConfigs);
+            libraryConfigs: libraryConfigs,
+            warmProvider: warmProvider);
         if (buildResult != 0)
         {
             return buildResult;
         }
 
-        // Run the produced .exe
+        return RunExecutable(exeFile: exeFile, showBuildStages: showBuildStages);
+    }
+
+    /// <summary>
+    /// Runs an already-built native executable, forwarding stdin and faithfully draining stdout/stderr
+    /// (UTF-8), and returns its exit code. Factored out of <see cref="BuildAndRun"/> so the daemon client
+    /// can run the exe locally after a warm build performed the compile in the daemon process.
+    /// </summary>
+    private static int RunExecutable(string exeFile, bool showBuildStages)
+    {
         if (showBuildStages)
         {
             Console.WriteLine();

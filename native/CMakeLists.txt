@@ -141,6 +141,7 @@ add_library(razorforge_runtime SHARED
     runtime/signal_runtime.c
     runtime/process_signals.c
     runtime/random.c
+    runtime/emutls_runtime.c
     runtime/types.h
 )
 
