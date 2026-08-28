@@ -82,6 +82,14 @@ internal partial class Program
             return v is not (null or "" or "0" or "false" or "no");
         }
 
+        /// <summary><c>RAZORFORGE_PHASE_TIMING</c> gates the per-phase <c>[timing]</c> diagnostics used
+        /// while profiling the dev loop; off by default so normal runs are quiet.</summary>
+        private static bool PhaseTiming()
+        {
+            string? v = Environment.GetEnvironmentVariable(variable: "RAZORFORGE_PHASE_TIMING");
+            return v is not (null or "" or "0" or "false" or "no");
+        }
+
         // ---- server --------------------------------------------------------------------------------
 
         private static readonly Dictionary<Language, SemanticVerifier.CompiledStdlibState> WarmCache = new();
@@ -357,7 +365,8 @@ internal partial class Program
             if (ClientEnabled() && TryDaemonIr(resolved: resolved, ir: out ir, exitCode: out rc))
             {
                 _swIr.Stop();
-                Console.Error.WriteLine(value: $"[timing] daemon IR fetch (warm SA+codegen): {_swIr.ElapsedMilliseconds} ms ({ir.Length} chars)");
+                if (PhaseTiming())
+                    Console.Error.WriteLine(value: $"[timing] daemon IR fetch (warm SA+codegen): {_swIr.ElapsedMilliseconds} ms ({ir.Length} chars)");
             }
             else
             {
@@ -383,7 +392,8 @@ internal partial class Program
                     programName: System.IO.Path.GetFullPath(path: resolved.EntryFile),
                     programArgs: []);
                 _swJit.Stop();
-                Console.Error.WriteLine(value: $"[timing] JIT compile + run: {_swJit.ElapsedMilliseconds} ms");
+                if (PhaseTiming())
+                    Console.Error.WriteLine(value: $"[timing] JIT compile + run: {_swJit.ElapsedMilliseconds} ms");
                 return true;
             }
             catch (Exception ex)

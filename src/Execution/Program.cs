@@ -1133,15 +1133,25 @@ internal partial class Program
             // restore ctor skips the ~5 s of stdlib desugaring/verification/monomorphization and only the
             // user program is analyzed. Cold path (warm == null) constructs a fresh verifier as before.
             SemanticVerifier.CompiledStdlibState? warm = warmProvider?.Invoke(language);
+            bool _phaseTimingEarly = Environment.GetEnvironmentVariable(variable: "RAZORFORGE_PHASE_TIMING")
+                is not (null or "" or "0");
             var analyzer = warm != null
                 ? new SemanticVerifier(language: language, warm: warm,
-                    target: target, buildMode: buildMode) { SaTiming = saTiming }
+                    target: target, buildMode: buildMode) { SaTiming = saTiming || _phaseTimingEarly }
                 : new SemanticVerifier(language: language,
-                    target: target, buildMode: buildMode) { SaTiming = saTiming };
+                    target: target, buildMode: buildMode) { SaTiming = saTiming || _phaseTimingEarly };
             // Share the driver's fully-indexed resolver so SA-phase imports see the same
             // module set the build graph resolved (incl. [target] library directories).
             analyzer.Registry.UseModuleResolver(resolver: driver.Resolver);
+            bool phaseTiming = Environment.GetEnvironmentVariable(variable: "RAZORFORGE_PHASE_TIMING")
+                is not (null or "" or "0");
+            var _swPhase = phaseTiming ? System.Diagnostics.Stopwatch.StartNew() : null;
             AnalysisResult result = analyzer.AnalyzeMultiple(files: orderedFiles);
+            if (_swPhase != null)
+            {
+                Console.Error.WriteLine(value: $"[phase] AnalyzeMultiple (SA+instantiation+postproc): {_swPhase.ElapsedMilliseconds} ms");
+                _swPhase.Restart();
+            }
 
             if (showBuildStages)
                 Console.WriteLine(
@@ -1258,6 +1268,10 @@ internal partial class Program
             }
 
             string llvmIr = generator.Generate();
+            if (_swPhase != null)
+            {
+                Console.Error.WriteLine(value: $"[phase] codegen Generate(): {_swPhase.ElapsedMilliseconds} ms ({llvmIr.Length} chars, {generator.EmittedRoutineCount} routines)");
+            }
             if (showBuildStages)
                 Console.Error.WriteLine(value: $"Routines emitted: {generator.EmittedRoutineCount}");
 

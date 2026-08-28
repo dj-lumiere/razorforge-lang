@@ -1229,7 +1229,9 @@ public sealed partial class SemanticVerifier
         // Phase 6 global (pre-pass): pre-register stdlib failable memberRoutine variants (try_emit, try_recover, etc.)
         // Must run before Phase 5 body analysis and before Phase 7 syntax prepass
         // (ControlFlowLoweringPass generates try_emit calls that Phase 5 must resolve).
-        PreRegisterStdlibVariants();
+        // Snapshot mode: stdlib variants are already registered in the restored registry (parity with the
+        // single-file Analyze gate) — re-registering them is pure warm-compile overhead (~240 ms).
+        if (!_snapshotMode) PreRegisterStdlibVariants();
         Mark(label: "Phase 6 global -> PreRegisterStdlibVariants");
 
         // Phase 7 per-file: syntax-only lowering (no type info needed; runs before Phase 5 annotates types)

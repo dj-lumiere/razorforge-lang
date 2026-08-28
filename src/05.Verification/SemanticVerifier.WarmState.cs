@@ -39,6 +39,10 @@ public partial class SemanticVerifier
     /// <summary>
     /// Runs one full compile of a minimal program to fully process the stdlib, then captures the
     /// result. Call once (e.g. at daemon startup); reuse via the restore constructor for warm compiles.
+    /// (A "priming" snapshot that pre-instantiates the common generic surface was tried and measured NOT
+    /// to help: the per-run cost is in GenericMonomorphizationPass's type-graph processing, whose
+    /// per-instance working set resets each run and does not consult pre-seeded instantiation BODIES.
+    /// Making it help requires seeding the type-level working sets, not the bodies — deferred.)
     /// </summary>
     public static CompiledStdlibState CaptureCompiledStdlib(Language language)
     {
@@ -94,6 +98,11 @@ public partial class SemanticVerifier
         _restoredVariantKeys = new HashSet<string>(warm.VariantBodies.Keys, System.StringComparer.Ordinal);
         _instantiatedGenericBodies =
             new Dictionary<string, MonomorphizedBody>(warm.InstantiatedGenericBodies);
+        if (System.Environment.GetEnvironmentVariable(variable: "RAZORFORGE_PHASE_TIMING") is not (null or "" or "0"))
+        {
+            System.Console.Error.WriteLine(
+                value: $"[warm-restore] seeded instantiations={_instantiatedGenericBodies.Count} variants={_variantBodies.Count} synth={_synthesizedBodies.Count}");
+        }
     }
 
     /// <summary>Variant-body keys restored from a warm snapshot — already analyzed at capture time, so
