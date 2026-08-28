@@ -987,7 +987,8 @@ internal partial class Program
         string? projectRoot = null, RfBuildMode buildMode = RfBuildMode.Debug,
         bool dumpAst = false, bool saTiming = false, bool requireStartRoutine = true,
         bool showBuildStages = false, IReadOnlyList<string>? libraryRoots = null,
-        Func<Language, SemanticVerifier.CompiledStdlibState?>? warmProvider = null)
+        Func<Language, SemanticVerifier.CompiledStdlibState?>? warmProvider = null,
+        Action<string>? irCallback = null)
     {
         // C libraries declared in source via `@link("...")` on `C::` externs, gathered from the files
         // that actually compile (post `@target` gate) and surfaced to the link step. Assigned once the
@@ -1275,11 +1276,18 @@ internal partial class Program
             if (showBuildStages)
                 Console.Error.WriteLine(value: $"Routines emitted: {generator.EmittedRoutineCount}");
 
-            // Output
-            string outPath = outputFile ?? Path.ChangeExtension(path: entryFile, extension: ".ll");
-            File.WriteAllText(path: outPath, contents: llvmIr);
-            if (showBuildStages)
-                Console.WriteLine(value: $"LLVM IR written to: {outPath}");
+            // Output. The JIT path (irCallback set) takes the IR IN MEMORY — no temp .ll write + read-back.
+            if (irCallback != null)
+            {
+                irCallback(obj: llvmIr);
+            }
+            else
+            {
+                string outPath = outputFile ?? Path.ChangeExtension(path: entryFile, extension: ".ll");
+                File.WriteAllText(path: outPath, contents: llvmIr);
+                if (showBuildStages)
+                    Console.WriteLine(value: $"LLVM IR written to: {outPath}");
+            }
 
             if (showBuildStages)
             {
@@ -1783,43 +1791,21 @@ internal partial class Program
         IReadOnlyList<string>? libraryRoots = null,
         Func<Language, SemanticVerifier.CompiledStdlibState?>? warmProvider = null)
     {
-        ir = "";
-        string tmp = Path.Combine(path1: Path.GetTempPath(),
-            path2: $"{Path.GetFileNameWithoutExtension(path: entryFile)}.{Guid.NewGuid():N}.ll");
-        try
-        {
-            int rc = BuildMultiFile(entryFile: entryFile,
-                outputFile: tmp,
-                discoveredLinkLibraries: out _,
-                projectRoot: projectRoot,
-                buildMode: buildMode,
-                dumpAst: false,
-                saTiming: false,
-                requireStartRoutine: requireStartRoutine,
-                showBuildStages: false,
-                libraryRoots: libraryRoots,
-                warmProvider: warmProvider);
-            if (rc == 0 && File.Exists(path: tmp))
-            {
-                ir = File.ReadAllText(path: tmp);
-            }
-
-            return rc;
-        }
-        finally
-        {
-            try
-            {
-                if (File.Exists(path: tmp))
-                {
-                    File.Delete(path: tmp);
-                }
-            }
-            catch
-            {
-                // Best-effort temp cleanup.
-            }
-        }
+        string captured = "";
+        int rc = BuildMultiFile(entryFile: entryFile,
+            outputFile: null,
+            discoveredLinkLibraries: out _,
+            projectRoot: projectRoot,
+            buildMode: buildMode,
+            dumpAst: false,
+            saTiming: false,
+            requireStartRoutine: requireStartRoutine,
+            showBuildStages: false,
+            libraryRoots: libraryRoots,
+            warmProvider: warmProvider,
+            irCallback: s => captured = s);
+        ir = captured;
+        return rc;
     }
 
     private static int BuildExecutable(string entryFile, out string exeFile, string? projectRoot = null,
