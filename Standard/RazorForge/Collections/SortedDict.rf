@@ -47,7 +47,7 @@ needs K obeys Comparable
 ### :typeparam V: The value type.
 ### :see: {Dict[K, V]} for an unordered dictionary with O(1) average lookup.
 ### :see: {SortedList[T]} for a sorted sequence that allows duplicates.
-entity SortedDict[K, V] obeys Iterable[DictEntry[K, V]], KeyFindable
+entity SortedDict[K, V] obeys Iterable[DictEntry[K, V]], KeyFindable, DictLiteral[K, V]
 needs K obeys Comparable
 relates SortedDictEmittable[K, V] as Iter
 relates K as Key
@@ -343,6 +343,19 @@ routine SortedDict[K, V]() -> SortedDict[K, V]
     root: none,
     count: 0u64
   )
+
+### Creates a sorted dict containing the given key-value `pairs` (stored in sorted key order). Variadic
+### constructor behind the `{k: v, …}` dict-literal syntax (the `DictLiteral` opt-in).
+### :param pairs: The key-value pairs as `DictEntry[K, V]` values; a later duplicate key overwrites.
+### :returns: A sorted dict of the given pairs.
+common routine SortedDict[K, V].from_literal(pairs...: DictEntry[K, V]) -> SortedDict[K, V]
+needs K obeys Comparable
+  var result = SortedDict[K, V]()
+  var i = 0u64
+  while i < pairs.count()
+    discard result.add(key: pairs[i].key, value: pairs[i].value)
+    i = i +% 1u64
+  return result
 
 
 # ============================================================================

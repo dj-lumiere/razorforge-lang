@@ -1,0 +1,12 @@
+module Core
+
+### Opt-in for types constructible from a **set literal** `{a, b, c}` (brace literal with NO `:`). A
+### conforming type provides a `common from_literal(elements...: T)` static routine; the compiler lowers
+### `{…}` (element form) to `Type.from_literal(...)`. The `:`-bearing brace form `{k: v}` is a dict literal
+### (see `DictLiteral`). Analogous to Swift's `ExpressibleByArrayLiteral` for set types.
+### :typeparam T: The element type accepted by the literal.
+protocol SetLiteral[T]
+  ### Builds an instance holding the given `elements` (duplicates collapsed by the type).
+  ### :param elements: The literal elements.
+  ### :returns: The constructed value.
+  common routine Me.from_literal(elements...: T) -> Me

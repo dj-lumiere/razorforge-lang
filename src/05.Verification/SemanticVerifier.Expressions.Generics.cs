@@ -221,6 +221,11 @@ public sealed partial class SemanticVerifier
                     typeArguments: fullTypeArgs);
             }
 
+            // Variadic member routine (e.g. `List[T].create(elements...: T)` called as
+            // `List[S32].create(1, 2, 3)`): pack the K trailing args into an Array[T, K] literal first.
+            PackVariadicCallArgs(arguments: generic.Arguments, routine: memberRoutine,
+                location: generic.Location);
+
             // Analyze arguments against the resolved memberRoutine (param types now concrete), so lambda
             // parameters bound to memberRoutine generics are typed correctly. AnalyzeCallArguments also binds
             // named/positional args and applies any remaining owner-generic substitution.

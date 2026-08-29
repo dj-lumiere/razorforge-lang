@@ -383,12 +383,9 @@ public sealed partial class SemanticVerifier
             ParameterInfo param = parameters[index: binding.Key];
             TypeSymbol paramType = param.Type;
 
-            // For variadic parameters, type-check against the element type T, not List[T]
-            if (param.IsVariadicParam && paramType is
-                    { IsGenericResolution: true, TypeArguments: [var elemType, ..] })
-            {
-                paramType = elemType;
-            }
+            // Variadic params are desugared to Array[T, __VarargN] and the call site packs its trailing
+            // args into a single Array[T, K] literal, so the argument is matched against the Array
+            // parameter directly — no element unwrapping.
 
             if (callObjectType != null)
             {

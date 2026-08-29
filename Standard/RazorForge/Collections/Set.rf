@@ -32,7 +32,7 @@ secret preset ENTRY_LIVE: U8 = 1_u8
 ###
 ### :typeparam T: The element type. Must obey {Hashable} and {Equatable}.
 ### :see: {Dict[K, V]} for the dictionary counterpart.
-entity Set[T] obeys Iterable[T], Container
+entity Set[T] obeys Iterable[T], Container, SetLiteral[T]
 needs T obeys Hashable, Equatable
 relates SetEmittable[T] as Iter
   secret ctrl: Hijacked[U8]
@@ -50,6 +50,20 @@ relates SetEmittable[T] as Iter
 # ============================================================================
 # Creators
 # ============================================================================
+
+### Creates a set containing the given `elements` (duplicates collapsed). Variadic constructor behind the
+### `{a, b, c}` set-literal syntax (the `SetLiteral` opt-in): the compiler packs the elements into a
+### fixed `Array[T, K]` and monomorphizes one body per element count `K`.
+### :param elements: The elements to insert; duplicates are ignored.
+### :returns: A set of the distinct given elements.
+common routine Set[T].from_literal(elements...: T) -> Set[T]
+needs T obeys Hashable, Equatable
+  var result = Set[T]()
+  var i = 0u64
+  while i < elements.count()
+    discard result.add(value: elements[i])
+    i = i +% 1u64
+  return result
 
 routine Set[T]() -> Set[T]
   return Set[T](key: SecureHashKey.random())

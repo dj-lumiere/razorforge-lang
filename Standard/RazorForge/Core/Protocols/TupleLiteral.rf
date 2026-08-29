@@ -1,0 +1,11 @@
+module Core
+
+### Marker for types constructible from a **tuple literal** `(a, b, …)` of exactly `N` components. Unlike
+### the variable-length list/set/dict literals, a tuple literal is FIXED arity: `N` is the component
+### count, carried as the protocol's const parameter, and the compiler maps the `N` elements positionally
+### to the type's `N`-argument constructor (arity mismatch is a compile error). `Vector3D`, for example,
+### `obeys TupleLiteral[3]`, so `(x, y, z)` constructs it. The built-in `Tuple` is handled natively; this
+### marker is the opt-in for OTHER fixed-shape types.
+protocol TupleLiteral[N]
+needs N is U64
+  pass

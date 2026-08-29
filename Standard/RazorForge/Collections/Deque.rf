@@ -30,7 +30,7 @@ import BuilderQuery
 ### :typeparam T: The element type stored in the deque.
 ### :see: {List[T]} for a simpler growable sequence optimized for back-only append.
 ### :see: {PriorityQueue[TPriority, TElement]} for priority-ordered removal.
-entity Deque[T] obeys Iterable[T], MutableIndexable[T], Sized
+entity Deque[T] obeys Iterable[T], MutableIndexable[T], Sized, ListLiteral[T]
 relates DequeEmittable[T] as Iter
   ### Stores the circular buffer backing the deque.
   ### Elements are laid out in allocation order and interpreted through
@@ -47,6 +47,19 @@ relates DequeEmittable[T] as Iter
 # ============================================================================
 # Creators
 # ============================================================================
+
+### Creates a deque containing exactly the given `elements`, in order. Variadic constructor behind the
+### `[a, b, c]` list-literal syntax (the `ListLiteral` opt-in): the compiler packs the elements into a
+### fixed `Array[T, K]` and monomorphizes one body per element count `K`.
+### :param elements: The elements to populate the deque with, in order.
+### :returns: A deque of the given elements.
+common routine Deque[T].from_literal(elements...: T) -> Deque[T]
+  var result = Deque[T]()
+  var i = 0u64
+  while i < elements.count()
+    result.add_last(value: elements[i])
+    i = i +% 1u64
+  return result
 
 ### Creates an empty deque with no allocated storage.
 ### The backing buffer is acquired lazily on first insertion.

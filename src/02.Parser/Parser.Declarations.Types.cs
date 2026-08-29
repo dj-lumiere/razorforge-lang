@@ -775,9 +775,12 @@ public partial class Parser
                         }
                         else
                         {
-                            // Regular parameter
+                            // Regular parameter — supports variadic `name...: T` (a protocol may require a
+                            // variadic member, e.g. `common Me.from_literal(elements...: T)` for the literal
+                            // protocols). Mirrors the routine-declaration param parse.
                             string paramName =
                                 ConsumeIdentifier(errorMessage: "Expected parameter name");
+                            bool isVariadic = Match(type: TokenType.DotDotDot);
 
                             TypeExpression? paramType = null;
                             if (Match(type: TokenType.Colon))
@@ -788,7 +791,8 @@ public partial class Parser
                             parameters.Add(item: new Parameter(Name: paramName,
                                 Type: paramType,
                                 DefaultValue: null,
-                                Location: GetLocation()));
+                                Location: GetLocation(),
+                                IsVariadic: isVariadic));
                         }
                     } while (Match(type: TokenType.Comma));
                 }

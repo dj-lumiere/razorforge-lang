@@ -45,7 +45,7 @@ needs T obeys Comparable
 ### :typeparam T: The stored element type. Must obey {Comparable}.
 ### :see: {SortedSet[T]} for a duplicate-free sorted collection.
 ### :see: {SortedDict[K, V]} for sorted key-value storage.
-entity SortedList[T] obeys Iterable[T], Container
+entity SortedList[T] obeys Iterable[T], Container, ListLiteral[T]
 needs T obeys Comparable
 relates SortedListEmittable[T] as Iter
   secret root: Hijacked[BTreeListNode[T]]?
@@ -272,6 +272,19 @@ routine SortedList[T]() -> SortedList[T]
     root: none,
     count: 0u64
   )
+
+### Creates a sorted list containing the given `elements` (inserted in sorted order). Variadic
+### constructor behind the `[a, b, c]` list-literal syntax (the `ListLiteral` opt-in).
+### :param elements: The elements to insert; final order is sorted, not argument order.
+### :returns: A sorted list of the given elements.
+common routine SortedList[T].from_literal(elements...: T) -> SortedList[T]
+needs T obeys Comparable
+  var result = SortedList[T]()
+  var i = 0u64
+  while i < elements.count()
+    result.add(value: elements[i])
+    i = i +% 1u64
+  return result
 
 
 # ============================================================================

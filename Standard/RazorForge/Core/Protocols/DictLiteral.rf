@@ -1,0 +1,13 @@
+module Core
+
+### Opt-in for types constructible from a **dict literal** `{k: v, …}` (brace literal WITH `:`). A
+### conforming type provides a `common from_literal(pairs...: DictEntry[K, V])` static routine; the
+### compiler lowers `{k: v, …}` to `Type.from_literal(DictEntry(k, v), …)`. The `:`-less brace form
+### `{a, b}` is a set literal (see `SetLiteral`). Analogous to Swift's `ExpressibleByDictionaryLiteral`.
+### :typeparam K: The key type.
+### :typeparam V: The value type.
+protocol DictLiteral[K, V]
+  ### Builds an instance holding the given key-value `pairs`.
+  ### :param pairs: The literal key-value pairs as `DictEntry[K, V]` values.
+  ### :returns: The constructed value.
+  common routine Me.from_literal(pairs...: DictEntry[K, V]) -> Me

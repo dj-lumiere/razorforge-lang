@@ -42,7 +42,7 @@ needs TPriority obeys Comparable
 ### :typeparam TElement: The value type stored alongside each priority.
 ### :see: {SortedList[T]} for sorted traversal without removing elements.
 ### :see: {Deque[T]} for simple FIFO or LIFO queues without priority.
-entity PriorityQueue[TPriority, TElement] obeys Iterable[PQEntry[TPriority, TElement]]
+entity PriorityQueue[TPriority, TElement] obeys Iterable[PQEntry[TPriority, TElement]], DictLiteral[TPriority, TElement]
 needs TPriority obeys Comparable
   secret priorities: Hijacked[TPriority]
   secret elements: Hijacked[TElement]
@@ -55,6 +55,20 @@ needs TPriority obeys Comparable
 
 ### Creates an empty priority queue with no allocated backing storage.
 ### Storage is acquired lazily on the first insertion or explicit `reserve`.
+### Creates a priority queue containing the given `pairs`, each a `{priority: element}` mapping. Variadic
+### constructor behind the `{p: e, …}` dict-literal syntax (the `DictLiteral` opt-in): the key of every
+### `DictEntry` is the priority, the value is the element.
+### :param pairs: The priority-element pairs as `DictEntry[TPriority, TElement]` values.
+### :returns: A priority queue of the given pairs.
+common routine PriorityQueue[TPriority, TElement].from_literal(pairs...: DictEntry[TPriority, TElement]) -> PriorityQueue[TPriority, TElement]
+needs TPriority obeys Comparable
+  var result = PriorityQueue[TPriority, TElement]()
+  var i = 0u64
+  while i < pairs.count()
+    result.add(element: pairs[i].value, priority: pairs[i].key)
+    i = i +% 1u64
+  return result
+
 routine PriorityQueue[TPriority, TElement]() -> PriorityQueue[TPriority, TElement]
   return PriorityQueue[TPriority, TElement](
     priorities: hijacked_none[TPriority](),

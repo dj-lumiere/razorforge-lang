@@ -230,24 +230,11 @@ public sealed partial class SemanticVerifier
                                                                  return p.Type.Name ?? "";
                                                              }
 
-                                                             // Varargs params are stored as List[T] in the registry
-                                                             // (mirrors the wrapping in Signatures.cs Phase 4)
-                                                             if (p.IsVariadic)
-                                                             {
-                                                                 TypeSymbol? listDef =
-                                                                     _registry.LookupType(
-                                                                         name: "List");
-                                                                 if (listDef != null)
-                                                                 {
-                                                                     resolved =
-                                                                         _registry
-                                                                            .GetOrCreateResolution(
-                                                                                 genericDef:
-                                                                                 listDef,
-                                                                                 typeArguments:
-                                                                                 [resolved]);
-                                                                 }
-                                                             }
+                                                             // Variadic params are desugared to
+                                                             // Array[T, __VarargN] up front (p.Type is
+                                                             // already that Array), so the resolved type
+                                                             // matches the registered signature directly —
+                                                             // no List[T] wrapping.
 
                                                              return RoutineInfo.GetTypeIdentity(
                                                                  type: resolved);

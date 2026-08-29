@@ -1017,6 +1017,23 @@ public sealed partial class SemanticVerifier
         TypeSymbol startType = AnalyzeExpression(expression: range.Start, expectedType: endpointExpected);
         TypeSymbol endType = AnalyzeExpression(expression: range.End, expectedType: endpointExpected);
 
+        // Bare-literal bound adaptation (RF-S767): with no forced `Range[T]` context, a bare integer
+        // literal bound conforms to the OTHER, concrete numeric bound — `0 til me.count()` where
+        // `count()` is U64 makes `0` a U64, not the S64 literal default (so an `each i` index is U64).
+        if (endpointExpected == null)
+        {
+            bool startIsLiteral = range.Start is LiteralExpression;
+            bool endIsLiteral = range.End is LiteralExpression;
+            if (startIsLiteral && !endIsLiteral && IsNumericType(type: endType) && startType != endType)
+            {
+                startType = AnalyzeExpression(expression: range.Start, expectedType: endType);
+            }
+            else if (endIsLiteral && !startIsLiteral && IsNumericType(type: startType) && startType != endType)
+            {
+                endType = AnalyzeExpression(expression: range.End, expectedType: startType);
+            }
+        }
+
         if (range.Step != null)
         {
             AnalyzeExpression(expression: range.Step, expectedType: endpointExpected);

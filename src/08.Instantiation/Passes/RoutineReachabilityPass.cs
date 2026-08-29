@@ -482,6 +482,16 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
             collectionType = args[0];
         }
 
+        // A collection literal whose type `obeys ListLiteral/SetLiteral/DictLiteral` lowers to a
+        // `Type.from_literal[K](...)` call (see ExpressionLoweringPass); seed that monomorphized builder.
+        // Its body (`create() + add`/`add_last`) is walked when the worklist processes it, so the add
+        // member routines get seeded transitively — no need to enqueue them here.
+        if (node is Expression { ResolvedLiteralBuilder: { } literalBuilder })
+        {
+            EnqueueCallee(callee: literalBuilder);
+            return;
+        }
+
         switch (node)
         {
             case ListLiteralExpression:
@@ -1201,6 +1211,16 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
     /// </summary>
     private RoutineInfo? ResolveCreatorRoutine(CreatorExpression cre)
     {
+        // SA already resolved a routed creator (e.g. a variadic `create(elements...: T)` monomorphized
+        // to `create[K]`, or a named-arg `create(named:)` route). That routine is authoritative — seed it
+        // directly. GetMemberRoutinesForType does not surface a type's `create` constructors, so the
+        // label-matching fallback below would miss it and the body would be pruned (declared-but-defined).
+        if (cre.ResolvedCreatorRoutine is { } routedCreate)
+        {
+            EnqueueCallee(callee: routedCreate);
+            return routedCreate;
+        }
+
         TypeInfo? ct = cre.ConstructedType;
         if (ct == null) return null;
         // In a monomorphized frame the constructed type may be a generic parameter (e.g. `P()`

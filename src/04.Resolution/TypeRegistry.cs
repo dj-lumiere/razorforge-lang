@@ -1532,7 +1532,10 @@ public sealed partial class TypeRegistry
             return;
         }
 
-        foreach (TypeInfo resolution in _resolutions.Values)
+        // Snapshot: CreateInstance below can register a NEW resolution (e.g. the protocol member's own
+        // return/param instantiations), mutating _resolutions mid-enumeration. A generic literal protocol
+        // with a variadic member (`ListLiteral[T].from_literal`) makes this reliably reachable.
+        foreach (TypeInfo resolution in _resolutions.Values.ToList())
         {
             if (resolution is ProtocolTypeInfo protoRes &&
                 protoRes.GenericDefinition == genericDef &&

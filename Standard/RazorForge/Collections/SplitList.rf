@@ -16,7 +16,7 @@ import BuilderExpansion
 ###
 ### :typeparam T: The record element type (must be `is SplittableType`).
 ### :see: {List[T]} for the array-of-structs counterpart.
-entity SplitList[T] obeys Iterable[T], MutableIndexable[T], Sized, Container
+entity SplitList[T] obeys Iterable[T], MutableIndexable[T], Sized, Container, ListLiteral[T]
 needs T is SplittableType
 relates SplitListEmittable[T] as Iter
   expand m in allmemvarof(T)
@@ -36,6 +36,19 @@ relates SplitListEmittable[T] as Iter
 routine SplitList[T]() -> SplitList[T]
   danger
     return hollow[SplitList[T]]()
+
+### Creates a split list containing exactly the given `elements`, in order. Variadic constructor behind
+### the `[a, b, c]` list-literal syntax (the `ListLiteral` opt-in).
+### :param elements: The elements to populate the split list with, in order.
+### :returns: A split list of the given elements.
+common routine SplitList[T].from_literal(elements...: T) -> SplitList[T]
+needs T is SplittableType
+  var result = SplitList[T]()
+  var i = 0u64
+  while i < elements.count()
+    result.add_last(value: elements[i])
+    i = i +% 1u64
+  return result
 
 # Core operations
 

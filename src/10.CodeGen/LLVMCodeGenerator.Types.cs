@@ -93,6 +93,25 @@ public partial class LlvmCodeGenerator
 
     private string GetLlvmType(TypeInfo type)
     {
+        // Array[T, N] element-type consistency: the `@llvm("[{N} x {T}]")` template bakes the element's
+        // STRUCTURAL type (RecordTypeInfo.LlvmType → `{i32,i32}`), but record/variant VALUES carry the
+        // NAMED struct type (`%"Record.X"`). LLVM's value-aggregate ops (insertvalue for array literals)
+        // require the element type to match EXACTLY, so a named value into a structural-element array is a
+        // hard type error. Rebuild the array type from the element's own GetLlvmType (the single source of
+        // truth for the named form) so element positions everywhere — literal, param, alloca — agree.
+        // Scalars/wrappers are skipped (their structural form already equals their named form).
+        if (type is RecordTypeInfo
+            {
+                IsGenericResolution: true,
+                TypeArguments: [RecordTypeInfo or VariantTypeInfo, ConstGenericValueTypeInfo]
+            } arrayType
+            && GetGenericBaseName(type: arrayType) == "Array")
+        {
+            TypeInfo elem = arrayType.TypeArguments![index: 0];
+            long count = ((ConstGenericValueTypeInfo)arrayType.TypeArguments![index: 1]).Value;
+            return $"[{count} x {GetLlvmType(type: elem)}]";
+        }
+
         return type switch
         {
             // Records with @llvm annotation -> use backend type directly (skip generic definitions with template holes)

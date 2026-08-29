@@ -32,7 +32,7 @@ import BuilderQuery
 ### :typeparam T: The element type stored in the list.
 ### :see: {Deque[T]} for efficient double-ended insertion and removal.
 ### :see: {SortedList[T]} for a list that maintains ascending order automatically.
-entity List[T] obeys Iterable[T], MutableIndexable[T], Sized, Container, Equatable, Copyable
+entity List[T] obeys Iterable[T], MutableIndexable[T], Sized, Container, Equatable, Copyable, ListLiteral[T]
 relates ListEmittable[T] as Iter
   ### Stores the backing buffer.
   secret data: Hijacked[T]
@@ -89,6 +89,21 @@ needs T is Copyable
       count: count,
       capacity: count
     )
+
+### Builds a list containing exactly the given `elements`, in order. This static routine is the mechanism
+### behind the `[a, b, c]` list-literal syntax (the `ListLiteral` opt-in): the compiler lowers a list
+### literal to `List[T].from_literal(...)`, packing the elements into a fixed `Array[T, K]` and
+### monomorphizing one body per element count `K`. A distinct name (not the `List(...)` constructor) so it
+### never collides with the fixed-arity constructors (`List(capacity)` etc.).
+### :param elements: The elements to populate the list with, in order.
+### :returns: A list of the given elements.
+common routine List[T].from_literal(elements...: T) -> List[T]
+  var result = List[T]()
+  var i = 0u64
+  while i < elements.count()
+    result.add_last(elements[i])
+    i = i +% 1u64
+  return result
 
 # Core operations
 
@@ -790,10 +805,8 @@ routine List[T].merge_into_by(left: U64, mid: U64, right: U64, buffer: Controlli
 ### Destroys each live element (no-op for value-typed `T`), then frees the backing buffer.
 dangerous routine List[T].destroy()
   var elem_size = T.data_size()
-  var i: U64 = 0u64
-  while i < me.count
+  each i in 0 til me.count()
     me.data.offset(elem_size * i).peek().destroy()
-    i = i + 1u64
   me.data.invalidate()
   me.hijack().invalidate()
   return

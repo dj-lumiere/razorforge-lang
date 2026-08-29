@@ -1149,6 +1149,15 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
             return (hoisted, list with { Elements = elems });
         }
 
+        // A ListLiteral-conforming type lowers to `Type.from_literal(a, b, c)` (SA resolved the
+        // monomorphized builder). The literal elements are packed into an inline `Array[T, K]`.
+        if (list.ResolvedLiteralBuilder is { Parameters.Count: >= 1 } listBuilder)
+        {
+            var (h, elems) = LowerElements(elements: list.Elements);
+            return (h, MakeFromLiteralCall(builder: listBuilder, arrayElements: elems,
+                literalResultType: resolvedType ?? listType, loc: loc));
+        }
+
         if (listType == null) return ([], list);
 
         string tempName = NextTempName("lit");
@@ -1191,6 +1200,15 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         // `.add` against Owned[…] (which has no add) and codegen throws "no resolved member routine".
         TypeInfo setType = UnwrapOwnershipWrapper(resolvedType) ?? resolvedType;
         string baseName = GetCollectionBaseName(setType) ?? "Set";
+
+        // A SetLiteral-conforming type lowers to `Type.from_literal(a, b, c)`.
+        if (set.ResolvedLiteralBuilder is { Parameters.Count: >= 1 } setBuilder)
+        {
+            var (h, elems) = LowerElements(elements: set.Elements);
+            return (h, MakeFromLiteralCall(builder: setBuilder, arrayElements: elems,
+                literalResultType: resolvedType, loc: loc));
+        }
+
         string tempName = NextTempName("lit");
         var hoisted = new List<Statement>();
 
@@ -1223,6 +1241,25 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         // Unwrap Owned/Retained/Tracked — see LowerSetLiteral for the rationale.
         TypeInfo dictType = UnwrapOwnershipWrapper(resolvedType) ?? resolvedType;
         string baseName = GetCollectionBaseName(dictType) ?? "Dict";
+
+        // A DictLiteral-conforming type lowers to `Type.from_literal(DictEntry(k, v), …)`.
+        if (dict.ResolvedLiteralBuilder is { Parameters.Count: >= 1 } dictBuilder
+            && dictBuilder.Parameters[index: 0].Type.TypeArguments is [{ } entryElementType, ..])
+        {
+            var hoistedB = new List<Statement>();
+            var entries = new List<Expression>(capacity: dict.Pairs.Count);
+            foreach ((Expression key, Expression value) in dict.Pairs)
+            {
+                var (kh, lk) = LowerExpr(key);
+                var (vh, lv) = LowerExpr(value);
+                hoistedB.AddRange(kh);
+                hoistedB.AddRange(vh);
+                entries.Add(item: MakeDictEntry(entryType: entryElementType, key: lk, value: lv, loc: loc));
+            }
+            return (hoistedB, MakeFromLiteralCall(builder: dictBuilder, arrayElements: entries,
+                literalResultType: resolvedType, loc: loc));
+        }
+
         string tempName = NextTempName("lit");
         var hoisted = new List<Statement>();
 
@@ -1508,6 +1545,58 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
             LoweringKind = memberRoutine != null ? CallLoweringKind.DirectMemberRoutine : CallLoweringKind.Unknown
         };
         return new DiscardStatement(Expression: call, Location: loc);
+    }
+
+    /// <summary>Lowers a list of element expressions, collecting their hoisted statements.</summary>
+    private (List<Statement> Hoisted, List<Expression> Lowered) LowerElements(List<Expression> elements)
+    {
+        var hoisted = new List<Statement>();
+        var lowered = new List<Expression>(capacity: elements.Count);
+        foreach (Expression el in elements)
+        {
+            var (h, low) = LowerExpr(el);
+            hoisted.AddRange(h);
+            lowered.Add(low);
+        }
+        return (hoisted, lowered);
+    }
+
+    /// <summary>
+    /// Builds the `Type.from_literal(a, b, c)` call a collection literal lowers to: packs the (already
+    /// lowered) elements into an inline `Array[E, K]` literal and calls the monomorphized `from_literal[K]`
+    /// static builder. `from_literal` is a `common` routine (no `me`), so its single parameter is the Array.
+    /// </summary>
+    private Expression MakeFromLiteralCall(RoutineInfo builder, List<Expression> arrayElements,
+        TypeInfo? literalResultType, SourceLocation loc)
+    {
+        TypeInfo arrayType = builder.Parameters[index: 0].Type; // Array[E, K]
+        var arrayLit = new ListLiteralExpression(Elements: arrayElements, ElementType: null,
+            Location: loc) { ResolvedType = arrayType };
+
+        TypeInfo? ownerType = builder.OwnerType;
+        var typeRef = new IdentifierExpression(Name: GetCollectionBaseName(ownerType), Location: loc)
+            { ResolvedType = ownerType };
+        var callee = new MemberExpression(Object: typeRef, MemberName: "from_literal", Location: loc);
+        return new CallExpression(Callee: callee, Arguments: [arrayLit], Location: loc)
+        {
+            ResolvedRoutine = builder,
+            ResolvedType = literalResultType ?? builder.ReturnType,
+            LoweringKind = CallLoweringKind.DirectMemberRoutine
+        };
+    }
+
+    /// <summary>Builds a `DictEntry[K, V](key: k, value: v)` record construction for a dict-literal pair.</summary>
+    private static Expression MakeDictEntry(TypeInfo entryType, Expression key, Expression value,
+        SourceLocation loc)
+    {
+        List<TypeExpression>? typeArgs = entryType.TypeArguments is { Count: > 0 } eargs
+            ? eargs.Select(selector: t => TypeInfoToExpr(t, loc)).ToList()
+            : null;
+        return new CreatorExpression(
+            TypeName: GetCollectionBaseName(entryType),
+            TypeArguments: typeArgs,
+            MemberVariables: [("key", key), ("value", value)],
+            Location: loc) { ResolvedType = entryType };
     }
 
     // --- Specific hoisting lowerings ---------------------------------------------

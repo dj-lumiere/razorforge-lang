@@ -30,7 +30,7 @@ import BuilderQuery
 ### | Iteration | O(N) |
 ###
 ### :see: {BitArray[N]} for a compile-time-sized, value-semantic alternative.
-entity BitList obeys Iterable[Bool], MutableIndexable[Bool], Sized
+entity BitList obeys Iterable[Bool], MutableIndexable[Bool], Sized, ListLiteral[Bool]
 relates BitListEmittable as Iter
   ### Stores the heap-allocated word buffer that packs the bits.
   secret data: Hijacked[U64]      # Heap-allocated word array (64 bits per U64)
@@ -54,6 +54,18 @@ routine BitList() -> BitList
     count: 0u64,
     capacity: 0u64
   )
+
+### Creates a bit list containing exactly the given `elements`, in order. Variadic constructor behind the
+### `[a, b, c]` list-literal syntax (the `ListLiteral` opt-in).
+### :param elements: The boolean bits to populate the bit list with, in order.
+### :returns: A bit list of the given bits.
+common routine BitList.from_literal(elements...: Bool) -> BitList
+  var result = BitList()
+  var i = 0u64
+  while i < elements.count()
+    result.add_last(value: elements[i])
+    i = i +% 1u64
+  return result
 
 ### Creates an empty bit list with storage reserved for at least `capacity` bits.
 ### Reserving ahead of time avoids repeated reallocations when building large

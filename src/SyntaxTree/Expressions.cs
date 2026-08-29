@@ -37,6 +37,14 @@ public abstract record Expression(SourceLocation Location) : SyntaxTreeNode(Loca
     public TypeInfo? ResolvedType { get; set; }
 
     /// <summary>
+    /// For a collection literal (`[..]`/`{..}`) whose resolved type `obeys ListLiteral/SetLiteral/
+    /// DictLiteral`, the monomorphized `Type.from_literal[K]` static builder the literal lowers to.
+    /// SA resolves it; reachability seeds it; ExpressionLoweringPass emits the call. Null for the inline
+    /// `Array`/`BitArray` literals (pure insertvalue) and non-literal expressions.
+    /// </summary>
+    public TypeModel.Symbols.RoutineInfo? ResolvedLiteralBuilder { get; set; }
+
+    /// <summary>
     /// The finalized backend representation for this expression after postprocessing.
     /// This separates semantic type identity from ABI/storage identity.
     /// </summary>

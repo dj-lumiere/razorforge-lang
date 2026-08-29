@@ -118,6 +118,11 @@ internal sealed class SignatureResolver
         bool sfUserEntity = _sa._registry.Language == Language.Suflae
             && !_sa.IsStdlibFile(filePath: pending.FilePath);
 
+        // Desugar homogeneous variadic params (`nums...: T`) into a const-generic `Array[T, __VarargN]`
+        // BEFORE the generic-param filter below, so the implicit arity generic is picked up as a normal
+        // routine generic. Mutates the AST decl in place (shared with the monomorph index).
+        VariadicParamDesugar.Apply(routine: routine);
+
         // Filter routine.GenericParameters to exclude names that resolve to real types in the
         // registry — but ONLY for RECEIVER-derived leaves. The parser collects leaf identifiers from a
         // member routine's receiver type (`List[DictEntry[K, V]]`, `Iterable[Text]`); these mix genuine
@@ -184,16 +189,8 @@ internal sealed class SignatureResolver
             // params). `me` has no type expression (inferred from OwnerType) so it is set via MeType below.
             TypeSymbol paramType = _typeResolver.ResolveType(typeExpr: param.Type);
 
-            // #74: Varargs parameter gets wrapped as List[T]
-            if (param.IsVariadic)
-            {
-                TypeSymbol? listDef = _sa._registry.LookupType(name: "List");
-                if (listDef != null)
-                {
-                    paramType = _sa._registry.GetOrCreateResolution(genericDef: listDef,
-                        typeArguments: [paramType]);
-                }
-            }
+            // Variadic params are desugared to `Array[T, __VarargN]` up front (VariadicParamDesugar),
+            // so param.Type already resolves to the Array template here — no List[T] wrapping.
 
             // Variants ARE valid parameter types — pass-by-value transfers ownership of
             // the payload (same rule as records containing entity fields).

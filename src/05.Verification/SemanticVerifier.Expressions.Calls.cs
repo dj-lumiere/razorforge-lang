@@ -130,6 +130,132 @@ public sealed partial class SemanticVerifier
         }
     }
 
+    /// <summary>
+    /// Packs the trailing positional arguments of a call to a variadic routine into a single
+    /// <c>Array[T, K]</c> literal, in place. A variadic parameter <c>nums...: T</c> was desugared to a
+    /// const-generic <c>Array[T, __VarargN]</c> (see <see cref="VariadicParamDesugar"/>); wrapping the K
+    /// call arguments into an <c>Array[T, K]</c> makes the argument count match the single parameter, so
+    /// the normal const-generic inference below binds <c>__VarargN = K</c> and one specialized body is
+    /// monomorphized per arity. No-op when the routine is not variadic or the args are already packed.
+    /// Trailing NAMED arguments (e.g. <c>sep:</c>/<c>end:</c>) stay after the packed Array.
+    /// </summary>
+    private void PackVariadicCallArgs(CallExpression call, RoutineInfo routine)
+        => PackVariadicCallArgs(arguments: call.Arguments, routine: routine, location: call.Location);
+
+    /// <summary>Discarding wrapper for call sites that don't need the "did it pack?" result.</summary>
+    private void PackVariadicCallArgs(List<Expression> arguments, RoutineInfo routine,
+        SourceLocation location)
+        => TryPackVariadicCallArgs(arguments: arguments, routine: routine, location: location);
+
+    /// <summary>
+    /// Finds a type's variadic <c>create</c> (the desugared <c>create(elements...: T)</c> behind literal
+    /// construction), or null. Uses <c>CollectMemberRoutineCandidates</c> — which walks the generic
+    /// definition and owner-substitutes — because <c>GetMemberRoutinesForType</c> does NOT surface a
+    /// type's <c>create</c> constructors (they register as <c>&lt;Type&gt;.create</c>), so a non-generic
+    /// owner like <c>BitList</c> would otherwise miss its variadic constructor.
+    /// </summary>
+    private RoutineInfo? FindVariadicCreate(TypeSymbol type)
+    {
+        var candidates = new List<RoutineInfo>();
+        _registry.CollectMemberRoutineCandidates(type: type, memberRoutineName: "create",
+            candidates: candidates);
+        candidates.AddRange(collection: _registry.GetMemberRoutinesForType(type: type)
+            .Where(predicate: m => m.Name == "create"));
+        return candidates.FirstOrDefault(
+            predicate: m => m.Parameters.Any(predicate: p => p.IsVariadicParam));
+    }
+
+    /// <summary>
+    /// Argument-list form used by every call shape (plain call, member call, generic member call). Packs
+    /// the trailing positional args into a single Array[T, K] literal, mutating <paramref name="arguments"/>
+    /// in place. Returns true when a pack was performed. Returns FALSE when there are no positional args to
+    /// pack (e.g. a memberwise field-init `BitList(data:.., count:..)` on a type that also has a variadic
+    /// `create` — packing an empty group there would prepend a bogus `Array[T, 0]` and corrupt the call),
+    /// so callers can skip variadic monomorphization.
+    /// </summary>
+    private bool TryPackVariadicCallArgs(List<Expression> arguments, RoutineInfo routine,
+        SourceLocation location)
+    {
+        if (!routine.IsVariadic)
+        {
+            return false;
+        }
+
+        int variadicIndex = -1;
+        for (int i = 0; i < routine.Parameters.Count; i++)
+        {
+            if (routine.Parameters[index: i].IsVariadicParam)
+            {
+                variadicIndex = i;
+                break;
+            }
+        }
+
+        // Element type T comes from the desugared Array[T, __VarargN] parameter (first type arg).
+        if (variadicIndex < 0
+            || routine.Parameters[index: variadicIndex].Type is not
+                { IsGenericResolution: true, TypeArguments: [var elemType, ..] })
+        {
+            return false;
+        }
+
+        var leading = new List<Expression>();
+        var group = new List<Expression>();
+        var trailingNamed = new List<Expression>();
+        for (int i = 0; i < arguments.Count; i++)
+        {
+            Expression a = arguments[index: i];
+            if (a is NamedArgumentExpression)
+            {
+                trailingNamed.Add(item: a);
+            }
+            else if (i < variadicIndex)
+            {
+                leading.Add(item: a);
+            }
+            else
+            {
+                group.Add(item: a);
+            }
+        }
+
+        // Already packed: a single positional list literal occupies the variadic slot.
+        if (group is [ListLiteralExpression])
+        {
+            return false;
+        }
+
+        // No positional args to pack: this call is NOT using the variadic form (e.g. a memberwise
+        // field-init `T(data:.., count:..)` on a type that also has a variadic `create`). Packing an
+        // empty `Array[T, 0]` here would prepend a bogus literal and corrupt the field-init call.
+        if (group.Count == 0)
+        {
+            return false;
+        }
+
+        TypeSymbol? arrayDef = _registry.LookupType(name: "Array");
+        if (arrayDef == null)
+        {
+            return false;
+        }
+
+        int arity = group.Count;
+        var arityConst = new ConstGenericValueTypeInfo(literalText: arity.ToString(),
+            value: arity, explicitTypeName: "U64");
+        TypeSymbol arrayType = _registry.GetOrCreateResolution(genericDef: arrayDef,
+            typeArguments: [elemType, arityConst]);
+
+        var arrayLit = new ListLiteralExpression(Elements: group, ElementType: null,
+            Location: location);
+        AnalyzeExpression(expression: arrayLit, expectedType: arrayType);
+
+        arguments.Clear();
+        arguments.AddRange(collection: leading);
+        arguments.Add(item: arrayLit);
+        arguments.AddRange(collection: trailingNamed);
+        return true;
+    }
+
     private TypeSymbol AnalyzeCallExpressionCore(CallExpression call, TypeSymbol? expectedType = null)
     {
         // Comptime `expand` gate: a member-routine call on a comptime member value (me.$nameof(m).cmp()/
@@ -251,6 +377,14 @@ public sealed partial class SemanticVerifier
                         routine = _registry.LookupRoutine(
                             fullName: $"{_currentModuleName}.{callName}", isFailable: true);
                     }
+                }
+
+                // Variadic call: pack the K trailing args into an Array[T, K] literal so the arg count
+                // matches the desugared single Array parameter and const-generic inference binds the
+                // arity (must run before the generic branches below).
+                if (routine != null)
+                {
+                    PackVariadicCallArgs(call: call, routine: routine);
                 }
 
                 // Explicit type arguments on a generic routine call — monomorphize immediately so
@@ -502,6 +636,11 @@ public sealed partial class SemanticVerifier
 
                 if (callableType != null && call.Arguments.Count > 0)
                 {
+                    // NOTE: explicit `Type(...)` construction resolves to FIXED-ARITY constructors only —
+                    // the variadic literal builder is a distinct `from_literal` static routine (never a
+                    // constructor), so `List(5)` stays the capacity ctor and only `[..]` literals lower to
+                    // the variadic path. No variadic packing here.
+
                     // Field-init shorthand: `Point(x, y)` == `Point(x: x, y: y)` — pun bare identifiers
                     // matching field names into named args before construction binding.
                     List<MemberVariableInfo>? punFields = callableType switch
@@ -915,7 +1054,6 @@ public sealed partial class SemanticVerifier
                         creator ??= _registry.LookupRoutineOverload(
                             baseName: $"{type.FullName}.create",
                             argTypes: argTypes);
-
 
                         if (creator != null && creator.Parameters.Count == argTypes.Count &&
                             !creator.Parameters.Any(predicate: p => p.IsVariadicParam))
@@ -1560,6 +1698,11 @@ public sealed partial class SemanticVerifier
                                 location: call.Location);
                         }
                     }
+
+                    // Variadic member routine (e.g. a collection `create(elements...: T)`): pack the K
+                    // trailing args into an Array[T, K] literal so arg count matches the desugared single
+                    // Array parameter and the arity binds during inference below.
+                    PackVariadicCallArgs(call: call, routine: memberRoutine);
 
                     AnalyzeCallArguments(routine: memberRoutine,
                         arguments: call.Arguments,

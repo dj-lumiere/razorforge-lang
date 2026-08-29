@@ -259,7 +259,7 @@ routine BTreeSetNode[T].children_add_range_from(you: Accessing[BTreeSetNode[T]],
 ### :see: {SortedList[T]} for a sorted list that allows duplicates.
 ### :see: {Set[T]} for an unsorted, hash-table-backed set with O(1) operations.
 ### :see: {SortedDict[K, V]} for a sorted mapping from keys to values.
-entity SortedSet[T] obeys Iterable[T], Container
+entity SortedSet[T] obeys Iterable[T], Container, SetLiteral[T]
 needs T obeys Comparable
 relates SortedSetEmittable[T] as Iter
   secret root: Hijacked[BTreeSetNode[T]]?
@@ -294,6 +294,19 @@ routine SortedSet[T]() -> SortedSet[T]
     root: none,
     count: 0u64
   )
+
+### Creates a sorted set containing the given `elements` (duplicates collapsed, stored in sorted order).
+### Variadic constructor behind the `{a, b, c}` set-literal syntax (the `SetLiteral` opt-in).
+### :param elements: The elements to insert; duplicates ignored, final order is sorted.
+### :returns: A sorted set of the distinct given elements.
+common routine SortedSet[T].from_literal(elements...: T) -> SortedSet[T]
+needs T obeys Comparable
+  var result = SortedSet[T]()
+  var i = 0u64
+  while i < elements.count()
+    discard result.add(value: elements[i])
+    i = i +% 1u64
+  return result
 
 # ============================================================================
 # Core Operations

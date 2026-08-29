@@ -591,6 +591,11 @@ public sealed partial class StdlibLoader
     private static void RegisterRoutine(TypeRegistry registry, RoutineDeclaration routine,
         string moduleName)
     {
+        // Desugar homogeneous variadic params (`nums...: T`) into a const-generic `Array[T, __VarargN]`
+        // before generic-context collection reads routine.GenericParameters. Idempotent — safe to also
+        // run in ResolveRoutineSignatures on the same node.
+        VariadicParamDesugar.Apply(routine: routine);
+
         // Owner/member come from the parser-captured structured fields (the ONE canonical split);
         // `typeName` below is the RENDERED receiver ("S32", "List[Agent[V]]"), whose type-args are then
         // decoded for the generic-def-vs-specialization decision.
@@ -763,16 +768,7 @@ public sealed partial class StdlibLoader
                 genericParams: ctx,
                 moduleName: moduleName);
 
-            // Wrap variadic params as List[T] (mirrors SA Phase 2 wrapping)
-            if (param.IsVariadic && paramType != null)
-            {
-                TypeInfo? listDef = registry.LookupType(name: "List");
-                if (listDef != null)
-                {
-                    paramType = registry.GetOrCreateResolution(genericDef: listDef,
-                        typeArguments: [paramType]);
-                }
-            }
+            // Variadic params are desugared to `Array[T, __VarargN]` up front — no List[T] wrapping.
 
             parameters.Add(
                 item: new ParameterInfo(name: param.Name,
@@ -1675,6 +1671,9 @@ public sealed partial class StdlibLoader
                 continue;
             }
 
+            // Desugar variadic params to const-generic Array[T, __VarargN] (idempotent).
+            VariadicParamDesugar.Apply(routine: routine);
+
             // Member segment + member-vs-free branch come from the parser-captured structured fields;
             // the owner is the RENDERED receiver (may carry type-args, used as a registry-lookup key).
             string memberRoutineName = routine.MemberRoutineName ?? routine.Name;
@@ -1712,15 +1711,7 @@ public sealed partial class StdlibLoader
                     genericParams: ctx,
                     moduleName: moduleName);
 
-                if (param.IsVariadic && paramType != null)
-                {
-                    TypeInfo? listDef = registry.LookupType(name: "List");
-                    if (listDef != null)
-                    {
-                        paramType = registry.GetOrCreateResolution(genericDef: listDef,
-                            typeArguments: [paramType]);
-                    }
-                }
+                // Variadic params are desugared to Array[T, __VarargN] up front — no List[T] wrapping.
 
                 parameters.Add(
                     item: new ParameterInfo(name: param.Name,

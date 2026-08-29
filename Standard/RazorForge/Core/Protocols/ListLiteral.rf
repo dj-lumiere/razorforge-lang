@@ -1,0 +1,12 @@
+module Core
+
+### Opt-in for types constructible from a **list literal** `[a, b, c]`. A conforming type provides a
+### `common from_literal(elements...: T)` static routine; the compiler lowers `[…]` to
+### `Type.from_literal(...)`, packing the elements into a fixed `Array[T, K]`. Analogous to Swift's
+### `ExpressibleByArrayLiteral`.
+### :typeparam T: The element type accepted by the literal.
+protocol ListLiteral[T]
+  ### Builds an instance holding exactly `elements`, in order.
+  ### :param elements: The literal elements, in order.
+  ### :returns: The constructed value.
+  common routine Me.from_literal(elements...: T) -> Me

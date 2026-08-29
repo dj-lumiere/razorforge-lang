@@ -195,24 +195,91 @@ public sealed partial class SemanticVerifier
             }
         }
 
+        TypeSymbol resultType;
         if (expectedType != null && expectedBaseName is "List" or "Deque" or "SortedList" or "BitList" or
             "Array" or "BitArray")
         {
-            return LiteralTypeFromExpected(expectedType: expectedType,
+            resultType = LiteralTypeFromExpected(expectedType: expectedType,
                 collectionExpectedType: collectionExpectedType);
         }
-
-        // Return List<T> type by default.
-        TypeSymbol? listDef = _registry.LookupType(name: "List");
-        if (listDef != null && elementType != null)
+        else
         {
+            // Return List<T> type by default.
+            TypeSymbol? listDef = _registry.LookupType(name: "List");
+            if (listDef == null || elementType == null)
+            {
+                return ErrorTypeInfo.Instance;
+            }
+
             TypeSymbol listType = _registry.GetOrCreateResolution(genericDef: listDef,
                 typeArguments: [elementType]);
-            return WrapOwnedCollectionLiteralType(type: listType);
+            resultType = WrapOwnedCollectionLiteralType(type: listType);
         }
 
-        return ErrorTypeInfo.Instance;
+        // Resolve the `from_literal` static builder for the (non-inline) collection type, so the lowering
+        // emits `Type.from_literal(a, b, c)` and reachability seeds the monomorphized body.
+        ResolveLiteralBuilder(literal: list, resultType: resultType, builderElementType: elementType,
+            elementCount: list.Elements.Count);
+        return resultType;
     }
+
+    /// <summary>
+    /// Resolves and monomorphizes a collection literal's `from_literal[K]` static builder onto the literal
+    /// node (<see cref="Expression.ResolvedLiteralBuilder"/>). No-op for the inline `Array`/`BitArray`
+    /// literals (pure insertvalue) or a type with no variadic `from_literal`. The element type of the
+    /// builder's `Array[E, K]` parameter is <paramref name="builderElementType"/> (T for list/set,
+    /// DictEntry[K, V] for dicts).
+    /// </summary>
+    private void ResolveLiteralBuilder(Expression literal, TypeSymbol resultType,
+        TypeSymbol? builderElementType, int elementCount)
+    {
+        if (builderElementType == null)
+        {
+            return;
+        }
+
+        TypeInfo collectionType = UnwrapCollectionLiteralExpectedType(type: resultType);
+        string? baseName = GetTypeBaseName(type: collectionType);
+        if (baseName is "Array" or "BitArray" or null)
+        {
+            return;
+        }
+
+        var candidates = new List<RoutineInfo>();
+        _registry.CollectMemberRoutineCandidates(type: collectionType,
+            memberRoutineName: LiteralBuilderRoutineName, candidates: candidates);
+        candidates.AddRange(collection: _registry.GetMemberRoutinesForType(type: collectionType)
+            .Where(predicate: m => m.Name == LiteralBuilderRoutineName));
+        RoutineInfo? builder = candidates.FirstOrDefault(
+            predicate: m => m.Parameters.Any(predicate: p => p.IsVariadicParam));
+        if (builder == null)
+        {
+            return;
+        }
+
+        TypeSymbol? arrayDef = _registry.LookupType(name: "Array");
+        if (arrayDef == null)
+        {
+            return;
+        }
+
+        var arityConst = new ConstGenericValueTypeInfo(literalText: elementCount.ToString(),
+            value: elementCount, explicitTypeName: "U64");
+        TypeSymbol arrayType = _registry.GetOrCreateResolution(genericDef: arrayDef,
+            typeArguments: [builderElementType, arityConst]);
+        var probe = new ListLiteralExpression(Elements: [], ElementType: null, Location: literal.Location)
+        {
+            ResolvedType = arrayType
+        };
+        List<TypeInfo>? inferred = InferGenericTypeArguments(genericRoutine: builder,
+            arguments: [probe]);
+        literal.ResolvedLiteralBuilder = inferred != null
+            ? _registry.GetOrCreateRoutineResolution(genericDef: builder, typeArguments: inferred)
+              ?? builder
+            : builder;
+    }
+
+    private const string LiteralBuilderRoutineName = "from_literal";
 
     private TypeSymbol AnalyzeSetLiteralExpression(SetLiteralExpression set,
         TypeSymbol? expectedType = null)
@@ -264,22 +331,29 @@ public sealed partial class SemanticVerifier
             AnalyzeExpression(expression: elem, expectedType: expectedElementType ?? elementType);
         }
 
+        TypeSymbol setResult;
         if (expectedType != null && expectedBaseName is "Set" or "SortedSet" or "SecureSet")
         {
-            return LiteralTypeFromExpected(expectedType: expectedType,
+            setResult = LiteralTypeFromExpected(expectedType: expectedType,
                 collectionExpectedType: collectionExpectedType);
         }
-
-        // Return Set<T> type by default.
-        TypeSymbol? setDef = _registry.LookupType(name: "Set");
-        if (setDef != null && elementType != null)
+        else
         {
+            // Return Set<T> type by default.
+            TypeSymbol? setDef = _registry.LookupType(name: "Set");
+            if (setDef == null || elementType == null)
+            {
+                return ErrorTypeInfo.Instance;
+            }
+
             TypeSymbol setType = _registry.GetOrCreateResolution(genericDef: setDef,
                 typeArguments: [elementType]);
-            return WrapOwnedCollectionLiteralType(type: setType);
+            setResult = WrapOwnedCollectionLiteralType(type: setType);
         }
 
-        return ErrorTypeInfo.Instance;
+        ResolveLiteralBuilder(literal: set, resultType: setResult, builderElementType: elementType,
+            elementCount: set.Elements.Count);
+        return setResult;
     }
 
     private TypeSymbol AnalyzeDictLiteralExpression(DictLiteralExpression dict,
@@ -342,23 +416,37 @@ public sealed partial class SemanticVerifier
                 expectedType: expectedValueType ?? valueType);
         }
 
+        TypeSymbol dictResult;
         if (expectedType != null &&
             expectedBaseName is "Dict" or "SortedDict" or "PriorityQueue" or "SecureDict")
         {
-            return LiteralTypeFromExpected(expectedType: expectedType,
+            dictResult = LiteralTypeFromExpected(expectedType: expectedType,
                 collectionExpectedType: collectionExpectedType);
         }
-
-        // Return Dict<K, V> type by default.
-        TypeSymbol? dictDef = _registry.LookupType(name: "Dict");
-        if (dictDef != null && keyType != null && valueType != null)
+        else
         {
+            // Return Dict<K, V> type by default.
+            TypeSymbol? dictDef = _registry.LookupType(name: "Dict");
+            if (dictDef == null || keyType == null || valueType == null)
+            {
+                return ErrorTypeInfo.Instance;
+            }
+
             TypeSymbol dictType = _registry.GetOrCreateResolution(genericDef: dictDef,
                 typeArguments: [keyType, valueType]);
-            return WrapOwnedCollectionLiteralType(type: dictType);
+            dictResult = WrapOwnedCollectionLiteralType(type: dictType);
         }
 
-        return ErrorTypeInfo.Instance;
+        // Dict literals build `DictEntry[K, V]` values — that's the from_literal element type.
+        if (keyType != null && valueType != null
+            && _registry.LookupType(name: "DictEntry") is { } dictEntryDef)
+        {
+            TypeSymbol entryType = _registry.GetOrCreateResolution(genericDef: dictEntryDef,
+                typeArguments: [keyType, valueType]);
+            ResolveLiteralBuilder(literal: dict, resultType: dictResult, builderElementType: entryType,
+                elementCount: dict.Pairs.Count);
+        }
+        return dictResult;
     }
 
     private TypeSymbol AnalyzeDictEntryLiteralExpression(DictEntryLiteralExpression dictEntry,
@@ -766,17 +854,20 @@ public sealed partial class SemanticVerifier
         {
             TypeSymbol paramType = genericRoutine.Parameters[index: i].Type;
 
-            // For variadic params, unwrap List[T] to get T for inference
-            if (genericRoutine.Parameters[index: i].IsVariadicParam && paramType is
-                    { IsGenericResolution: true, TypeArguments: [var elemType, ..] })
-            {
-                paramType = elemType;
-            }
+            // Variadic params are desugared to Array[T, __VarargN]; the packed Array[T, K] argument
+            // is matched against the Array parameter directly so both T and the arity bind — no unwrap.
 
             Expression argExpr = arguments[index: i] is NamedArgumentExpression na
                 ? na.Value
                 : arguments[index: i];
-            TypeSymbol argType = AnalyzeExpression(expression: argExpr);
+            // A variadic call packs its trailing args into an Array[T, K] literal (already analyzed
+            // against the Array expected type). Re-analyzing it here without that expected type would
+            // default it back to List[T] and lose the arity K, so reuse its resolved Array type.
+            TypeSymbol argType =
+                argExpr is ListLiteralExpression { ResolvedType: { } packed }
+                && GetTypeBaseName(type: packed) is "Array"
+                    ? packed
+                    : AnalyzeExpression(expression: argExpr);
             if (argType == ErrorTypeInfo.Instance)
             {
                 continue;
