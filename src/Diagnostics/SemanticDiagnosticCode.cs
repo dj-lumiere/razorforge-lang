@@ -674,6 +674,16 @@ public enum SemanticDiagnosticCode
     /// <summary>Lambda captures variable without declaring it in 'given' clause.</summary>
     LambdaCaptureWithoutGiven = 610,
 
+    /// <summary>A routine handed to a C:: extern callback slot must be a bare, non-capturing top-level
+    /// routine — it becomes a raw C function pointer with no environment. A lambda / captured routine
+    /// cannot cross the C boundary (its captures are extra bound args with no C slot).</summary>
+    ForeignCallbackMustBeNonCapturing = 637,
+
+    /// <summary>A lambda parameter's type cannot be inferred — no annotation and no typed target/context.
+    /// RazorForge is statically typed with no runtime routine lookup, so an un-inferable parameter has no
+    /// resolvable type. Annotate it (`(a: S32, b: S32) => …`) or assign the lambda to a typed target.</summary>
+    LambdaParameterTypeNotInferable = 638,
+
     /// <summary>A `using ... fallback` target must have `try_enter` (non-blocking acquisition).</summary>
     UsingFallbackRequiresTryEnter = 611,
 

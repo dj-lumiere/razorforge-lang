@@ -264,6 +264,17 @@ public sealed partial class SemanticVerifier
         {
             _importedModules.Add(item: effectiveModule);
         }
+
+        // Realm-qualified foreign imports (`import Module.C::qsort`): record each so a BARE call to the
+        // routine (`qsort(...)`) is permitted by the realm gate (CheckCallRealm). The module is already
+        // loaded above, so the bare name resolves through the normal imported-module lookup.
+        if (import.RealmImports != null)
+        {
+            foreach ((string realm, string routineName) in import.RealmImports)
+            {
+                _importedForeignAliases.Add(item: $"{realm}::{routineName}");
+            }
+        }
     }
 
     private void CollectMemberVariableDeclaration(VariableDeclaration memberVariable)

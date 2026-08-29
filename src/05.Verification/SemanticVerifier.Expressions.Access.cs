@@ -659,6 +659,22 @@ public sealed partial class SemanticVerifier
             }
             else
             {
+                // No annotation AND no typed context to infer from. RazorForge is statically typed with
+                // no runtime routine lookup, so this parameter has no resolvable type — report it (else
+                // it silently becomes ErrorTypeInfo, lifts to an `@[lambda]…(<error>,…)` symbol whose
+                // body is never emitted, and blows up at the linker). Suflae is left as-is: its
+                // open-world `Unknown` top + runtime dispatch will default un-inferable params to Unknown
+                // (gated on that machinery being real — see [[cabi-callback-ffi]]/[[object-top-type]]).
+                if (_registry.Language == Language.RazorForge)
+                {
+                    ReportError(code: SemanticDiagnosticCode.LambdaParameterTypeNotInferable,
+                        message:
+                        $"Cannot infer the type of lambda parameter '{param.Name}' — there is no type " +
+                        "annotation and no typed target to infer from. Annotate it (e.g. " +
+                        "`(a: S32, b: S32) => a + b`) or assign the lambda to a typed target " +
+                        "(`var f: Routine[(S32, S32), S32] = …`).",
+                        location: param.Location);
+                }
                 paramType = ErrorTypeInfo.Instance;
             }
 

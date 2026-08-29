@@ -14,6 +14,19 @@ public sealed class RoutineTypeInfo : TypeInfo
     /// <inheritdoc/>
     public override TypeCategory Category => TypeCategory.Routine;
 
+    /// <summary>
+    /// A Routine value is the fat pair <c>{ ptr fn, ptr bound }</c> (v0.4.1) = TWO pointers, so its
+    /// size is <c>2 × pointerSize</c> and its alignment is pointer-alignment. The base default
+    /// (<c>pointerSize</c>) was correct only for the old 1-word representation — leaving it stale
+    /// under-allocates any entity/record that stores a Routine field (the LLVM struct type is
+    /// <c>{ ptr, ptr }</c> via GetLlvmType, so the store overruns an under-sized heap block).
+    /// See [[cabi-callback-ffi]].
+    /// </summary>
+    public override int SizeBytes(int pointerSize) => 2 * pointerSize;
+
+    /// <inheritdoc/>
+    public override int Alignment(int pointerSize) => pointerSize;
+
     /// <summary>Parameter types for this function type.</summary>
     public List<TypeInfo> ParameterTypes { get; }
 

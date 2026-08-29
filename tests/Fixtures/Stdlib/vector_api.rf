@@ -1,5 +1,6 @@
 module Tests/Stdlib/VectorApi
 import IO/Console
+import Math3D
 
 # Exercises Vector2D, Vector3D, Vector4D — F32 geometry vectors.
 routine start()

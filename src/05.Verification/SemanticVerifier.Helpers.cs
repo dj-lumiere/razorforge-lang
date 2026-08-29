@@ -458,6 +458,33 @@ public sealed partial class SemanticVerifier
                         location: argExpr.Location);
                 }
             }
+
+            // C-boundary callback: a routine handed to a C:: / LLVM:: extern becomes a raw C function
+            // pointer, which carries NO environment, so only a CAPTURELESS routine can cross (its fat
+            // value's `bound` is null → the `fn` word IS a 1-word C fnptr). A capturing routine's `bound`
+            // has no slot in the C signature. Capturing-ness is a VALUE property (the fat `{fn, bound}`),
+            // NOT a type property — `Routine[T]` deliberately erases it (value-arity == type-arity) — so
+            // for a Routine-typed VALUE (a field / local / arbitrary expression) it is only knowable at
+            // RUNTIME. Codegen therefore emits a runtime `bound == null` guard at the C boundary for such
+            // values (captureless → pass `fn`; capturing → crash). Only a CAPTURING LAMBDA LITERAL is a
+            // STATICALLY-certain violation (its `given` clause is right here), so THAT is the sole build-
+            // time error; everything else defers to the runtime guard. Fires for a `Routine[...]`/`CPtr`
+            // foreign param. A future build-time analysis (RF has no nested routines, so a value can be
+            // traced to its source routine) could recover more cases statically.
+            bool isCapturingLambdaLiteral = argExpr is LambdaExpression { Captures.Count: > 0 };
+            if (routine.IsForeign
+                && argType is RoutineTypeInfo
+                && (paramType is RoutineTypeInfo || paramType.Name == "CPtr")
+                && isCapturingLambdaLiteral)
+            {
+                ReportError(code: SemanticDiagnosticCode.ForeignCallbackMustBeNonCapturing,
+                    message:
+                    $"Argument '{param.Name}' of C routine '{routine.Name}' is a CAPTURING lambda, which cannot " +
+                    "cross the C boundary — a routine handed to C becomes a raw function pointer with no " +
+                    "environment, and a capture is an extra bound argument with no C slot. Pass a captureless " +
+                    "callback and thread any state through an explicit userdata parameter.",
+                    location: argExpr.Location);
+            }
             else
             {
                 // Implicit refer/control coercion for marker-protocol params.

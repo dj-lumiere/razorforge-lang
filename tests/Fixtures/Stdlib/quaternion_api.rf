@@ -1,5 +1,6 @@
 module Tests/Stdlib/QuaternionApi
 import IO/Console
+import Math3D
 
 # Exercises Q32 and Q64 — quaternions over F32/F64.
 routine start()

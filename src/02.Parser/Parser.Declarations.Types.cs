@@ -898,6 +898,7 @@ public partial class Parser
         var modulePathSb = new System.Text.StringBuilder();
         string? alias = null;
         List<string>? specificImports = null;
+        List<(string Realm, string Name)>? realmImports = null;
 
         // Parse module path - could be multiple identifiers separated by slashes
         // Dot marks a specific type within the module: import razorforge/Core.Bool
@@ -927,9 +928,24 @@ public partial class Parser
                 }
                 else
                 {
-                    // Single type: Core.Bool -> module "Core", type "Bool"
-                    modulePathSb.Append('.');
-                    modulePathSb.Append(ConsumeIdentifier(errorMessage: "Expected type name after '.'"));
+                    // Single member after the dot. `Core.Bool` selects a type; `Module.C::qsort`
+                    // selects a realm-qualified foreign routine to bring into BARE scope (the `::`
+                    // disambiguates it from a plain type import).
+                    string member = ConsumeIdentifier(errorMessage: "Expected name after '.'");
+                    if (Check(type: TokenType.DoubleColon))
+                    {
+                        Advance();
+                        string routineName = ConsumeIdentifier(
+                            errorMessage: "Expected routine name after realm qualifier '::'");
+                        realmImports ??= [];
+                        realmImports.Add(item: (member, routineName));
+                    }
+                    else
+                    {
+                        // Single type: Core.Bool -> module "Core", type "Bool"
+                        modulePathSb.Append('.');
+                        modulePathSb.Append(member);
+                    }
                 }
 
                 break;
@@ -953,7 +969,8 @@ public partial class Parser
         return new ImportDeclaration(ModulePath: modulePath,
             Alias: alias,
             SpecificImports: specificImports,
-            Location: location);
+            Location: location,
+            RealmImports: realmImports);
     }
 
     /// <summary>

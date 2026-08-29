@@ -168,11 +168,17 @@ internal sealed class TypeBodyResolver
                 bool isReferenceTyped =
                     memberVariableType?.Category == TypeCategory.Entity ||
                     memberVariableType?.Category == TypeCategory.Crashable;
+                // A Routine-typed field is a callback slot: the routine VALUE is pointer-shaped
+                // (a `ptr` to a closure blob = C's `(fnptr[, userdata])`), stored NON-OWNING like a
+                // bare C function pointer. So a record may hold one, mirroring how a C struct stores a
+                // `(callback, userdata)` pair.
+                bool isRoutineTyped = memberVariableType is RoutineTypeInfo;
                 if (memberVariableType != null &&
                     memberVariableType is not ErrorTypeInfo &&
                     memberVariableType is not GenericParameterTypeInfo &&
                     !TypeRegistry.IsValueType(type: memberVariableType) &&
                     !isReferenceTyped &&
+                    !isRoutineTyped &&
                     !(memberVariableType is WrapperTypeInfo wrapper &&
                       AssignableWrapperTypes.Contains(item: wrapper.BareName)))
                 {

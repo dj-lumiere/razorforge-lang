@@ -125,6 +125,11 @@ public sealed partial class SemanticVerifier
     /// <summary>Tracks imported symbol names for collision detection (#105).</summary>
     internal readonly HashSet<string> _importedSymbolNames = new(comparer: StringComparer.Ordinal);
 
+    /// <summary>Foreign routines the current file imported into BARE scope via `import Module.C::name`
+    /// (or `LLVM::name`). Keyed <c>"REALM::name"</c> (e.g. <c>"C::qsort"</c>). A bare call resolving to
+    /// such a foreign routine skips the usual <c>C::</c>/<c>LLVM::</c> call-site qualifier requirement.</summary>
+    internal readonly HashSet<string> _importedForeignAliases = new(comparer: StringComparer.Ordinal);
+
     /// <summary>Per-file import snapshots used when re-analyzing compiler-generated bodies.</summary>
     private readonly Dictionary<string, HashSet<string>> _importSnapshots =
         new(comparer: StringComparer.OrdinalIgnoreCase);
@@ -135,6 +140,12 @@ public sealed partial class SemanticVerifier
 
     /// <summary>Per-file module-name snapshots used when re-analyzing compiler-generated bodies.</summary>
     private readonly Dictionary<string, string?> _moduleNameSnapshots =
+        new(comparer: StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Per-file <see cref="_importedForeignAliases"/> snapshots (realm-qualified bare imports),
+    /// so a bare-aliased foreign call inside a re-analyzed compiler-generated body (e.g. a failable
+    /// user routine's `try_` variant) keeps passing the realm gate.</summary>
+    private readonly Dictionary<string, HashSet<string>> _foreignAliasSnapshots =
         new(comparer: StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Nesting depth for conditional expressions (for #145 deep nesting warning).</summary>
@@ -352,10 +363,12 @@ public sealed partial class SemanticVerifier
         _importSnapshots.Clear();
         _symbolNameSnapshots.Clear();
         _moduleNameSnapshots.Clear();
+        _foreignAliasSnapshots.Clear();
         _currentFilePath = filePath ?? program.Location.FileName;
         _currentModuleName = null;
         _importedModules.Clear();
         _importedSymbolNames.Clear();
+        _importedForeignAliases.Clear();
 
         bool saTiming = SaTiming;
         var swPhase = Stopwatch.StartNew();
@@ -1008,6 +1021,8 @@ public sealed partial class SemanticVerifier
         string previousFilePath = _currentFilePath;
         var previousImports = new HashSet<string>(collection: _importedModules,
             comparer: StringComparer.OrdinalIgnoreCase);
+        var previousForeignAliases = new HashSet<string>(collection: _importedForeignAliases,
+            comparer: StringComparer.Ordinal);
         string? previousModuleName = _currentModuleName;
         int stdlibIdx = 0;
         foreach ((Program program, string filePath, string module) in freshStdlibPrograms)
@@ -1022,6 +1037,7 @@ public sealed partial class SemanticVerifier
                 filePath.EndsWith(value: ".sf", comparisonType: StringComparison.OrdinalIgnoreCase) ? "SF" : "RF";
             _importedModules.Clear();
             _importedSymbolNames.Clear();
+            _importedForeignAliases.Clear();
 
             // Core module types are auto-imported
             _importedModules.Add(item: "Core");
@@ -1061,6 +1077,11 @@ public sealed partial class SemanticVerifier
         {
             _importedModules.Add(item: ns);
         }
+        _importedForeignAliases.Clear();
+        foreach (string alias in previousForeignAliases)
+        {
+            _importedForeignAliases.Add(item: alias);
+        }
 
         } // try
         finally
@@ -1083,6 +1104,7 @@ public sealed partial class SemanticVerifier
         _importSnapshots.Clear();
         _symbolNameSnapshots.Clear();
         _moduleNameSnapshots.Clear();
+        _foreignAliasSnapshots.Clear();
         bool saTiming = SaTiming;
         var swPhase = Stopwatch.StartNew();
         void Mark(string label)
@@ -1538,6 +1560,7 @@ public sealed partial class SemanticVerifier
         _currentFilePath = filePath;
         _importedModules.Clear();
         _importedSymbolNames.Clear();
+        _importedForeignAliases.Clear();
         _currentModuleName = null;
 
         // Prefer this file's own realm when resolving its bare type names. A user `.sf` file's bare
@@ -1570,6 +1593,14 @@ public sealed partial class SemanticVerifier
         {
             _currentModuleName = moduleName;
         }
+
+        if (_foreignAliasSnapshots.TryGetValue(key: filePath, value: out HashSet<string>? aliases))
+        {
+            foreach (string alias in aliases)
+            {
+                _importedForeignAliases.Add(item: alias);
+            }
+        }
     }
 
     /// <summary>
@@ -1582,6 +1613,8 @@ public sealed partial class SemanticVerifier
         _symbolNameSnapshots[filePath] = new HashSet<string>(collection: _importedSymbolNames,
             comparer: StringComparer.Ordinal);
         _moduleNameSnapshots[filePath] = _currentModuleName;
+        _foreignAliasSnapshots[filePath] = new HashSet<string>(collection: _importedForeignAliases,
+            comparer: StringComparer.Ordinal);
     }
 
     /// <summary>

@@ -670,18 +670,16 @@ void rf_cyclic_exit_collect(void)
     rf_rwlock_unlock_exclusive(&g_cc_rwlock);
 }
 
-// An RF routine reference stored in a CPtr is a CLOSURE VALUE: a heap box whose first word is the
-// vthunk pointer `void(*)(void* closure, <args>)`, followed by any captured variables. The hooks the
-// collector calls (trace / free) take one arg, so the vthunk is `void(void* closure, void* arg)`. To
-// invoke a hook we load the vthunk from the box and pass the box back as the closure receiver. A NULL
-// box means "no hook" (a type with no Roamed fields, or an unwired controller) — a no-op.
-static void rf_cyclic_invoke_hook(void* closure, void* arg)
+// v0.4.1: an RF roam hook stored in a CPtr is the BARE C-ABI function pointer of the callee (a
+// captureless `roam_*_impl` member routine, `void(void* me)`). The collector supplies the controller
+// address as that single `me` argument. A NULL pointer means "no hook" (a type with no Roamed fields,
+// or an unwired controller) — a no-op.
+static void rf_cyclic_invoke_hook(void* fn, void* arg)
 {
-    if (closure == NULL) {
+    if (fn == NULL) {
         return;
     }
-    void (*vthunk)(void*, void*) = *(void (**)(void*, void*))closure;
-    vthunk(closure, arg);
+    ((void (*)(void*))fn)(arg);
 }
 
 // The SOLE indirect-call site for tracing. Invokes a controller's trace hook, passing the CONTROLLER

@@ -1,0 +1,121 @@
+module Math3D
+
+### Fixed-size single-precision Euclidean vector `Vector4D`. Stores plain `F32`
+### components, so a vector is a trivially copyable value record. This is a
+### geometry-facing companion to the complex types in this directory; for
+### arbitrary-length elementwise math use the SIMD `Vector[T, N]` type instead.
+###
+### `Vector4D` is NOT a field, so it obeys only the arithmetic protocols that are
+### mathematically well defined for it: `Addable`, `Subtractable`, `Negatable`
+### (component-wise), plus `Equatable`. Scaling, dot, length, and normalization
+### are exposed as named routines rather than through `*`/`/`, which have no
+### canonical vector meaning.
+
+# Math routines use the component F32's `_unchecked` ops (raw IEEE, no overflow
+# checks); NaN/±inf therefore propagate through the vector result per IEEE 754.
+
+### A four-dimensional vector with `F32` components.
+record Vector4D obeys Addable, Subtractable, Negatable, Equatable
+  ### The x component.
+  x: F32
+  ### The y component.
+  y: F32
+  ### The z component.
+  z: F32
+  ### The w component.
+  w: F32
+
+# Vector4D constants
+preset VECTOR4D_ZERO: Vector4D = Vector4D(x: 0.0_f32, y: 0.0_f32, z: 0.0_f32, w: 0.0_f32)
+preset VECTOR4D_UNIT_X: Vector4D = Vector4D(x: 1.0_f32, y: 0.0_f32, z: 0.0_f32, w: 0.0_f32)
+preset VECTOR4D_UNIT_Y: Vector4D = Vector4D(x: 0.0_f32, y: 1.0_f32, z: 0.0_f32, w: 0.0_f32)
+preset VECTOR4D_UNIT_Z: Vector4D = Vector4D(x: 0.0_f32, y: 0.0_f32, z: 1.0_f32, w: 0.0_f32)
+preset VECTOR4D_UNIT_W: Vector4D = Vector4D(x: 0.0_f32, y: 0.0_f32, z: 0.0_f32, w: 1.0_f32)
+
+### Returns the component-wise sum `me + you`.
+### :param you: The addend.
+### :returns: A `Vector4D` whose components are the sums.
+routine Vector4D.add(you: Vector4D) -> Vector4D
+  return Vector4D(x: me.x + you.x, y: me.y + you.y, z: me.z + you.z, w: me.w + you.w)
+
+### Returns the component-wise difference `me - you`.
+### :param you: The value to subtract.
+### :returns: A `Vector4D` whose components are the differences.
+routine Vector4D.sub(you: Vector4D) -> Vector4D
+  return Vector4D(x: me.x - you.x, y: me.y - you.y, z: me.z - you.z, w: me.w - you.w)
+
+### Returns the arithmetic negation of this vector.
+### :returns: A `Vector4D` with all components negated.
+routine Vector4D.neg() -> Vector4D
+  return Vector4D(x: -me.x, y: -me.y, z: -me.z, w: -me.w)
+
+### Returns this vector scaled by a scalar `factor`.
+### :param factor: The scalar multiplier.
+### :returns: `factor · me`, component-wise.
+routine Vector4D.scale(factor: F32) -> Vector4D
+  return Vector4D(x: me.x * factor, y: me.y * factor, z: me.z * factor, w: me.w * factor)
+
+### Returns the dot product `me · you`.
+### :param you: The right operand.
+### :returns: `me.x·you.x + me.y·you.y + me.z·you.z + me.w·you.w`.
+routine Vector4D.dot(you: Vector4D) -> F32
+  return me.x * you.x + me.y * you.y + me.z * you.z + me.w * you.w
+
+### Returns the squared Euclidean length (avoids the square root of `length`).
+### :returns: `me · me`.
+routine Vector4D.length_squared() -> F32
+  return me.x * me.x + me.y * me.y + me.z * me.z + me.w * me.w
+
+### Returns the Euclidean length (magnitude) of this vector.
+### :returns: `√(x² + y² + z² + w²)`.
+routine Vector4D.length() -> F32
+  return me.length_squared().sqrt_unchecked()
+
+### Returns the unit vector pointing in the same direction. A zero vector is
+### returned unchanged (its length is zero).
+### :returns: `me / |me|`, or `me` when `|me| == 0`.
+routine Vector4D.normalize() -> Vector4D
+  var len = me.length()
+  if len == 0.0_f32
+    return me
+  return me.scale(factor: 1.0_f32 / len)
+
+### Returns the Euclidean distance between this vector and `you`.
+### :param you: The other point.
+### :returns: `|me − you|`.
+routine Vector4D.distance(you: Vector4D) -> F32
+  return (me - you).length()
+
+### Returns the linear interpolation between `me` (at `t = 0`) and `you` (at `t = 1`).
+### :param you: The endpoint.
+### :param t: The interpolation parameter (unclamped).
+### :returns: `me + t·(you − me)`.
+routine Vector4D.lerp(you: Vector4D, t: F32) -> Vector4D
+  return me + (you - me).scale(factor: t)
+
+### Returns `true` if all four components compare equal.
+### :param you: The value to compare against.
+### :returns: `true` if every component of `me` equals the matching component of `you`.
+routine Vector4D.eq(you: Vector4D) -> Bool
+  return me.x == you.x and me.y == you.y and me.z == you.z and me.w == you.w
+
+### Formats this vector as `(x, y, z, w)`.
+### :returns: The resulting `Text` value.
+routine Vector4D.represent() -> Text
+  return "(" + me.x.represent() + ", " + me.y.represent() + ", " + me.z.represent() + ", " + me.w.represent() + ")"
+
+### Returns a diagnostic string wrapping the value with its type name.
+### :returns: The resulting `Text` value.
+routine Vector4D.diagnose() -> Text
+  return "Vector4D" + me.represent()
+
+### Returns a SipHash-2-4 keyed hash of this vector.
+### :param k0: The first 64-bit key word.
+### :param k1: The second 64-bit key word.
+### :returns: A `U64` keyed hash.
+routine Vector4D.hash(k0: U64, k1: U64) -> U64
+  var acc = __hash_round(acc: 0u64, h: me.x.hash(k0: k0, k1: k1))
+  acc = __hash_round(acc: acc, h: me.y.hash(k0: k0, k1: k1))
+  acc = __hash_round(acc: acc, h: me.z.hash(k0: k0, k1: k1))
+  acc = __hash_round(acc: acc, h: me.w.hash(k0: k0, k1: k1))
+  return __hash_finalize(h: acc)

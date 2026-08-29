@@ -731,6 +731,39 @@ routine LLVM::extract_element[V, T](vec: V, index: U64) -> T
 @llvm_ir("{result} = insertelement {V} {vec}, {T} {value}, i64 {index}")
 routine LLVM::insert_element[V, T](vec: V, value: T, index: U64) -> V
 
+### 4-lane SIMD shuffles (LLVM `shufflevector` with a fixed compile-time mask). `V` is a 4-lane vector
+### type (`<4 x T>`); lanes 0..3 select from `a`, lanes 4..7 from `b`. These back the SSE-style
+### `_MM_TRANSPOSE4_PS` 4x4 matrix transpose. The mask is baked into the IR (it must be constant), so
+### each named variant carries its own permutation.
+
+### `unpacklo`: interleaves the LOW halves — `<a0, b0, a1, b1>`.
+### :param a: The first vector.
+### :param b: The second vector.
+### :returns: The interleaved low lanes.
+@llvm_ir("{result} = shufflevector {V} {a}, {V} {b}, <4 x i32> <i32 0, i32 4, i32 1, i32 5>")
+routine LLVM::shuffle_unpacklo_4[V](a: V, b: V) -> V
+
+### `unpackhi`: interleaves the HIGH halves — `<a2, b2, a3, b3>`.
+### :param a: The first vector.
+### :param b: The second vector.
+### :returns: The interleaved high lanes.
+@llvm_ir("{result} = shufflevector {V} {a}, {V} {b}, <4 x i32> <i32 2, i32 6, i32 3, i32 7>")
+routine LLVM::shuffle_unpackhi_4[V](a: V, b: V) -> V
+
+### `movelh`: the low halves of both — `<a0, a1, b0, b1>`.
+### :param a: The first vector.
+### :param b: The second vector.
+### :returns: The two low halves.
+@llvm_ir("{result} = shufflevector {V} {a}, {V} {b}, <4 x i32> <i32 0, i32 1, i32 4, i32 5>")
+routine LLVM::shuffle_movelh_4[V](a: V, b: V) -> V
+
+### `movehl`: the high halves of both — `<a2, a3, b2, b3>`.
+### :param a: The first vector.
+### :param b: The second vector.
+### :returns: The two high halves.
+@llvm_ir("{result} = shufflevector {V} {a}, {V} {b}, <4 x i32> <i32 2, i32 3, i32 6, i32 7>")
+routine LLVM::shuffle_movehl_4[V](a: V, b: V) -> V
+
 ### Returns whether two pointer-backed values refer to the same address.
 ### Intended for entity and crashable identity comparison (`===`).
 ### :param a: The left-hand reference.

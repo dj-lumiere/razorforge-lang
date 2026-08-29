@@ -260,6 +260,18 @@ public abstract class TypeInfo
             return count * elemSize;
         }
 
+        // LLVM vector `<N x T>` (SIMD types, e.g. the stdlib `Vector[T, N]` = `<N x T>`). N contiguous
+        // lanes, so the size is N·sizeof(T) like a `[N x T]` array. Without this a record with a
+        // `Vector[T, N]` field can't have its size computed.
+        if (llvmType.StartsWith('<') && llvmType.EndsWith('>') && llvmType.Contains(" x "))
+        {
+            string inner = llvmType[1..^1];
+            int sep = inner.IndexOf(value: " x ", comparisonType: StringComparison.Ordinal);
+            int count = int.Parse(s: inner[..sep].Trim());
+            int elemSize = SizeOfLlvmType(llvmType: inner[(sep + 3)..], pointerSize: pointerSize);
+            return count * elemSize;
+        }
+
         if (llvmType.StartsWith('{') && llvmType.EndsWith('}'))
         {
             int size = 0;
@@ -309,6 +321,16 @@ public abstract class TypeInfo
             string inner = llvmType[1..^1];
             int sep = inner.IndexOf(value: " x ", comparisonType: StringComparison.Ordinal);
             return AlignOfLlvmType(llvmType: inner[(sep + 3)..], pointerSize: pointerSize);
+        }
+
+        // LLVM vector `<N x T>`: aligned to the next power of two >= its total byte size (LLVM's rule —
+        // `<4 x float>` → 16, `<2 x float>` → 8, `<3 x float>` → 16).
+        if (llvmType.StartsWith('<') && llvmType.EndsWith('>') && llvmType.Contains(" x "))
+        {
+            int total = SizeOfLlvmType(llvmType: llvmType, pointerSize: pointerSize);
+            int a = 1;
+            while (a < total) a *= 2;
+            return a;
         }
 
         if (llvmType.StartsWith('{') && llvmType.EndsWith('}'))

@@ -42,49 +42,18 @@ public partial class LlvmCodeGenerator
         }
 
         // Indirect call through a local Routine-typed variable (e.g., compare(a: x, b: y) where
-        // 'compare' is a parameter of type Routine[(T, T), Bool]). The variable holds a CLOSURE
-        // pointer `{ fn_ptr, captures... }`: load the function pointer from field 0 and pass the
-        // closure pointer as the hidden leading argument (the uniform lambda ABI).
+        // 'compare' is a parameter of type Routine[(T, T), Bool]). The variable holds the fat Routine
+        // value `{ ptr fn, ptr bound }` (v0.4.1): load it and dispatch through EmitFatRoutineIndirectCall,
+        // which branches on `bound == null` (captureless `fn(args)` vs capturing `fn(args, bound)`).
         if (_localVariables.TryGetValue(key: functionName, value: out TypeInfo? localType) &&
             localType is RoutineTypeInfo routineTypeInfo)
         {
             string llvmName =
                 _localVarLlvmNames.GetValueOrDefault(functionName, functionName);
-            string clVal = NextTemp();
-            EmitLine(sb: sb, line: $"  {clVal} = load ptr, ptr %{llvmName}.addr");
-            string fpVal = NextTemp();
-            EmitLine(sb: sb, line: $"  {fpVal} = load ptr, ptr {clVal}");
-
-            var fpArgValues = new List<string> { clVal };
-            var fpArgTypes = new List<string> { "ptr" };
-            foreach (Expression arg in arguments)
-            {
-                string v = EmitExpression(sb: sb, expr: arg);
-                fpArgValues.Add(item: v);
-                // Use GetParameterLlvmType (named struct form) to match how the callee was declared
-                // and how the argument value was loaded. GetExpressionLlvmType uses BackendRepr
-                // inline expansion which produces anonymous structs that don't match named SSA values.
-                TypeInfo? argType = GetExpressionType(expr: arg);
-                fpArgTypes.Add(item: argType != null
-                    ? GetParameterLlvmType(type: argType)
-                    : GetExpressionLlvmType(expr: arg));
-            }
-
-            string retLlvm = routineTypeInfo.ReturnType != null
-                ? GetLlvmType(type: routineTypeInfo.ReturnType)
-                : "void";
-
-            string callArgs = BuildCallArgs(types: fpArgTypes, values: fpArgValues);
-            if (retLlvm == "void")
-            {
-                EmitLine(sb: sb, line: $"  call void {fpVal}({callArgs})");
-                return "undef";
-            }
-
-            string result = NextTemp();
-            EmitLine(sb: sb,
-                line: $"  {result} = call {retLlvm} {fpVal}({callArgs})");
-            return result;
+            string fatVal = NextTemp();
+            EmitLine(sb: sb, line: $"  {fatVal} = load {{ ptr, ptr }}, ptr %{llvmName}.addr");
+            return EmitFatRoutineIndirectCall(sb: sb, fatVal: fatVal,
+                routineType: routineTypeInfo, arguments: arguments);
         }
 
         // When SA resolved this entity construction to a user-declared `create` (non-synthesized),
@@ -310,11 +279,13 @@ public partial class LlvmCodeGenerator
                 : routine != null && argIdx < routine.Parameters.Count
                     ? routine.Parameters[index: argIdx].Type
                     : null;
-            if (paramTy?.Name == "CPtr"
+            bool ptyTakesCFnPtr = paramTy?.Name == "CPtr"
+                || (routine?.IsForeign == true && paramTy is RoutineTypeInfo);
+            if (ptyTakesCFnPtr
                 && argInner is IdentifierExpression cptrRef
                 && _registry.LookupRoutineByName(name: cptrRef.Name) is not null)
             {
-                writtenArgTypes.Add(item: paramTy);
+                writtenArgTypes.Add(item: paramTy!);
                 continue;
             }
 
@@ -375,18 +346,38 @@ public partial class LlvmCodeGenerator
                 Expression? bound = slotArg[p];
                 if (bound != null)
                 {
-                    // FFI routine -> CPtr coercion: a bare top-level routine name passed where a
-                    // CPtr is expected lowers to the routine's bare C function pointer (its native
-                    // symbol already has C ABI; no closure thunk). SA gates this to non-capturing
-                    // references.
+                    // FFI routine -> C function pointer: a bare top-level routine name passed where a
+                    // C:: extern expects a callback lowers to the routine's bare C-ABI symbol (its native
+                    // define is already `ccc` with NO hidden %__cl/me; the symbol IS the fn pointer).
+                    // This fires for a `CPtr` param (always an FFI slot) OR a `Routine[...]`-typed param
+                    // of a FOREIGN (C::/LLVM::) callee. WITHOUT this a routine value would flow through
+                    // EmitRoutineValueClosure — a heap `{fn}` box whose ADDRESS (not the fn) reaches C,
+                    // plus the `.rfvthunk` adapter is closure-ptr-FIRST (`__cl, a, b`) so args shift one
+                    // slot — the qsort 0xC0000005. SA gates this to non-capturing bare references.
                     Expression argInner =
                         bound is NamedArgumentExpression nb ? nb.Value : bound;
-                    if (param.Type?.Name == "CPtr"
+                    bool paramTakesCFnPtr = param.Type?.Name == "CPtr"
+                        || (routine.IsForeign && param.Type is RoutineTypeInfo);
+                    if (paramTakesCFnPtr
                         && argInner is IdentifierExpression routineRef
                         && _registry.LookupRoutineByName(name: routineRef.Name) is { } refRoutine)
                     {
                         GenerateRoutineDeclaration(routine: refRoutine);
                         argValues.Add(item: $"@{MangleRoutineName(routine: refRoutine)}");
+                        argTypeInfos.Add(item: param.Type);
+                        argTypes.Add(item: "ptr");
+                        continue;
+                    }
+
+                    // A Routine-typed VALUE (field / local / arbitrary expr) at a C boundary — NOT a bare
+                    // routine ref. Capturing-ness lives in the fat value's `bound`, only knowable at
+                    // runtime, so emit a `bound == null` guard: captureless → hand C the 1-word `fn`;
+                    // capturing → crash (a capture has no C slot). See [[cabi-callback-ffi]].
+                    if (paramTakesCFnPtr
+                        && GetExpressionType(expr: argInner) is RoutineTypeInfo)
+                    {
+                        string fnArg = EmitForeignRoutineValueArg(sb: sb, valueExpr: argInner);
+                        argValues.Add(item: fnArg);
                         argTypeInfos.Add(item: param.Type);
                         argTypes.Add(item: "ptr");
                         continue;
@@ -1325,39 +1316,108 @@ public partial class LlvmCodeGenerator
                 $"(owner: {_currentEmittingRoutine?.OwnerType?.Name ?? "none"}).");
         }
 
-        // The field holds a CLOSURE pointer `{ fn_ptr, captures... }`. Load the closure, then the
-        // function pointer from field 0, and pass the closure pointer as the hidden leading argument.
-        string clVal = EmitMemberVariableAccess(sb: sb, expr: member);
-        string fpVal = NextTemp();
-        EmitLine(sb: sb, line: $"  {fpVal} = load ptr, ptr {clVal}");
+        // The field holds the fat Routine value `{ ptr fn, ptr bound }` (v0.4.1). Load it and dispatch
+        // through EmitFatRoutineIndirectCall (branch on `bound == null`).
+        string fatVal = EmitMemberVariableAccess(sb: sb, expr: member);
+        return EmitFatRoutineIndirectCall(sb: sb, fatVal: fatVal,
+            routineType: routineType, arguments: arguments);
+    }
 
-        var fpArgValues = new List<string> { clVal };
-        var fpArgTypes = new List<string> { "ptr" };
+    /// <summary>
+    /// Emits a Routine-typed VALUE argument at a C boundary (v0.4.1). Capturing-ness is not in the
+    /// <c>Routine[T]</c> type (it is erased), so it is guarded at RUNTIME on the fat value's
+    /// <c>bound</c> word: captureless (<c>bound == null</c>) hands C the bare 1-word <c>fn</c>; a
+    /// capturing value crashes (a capture has no C slot — thread state through explicit userdata).
+    /// Returns the SSA <c>ptr</c> (the <c>fn</c>) to pass as the C callback argument.
+    /// </summary>
+    private string EmitForeignRoutineValueArg(StringBuilder sb, Expression valueExpr)
+    {
+        string val = EmitExpression(sb: sb, expr: valueExpr);
+        string fn = NextTemp();
+        EmitLine(sb: sb, line: $"  {fn} = extractvalue {{ ptr, ptr }} {val}, 0");
+        string bnd = NextTemp();
+        EmitLine(sb: sb, line: $"  {bnd} = extractvalue {{ ptr, ptr }} {val}, 1");
+        string isCap = NextTemp();
+        EmitLine(sb: sb, line: $"  {isCap} = icmp ne ptr {bnd}, null");
+        string lcap = NextLabel(prefix: "cbound.cap");
+        string lok = NextLabel(prefix: "cbound.ok");
+        EmitLine(sb: sb, line: $"  br i1 {isCap}, label %{lcap}, label %{lok}");
+        EmitLine(sb: sb, line: $"{lcap}:");
+        _rfRoutineDeclarations[key: "__rf_throw"] = "declare void @__rf_throw(ptr, ptr)";
+        string errSym = EmitCStringConstant(value: "ForeignCallbackCaptureError");
+        string msgSym = EmitCStringConstant(value:
+            "A capturing routine cannot cross the C boundary; pass a captureless callback and thread " +
+            "state through an explicit userdata parameter.");
+        EmitLine(sb: sb, line: $"  call void @__rf_throw(ptr {errSym}, ptr {msgSym})");
+        EmitLine(sb: sb, line: "  unreachable");
+        EmitLine(sb: sb, line: $"{lok}:");
+        return fn;
+    }
+
+    /// <summary>
+    /// Emits an indirect call through a fat Routine value <c>{ ptr fn, ptr bound }</c> (v0.4.1).
+    /// Extracts <c>fn</c> and <c>bound</c>, evaluates the explicit args once, then branches on
+    /// <c>bound == null</c>: captureless calls <c>fn(args)</c>, capturing calls <c>fn(args, ptr bound)</c>
+    /// (bound = C userdata, passed TRAILING). Returns the result SSA, or <c>"undef"</c> for a void return.
+    /// </summary>
+    private string EmitFatRoutineIndirectCall(StringBuilder sb, string fatVal,
+        RoutineTypeInfo routineType, List<Expression> arguments)
+    {
+        string fn = NextTemp();
+        EmitLine(sb: sb, line: $"  {fn} = extractvalue {{ ptr, ptr }} {fatVal}, 0");
+        string bound = NextTemp();
+        EmitLine(sb: sb, line: $"  {bound} = extractvalue {{ ptr, ptr }} {fatVal}, 1");
+
+        // Evaluate the explicit arguments once; both branches reuse them.
+        var argValues = new List<string>();
+        var argTypes = new List<string>();
         foreach (Expression arg in arguments)
         {
             string v = EmitExpression(sb: sb, expr: arg);
-            fpArgValues.Add(item: v);
-            // Match the named-struct parameter form the callee was declared with (see the
-            // local-variable indirect path in EmitRoutineCall for the rationale).
+            argValues.Add(item: v);
             TypeInfo? argType = GetExpressionType(expr: arg);
-            fpArgTypes.Add(item: argType != null
+            argTypes.Add(item: argType != null
                 ? GetParameterLlvmType(type: argType)
                 : GetExpressionLlvmType(expr: arg));
         }
+        string baseArgs = BuildCallArgs(types: argTypes, values: argValues);
+        string capArgs = argTypes.Count > 0 ? $"{baseArgs}, ptr {bound}" : $"ptr {bound}";
 
         string retLlvm = routineType.ReturnType != null
             ? GetLlvmType(type: routineType.ReturnType)
             : "void";
 
-        string callArgs = BuildCallArgs(types: fpArgTypes, values: fpArgValues);
+        string isNull = NextTemp();
+        EmitLine(sb: sb, line: $"  {isNull} = icmp eq ptr {bound}, null");
+        string lless = NextLabel(prefix: "cl.less");
+        string lcap = NextLabel(prefix: "cl.cap");
+        string lmerge = NextLabel(prefix: "cl.merge");
+        EmitLine(sb: sb, line: $"  br i1 {isNull}, label %{lless}, label %{lcap}");
+
         if (retLlvm == "void")
         {
-            EmitLine(sb: sb, line: $"  call void {fpVal}({callArgs})");
+            EmitLine(sb: sb, line: $"{lless}:");
+            EmitLine(sb: sb, line: $"  call void {fn}({baseArgs})");
+            EmitLine(sb: sb, line: $"  br label %{lmerge}");
+            EmitLine(sb: sb, line: $"{lcap}:");
+            EmitLine(sb: sb, line: $"  call void {fn}({capArgs})");
+            EmitLine(sb: sb, line: $"  br label %{lmerge}");
+            EmitLine(sb: sb, line: $"{lmerge}:");
             return "undef";
         }
 
+        string r0 = NextTemp();
+        EmitLine(sb: sb, line: $"{lless}:");
+        EmitLine(sb: sb, line: $"  {r0} = call {retLlvm} {fn}({baseArgs})");
+        EmitLine(sb: sb, line: $"  br label %{lmerge}");
+        string r1 = NextTemp();
+        EmitLine(sb: sb, line: $"{lcap}:");
+        EmitLine(sb: sb, line: $"  {r1} = call {retLlvm} {fn}({capArgs})");
+        EmitLine(sb: sb, line: $"  br label %{lmerge}");
+        EmitLine(sb: sb, line: $"{lmerge}:");
         string result = NextTemp();
-        EmitLine(sb: sb, line: $"  {result} = call {retLlvm} {fpVal}({callArgs})");
+        EmitLine(sb: sb,
+            line: $"  {result} = phi {retLlvm} [ {r0}, %{lless} ], [ {r1}, %{lcap} ]");
         return result;
     }
 

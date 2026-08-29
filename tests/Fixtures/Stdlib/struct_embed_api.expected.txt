@@ -1,0 +1,3 @@
+captureless by-ptr: 42
+captureless by-val: 200
+capturing by-ptr:   15

@@ -1,6 +1,7 @@
 module IO/BytesIO
 
 import IO/Console
+import Numerics   # `common routine Integer.from_digit_bytes` etc. reference the Numerics `Integer` type
 
 ### Fast-IO numeric parse and format routines that operate directly on raw byte
 ### buffers, bypassing the UTF-8 → UTF-32 → Text → parse pipeline that ordinary

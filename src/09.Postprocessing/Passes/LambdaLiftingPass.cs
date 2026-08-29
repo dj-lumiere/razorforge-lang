@@ -940,7 +940,7 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
             IsDangerous: false);
         _liftedRoutines.Add(item: liftedRoutine);
 
-        ctx.Registry.RegisterRoutine(routine: new RoutineInfo(name: liftedName)
+        var liftedInfo = new RoutineInfo(name: liftedName)
         {
             Kind = RoutineKind.Lambda,
             Parameters = BuildLiftedParameterInfos(lambda, routineType),
@@ -953,7 +953,12 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
             GenericConstraints = genericConstraints,
             IsSynthesized = true,
             ClosureCaptures = closureCaptures
-        });
+        };
+        ctx.Registry.RegisterRoutine(routine: liftedInfo);
+        // Attach the RoutineInfo to the lifted declaration so the codegen-input AST dump
+        // (RfAstPrinter) prints its definition — a null ResolvedInfo is otherwise dropped as an
+        // "unregistered surface decl", leaving the dump showing a call to `__lambda_*` with no body.
+        liftedRoutine.ResolvedInfo = liftedInfo;
 
         return new IdentifierExpression(Name: liftedName, Location: lambda.Location)
         {

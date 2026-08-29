@@ -1,0 +1,30 @@
+module Tests/Stdlib/StructEmbedApi
+import IO/Console
+
+# Struct-EMBEDDED C callback (wgpu `WGPUCallbackInfo`-style): a record whose field is a `Routine[...]`
+# crosses to C as a `{ callback, void* userdata }` pair. RF represents a routine value as a fat
+# `{ ptr fn, ptr bound }` (captureless -> bound == null; capturing -> bound points at the captures), so
+# the record's field lays out INLINE as `{ fn, bound }` — no boxing — and maps directly onto the C pair.
+# rf_test_invoke_cbinfo{,_byval} are runtime helpers that call `cb(arg, ud)`. Exercises captureless
+# (bound == null) and capturing (bound carries `bias`), passed BY POINTER and BY VALUE.
+
+record CbBox
+  cb: Routine[(S32,), S32]
+
+routine C::rf_test_invoke_cbinfo(info: Hijacked[CbBox], arg: S32) -> S32
+routine C::rf_test_invoke_cbinfo_byval(info: CbBox, arg: S32) -> S32
+
+routine dbl(x: S32) -> S32
+  return x * 2
+
+routine make_adder(bias: S32) -> Routine[(S32,), S32]
+  return (x) given (bias) => x + bias
+
+routine start()
+  var box: CbBox = CbBox(cb: dbl)
+  show(f"captureless by-ptr: {C::rf_test_invoke_cbinfo(box.hijack(), 21_s32)}")
+  show(f"captureless by-val: {C::rf_test_invoke_cbinfo_byval(box, 100_s32)}")
+  var add10: Routine[(S32,), S32] = make_adder(bias: 10_s32)
+  var capbox: CbBox = CbBox(cb: add10)
+  show(f"capturing by-ptr:   {C::rf_test_invoke_cbinfo(capbox.hijack(), 5_s32)}")
+  return

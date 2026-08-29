@@ -1,29 +1,30 @@
-module Core
+module Math3D
 
-### A single-precision quaternion `w + x·i + y·j + z·k` with `F32` components.
-### `Q32` is the standard rotation type for graphics-facing code; use `Q64` when
-### double precision is needed. A quaternion is a value record (four `F32`
+### A double-precision quaternion `w + x·i + y·j + z·k` with `F64` components.
+### `Q64` is the high-precision rotation type; use `Q32` for graphics-facing code
+### that prefers single precision. A quaternion is a value record (four `F64`
 ### fields), trivially copyable.
 ###
-### Quaternions form a (non-commutative) division ring, so `Q32` obeys the
+### Quaternions form a (non-commutative) division ring, so `Q64` obeys the
 ### arithmetic protocols `Addable`, `Subtractable`, `Multiplicable` (the Hamilton
 ### product — note `a·b ≠ b·a`), `Divisible`, `Negatable`, plus `Equatable`.
-record Q32 obeys Addable, Subtractable, Multiplicable, Divisible, Negatable, Equatable
+### Geometry interop uses the shared `F32` `Vector3D`, converting at the boundary.
+record Q64 obeys Addable, Subtractable, Multiplicable, Divisible, Negatable, Equatable
   ### The real (scalar) component.
-  w: F32
+  w: F64
   ### The i (x) component.
-  x: F32
+  x: F64
   ### The j (y) component.
-  y: F32
+  y: F64
   ### The k (z) component.
-  z: F32
+  z: F64
 
-# Math routines use the component F32's `_unchecked` ops (raw IEEE, no overflow
+# Math routines use the component F64's `_unchecked` ops (raw IEEE, no overflow
 # checks); NaN/±inf therefore propagate through the quaternion result per IEEE 754.
 
 # Quaternion constants
-preset Q32_ZERO: Q32 = Q32(w: 0.0_f32, x: 0.0_f32, y: 0.0_f32, z: 0.0_f32)
-preset Q32_IDENTITY: Q32 = Q32(w: 1.0_f32, x: 0.0_f32, y: 0.0_f32, z: 0.0_f32)
+preset Q64_ZERO: Q64 = Q64(w: 0.0_f64, x: 0.0_f64, y: 0.0_f64, z: 0.0_f64)
+preset Q64_IDENTITY: Q64 = Q64(w: 1.0_f64, x: 0.0_f64, y: 0.0_f64, z: 0.0_f64)
 
 # ============================================================================
 # Creators
@@ -32,21 +33,30 @@ preset Q32_IDENTITY: Q32 = Q32(w: 1.0_f32, x: 0.0_f32, y: 0.0_f32, z: 0.0_f32)
 ### Constructs a real quaternion `w + 0i + 0j + 0k` from a scalar.
 ### :param from: The scalar value.
 ### :returns: The corresponding real quaternion.
-routine Q32(from: F32) -> Q32
-  return Q32(w: from, x: 0.0_f32, y: 0.0_f32, z: 0.0_f32)
+routine Q64(from: F64) -> Q64
+  return Q64(w: from, x: 0.0_f64, y: 0.0_f64, z: 0.0_f64)
+
+### Widens a `Q32` to `Q64` by extending each component to `F64`.
+### :param from: The single-precision quaternion to widen.
+### :returns: A `Q64` carrying the same numeric value.
+routine Q64(from: Q32) -> Q64
+  return Q64(w: F64(from.w), x: F64(from.x), y: F64(from.y), z: F64(from.z))
 
 ### Builds a unit rotation quaternion from an axis and an angle (right-hand rule).
 ### The axis is normalized internally; a zero-length axis yields the identity.
 ### :param axis: The rotation axis (need not be unit length).
 ### :param angle: The rotation angle in radians.
 ### :returns: The unit quaternion representing that rotation.
-routine Q32.from_axis_angle(axis: Vector3D, angle: F32) -> Q32
-  var len = axis.length()
-  if len == 0.0_f32
-    return Q32_IDENTITY
-  var half = angle * 0.5_f32
+routine Q64.from_axis_angle(axis: Vector3D, angle: F64) -> Q64
+  var ax = F64(axis.x)
+  var ay = F64(axis.y)
+  var az = F64(axis.z)
+  var len = (ax * ax + ay * ay + az * az).sqrt_unchecked()
+  if len == 0.0_f64
+    return Q64_IDENTITY
+  var half = angle * 0.5_f64
   var s = half.sin() / len
-  return Q32(w: half.cos(), x: axis.x * s, y: axis.y * s, z: axis.z * s)
+  return Q64(w: half.cos(), x: ax * s, y: ay * s, z: az * s)
 
 # ============================================================================
 # Arithmetic Operations
@@ -54,40 +64,40 @@ routine Q32.from_axis_angle(axis: Vector3D, angle: F32) -> Q32
 
 ### Returns the component-wise sum `me + you`.
 ### :param you: The addend.
-### :returns: A `Q32` whose components are the sums.
-routine Q32.add(you: Q32) -> Q32
-  return Q32(w: me.w + you.w, x: me.x + you.x, y: me.y + you.y, z: me.z + you.z)
+### :returns: A `Q64` whose components are the sums.
+routine Q64.add(you: Q64) -> Q64
+  return Q64(w: me.w + you.w, x: me.x + you.x, y: me.y + you.y, z: me.z + you.z)
 
 ### Returns the component-wise difference `me - you`.
 ### :param you: The value to subtract.
-### :returns: A `Q32` whose components are the differences.
-routine Q32.sub(you: Q32) -> Q32
-  return Q32(w: me.w - you.w, x: me.x - you.x, y: me.y - you.y, z: me.z - you.z)
+### :returns: A `Q64` whose components are the differences.
+routine Q64.sub(you: Q64) -> Q64
+  return Q64(w: me.w - you.w, x: me.x - you.x, y: me.y - you.y, z: me.z - you.z)
 
 ### Returns the Hamilton product `me · you`. Quaternion multiplication is NOT
 ### commutative: `me · you` composes `you`'s rotation followed by `me`'s.
 ### :param you: The right operand.
 ### :returns: The Hamilton product.
-routine Q32.mul(you: Q32) -> Q32
+routine Q64.mul(you: Q64) -> Q64
   # Hamilton product of (w1,x1,y1,z1)·(w2,x2,y2,z2).
-  return Q32(w: me.w * you.w - me.x * you.x - me.y * you.y - me.z * you.z, x: me.w * you.x + me.x * you.w + me.y * you.z - me.z * you.y, y: me.w * you.y - me.x * you.z + me.y * you.w + me.z * you.x, z: me.w * you.z + me.x * you.y - me.y * you.x + me.z * you.w)
+  return Q64(w: me.w * you.w - me.x * you.x - me.y * you.y - me.z * you.z, x: me.w * you.x + me.x * you.w + me.y * you.z - me.z * you.y, y: me.w * you.y - me.x * you.z + me.y * you.w + me.z * you.x, z: me.w * you.z + me.x * you.y - me.y * you.x + me.z * you.w)
 
 ### Returns the quotient `me / you = me · you⁻¹`.
 ### :param you: The divisor.
 ### :returns: The quaternion quotient.
-routine Q32.truediv(you: Q32) -> Q32
+routine Q64.truediv(you: Q64) -> Q64
   return me * you.reciprocal()
 
 ### Returns this quaternion scaled by a real scalar `factor`.
 ### :param factor: The scalar multiplier.
 ### :returns: `factor · me`, component-wise.
-routine Q32.scale(factor: F32) -> Q32
-  return Q32(w: me.w * factor, x: me.x * factor, y: me.y * factor, z: me.z * factor)
+routine Q64.scale(factor: F64) -> Q64
+  return Q64(w: me.w * factor, x: me.x * factor, y: me.y * factor, z: me.z * factor)
 
 ### Returns the arithmetic negation of this quaternion.
-### :returns: A `Q32` with all components negated.
-routine Q32.neg() -> Q32
-  return Q32(w: -me.w, x: -me.x, y: -me.y, z: -me.z)
+### :returns: A `Q64` with all components negated.
+routine Q64.neg() -> Q64
+  return Q64(w: -me.w, x: -me.x, y: -me.y, z: -me.z)
 
 # ============================================================================
 # Comparison
@@ -96,7 +106,7 @@ routine Q32.neg() -> Q32
 ### Returns `true` if all four components compare equal.
 ### :param you: The value to compare against.
 ### :returns: `true` if every component of `me` equals the matching component of `you`.
-routine Q32.eq(you: Q32) -> Bool
+routine Q64.eq(you: Q64) -> Bool
   return me.w == you.w and me.x == you.x and me.y == you.y and me.z == you.z
 
 # ============================================================================
@@ -105,38 +115,38 @@ routine Q32.eq(you: Q32) -> Bool
 
 ### Returns the conjugate (negates the vector part).
 ### :returns: `w − x·i − y·j − z·k`.
-routine Q32.conjugate() -> Q32
-  return Q32(w: me.w, x: -me.x, y: -me.y, z: -me.z)
+routine Q64.conjugate() -> Q64
+  return Q64(w: me.w, x: -me.x, y: -me.y, z: -me.z)
 
 ### Returns the squared norm (avoids the square root of `abs`).
 ### :returns: `w² + x² + y² + z²`.
-routine Q32.norm() -> F32
+routine Q64.norm() -> F64
   return me.w * me.w + me.x * me.x + me.y * me.y + me.z * me.z
 
 ### Returns the norm (magnitude) of this quaternion.
 ### :returns: `√(w² + x² + y² + z²)`.
-routine Q32.abs() -> F32
+routine Q64.abs() -> F64
   return me.norm().sqrt_unchecked()
 
 ### Returns the unit quaternion in the same direction. A zero quaternion is
 ### returned unchanged (its norm is zero).
 ### :returns: `me / |me|`, or `me` when `|me| == 0`.
-routine Q32.normalize() -> Q32
+routine Q64.normalize() -> Q64
   var n = me.abs()
-  if n == 0.0_f32
+  if n == 0.0_f64
     return me
-  return me.scale(factor: 1.0_f32 / n)
+  return me.scale(factor: 1.0_f64 / n)
 
 ### Returns the multiplicative inverse `me⁻¹ = conj(me) / |me|²`.
 ### :returns: The quaternion inverse.
-routine Q32.reciprocal() -> Q32
+routine Q64.reciprocal() -> Q64
   var n = me.norm()
-  return me.conjugate().scale(factor: 1.0_f32 / n)
+  return me.conjugate().scale(factor: 1.0_f64 / n)
 
 ### Returns the dot product of the two quaternions viewed as 4-vectors.
 ### :param you: The right operand.
 ### :returns: `w₁w₂ + x₁x₂ + y₁y₂ + z₁z₂`.
-routine Q32.dot(you: Q32) -> F32
+routine Q64.dot(you: Q64) -> F64
   return me.w * you.w + me.x * you.x + me.y * you.y + me.z * you.z
 
 # ============================================================================
@@ -144,13 +154,14 @@ routine Q32.dot(you: Q32) -> F32
 # ============================================================================
 
 ### Rotates a `Vector3D` by this quaternion (assumed unit length), computing
-### `q · (0, v) · q⁻¹` via the conjugate.
+### `q · (0, v) · q⁻¹` via the conjugate. The vector is widened to `F64` for the
+### product and narrowed back to `F32` on return.
 ### :param v: The vector to rotate.
 ### :returns: The rotated vector.
-routine Q32.rotate(v: Vector3D) -> Vector3D
-  var p = Q32(w: 0.0_f32, x: v.x, y: v.y, z: v.z)
+routine Q64.rotate(v: Vector3D) -> Vector3D
+  var p = Q64(w: 0.0_f64, x: F64(v.x), y: F64(v.y), z: F64(v.z))
   var r = me * p * me.conjugate()
-  return Vector3D(x: r.x, y: r.y, z: r.z)
+  return Vector3D(x: F32(r.x), y: F32(r.y), z: F32(r.z))
 
 ### Returns the spherical linear interpolation between `me` (at `t = 0`) and
 ### `you` (at `t = 1`). Both operands are assumed to be unit quaternions; the
@@ -159,27 +170,27 @@ routine Q32.rotate(v: Vector3D) -> Vector3D
 ### :param you: The endpoint rotation.
 ### :param t: The interpolation parameter.
 ### :returns: The interpolated unit quaternion.
-routine Q32.slerp(you: Q32, t: F32) -> Q32
+routine Q64.slerp(you: Q64, t: F64) -> Q64
   var d = me.dot(you: you)
   # Choose the shorter arc: if the dot is negative, negate one endpoint.
   var target = you
-  if d < 0.0_f32
+  if d < 0.0_f64
     target = you.neg()
     d = -d
   # Near-parallel: fall back to normalized linear interpolation to avoid a
   # division by sin(θ) ≈ 0.
-  if d > 0.9995_f32
+  if d > 0.9995_f64
     return (me + (target - me).scale(factor: t)).normalize()
   var theta = d.acos_unchecked()
   var sin_theta = theta.sin()
-  var wa = ((1.0_f32 - t) * theta).sin() / sin_theta
+  var wa = ((1.0_f64 - t) * theta).sin() / sin_theta
   var wb = (t * theta).sin() / sin_theta
   return me.scale(factor: wa) + target.scale(factor: wb)
 
 ### Returns the rotation angle encoded by this unit quaternion, in radians.
 ### :returns: `2·acos(w)`, in the range [0, 2π).
-routine Q32.angle() -> F32
-  return 2.0_f32 * me.w.acos_unchecked()
+routine Q64.angle() -> F64
+  return 2.0_f64 * me.w.acos_unchecked()
 
 # ============================================================================
 # Text Representation
@@ -187,23 +198,23 @@ routine Q32.angle() -> F32
 
 ### Formats this quaternion as `w+xi+yj+zk` (signs collapse for negatives).
 ### :returns: The resulting `Text` value.
-routine Q32.represent() -> Text
-  return me.w.represent() + __q32_term(v: me.x, unit: "i") + __q32_term(v: me.y, unit: "j") + __q32_term(v: me.z, unit: "k")
+routine Q64.represent() -> Text
+  return me.w.represent() + __q64_term(v: me.x, unit: "i") + __q64_term(v: me.y, unit: "j") + __q64_term(v: me.z, unit: "k")
 
 ### Formats one imaginary term with an explicit leading sign.
 ### :param v: The component value.
 ### :param unit: The imaginary unit label (`i`, `j`, or `k`).
 ### :returns: A `Text` like `+2i` or `-3j`.
-routine __q32_term(v: F32, unit: Text) -> Text
-  if v < 0.0_f32
+routine __q64_term(v: F64, unit: Text) -> Text
+  if v < 0.0_f64
     return "-" + v.abs().represent() + unit
   # abs() also collapses negative zero so it prints as `+0`, not `+-0`.
   return "+" + v.abs().represent() + unit
 
 ### Returns a diagnostic string wrapping the value with its type name.
 ### :returns: The resulting `Text` value.
-routine Q32.diagnose() -> Text
-  return "Q32(" + me.represent() + ")"
+routine Q64.diagnose() -> Text
+  return "Q64(" + me.represent() + ")"
 
 # ============================================================================
 # Hashing
@@ -213,7 +224,7 @@ routine Q32.diagnose() -> Text
 ### :param k0: The first 64-bit key word.
 ### :param k1: The second 64-bit key word.
 ### :returns: A `U64` keyed hash.
-routine Q32.hash(k0: U64, k1: U64) -> U64
+routine Q64.hash(k0: U64, k1: U64) -> U64
   var acc = __hash_round(acc: 0u64, h: me.w.hash(k0: k0, k1: k1))
   acc = __hash_round(acc: acc, h: me.x.hash(k0: k0, k1: k1))
   acc = __hash_round(acc: acc, h: me.y.hash(k0: k0, k1: k1))

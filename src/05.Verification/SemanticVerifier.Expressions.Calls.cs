@@ -33,10 +33,17 @@ public sealed partial class SemanticVerifier
             if (routine.IsForeign)
             {
                 string realm = routine.Realm == TypeModel.Enums.RoutineRealm.C ? "C" : "LLVM";
+                // `import Module.C::name` lifts the qualifier requirement for that one routine — a bare
+                // call is then legitimate (the import is the explicit realm-crossing opt-in).
+                if (_importedForeignAliases.Contains(item: $"{realm}::{routine.Name}"))
+                {
+                    return true;
+                }
                 ReportError(code: SemanticDiagnosticCode.DirectWiredRoutineCall,
                     message:
                     $"Foreign routine '{routine.Name}' lives in the {realm} realm — call it as " +
-                    $"'{realm}::{routine.Name}(...)'.",
+                    $"'{realm}::{routine.Name}(...)', or bring it into scope with " +
+                    $"'import <module>.{realm}::{routine.Name}'.",
                     location: location);
                 return false;
             }

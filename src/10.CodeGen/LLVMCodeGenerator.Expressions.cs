@@ -64,35 +64,31 @@ public partial class LlvmCodeGenerator
     }
 
     /// <summary>
-    /// Materializes a lifted lambda as a heap closure object <c>{ fn_ptr, capture0, ... }</c> and
-    /// returns the pointer to it. Captured values are loaded from the current scope's locals at this
-    /// (capture) site. The closure is the Routine value: indirect calls load the function pointer
-    /// from field 0 and pass the closure pointer as the hidden leading argument.
+    /// Materializes a lifted lambda as a fat Routine value <c>{ ptr fn, ptr bound }</c> (v0.4.1) and
+    /// returns the SSA aggregate. A CAPTURELESS lambda is <c>{ @fn, null }</c> (no heap — the fn field
+    /// is a bare C-ABI symbol). A CAPTURING lambda heap-allocates a bound payload
+    /// <c>{ capture0, ... }</c>, stores each captured value (loaded from the locals live at this capture
+    /// site) into it, and returns <c>{ @fn, bound }</c>. The body reads captures from the trailing
+    /// <c>ptr %__bound</c>; indirect calls branch on <c>bound == null</c>. See [[cabi-callback-ffi]].
     /// </summary>
     private string EmitClosureValue(StringBuilder sb, RoutineInfo lambda)
     {
-        string clStruct = ClosureStructName(lambda: lambda);
         string fnSym = $"@{MangleRoutineName(routine: lambda)}";
+        string boundVal = "null";
 
-        string sizeTemp = NextTemp();
-        EmitLine(sb: sb, line: $"  {sizeTemp} = getelementptr {clStruct}, ptr null, i32 1");
-        string size = NextTemp();
-        EmitLine(sb: sb, line: $"  {size} = ptrtoint ptr {sizeTemp} to i64");
-        string clPtr = NextTemp();
-        EmitLine(sb: sb, line: $"  {clPtr} = call ptr @rf_allocate_dynamic(i64 {size})");
-
-        // Field 0: the function pointer.
-        string fnFieldPtr = NextTemp();
-        EmitLine(sb: sb,
-            line: $"  {fnFieldPtr} = getelementptr {clStruct}, ptr {clPtr}, i32 0, i32 0");
-        EmitLine(sb: sb, line: $"  store ptr {fnSym}, ptr {fnFieldPtr}");
-
-        // Fields 1..n: the captured values, loaded from the locals live at this capture site.
-        if (lambda.ClosureCaptures != null)
+        // Capturing: allocate the pure-captures bound payload and fill it from the live locals.
+        if (lambda.ClosureCaptures is { Count: > 0 } captures)
         {
-            for (int i = 0; i < lambda.ClosureCaptures.Count; i++)
+            string boundStruct = ClosureStructName(lambda: lambda);
+            string sizeTemp = NextTemp();
+            EmitLine(sb: sb, line: $"  {sizeTemp} = getelementptr {boundStruct}, ptr null, i32 1");
+            string size = NextTemp();
+            EmitLine(sb: sb, line: $"  {size} = ptrtoint ptr {sizeTemp} to i64");
+            string boundPtr = NextTemp();
+            EmitLine(sb: sb, line: $"  {boundPtr} = call ptr @rf_allocate_dynamic(i64 {size})");
+            for (int i = 0; i < captures.Count; i++)
             {
-                (string capName, TypeInfo capType) = lambda.ClosureCaptures[index: i];
+                (string capName, TypeInfo capType) = captures[index: i];
                 string capLlvm = GetLlvmType(type: capType);
                 string llvmName =
                     _localVarLlvmNames.GetValueOrDefault(key: capName, defaultValue: capName);
@@ -100,12 +96,17 @@ public partial class LlvmCodeGenerator
                 EmitLine(sb: sb, line: $"  {capVal} = load {capLlvm}, ptr %{llvmName}.addr");
                 string capFieldPtr = NextTemp();
                 EmitLine(sb: sb,
-                    line: $"  {capFieldPtr} = getelementptr {clStruct}, ptr {clPtr}, i32 0, i32 {i + 1}");
+                    line: $"  {capFieldPtr} = getelementptr {boundStruct}, ptr {boundPtr}, i32 0, i32 {i}");
                 EmitLine(sb: sb, line: $"  store {capLlvm} {capVal}, ptr {capFieldPtr}");
             }
+            boundVal = boundPtr;
         }
 
-        return clPtr;
+        string t0 = NextTemp();
+        EmitLine(sb: sb, line: $"  {t0} = insertvalue {{ ptr, ptr }} undef, ptr {fnSym}, 0");
+        string fat = NextTemp();
+        EmitLine(sb: sb, line: $"  {fat} = insertvalue {{ ptr, ptr }} {t0}, ptr {boundVal}, 1");
+        return fat;
     }
 
     /// <summary>
@@ -116,24 +117,22 @@ public partial class LlvmCodeGenerator
     /// </summary>
     private string EmitRoutineValueClosure(StringBuilder sb, RoutineInfo routine)
     {
-        // Taking a routine as a value references it as a real callee (the adapter thunk calls it), so
-        // its body must be emitted. The thunk is written straight to the aux buffer and never routes
-        // through GenerateRoutineDeclaration, so record the reference here — otherwise a routine used
-        // ONLY as a value (e.g. a synthesized `roam_*_impl` cycle-collector hook) fails the Phase-C
-        // `_referencedKeys` emission gate and links against an undefined symbol.
+        // v0.4.1: a plain (non-lambda) routine taken as a VALUE is CAPTURELESS — the fat Routine value
+        // is `{ @sym, null }` where @sym is the callee's bare C-ABI symbol and bound is null. No heap
+        // box, no adapter thunk: the fn field IS a raw C function pointer (drops straight into a C
+        // callback slot / struct field), and a captureless value never leaks. See [[cabi-callback-ffi]].
+        //
+        // Record the reference so the callee's body is emitted — a routine used ONLY as a value (e.g.
+        // a synthesized `roam_*_impl` cycle-collector hook) would otherwise fail the Phase-C
+        // `_referencedKeys` emission gate and link against an undefined symbol.
         _referencedKeys.Add(item: routine.RegistryKey);
         _referencedKeys.Add(item: StripRealmPrefix(routine.RegistryKey));
-        string thunkSym = EnsureRoutineValueThunk(routine: routine);
-
-        // Closure is just { ptr } — no captures. Allocate 8 bytes and store the thunk pointer.
-        string sizeTemp = NextTemp();
-        EmitLine(sb: sb, line: $"  {sizeTemp} = getelementptr ptr, ptr null, i32 1");
-        string size = NextTemp();
-        EmitLine(sb: sb, line: $"  {size} = ptrtoint ptr {sizeTemp} to i64");
-        string clPtr = NextTemp();
-        EmitLine(sb: sb, line: $"  {clPtr} = call ptr @rf_allocate_dynamic(i64 {size})");
-        EmitLine(sb: sb, line: $"  store ptr {thunkSym}, ptr {clPtr}");
-        return clPtr;
+        string sym = $"@{MangleRoutineName(routine: routine)}";
+        string t0 = NextTemp();
+        EmitLine(sb: sb, line: $"  {t0} = insertvalue {{ ptr, ptr }} undef, ptr {sym}, 0");
+        string fat = NextTemp();
+        EmitLine(sb: sb, line: $"  {fat} = insertvalue {{ ptr, ptr }} {t0}, ptr null, 1");
+        return fat;
     }
 
     /// <summary>
@@ -740,6 +739,17 @@ public partial class LlvmCodeGenerator
         // resolved routine alone rather than its ResolvedType label.
         if (identifier.ResolvedRoutine is { } preResolved)
         {
+            // Cycle-collector roam hooks (`roam_trace_impl` / `roam_free_impl`, injected by
+            // RoamHookRefLoweringPass) are stored into a `CPtr` field on the controller and invoked
+            // NATIVELY as a bare `void(void* me)` fn pointer (rf_cyclic_invoke_hook) — NOT as a fat
+            // Routine value. They are captureless, so emit just the bare `@sym` (a 1-word ptr) to match
+            // the CPtr slot. See [[cabi-callback-ffi]].
+            if (preResolved.Name is "roam_trace_impl" or "roam_free_impl")
+            {
+                _referencedKeys.Add(item: preResolved.RegistryKey);
+                _referencedKeys.Add(item: StripRealmPrefix(preResolved.RegistryKey));
+                return $"@{MangleRoutineName(routine: preResolved)}";
+            }
             return preResolved.IsLambda
                 ? EmitClosureValue(sb: sb, lambda: preResolved)
                 : EmitRoutineValueClosure(sb: sb, routine: preResolved);

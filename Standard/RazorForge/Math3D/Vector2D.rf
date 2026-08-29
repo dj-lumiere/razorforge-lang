@@ -1,0 +1,119 @@
+module Math3D
+
+### Fixed-size single-precision Euclidean vector `Vector2D`. Stores plain `F32`
+### components, so a vector is a trivially copyable value record. This is a
+### geometry-facing companion to the complex types in this directory; for
+### arbitrary-length elementwise math use the SIMD `Vector[T, N]` type instead.
+###
+### `Vector2D` is NOT a field, so it obeys only the arithmetic protocols that are
+### mathematically well defined for it: `Addable`, `Subtractable`, `Negatable`
+### (component-wise), plus `Equatable`. Scaling, dot, cross, length, and
+### normalization are exposed as named routines rather than through `*`/`/`,
+### which have no canonical vector meaning.
+
+# Math routines use the component F32's `_unchecked` ops (raw IEEE, no overflow
+# checks); NaN/±inf therefore propagate through the vector result per IEEE 754.
+
+### A two-dimensional vector with `F32` components.
+record Vector2D obeys Addable, Subtractable, Negatable, Equatable
+  ### The x component.
+  x: F32
+  ### The y component.
+  y: F32
+
+# Vector2D constants
+preset VECTOR2D_ZERO: Vector2D = Vector2D(x: 0.0_f32, y: 0.0_f32)
+preset VECTOR2D_UNIT_X: Vector2D = Vector2D(x: 1.0_f32, y: 0.0_f32)
+preset VECTOR2D_UNIT_Y: Vector2D = Vector2D(x: 0.0_f32, y: 1.0_f32)
+
+### Returns the component-wise sum `me + you`.
+### :param you: The addend.
+### :returns: A `Vector2D` whose components are the sums.
+routine Vector2D.add(you: Vector2D) -> Vector2D
+  return Vector2D(x: me.x + you.x, y: me.y + you.y)
+
+### Returns the component-wise difference `me - you`.
+### :param you: The value to subtract.
+### :returns: A `Vector2D` whose components are the differences.
+routine Vector2D.sub(you: Vector2D) -> Vector2D
+  return Vector2D(x: me.x - you.x, y: me.y - you.y)
+
+### Returns the arithmetic negation of this vector.
+### :returns: A `Vector2D` with both components negated.
+routine Vector2D.neg() -> Vector2D
+  return Vector2D(x: -me.x, y: -me.y)
+
+### Returns this vector scaled by a scalar `factor`.
+### :param factor: The scalar multiplier.
+### :returns: `factor · me`, component-wise.
+routine Vector2D.scale(factor: F32) -> Vector2D
+  return Vector2D(x: me.x * factor, y: me.y * factor)
+
+### Returns the dot product `me · you`.
+### :param you: The right operand.
+### :returns: `me.x·you.x + me.y·you.y`.
+routine Vector2D.dot(you: Vector2D) -> F32
+  return me.x * you.x + me.y * you.y
+
+### Returns the z component of the 2D cross product (a scalar).
+### :param you: The right operand.
+### :returns: `me.x·you.y − me.y·you.x`.
+routine Vector2D.cross(you: Vector2D) -> F32
+  return me.x * you.y - me.y * you.x
+
+### Returns the squared Euclidean length (avoids the square root of `length`).
+### :returns: `me · me`.
+routine Vector2D.length_squared() -> F32
+  return me.x * me.x + me.y * me.y
+
+### Returns the Euclidean length (magnitude) of this vector.
+### :returns: `√(x² + y²)`.
+routine Vector2D.length() -> F32
+  return me.length_squared().sqrt_unchecked()
+
+### Returns the unit vector pointing in the same direction. A zero vector is
+### returned unchanged (its length is zero).
+### :returns: `me / |me|`, or `me` when `|me| == 0`.
+routine Vector2D.normalize() -> Vector2D
+  var len = me.length()
+  if len == 0.0_f32
+    return me
+  return me.scale(factor: 1.0_f32 / len)
+
+### Returns the Euclidean distance between this vector and `you`.
+### :param you: The other point.
+### :returns: `|me − you|`.
+routine Vector2D.distance(you: Vector2D) -> F32
+  return (me - you).length()
+
+### Returns the linear interpolation between `me` (at `t = 0`) and `you` (at `t = 1`).
+### :param you: The endpoint.
+### :param t: The interpolation parameter (unclamped).
+### :returns: `me + t·(you − me)`.
+routine Vector2D.lerp(you: Vector2D, t: F32) -> Vector2D
+  return me + (you - me).scale(factor: t)
+
+### Returns `true` if both components compare equal.
+### :param you: The value to compare against.
+### :returns: `true` if `me.x == you.x` and `me.y == you.y`.
+routine Vector2D.eq(you: Vector2D) -> Bool
+  return me.x == you.x and me.y == you.y
+
+### Formats this vector as `(x, y)`.
+### :returns: The resulting `Text` value.
+routine Vector2D.represent() -> Text
+  return "(" + me.x.represent() + ", " + me.y.represent() + ")"
+
+### Returns a diagnostic string wrapping the value with its type name.
+### :returns: The resulting `Text` value.
+routine Vector2D.diagnose() -> Text
+  return "Vector2D" + me.represent()
+
+### Returns a SipHash-2-4 keyed hash of this vector.
+### :param k0: The first 64-bit key word.
+### :param k1: The second 64-bit key word.
+### :returns: A `U64` keyed hash.
+routine Vector2D.hash(k0: U64, k1: U64) -> U64
+  var acc = __hash_round(acc: 0u64, h: me.x.hash(k0: k0, k1: k1))
+  acc = __hash_round(acc: acc, h: me.y.hash(k0: k0, k1: k1))
+  return __hash_finalize(h: acc)

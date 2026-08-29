@@ -619,7 +619,11 @@ public record ImportDeclaration(
     string ModulePath,
     string? Alias, // as alias
     List<string>? SpecificImports, // [item1, item2]
-    SourceLocation Location) : Declaration(Location: Location)
+    SourceLocation Location,
+    // Realm-qualified foreign-routine imports: `import Module.C::qsort` brings the `C::qsort` foreign
+    // routine declared in `Module` into scope as a BARE name (`qsort(...)`), lifting the usual
+    // `C::`/`LLVM::` call-site qualifier requirement for that one routine. Each entry is (Realm, Name).
+    List<(string Realm, string Name)>? RealmImports = null) : Declaration(Location: Location)
 {
     /// <inheritdoc/>
     public override T Accept<T>(ISyntaxTreeVisitor<T> visitor)

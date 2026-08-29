@@ -136,8 +136,11 @@ public partial class LlvmCodeGenerator
             // Protocols -> type-erased pointer (protocol-typed fields/params hold a handle to a concrete object)
             ProtocolTypeInfo => "ptr",
 
-            // Routine types (function pointers) -> opaque pointer
-            RoutineTypeInfo => "ptr",
+            // Routine types -> fat value { ptr fn, ptr bound } (v0.4.1). `fn` is the callee's bare
+            // C-ABI symbol; `bound` is null (captureless) or a heap payload of pre-bound captures
+            // (= C userdata). A captureless value is effectively the 1-word `fn`; the pair maps onto
+            // C's (callback, userdata) convention. See [[cabi-callback-ffi]].
+            RoutineTypeInfo => "{ ptr, ptr }",
 
             // Const generic values -> map to the underlying integer type
             ConstGenericValueTypeInfo => "i64",
