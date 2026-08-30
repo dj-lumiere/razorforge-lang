@@ -18,7 +18,7 @@ public sealed class CLinkingTests
     {
         string root = CreateTempProject(new()
         {
-            ["razorforge.toml"] = """
+            ["config.toml"] = """
                 [package]
                 name = "test"
                 version = "0.0.1"
@@ -34,7 +34,7 @@ public sealed class CLinkingTests
         try
         {
             ProjectManifest manifest = ManifestLoader.Load(
-                tomlPath: Path.Combine(path1: root, path2: "razorforge.toml"));
+                tomlPath: Path.Combine(path1: root, path2: "config.toml"));
 
             Assert.Equal(expected: new[] { "SDL2", "m" }, actual: manifest.Target.CLibraries);
 
@@ -56,7 +56,7 @@ public sealed class CLinkingTests
     {
         string root = CreateTempProject(new()
         {
-            ["razorforge.toml"] = """
+            ["config.toml"] = """
                 [package]
                 name = "test"
                 version = "0.0.1"
@@ -78,7 +78,7 @@ public sealed class CLinkingTests
         try
         {
             ProjectManifest manifest = ManifestLoader.Load(
-                tomlPath: Path.Combine(path1: root, path2: "razorforge.toml"));
+                tomlPath: Path.Combine(path1: root, path2: "config.toml"));
 
             Assert.Equal(expected: 2, actual: manifest.Target.LibraryConfigs.Count);
 
@@ -103,13 +103,13 @@ public sealed class CLinkingTests
     {
         string root = CreateTempProject(new()
         {
-            ["razorforge.toml"] = "[package]\nname = \"t\"\nversion = \"0.0.1\"\n\n[target]\nexecutable = \"App\"\n",
+            ["config.toml"] = "[package]\nname = \"t\"\nversion = \"0.0.1\"\n\n[target]\nexecutable = \"App\"\n",
             ["App.rf"] = "module App\n\nroutine start()\n  return\n",
         });
         try
         {
             ProjectManifest manifest = ManifestLoader.Load(
-                tomlPath: Path.Combine(path1: root, path2: "razorforge.toml"));
+                tomlPath: Path.Combine(path1: root, path2: "config.toml"));
             Assert.Empty(collection: manifest.Target.CLibraries);
             Assert.Empty(collection: manifest.Target.LibraryPaths);
         }

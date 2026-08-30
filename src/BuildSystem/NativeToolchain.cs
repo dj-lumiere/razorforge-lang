@@ -617,7 +617,7 @@ internal static class NativeToolchain
                                !string.IsNullOrWhiteSpace(value: MacSdkPath.Value)
             ? $" -isysroot \"{MacSdkPath.Value}\""
             : "";
-        // User-declared C libraries (razorforge.toml [target] c_libraries / library_paths). Placed
+        // User-declared C libraries (config.toml [target] c_libraries / library_paths). Placed
         // after the user object + runtime so `-l` symbol resolution sees the referencing objects first.
         string userLibArgs = BuildUserLibraryArgs(cLibraries: cLibraries, libraryPaths: libraryPaths);
         string clangArgs =

@@ -31,7 +31,7 @@ public sealed class ManifestModuleIndexTests
     {
         string root = CreateTempProject(new()
         {
-            ["razorforge.toml"] = Manifest,
+            ["config.toml"] = Manifest,
             ["App.rf"] = "module App\n\nroutine start()\n  return\n",
             ["Lib/A.rf"] = "module Lib\n\nrecord A\n  x: S32\n",
             ["Lib/B.rf"] = "module Lib\n\nrecord B\n  y: S32\n",
@@ -39,7 +39,7 @@ public sealed class ManifestModuleIndexTests
         try
         {
             ProjectManifest manifest = ManifestLoader.Load(
-                tomlPath: Path.Combine(path1: root, path2: "razorforge.toml"));
+                tomlPath: Path.Combine(path1: root, path2: "config.toml"));
 
             Assert.Equal(
                 expected: Path.GetFullPath(path: Path.Combine(path1: root, path2: "App.rf")),
@@ -61,7 +61,7 @@ public sealed class ManifestModuleIndexTests
     {
         string root = CreateTempProject(new()
         {
-            ["razorforge.toml"] = Manifest,
+            ["config.toml"] = Manifest,
             // Both declare `module App`; only the entry file has start().
             ["App/lib.rf"] = "module App\n\nrecord Helper\n  x: S32\n",
             ["App/main.rf"] = "module App\n\nroutine start()\n  return\n",
@@ -69,7 +69,7 @@ public sealed class ManifestModuleIndexTests
         try
         {
             ProjectManifest manifest = ManifestLoader.Load(
-                tomlPath: Path.Combine(path1: root, path2: "razorforge.toml"));
+                tomlPath: Path.Combine(path1: root, path2: "config.toml"));
 
             Assert.Equal(
                 expected: Path.GetFullPath(path: Path.Combine(path1: root, path2: "App", path3: "main.rf")),
@@ -90,14 +90,14 @@ public sealed class ManifestModuleIndexTests
     {
         string root = CreateTempProject(new()
         {
-            ["razorforge.toml"] = Manifest,
+            ["config.toml"] = Manifest,
             ["main1.rf"] = "module App\n\nroutine start()\n  return\n",
             ["main2.rf"] = "module App\n\nroutine start()\n  return\n",
         });
         try
         {
             var ex = Assert.Throws<InvalidOperationException>(testCode: () =>
-                ManifestLoader.Load(tomlPath: Path.Combine(path1: root, path2: "razorforge.toml")));
+                ManifestLoader.Load(tomlPath: Path.Combine(path1: root, path2: "config.toml")));
             Assert.Contains(expectedSubstring: "routine start()", actualString: ex.Message,
                 comparisonType: StringComparison.Ordinal);
         }

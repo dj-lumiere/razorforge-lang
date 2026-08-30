@@ -48,6 +48,9 @@ internal partial class Program
             public string Output { get; set; } = "";
             public string? ExePath { get; set; }
             public string? Ir { get; set; }
+            /// <summary>Server-side wall-clock ms of the warm compile itself (excludes IPC/transfer), so a
+            /// client can report where dev-loop latency goes: round-trip − CompileMs = transfer.</summary>
+            public long CompileMs { get; set; }
         }
 
         // ---- pipe naming / opt-in ------------------------------------------------------------------
@@ -66,29 +69,12 @@ internal partial class Program
             return $"razorforge-daemon-{user}";
         }
 
-        /// <summary>Clients only reach for the daemon when <c>RAZORFORGE_DAEMON</c> opts in — the default
-        /// CLI path stays cold and unchanged (so the test suite / CI are unaffected).</summary>
-        private static bool ClientEnabled()
-        {
-            string? v = Environment.GetEnvironmentVariable(variable: "RAZORFORGE_DAEMON");
-            return v is not (null or "" or "0" or "false" or "no");
-        }
+        // Client daemon-routing (manifest <c>[target] use-daemon</c>) and JIT (mode <c>debug-jit</c>) are read
+        // straight off the ResolvedEntry at each call site now — no env vars.
 
-        /// <summary>The ORC-JIT dev-loop path is opt-in via <c>RAZORFORGE_JIT</c>: <c>buildandrun</c> JITs
-        /// the module in-process (no opt/clang/link/exe) instead of building and spawning a native exe.</summary>
-        private static bool JitEnabled()
-        {
-            string? v = Environment.GetEnvironmentVariable(variable: "RAZORFORGE_JIT");
-            return v is not (null or "" or "0" or "false" or "no");
-        }
-
-        /// <summary><c>RAZORFORGE_PHASE_TIMING</c> gates the per-phase <c>[timing]</c> diagnostics used
-        /// while profiling the dev loop; off by default so normal runs are quiet.</summary>
-        private static bool PhaseTiming()
-        {
-            string? v = Environment.GetEnvironmentVariable(variable: "RAZORFORGE_PHASE_TIMING");
-            return v is not (null or "" or "0" or "false" or "no");
-        }
+        /// <summary><c>[debug] timing</c> gates the per-phase <c>[timing]</c> diagnostics used while profiling
+        /// the dev loop; off by default so normal runs are quiet.</summary>
+        private static bool PhaseTiming() => Compiler.Diagnostics.DiagnosticFlags.PhaseTiming;
 
         // ---- server --------------------------------------------------------------------------------
 
@@ -183,7 +169,12 @@ internal partial class Program
         /// chronological order via a single writer) so they can be shipped back to the client.</summary>
         private static DaemonResponse HandleBuild(DaemonRequest req)
         {
+            // Per-request diagnostic flags from the client's manifest (the daemon is project-less and serves
+            // serially, so reset-then-set is race-free). `timing` = the merged sa/phase flag (req.SaTiming).
+            Compiler.Diagnostics.DiagnosticFlags.Reset();
+            Compiler.Diagnostics.DiagnosticFlags.PhaseTiming = req.SaTiming;
             var captured = new StringWriter();
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             TextWriter savedOut = Console.Out;
             TextWriter savedErr = Console.Error;
             int exit;
@@ -218,13 +209,15 @@ internal partial class Program
                 Console.SetError(newError: savedErr);
             }
 
+            sw.Stop();
             Console.Error.WriteLine(
-                value: $"[daemon] {Path.GetFileName(path: req.EntryFile)} -> exit {exit}");
+                value: $"[daemon] {Path.GetFileName(path: req.EntryFile)} -> exit {exit} ({sw.ElapsedMilliseconds} ms)");
             return new DaemonResponse
             {
                 ExitCode = exit,
                 Output = captured.ToString(),
-                ExePath = exit == 0 ? exePath : null
+                ExePath = exit == 0 ? exePath : null,
+                CompileMs = sw.ElapsedMilliseconds
             };
         }
 
@@ -232,7 +225,10 @@ internal partial class Program
         /// build diagnostics and returns the IR text so the client can JIT-and-run it in-process.</summary>
         private static DaemonResponse HandleIr(DaemonRequest req)
         {
+            Compiler.Diagnostics.DiagnosticFlags.Reset();
+            Compiler.Diagnostics.DiagnosticFlags.PhaseTiming = req.SaTiming;
             var captured = new StringWriter();
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             TextWriter savedOut = Console.Out;
             TextWriter savedErr = Console.Error;
             int exit;
@@ -261,12 +257,14 @@ internal partial class Program
                 Console.SetError(newError: savedErr);
             }
 
+            sw.Stop();
             Console.Error.WriteLine(
-                value: $"[daemon] ir {Path.GetFileName(path: req.EntryFile)} -> exit {exit} ({ir.Length} chars)");
+                value: $"[daemon] ir {Path.GetFileName(path: req.EntryFile)} -> exit {exit} ({ir.Length} chars, {sw.ElapsedMilliseconds} ms)");
             return new DaemonResponse
             {
                 ExitCode = exit,
                 Output = captured.ToString(),
+                CompileMs = sw.ElapsedMilliseconds,
                 Ir = exit == 0 ? ir : null
             };
         }
@@ -301,6 +299,8 @@ internal partial class Program
             }
 
             Console.Write(value: resp!.Output);
+            if (PhaseTiming())
+                Console.Error.WriteLine(value: $"[timing] daemon warm compile: {resp.CompileMs} ms");
             if (resp.ExitCode == 0 && resp.ExePath != null)
             {
                 Console.WriteLine(value: $"Executable written to: {Path.GetFullPath(path: resp.ExePath)}");
@@ -321,6 +321,8 @@ internal partial class Program
             }
 
             Console.Write(value: resp!.Output);
+            if (PhaseTiming())
+                Console.Error.WriteLine(value: $"[timing] daemon warm compile: {resp.CompileMs} ms");
             if (resp.ExitCode != 0 || resp.ExePath == null)
             {
                 exitCode = resp.ExitCode;
@@ -340,7 +342,7 @@ internal partial class Program
         internal static bool TryClientJitRun(ResolvedEntry resolved, out int exitCode)
         {
             exitCode = 0;
-            if (!JitEnabled() || resolved.EntryFile == null)
+            if (!resolved.Jit || resolved.EntryFile == null)
             {
                 return false;
             }
@@ -362,11 +364,12 @@ internal partial class Program
             string ir;
             int rc;
             var _swIr = System.Diagnostics.Stopwatch.StartNew();
-            if (ClientEnabled() && TryDaemonIr(resolved: resolved, ir: out ir, exitCode: out rc))
+            if (resolved.UseDaemon && TryDaemonIr(resolved: resolved, ir: out ir, exitCode: out rc,
+                    serverCompileMs: out long serverCompileMs))
             {
                 _swIr.Stop();
                 if (PhaseTiming())
-                    Console.Error.WriteLine(value: $"[timing] daemon IR fetch (warm SA+codegen): {_swIr.ElapsedMilliseconds} ms ({ir.Length} chars)");
+                    Console.Error.WriteLine(value: $"[timing] daemon IR fetch: {_swIr.ElapsedMilliseconds} ms (server compile {serverCompileMs} ms, transfer {_swIr.ElapsedMilliseconds - serverCompileMs} ms, {ir.Length} chars)");
             }
             else
             {
@@ -407,10 +410,12 @@ internal partial class Program
         /// <summary>Requests warm IR from a running daemon. Returns false (cold fallback) when the daemon is
         /// unreachable. On success, writes the daemon's captured build diagnostics to the console and yields
         /// the IR + build exit code.</summary>
-        private static bool TryDaemonIr(ResolvedEntry resolved, out string ir, out int exitCode)
+        private static bool TryDaemonIr(ResolvedEntry resolved, out string ir, out int exitCode,
+            out long serverCompileMs)
         {
             ir = "";
             exitCode = 0;
+            serverCompileMs = 0;
             var req = new DaemonRequest
             {
                 Verb = "ir",
@@ -418,6 +423,7 @@ internal partial class Program
                 ProjectRoot = resolved.ProjectRoot,
                 BuildMode = (int)resolved.BuildMode,
                 RequireStart = resolved.RequireStartRoutine,
+                SaTiming = resolved.SaTiming,
                 LibraryRoots = [..resolved.LibraryRoots]
             };
             try
@@ -431,6 +437,7 @@ internal partial class Program
                 Console.Write(value: resp.Output);
                 ir = resp.Ir ?? "";
                 exitCode = resp.ExitCode;
+                serverCompileMs = resp.CompileMs;
                 return true;
             }
             catch
@@ -444,7 +451,7 @@ internal partial class Program
         private static bool TryClientCompile(ResolvedEntry resolved, out DaemonResponse? response)
         {
             response = null;
-            if (!ClientEnabled() || resolved.EntryFile == null)
+            if (!resolved.UseDaemon || resolved.EntryFile == null)
             {
                 return false;
             }

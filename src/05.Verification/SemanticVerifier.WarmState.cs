@@ -98,7 +98,7 @@ public partial class SemanticVerifier
         _restoredVariantKeys = new HashSet<string>(warm.VariantBodies.Keys, System.StringComparer.Ordinal);
         _instantiatedGenericBodies =
             new Dictionary<string, MonomorphizedBody>(warm.InstantiatedGenericBodies);
-        if (System.Environment.GetEnvironmentVariable(variable: "RAZORFORGE_PHASE_TIMING") is not (null or "" or "0"))
+        if (Compiler.Diagnostics.DiagnosticFlags.PhaseTiming)
         {
             System.Console.Error.WriteLine(
                 value: $"[warm-restore] seeded instantiations={_instantiatedGenericBodies.Count} variants={_variantBodies.Count} synth={_synthesizedBodies.Count}");

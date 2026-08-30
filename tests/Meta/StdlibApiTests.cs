@@ -189,7 +189,7 @@ public sealed class StdlibApiTests
         string manifest =
             $"[package]\nname = \"{packageName}\"\nversion = \"0.0.1\"\nrazorforge-version = \"0.1.0\"\n\n" +
             $"[target]\nexecutable = \"{harnessModule}\"\nmode = \"debug\"\nlibrary = [\"{libraryRel}\"]\n";
-        File.WriteAllText(Path.Combine(harnessDir, "razorforge.toml"), manifest);
+        File.WriteAllText(Path.Combine(harnessDir, "config.toml"), manifest);
 
         // 2) Compile + run the ONE program (cwd = repo root so relative resource paths resolve).
         FixtureRun run = RunHarness(harnessRf: harnessSrc);

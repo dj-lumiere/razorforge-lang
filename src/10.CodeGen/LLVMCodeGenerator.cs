@@ -1268,7 +1268,7 @@ public partial class LlvmCodeGenerator
         } while (_generatedRoutineDefs.Count > prevDefCount ||
                  _generatedRoutines.Count > prevDeclCount);
 
-        if (Environment.GetEnvironmentVariable(variable: "RF_PRUNE_STATS") == "1")
+        if (Compiler.Diagnostics.DiagnosticFlags.PruneStats)
         {
             int liveNotRef = _liveRoutineKeys.Count(predicate: k => !_referencedKeys.Contains(item: k));
             Console.Error.WriteLine(

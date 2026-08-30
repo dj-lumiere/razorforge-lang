@@ -477,7 +477,7 @@ public sealed class BuildDriver
             }
 
             // A file with no `module` header gets one DERIVED from its path relative to the project
-            // root (the razorforge.toml directory): each path segment is PascalCased (spaces removed),
+            // root (the config.toml directory): each path segment is PascalCased (spaces removed),
             // '.'/'..' segments dropped, the extension stripped, joined with '/'. E.g.
             // `../SomeFolder/SomeMoreFolder/file a.rf` -> `SomeFolder/SomeMoreFolder/FileA`. A synthetic
             // ModuleDeclaration is inserted at the top of the AST so every downstream reader (type/
@@ -561,7 +561,7 @@ public sealed class BuildDriver
 
     /// <summary>
     /// Derives a module path for a file with no <c>module</c> header, from its location relative to
-    /// the project root (the razorforge.toml directory). Path segments are PascalCased (whitespace
+    /// the project root (the config.toml directory). Path segments are PascalCased (whitespace
     /// removed, each word's first letter capitalized), <c>.</c>/<c>..</c> segments are dropped, the
     /// file extension is stripped, and segments are joined with <c>/</c>. E.g.
     /// <c>../SomeFolder/SomeMoreFolder/file a.rf</c> -> <c>SomeFolder/SomeMoreFolder/FileA</c>.

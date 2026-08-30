@@ -15,10 +15,10 @@ public static class ManifestLoader
     /// <summary>
     /// Gets the canonical file name for a RazorForge project manifest.
     /// </summary>
-    public const string ManifestFileName = "razorforge.toml";
+    public const string ManifestFileName = "config.toml";
 
     /// <summary>
-    /// Walks up from <paramref name="startDir"/> looking for a razorforge.toml file.
+    /// Walks up from <paramref name="startDir"/> looking for a config.toml file.
     /// Returns the full path to the manifest, or null if not found.
     /// </summary>
     public static string? FindManifest(string startDir)
@@ -39,7 +39,7 @@ public static class ManifestLoader
     }
 
     /// <summary>
-    /// Parses a razorforge.toml file and returns a <see cref="ProjectManifest"/>.
+    /// Parses a config.toml file and returns a <see cref="ProjectManifest"/>.
     /// Validates that required fields are present and resolves entry modules to files.
     /// When <paramref name="resolveExecutable"/> is false (an explicit entry file on the
     /// command line overrides it), <c>executable</c> is optional and left unresolved —
@@ -108,6 +108,25 @@ public static class ManifestLoader
                         ParseLibrary(name: libName, table: libTable);
                 }
             }
+        }
+
+        // [debug] — internal compiler diagnostics (formerly the RF_* / RAZORFORGE_JIT_TRACE env vars).
+        // All optional; niche developer tooling.
+        if (root.TryGetValue(key: "debug", value: out object? debugObj) && debugObj is TomlTable debugTable)
+        {
+            DebugOptions d = manifest.Debug;
+            if (debugTable.TryGetValue(key: "dump-ast", value: out object? da)) d.DumpAst = da is true;
+            if (debugTable.TryGetValue(key: "timing", value: out object? tm)) d.Timing = tm is true;
+            if (debugTable.TryGetValue(key: "show-build-stages", value: out object? sbs)) d.ShowBuildStages = sbs is true;
+            if (debugTable.TryGetValue(key: "marker-survey", value: out object? ms)) d.MarkerSurvey = ms is true;
+            if (debugTable.TryGetValue(key: "prune-stats", value: out object? ps)) d.PruneStats = ps is true;
+            if (debugTable.TryGetValue(key: "jit-trace", value: out object? jt)) d.JitTrace = jt is true;
+            if (debugTable.TryGetValue(key: "reachability-dump", value: out object? rd) &&
+                !string.IsNullOrWhiteSpace(value: rd?.ToString()))
+                d.ReachabilityDump = rd!.ToString();
+            if (debugTable.TryGetValue(key: "maysuspend-dump", value: out object? md) &&
+                !string.IsNullOrWhiteSpace(value: md?.ToString()))
+                d.MaySuspendDump = md!.ToString();
         }
 
         // Resolve external library dependency directories relative to the manifest.
@@ -286,14 +305,14 @@ public static class ManifestLoader
             target.Mode = mode!.ToString()!;
         }
 
-        if (table.TryGetValue(key: "dump-ast", value: out object? dumpAst))
-            target.DumpAst = dumpAst is true;
+        // Dev-loop daemon routing (formerly the RAZORFORGE_DAEMON env var). The JIT dev loop is now the
+        // `mode = "debug-jit"` build mode; all other diagnostics live in [debug].
+        if (table.TryGetValue(key: "use-daemon", value: out object? useDaemon))
+            target.UseDaemon = useDaemon is true;
 
-        if (table.TryGetValue(key: "sa-timing", value: out object? saTiming))
-            target.SaTiming = saTiming is true;
-
-        if (table.TryGetValue(key: "show-build-stages", value: out object? showStages))
-            target.ShowBuildStages = showStages is true;
+        // Reserved: incremental compilation (parsed now, consumed once the incremental pipeline lands).
+        if (table.TryGetValue(key: "incremental", value: out object? incremental))
+            target.Incremental = incremental is true;
 
         // Resolve the executable's module name to a file path
         if (moduleIndex == null)

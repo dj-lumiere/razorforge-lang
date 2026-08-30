@@ -5,7 +5,7 @@ namespace TypeModel.Symbols;
 /// <summary>
 /// Parses a stored <c>@link(...)</c> attribute string into its structured parts. The attribute
 /// associates a <c>C::</c> extern with a foreign library (whose static/dynamic linkage + calling
-/// convention are declared in <c>razorforge.toml</c>, NOT here) and optionally overrides the linked
+/// convention are declared in <c>config.toml</c>, NOT here) and optionally overrides the linked
 /// symbol name.
 /// <para>Accepted forms (all lowered to the same result):</para>
 /// <list type="bullet">

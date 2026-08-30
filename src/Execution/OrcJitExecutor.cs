@@ -130,7 +130,7 @@ internal static unsafe class OrcJitExecutor
         // Windows: link each object into ONE contiguous slab so SEH-unwind IMAGE_REL_AMD64_ADDR32NB
         // relocations resolve (default SectionMemoryManager lays sections out unordered → intermittent
         // "relocation requires an ordered section layout" crash). No-op elsewhere.
-        bool traceJit = Environment.GetEnvironmentVariable(variable: "RAZORFORGE_JIT_TRACE") is not (null or "" or "0");
+        bool traceJit = Compiler.Diagnostics.DiagnosticFlags.JitTrace;
         void JitStage(string s) { if (traceJit) { Console.Error.WriteLine(value: $"[jit-stage] {s}"); Console.Error.Flush(); } }
         JitStage(s: "IR parsed, builder created");
         if (OperatingSystem.IsWindows())

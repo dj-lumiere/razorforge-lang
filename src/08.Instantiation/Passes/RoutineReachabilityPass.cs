@@ -71,7 +71,7 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         foreach (string key in _live) ctx.LiveRoutineKeys.Add(item: key);
         foreach (TypeInfo owner in _liveOwnerTypes) ctx.LiveOwnerTypeNames.Add(item: owner.FullName);
 
-        string? dumpPath = Environment.GetEnvironmentVariable(variable: "RF_REACHABILITY_DUMP");
+        string? dumpPath = Compiler.Diagnostics.DiagnosticFlags.ReachabilityDump;
         if (!string.IsNullOrEmpty(value: dumpPath))
         {
             var lines = new List<string> { "=== LIVE ROUTINES ===" };

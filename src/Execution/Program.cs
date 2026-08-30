@@ -282,7 +282,7 @@ internal partial class Program
     /// <summary>
     /// The fully-resolved build configuration for a <c>build</c>/<c>buildandrun</c>/<c>check</c> invocation:
     /// entry file, project root, build mode, and the external-library link config. Produced by
-    /// <see cref="ResolveEntryFile"/> from the CLI args + the nearest <c>razorforge.toml</c>. A resolution
+    /// <see cref="ResolveEntryFile"/> from the CLI args + the nearest <c>config.toml</c>. A resolution
     /// FAILURE is signalled by <see cref="EntryFile"/> being null (all other fields keep their defaults).
     /// Replaces a former 12-tuple — the field count outgrew a tuple's readability.
     /// </summary>
@@ -313,11 +313,17 @@ internal partial class Program
         /// <summary>Richly-declared C libraries (<c>[libraries.NAME]</c>): linkage kind + calling convention.</summary>
         public IReadOnlyDictionary<string, CLibrary> LibraryConfigs { get; init; } =
             new Dictionary<string, CLibrary>();
+        /// <summary>Route builds through a running warm daemon (manifest <c>[target] use-daemon</c>).</summary>
+        public bool UseDaemon { get; init; }
+        /// <summary>Use the ORC-JIT dev-loop path for buildandrun (manifest <c>mode = "debug-jit"</c>).</summary>
+        public bool Jit { get; init; }
+        /// <summary>Reserved: incremental compilation (manifest <c>[target] incremental</c>); not yet wired.</summary>
+        public bool Incremental { get; init; }
     }
 
     /// <summary>
     /// Resolves the <see cref="ResolvedEntry"/> for build/buildandrun/check commands.
-    /// Searches for a razorforge.toml manifest in all cases: when no entry file is given the
+    /// Searches for a config.toml manifest in all cases: when no entry file is given the
     /// manifest supplies the executable; when an explicit entry file is given it overrides
     /// [target] executable but the manifest's other settings still apply.
     /// ALL build configuration lives in the manifest's [target] section (executable, library,
@@ -352,13 +358,13 @@ internal partial class Program
             {
                 Console.WriteLine(
                     value:
-                    $"Error: unknown option '{args[i]}'. RazorForge takes no build flags — configure builds in razorforge.toml ([target] executable, library, mode, ...).");
+                    $"Error: unknown option '{args[i]}'. RazorForge takes no build flags — configure builds in config.toml ([target] executable, library, mode, ...).");
                 return new ResolvedEntry();
             }
         }
 
         // Explicit source file given — use it as the entry point, but still honor the
-        // nearest razorforge.toml (walking up from the file's directory): the manifest
+        // nearest config.toml (walking up from the file's directory): the manifest
         // remains the single source of build configuration (mode, library deps, debug
         // fields) even for single-file builds; only [target] executable is overridden.
         // .toml files are treated as manifests, not source files.
@@ -378,6 +384,7 @@ internal partial class Program
             {
                 // Truly manifest-less — debug defaults. Assume an executable build so
                 // codegen knows to synthesize @main and SA can require a 'start' routine.
+                DiagnosticFlags.Reset();
                 return new ResolvedEntry
                 {
                     EntryFile = explicitEntry, ProjectRoot = entryDir, OutputFile = outputFile,
@@ -392,7 +399,7 @@ internal partial class Program
                 BuildTarget target = manifest.Target;
                 RfBuildMode buildMode = ParseBuildMode(mode: target.Mode);
 
-                if (target.ShowBuildStages)
+                if (manifest.Debug.ShowBuildStages)
                 {
                     Console.WriteLine(value: $"Using manifest: {nearbyManifest}");
                     Console.WriteLine(
@@ -406,14 +413,17 @@ internal partial class Program
                     }
                 }
 
+                ApplyDiagnosticFlags(manifest: manifest);
                 return new ResolvedEntry
                 {
                     EntryFile = explicitEntry, ProjectRoot = manifest.ManifestDirectory,
-                    OutputFile = outputFile, BuildMode = buildMode, DumpAst = target.DumpAst,
-                    SaTiming = target.SaTiming, RequireStartRoutine = true,
-                    ShowBuildStages = target.ShowBuildStages, LibraryRoots = target.Libraries,
+                    OutputFile = outputFile, BuildMode = buildMode, DumpAst = manifest.Debug.DumpAst,
+                    SaTiming = manifest.Debug.Timing, RequireStartRoutine = true,
+                    ShowBuildStages = manifest.Debug.ShowBuildStages, LibraryRoots = target.Libraries,
                     CLibraries = target.CLibraries, LibraryPaths = target.LibraryPaths,
-                    LibraryConfigs = target.LibraryConfigs
+                    LibraryConfigs = target.LibraryConfigs,
+                    UseDaemon = target.UseDaemon, Jit = ModeUsesJit(mode: target.Mode),
+                    Incremental = target.Incremental
                 };
             }
             catch (Exception ex)
@@ -439,9 +449,9 @@ internal partial class Program
             else
             {
                 Console.WriteLine(
-                    value: "Error: No entry file specified and no razorforge.toml found.");
+                    value: "Error: No entry file specified and no config.toml found.");
                 Console.WriteLine(
-                    value: "Either provide an entry file or create a razorforge.toml manifest.");
+                    value: "Either provide an entry file or create a config.toml manifest.");
             }
 
             return new ResolvedEntry();
@@ -454,7 +464,7 @@ internal partial class Program
 
             RfBuildMode buildMode = ParseBuildMode(mode: target.Mode);
 
-            bool showBuildStages = target.ShowBuildStages;
+            bool showBuildStages = manifest.Debug.ShowBuildStages;
             if (showBuildStages)
             {
                 Console.WriteLine(value: $"Using manifest: {manifestPath}");
@@ -467,13 +477,16 @@ internal partial class Program
                 }
             }
 
+            ApplyDiagnosticFlags(manifest: manifest);
             return new ResolvedEntry
             {
                 EntryFile = target.Executable, ProjectRoot = manifest.ManifestDirectory,
-                OutputFile = outputFile, BuildMode = buildMode, DumpAst = target.DumpAst,
-                SaTiming = target.SaTiming, RequireStartRoutine = true, ShowBuildStages = showBuildStages,
+                OutputFile = outputFile, BuildMode = buildMode, DumpAst = manifest.Debug.DumpAst,
+                SaTiming = manifest.Debug.Timing, RequireStartRoutine = true, ShowBuildStages = showBuildStages,
                 LibraryRoots = target.Libraries, CLibraries = target.CLibraries,
-                LibraryPaths = target.LibraryPaths, LibraryConfigs = target.LibraryConfigs
+                LibraryPaths = target.LibraryPaths, LibraryConfigs = target.LibraryConfigs,
+                UseDaemon = target.UseDaemon, Jit = ModeUsesJit(mode: target.Mode),
+                Incremental = target.Incremental
             };
         }
         catch (Exception ex)
@@ -491,14 +504,37 @@ internal partial class Program
     {
         return mode.ToLowerInvariant() switch
         {
-            "debug" => RfBuildMode.Debug,
+            // `debug-jit` = the in-process ORC-JIT dev loop (same -O0 codegen as `debug`, but JIT-and-run
+            // instead of AOT build+run). The JIT choice is derived from the mode string separately (see
+            // ModeUsesJit); the optimization level here is Debug for both.
+            "debug" or "debug-jit" => RfBuildMode.Debug,
             "release" => RfBuildMode.Release,
             "release-time" => RfBuildMode.ReleaseTime,
             "release-space" => RfBuildMode.ReleaseSpace,
             _ => throw new InvalidOperationException(
                 $"Unknown build mode '{mode}' in [target]. " +
-                "Valid modes are: debug, release, release-time, release-space.")
+                "Valid modes are: debug-jit, debug, release, release-time, release-space.")
         };
+    }
+
+    /// <summary>Whether a <c>[target] mode</c> string selects the in-process ORC-JIT dev loop.</summary>
+    private static bool ModeUsesJit(string mode) =>
+        string.Equals(a: mode?.Trim(), b: "debug-jit", comparisonType: StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Populates the process-wide <see cref="DiagnosticFlags"/> from a manifest's <c>[debug]</c> section,
+    /// replacing the former <c>RF_*</c> / <c>RAZORFORGE_PHASE_TIMING</c> environment variables. Reset-then-set
+    /// so a prior build's flags never linger (matters for the serial compile daemon).
+    /// </summary>
+    private static void ApplyDiagnosticFlags(ProjectManifest manifest)
+    {
+        DiagnosticFlags.Reset();
+        DiagnosticFlags.PhaseTiming = manifest.Debug.Timing;
+        DiagnosticFlags.MarkerSurvey = manifest.Debug.MarkerSurvey;
+        DiagnosticFlags.PruneStats = manifest.Debug.PruneStats;
+        DiagnosticFlags.JitTrace = manifest.Debug.JitTrace;
+        DiagnosticFlags.ReachabilityDump = manifest.Debug.ReachabilityDump;
+        DiagnosticFlags.MaySuspendDump = manifest.Debug.MaySuspendDump;
     }
 
     /// <summary>
@@ -553,11 +589,11 @@ internal partial class Program
         }
 
         Console.WriteLine(
-            value: "  If no entry file is given, searches for razorforge.toml in the current");
+            value: "  If no entry file is given, searches for config.toml in the current");
         Console.WriteLine(value: "  directory and parent directories.");
         Console.WriteLine();
         Console.WriteLine(
-            value: "  There are no build flags: all build configuration lives in razorforge.toml's");
+            value: "  There are no build flags: all build configuration lives in config.toml's");
         Console.WriteLine(
             value: "  [target] section (executable, library, mode, show-build-stages, ...).");
     }
@@ -1134,19 +1170,17 @@ internal partial class Program
             // restore ctor skips the ~5 s of stdlib desugaring/verification/monomorphization and only the
             // user program is analyzed. Cold path (warm == null) constructs a fresh verifier as before.
             SemanticVerifier.CompiledStdlibState? warm = warmProvider?.Invoke(language);
-            bool _phaseTimingEarly = Environment.GetEnvironmentVariable(variable: "RAZORFORGE_PHASE_TIMING")
-                is not (null or "" or "0");
+            // `timing` ([debug]) drives both the granular [SA] sub-phase lines (analyzer.SaTiming) and the
+            // coarse [phase] lines below — via the single DiagnosticFlags.PhaseTiming source.
             var analyzer = warm != null
                 ? new SemanticVerifier(language: language, warm: warm,
-                    target: target, buildMode: buildMode) { SaTiming = saTiming || _phaseTimingEarly }
+                    target: target, buildMode: buildMode) { SaTiming = saTiming || DiagnosticFlags.PhaseTiming }
                 : new SemanticVerifier(language: language,
-                    target: target, buildMode: buildMode) { SaTiming = saTiming || _phaseTimingEarly };
+                    target: target, buildMode: buildMode) { SaTiming = saTiming || DiagnosticFlags.PhaseTiming };
             // Share the driver's fully-indexed resolver so SA-phase imports see the same
             // module set the build graph resolved (incl. [target] library directories).
             analyzer.Registry.UseModuleResolver(resolver: driver.Resolver);
-            bool phaseTiming = Environment.GetEnvironmentVariable(variable: "RAZORFORGE_PHASE_TIMING")
-                is not (null or "" or "0");
-            var _swPhase = phaseTiming ? System.Diagnostics.Stopwatch.StartNew() : null;
+            var _swPhase = DiagnosticFlags.PhaseTiming ? System.Diagnostics.Stopwatch.StartNew() : null;
             AnalysisResult result = analyzer.AnalyzeMultiple(files: orderedFiles);
             if (_swPhase != null)
             {
@@ -1195,7 +1229,7 @@ internal partial class Program
                         value:
                         "Error: executable target has no 'start' routine. " +
                         "Add 'routine start()' or 'routine start!()' to the entry module, " +
-                        "or set the target type to 'library' in razorforge.toml.");
+                        "or set the target type to 'library' in config.toml.");
                     return 1;
                 }
             }

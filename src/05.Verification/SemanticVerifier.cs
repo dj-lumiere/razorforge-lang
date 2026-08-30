@@ -736,7 +736,7 @@ public sealed partial class SemanticVerifier
         foreach (string key in maySuspend) ctx.MaySuspendRoutineKeys.Add(item: key);
         _maySuspendRoutineKeys = maySuspend;
 
-        string? dumpPath = Environment.GetEnvironmentVariable(variable: "RF_MAYSUSPEND_DUMP");
+        string? dumpPath = Compiler.Diagnostics.DiagnosticFlags.MaySuspendDump;
         if (!string.IsNullOrEmpty(value: dumpPath))
         {
             var lines = new List<string> { "=== MAY-SUSPEND ROUTINES ===" };
@@ -804,7 +804,7 @@ public sealed partial class SemanticVerifier
         // (Hijacked[Accessing[List[S64]]] comparison ops) would otherwise pollute every build's stderr
         // and fail the harness's clean-stderr assertion. Gate the prints behind an opt-in env var — the
         // over-prune tripwire in codegen is the real undefined-symbol safety net.
-        bool report = Environment.GetEnvironmentVariable(variable: "RF_MARKER_SURVEY") == "1";
+        bool report = Compiler.Diagnostics.DiagnosticFlags.MarkerSurvey;
 
         static bool IsMarker(TypeInfo? t)
         {

@@ -2,7 +2,7 @@ using System.Collections.Generic;
 
 namespace Builder;
 /// <summary>
-/// Describes the package metadata declared in <c>razorforge.toml</c>.
+/// Describes the package metadata declared in <c>config.toml</c>.
 /// </summary>
 
 public sealed class PackageInfo
@@ -38,7 +38,7 @@ public sealed class PackageInfo
 }
 
 /// <summary>
-/// Describes the single <c>[target]</c> section of <c>razorforge.toml</c> — what this
+/// Describes the single <c>[target]</c> section of <c>config.toml</c> — what this
 /// package builds and what it depends on. There is no target selection (and no CLI
 /// flags): the manifest IS the build configuration.
 /// <code>
@@ -94,25 +94,51 @@ public sealed class BuildTarget
     /// </summary>
     public string Mode { get; set; } = "debug";
 
-    /// <summary>
-    /// When true, writes the fully post-desugared AST to a .rf.desugared file alongside the .ll output.
-    /// Controlled by the <c>dump-ast</c> field.
-    /// </summary>
+    /// <summary>Route builds through the warm compile daemon when one is running (was the
+    /// <c>RAZORFORGE_DAEMON</c> env var). Controlled by the <c>[target] use-daemon</c> field. The ORC-JIT
+    /// dev-loop path (was <c>RAZORFORGE_JIT</c>) is now selected by the <c>mode = "debug-jit"</c> build mode.</summary>
+    public bool UseDaemon { get; set; }
+
+    /// <summary>Enable incremental compilation — reuse per-run monomorphization/lowering across builds so a
+    /// warm rebuild only processes the user delta (the path to the sub-250ms dev loop / SF hot reload).
+    /// Controlled by the <c>[target] incremental</c> field. RESERVED: parsed and carried now; the
+    /// incremental pipeline that consumes it is not yet built, so today this is a no-op placeholder.</summary>
+    public bool Incremental { get; set; }
+}
+
+/// <summary>
+/// The <c>[debug]</c> section — internal compiler diagnostics, formerly the <c>RF_*</c> /
+/// <c>RAZORFORGE_JIT_TRACE</c> environment variables. All default off; niche developer tooling.
+/// </summary>
+public sealed class DebugOptions
+{
+    /// <summary>Write the post-desugar AST to a <c>.rf.desugared</c> file alongside the build
+    /// (<c>dump-ast</c>).</summary>
     public bool DumpAst { get; set; }
 
-    /// <summary>
-    /// When true, prints per-phase semantic-analysis timings to stderr.
-    /// Controlled by the <c>sa-timing</c> field.
-    /// </summary>
-    public bool SaTiming { get; set; }
+    /// <summary>Print compile timing — BOTH the coarse <c>[phase]</c> totals and the granular <c>[SA]</c>
+    /// sub-phases (<c>timing</c>). Merges the former separate <c>sa-timing</c> + <c>RAZORFORGE_PHASE_TIMING</c>,
+    /// which were redundant (phase-timing already forced sa-timing on).</summary>
+    public bool Timing { get; set; }
 
-    /// <summary>
-    /// When true, prints build-stage banners ("=== SEMANTIC ANALYSIS ===", "Build successful!",
-    /// "=== EXECUTION ===", etc.) during build/buildandrun. Default is false: only errors and
-    /// warnings are printed, and the program's own stdout passes through unframed.
-    /// Controlled by the <c>show-build-stages</c> field.
-    /// </summary>
+    /// <summary>Print build-stage banners ("=== SEMANTIC ANALYSIS ===", etc.) during build/buildandrun
+    /// (<c>show-build-stages</c>). Default off: only errors/warnings print, program stdout passes unframed.</summary>
     public bool ShowBuildStages { get; set; }
+
+    /// <summary>Survey unresolved marker-protocol conformances (<c>marker-survey</c>).</summary>
+    public bool MarkerSurvey { get; set; }
+
+    /// <summary>Print codegen DCE prune statistics (<c>prune-stats</c>).</summary>
+    public bool PruneStats { get; set; }
+
+    /// <summary>Trace ORC-JIT lowering stages (<c>jit-trace</c>).</summary>
+    public bool JitTrace { get; set; }
+
+    /// <summary>Path to dump the routine-reachability set (<c>reachability-dump</c>); null = off.</summary>
+    public string? ReachabilityDump { get; set; }
+
+    /// <summary>Path to dump the maysuspend analysis (<c>maysuspend-dump</c>); null = off.</summary>
+    public string? MaySuspendDump { get; set; }
 }
 
 /// <summary>How a foreign C library is linked.</summary>
@@ -160,6 +186,8 @@ public sealed class ProjectManifest
     /// Gets the single build target declared by the <c>[target]</c> section.
     /// </summary>
     public BuildTarget Target { get; set; } = new();
+    /// <summary>Gets the optional <c>[debug]</c> section (internal compiler diagnostics).</summary>
+    public DebugOptions Debug { get; set; } = new();
     /// <summary>
     /// Gets the directory containing the loaded manifest file.
     /// </summary>
