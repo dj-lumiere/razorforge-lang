@@ -43,6 +43,19 @@ public class RecordTypeInfo : TypeInfo
     public string? BackendType { get; set; }
 
     /// <summary>
+    /// C-ABI memory layout control from a <c>@layout("...")</c> annotation. Default (both false/null) is
+    /// the natural C layout the compiler already emits. <see cref="IsPacked"/> = <c>@layout("packed")</c>
+    /// (no inter-field padding, struct alignment 1 — LLVM native packed struct <c>&lt;{...}&gt;</c>);
+    /// <see cref="ForcedAlignment"/> = <c>@layout("align=N")</c> (raise the struct's alignment to N).
+    /// The two compose (packed + forced alignment). <c>@layout("C")</c> sets neither — it only documents
+    /// the FFI intent and locks the natural layout.
+    /// </summary>
+    public bool IsPacked { get; set; }
+
+    /// <summary>Forced struct alignment from <c>@layout("align=N")</c>; null = natural alignment.</summary>
+    public int? ForcedAlignment { get; set; }
+
+    /// <summary>
     /// Whether this record has a direct backend type mapping (via @llvm annotation).
     /// </summary>
     public bool HasDirectBackendType => BackendType != null;
@@ -61,10 +74,14 @@ public class RecordTypeInfo : TypeInfo
                 return BackendType;
             }
 
-            // Multi-member-variable record: struct type
+            // Multi-member-variable record: struct type. A packed record embeds as an LLVM native packed
+            // struct `<{...}>` so a containing struct lays it out with no inter-field padding, matching
+            // the named type declaration emitted by BuildStructTypeDeclaration.
             string memberVariableTypes = string.Join(separator: ", ",
                 values: MemberVariables.Select(selector: GetLlvmTypeForMemberVariable));
-            return $"{{ {memberVariableTypes} }}";
+            return IsPacked
+                ? $"<{{ {memberVariableTypes} }}>"
+                : $"{{ {memberVariableTypes} }}";
         }
     }
 
@@ -91,12 +108,25 @@ public class RecordTypeInfo : TypeInfo
         foreach (MemberVariableInfo mv in MemberVariables)
         {
             int memberSize = mv.Type.SizeBytes(pointerSize: pointerSize);
-            int alignment = mv.Type.Alignment(pointerSize: pointerSize);
+            // @layout("packed"): fields sit at alignment 1 — no inter-field padding (C `packed`).
+            int alignment = IsPacked ? 1 : mv.Type.Alignment(pointerSize: pointerSize);
             maxAlignment = Math.Max(val1: maxAlignment, val2: alignment);
             size = AlignTo(size: size, alignment: alignment);
             size += memberSize;
         }
-        return AlignTo(size: size, alignment: maxAlignment);
+        return AlignTo(size: size, alignment: StructAlignment(naturalMax: maxAlignment));
+    }
+
+    /// <summary>The record's effective alignment: 1 when packed, else the max member alignment, then
+    /// raised to <see cref="ForcedAlignment"/> (<c>@layout("align=N")</c>) if that is larger.</summary>
+    private int StructAlignment(int naturalMax)
+    {
+        int align = IsPacked ? 1 : naturalMax;
+        if (ForcedAlignment is { } forced && forced > align)
+        {
+            align = forced;
+        }
+        return align;
     }
 
     /// <inheritdoc/>
@@ -121,12 +151,16 @@ public class RecordTypeInfo : TypeInfo
         }
 
         int maxAlignment = 1;
-        foreach (MemberVariableInfo mv in MemberVariables)
+        // Packed members contribute alignment 1; skip the member scan so StructAlignment sees max=1.
+        if (!IsPacked)
         {
-            maxAlignment = Math.Max(val1: maxAlignment, val2: mv.Type.Alignment(pointerSize: pointerSize));
+            foreach (MemberVariableInfo mv in MemberVariables)
+            {
+                maxAlignment = Math.Max(val1: maxAlignment, val2: mv.Type.Alignment(pointerSize: pointerSize));
+            }
         }
 
-        return maxAlignment;
+        return StructAlignment(naturalMax: maxAlignment);
     }
 
     /// <summary>RC wrapper base names that need retain-on-copy / release-on-drop.</summary>
@@ -225,6 +259,8 @@ public class RecordTypeInfo : TypeInfo
                 ResolveBackendTypeTemplate(template: BackendType,
                     genericParams: GenericParameters,
                     typeArguments: typeArguments),
+            IsPacked = IsPacked,
+            ForcedAlignment = ForcedAlignment,
             Visibility = Visibility,
             Location = Location,
             Module = Module,

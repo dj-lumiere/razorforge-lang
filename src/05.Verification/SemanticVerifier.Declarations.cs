@@ -501,7 +501,102 @@ public sealed partial class SemanticVerifier
                 location: record.Location);
         }
 
+        ApplyLayoutAnnotations(typeInfo: typeInfo, record: record);
+
         TryRegisterType(type: typeInfo, location: record.Location);
+    }
+
+    /// <summary>
+    /// Applies C-ABI layout control from <c>@layout("...")</c> annotations to <paramref name="typeInfo"/>.
+    /// Recognized arguments: <c>C</c> (natural layout, a no-op documentation marker), <c>packed</c>
+    /// (<see cref="RecordTypeInfo.IsPacked"/>), and <c>align=N</c> (<see cref="RecordTypeInfo.ForcedAlignment"/>,
+    /// N a positive power of two). Multiple annotations compose (e.g. <c>packed</c> + <c>align=16</c>).
+    /// Reports <see cref="SemanticDiagnosticCode.InvalidLayoutAnnotation"/> for anything else.
+    /// </summary>
+    private void ApplyLayoutAnnotations(RecordTypeInfo typeInfo, RecordDeclaration record)
+    {
+        if (record.Annotations is not { } annotations)
+        {
+            return;
+        }
+
+        foreach (string ann in annotations)
+        {
+            if (!ann.StartsWith(value: "layout(") || !ann.EndsWith(value: ')'))
+            {
+                continue;
+            }
+
+            string arg = ann[7..^1].Trim(trimChar: '"');
+            switch (arg)
+            {
+                case "C":
+                    // Explicit natural C layout — already the default; the marker only documents FFI
+                    // intent and locks against future field reordering.
+                    break;
+                case "packed":
+                    typeInfo.IsPacked = true;
+                    break;
+                default:
+                    if (arg.StartsWith(value: "align="))
+                    {
+                        ApplyAlignLayout(typeInfo: typeInfo, spec: arg["align=".Length..], record: record);
+                    }
+                    else
+                    {
+                        ReportError(code: SemanticDiagnosticCode.InvalidLayoutAnnotation,
+                            message:
+                            $"Record '{record.Name}' has @layout(\"{arg}\") — unknown layout. Use " +
+                            "\"C\", \"packed\", or \"align=N\".",
+                            location: record.Location);
+                    }
+                    break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Reports <see cref="SemanticDiagnosticCode.LayoutAnnotationNotOnRecord"/> if a <c>@layout("...")</c>
+    /// annotation appears in a non-record context (variable declaration, use-site type, …). Memory layout
+    /// is a per-type property fixed at the record's declaration and nowhere else.
+    /// </summary>
+    private void RejectLayoutAnnotation(List<string>? annotations, SourceLocation location, string where)
+    {
+        if (annotations is null)
+        {
+            return;
+        }
+
+        foreach (string ann in annotations)
+        {
+            if (ann.StartsWith(value: "layout(") && ann.EndsWith(value: ')'))
+            {
+                ReportError(code: SemanticDiagnosticCode.LayoutAnnotationNotOnRecord,
+                    message:
+                    $"@layout(...) is not allowed on {where}. Memory layout is a property of a record " +
+                    "type, set only on the record declaration.",
+                    location: location);
+            }
+        }
+    }
+
+    /// <summary>Parses and validates the N in an <c>align=N</c> layout spec: a power of two in [2, 4096].
+    /// The full power-of-two range is needed — a C-union byte blob (natural alignment 1) forces its
+    /// members' alignment (2/4/8/16), while 16/32/64 cover SSE/AVX/cache-line and page alignment goes up to
+    /// 4096. Non-powers-of-two, 1, and huge values are rejected.</summary>
+    private void ApplyAlignLayout(RecordTypeInfo typeInfo, string spec, RecordDeclaration record)
+    {
+        if (int.TryParse(s: spec, result: out int n) && n >= 2 && n <= 4096 && (n & (n - 1)) == 0)
+        {
+            typeInfo.ForcedAlignment = n;
+            return;
+        }
+
+        ReportError(code: SemanticDiagnosticCode.InvalidLayoutAnnotation,
+            message:
+            $"Record '{record.Name}' has @layout(\"align={spec}\") — the alignment must be a power of two " +
+            "in [2, 4096] (e.g. 8, 16, 64).",
+            location: record.Location);
     }
 
     /// <summary>

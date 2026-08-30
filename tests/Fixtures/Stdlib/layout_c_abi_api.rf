@@ -1,0 +1,42 @@
+module Tests/Stdlib/LayoutCAbiApi
+import IO/Console
+import BuilderQuery
+import BuilderExpansion
+
+# @layout C-ABI memory control. Default is natural C layout; "packed" removes inter-field padding
+# (LLVM native `<{...}>`), "align=N" (N in {16,32,64}) raises the struct's alignment. Natural
+# {S8,S64,S8} = 24 (S64 forces 8-alignment + tail pad to 24); packed = 10 (1+8+1, no padding);
+# {S8,S8} @align=16 = 16. Both reflection offset paths (comptime placeof + BuilderQuery
+# member_variable_info) honor packing, so a packed field's byte offset stays truthful.
+
+record Natural
+  a: S8
+  b: S64
+  c: S8
+
+@layout("packed")
+record Packed
+  a: S8
+  b: S64
+  c: S8
+
+@layout("align=16")
+record Aligned
+  a: S8
+  b: S8
+
+routine offsets[T]() -> Text
+  var out = ""
+  expand m in allmemvarof(T)
+    out = out + nameof(m) + "@" + placeof(m).represent() + " "
+  return out
+
+routine start()
+  var p = Packed(a: 1_s8, b: 42_s64, c: 3_s8)
+  show(f"Natural={Natural(a: 1_s8, b: 2_s64, c: 3_s8).data_size()}")
+  show(f"Packed={p.data_size()}")
+  show(f"Aligned={Aligned(a: 1_s8, b: 2_s8).data_size()}")
+  show(f"packed.b={p.b}")
+  show(f"natural offsets: {offsets[Natural]()}")
+  show(f"packed offsets: {offsets[Packed]()}")
+  return

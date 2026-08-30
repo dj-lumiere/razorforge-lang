@@ -2680,14 +2680,18 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 // backend types throw in the size walk), so offsets are BEST-EFFORT: any failure zeroes
                 // the remaining offsets rather than aborting the whole build (offset is documented as
                 // "byte offset when available").
+                // @layout("packed") owner: no inter-field padding, so fields sit at the running cursor.
+                bool ownerPacked = owner is RecordTypeInfo { IsPacked: true };
                 var offsets = new ulong[fields.Count];
                 ulong cursor = 0;
                 for (int i = 0; i < fields.Count; i++)
                 {
                     try
                     {
-                        var align = (ulong)System.Math.Max(val1: 1,
-                            val2: fields[index: i].Type.Alignment(pointerSize: 8));
+                        var align = ownerPacked
+                            ? 1ul
+                            : (ulong)System.Math.Max(val1: 1,
+                                val2: fields[index: i].Type.Alignment(pointerSize: 8));
                         cursor = (cursor + align - 1) / align * align;
                         offsets[i] = cursor;
                         cursor += (ulong)System.Math.Max(val1: 0,

@@ -1870,7 +1870,8 @@ internal static class GenericAstRewriter
         // Byte offset of each member within the parent struct (repr-C layout), keyed by member identity.
         // Computed over the FULL declaration-order list BEFORE the openmemvarof filter, so a `secret`/
         // `posted` field ahead still pushes the offsets `placeof(m)` folds to.
-        Dictionary<MemberVariableInfo, long> offsets = ComputeMemberOffsets(members: members);
+        Dictionary<MemberVariableInfo, long> offsets = ComputeMemberOffsets(members: members,
+            packed: source is RecordTypeInfo { IsPacked: true });
 
         // openmemvarof(T) yields only the publicly-readable members (OPEN ∪ POSTED) — a `secret` field is
         // filtered out. allmemvarof(T) yields every member. This visibility split is
@@ -1958,7 +1959,7 @@ internal static class GenericAstRewriter
     /// no member list.
     /// </summary>
     private static Dictionary<MemberVariableInfo, long> ComputeMemberOffsets(
-        List<MemberVariableInfo>? members)
+        List<MemberVariableInfo>? members, bool packed = false)
     {
         var offsets = new Dictionary<MemberVariableInfo, long>();
         if (members == null) return offsets;
@@ -1966,7 +1967,10 @@ internal static class GenericAstRewriter
         foreach (MemberVariableInfo mv in members)
         {
             int memberSize = SafeSizeBytes(type: mv.Type);
-            int alignment = SafeAlignment(type: mv.Type);
+            // @layout("packed"): no inter-field padding, so each member sits at the running byte
+            // offset (alignment 1) — matches RecordTypeInfo.SizeBytes's packed branch and the packed
+            // LLVM `<{...}>` layout, so placeof(m) stays truthful for a packed record.
+            int alignment = packed ? 1 : SafeAlignment(type: mv.Type);
             size = AlignTo(size: size, alignment: alignment);
             offsets[key: mv] = size;
             size += memberSize;

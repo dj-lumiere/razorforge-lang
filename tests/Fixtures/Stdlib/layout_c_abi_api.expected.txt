@@ -1,0 +1,6 @@
+Natural=24B
+Packed=10B
+Aligned=16B
+packed.b=42
+natural offsets: a@0 b@8 c@16
+packed offsets: a@0 b@1 c@9

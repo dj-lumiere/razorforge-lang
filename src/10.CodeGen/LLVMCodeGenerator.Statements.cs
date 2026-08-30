@@ -159,7 +159,7 @@ public partial class LlvmCodeGenerator
         // Generate unique LLVM name for this variable (handles shadowing/redeclaration)
         string uniqueName = NextUniqueLocalName(name: varDecl.Name);
         string varPtr = $"%{uniqueName}.addr";
-        EmitEntryAlloca(llvmName: varPtr, llvmType: llvmType);
+        EmitEntryAlloca(llvmName: varPtr, llvmType: llvmType, align: ForcedAllocaAlignment(type: varType));
 
         // Register local variable for identifier lookup
         _localVariables[key: varDecl.Name] = varType;

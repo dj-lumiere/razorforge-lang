@@ -73,7 +73,7 @@ public partial class LlvmCodeGenerator
     /// </summary>
     private static string BuildStructTypeDeclaration(string typeName,
         List<MemberVariableInfo> memberVariables,
-        Func<MemberVariableInfo, string> fieldTypeSelector, string emptyBody)
+        Func<MemberVariableInfo, string> fieldTypeSelector, string emptyBody, bool packed = false)
     {
         var decl = new StringBuilder();
         if (memberVariables.Count == 0)
@@ -84,7 +84,10 @@ public partial class LlvmCodeGenerator
 
         string memberVars = string.Join(separator: ", ",
             values: memberVariables.Select(selector: fieldTypeSelector));
-        decl.AppendLine(value: $"{typeName} = type {{ {memberVars} }}");
+        // @layout("packed") → LLVM native packed struct `<{ ... }>`: no inter-field padding, so field
+        // offsets/GEP match the packed C layout without any explicit padding members.
+        string body = packed ? $"<{{ {memberVars} }}>" : $"{{ {memberVars} }}";
+        decl.AppendLine(value: $"{typeName} = type {body}");
 
         decl.Append(handler: $"; {typeName} member variables: ");
         for (int i = 0; i < memberVariables.Count; i++)
@@ -173,7 +176,7 @@ public partial class LlvmCodeGenerator
         _typeDeclarationsRecord[key: typeName] = BuildStructTypeDeclaration(typeName: typeName,
             memberVariables: record.MemberVariables,
             fieldTypeSelector: mv => GetFieldStorageLlvmType(type: mv.Type),
-            emptyBody: "{ }");
+            emptyBody: "{ }", packed: record.IsPacked);
     }
 
     /// <summary>

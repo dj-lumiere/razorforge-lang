@@ -710,6 +710,69 @@ internal static class NativeToolchain
     }
 
     /// <summary>
+    /// Stages each dynamically-linked <c>@link</c>/<c>c_libraries</c> dependency's shared object next to
+    /// the output <paramref name="exeFile"/>, searching the <paramref name="libraryPaths"/> (<c>-L</c>
+    /// dirs) for the platform filename (<c>NAME.dll</c> / <c>libNAME.so</c> / <c>libNAME.dylib</c>). A
+    /// library declared <c>static</c> in a <c>[libraries.NAME]</c> table is baked into the exe and skipped;
+    /// a library whose shared object is not found (e.g. a system library on the loader's default path) is
+    /// simply not copied. Mirrors <see cref="StageRuntimeDlls"/> for the runtime's own DLL.
+    /// </summary>
+    internal static void StageUserLibraryDlls(string exeFile, IReadOnlyList<string> cLibraries,
+        IReadOnlyList<string>? libraryPaths,
+        IReadOnlyDictionary<string, CLibrary>? libraryConfigs)
+    {
+        if (libraryPaths is not { Count: > 0 })
+        {
+            return;
+        }
+
+        string? outputDir = Path.GetDirectoryName(path: Path.GetFullPath(path: exeFile));
+        if (outputDir == null)
+        {
+            return;
+        }
+
+        // A statically-linked library has no runtime DLL to stage — it is pulled into the exe at link time.
+        var staticNames = new HashSet<string>(comparer: StringComparer.Ordinal);
+        if (libraryConfigs != null)
+        {
+            foreach (CLibrary cfg in libraryConfigs.Values)
+            {
+                if (cfg.Kind == CLinkKind.Static)
+                {
+                    staticNames.Add(item: cfg.Name);
+                }
+            }
+        }
+
+        foreach (string lib in cLibraries)
+        {
+            if (staticNames.Contains(item: lib))
+            {
+                continue;
+            }
+
+            string dllName = SharedObjectFileName(libName: lib);
+            foreach (string dir in libraryPaths)
+            {
+                string src = Path.Combine(path1: dir, path2: dllName);
+                if (File.Exists(path: src))
+                {
+                    TryCopyTolerant(src: src, dst: Path.Combine(path1: outputDir, path2: dllName));
+                    break;
+                }
+            }
+        }
+    }
+
+    /// <summary>The platform shared-object filename for an <c>-l</c> link name: <c>NAME.dll</c> on Windows,
+    /// <c>libNAME.dylib</c> on macOS, <c>libNAME.so</c> elsewhere.</summary>
+    private static string SharedObjectFileName(string libName) =>
+        OperatingSystem.IsWindows() ? $"{libName}.dll"
+        : OperatingSystem.IsMacOS() ? $"lib{libName}.dylib"
+        : $"lib{libName}.so";
+
+    /// <summary>
     /// Deletes stale per-target outputs that can cause buildandrun to execute or link against
     /// previous artifacts after source, stdlib, or runtime changes.
     /// </summary>

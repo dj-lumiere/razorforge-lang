@@ -1880,15 +1880,23 @@ public partial class LlvmCodeGenerator
     /// Emits a function-local stack allocation into the current function's entry block.
     /// This avoids repeated stack growth when the source declaration appears inside loops.
     /// </summary>
-    private void EmitEntryAlloca(string llvmName, string llvmType)
+    private void EmitEntryAlloca(string llvmName, string llvmType, int? align = null)
     {
         if (!_emittedAllocaNames.Add(item: llvmName))
         {
             return; // Already emitted for this function — pattern variables shared across when arms
         }
 
-        EmitLine(sb: _currentRoutineEntryAllocas, line: $"  {llvmName} = alloca {llvmType}");
+        // @layout("align=N") on a record raises its stack slot's alignment so a pointer handed to C
+        // matches the C-side over-aligned struct.
+        string alignSuffix = align is { } a ? $", align {a}" : "";
+        EmitLine(sb: _currentRoutineEntryAllocas, line: $"  {llvmName} = alloca {llvmType}{alignSuffix}");
     }
+
+    /// <summary>The forced stack-slot alignment for a value of <paramref name="type"/>, from a record's
+    /// <c>@layout("align=N")</c>; null when the type has no forced alignment.</summary>
+    private static int? ForcedAllocaAlignment(TypeInfo type) =>
+        type is RecordTypeInfo { ForcedAlignment: { } n } ? n : null;
 
     /// <summary>
     /// Emits a null-terminated C string as an LLVM global constant.

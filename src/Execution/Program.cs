@@ -1914,6 +1914,10 @@ internal partial class Program
         // Copy the runtime DLL (and its shared-library dependencies) next to the
         // output .exe so the loader can find them at runtime.
         NativeToolchain.StageRuntimeDlls(exeDir: exeDir, exeFile: exeFile);
+        // Also stage each dynamically-linked @link/c_libraries dependency DLL from the -L search paths,
+        // so a freshly-built exe runs without the user hand-copying its foreign libraries.
+        NativeToolchain.StageUserLibraryDlls(exeFile: exeFile, cLibraries: allCLibraries,
+            libraryPaths: libraryPaths, libraryConfigs: libraryConfigs);
         return 0;
     }
 

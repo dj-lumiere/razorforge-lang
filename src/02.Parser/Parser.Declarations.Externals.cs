@@ -76,13 +76,28 @@ public partial class Parser
                     break;
                 }
 
-                string paramName = ConsumeIdentifier(errorMessage: "Expected parameter name");
-                Consume(type: TokenType.Colon, errorMessage: "Expected ':' after parameter name");
-                TypeExpression paramType = ParseType();
-                parameters.Add(item: new Parameter(Name: paramName,
-                    Type: paramType,
-                    DefaultValue: null,
-                    Location: GetLocation()));
+                // A foreign routine's parameters bind by POSITION + TYPE, never by name (C headers carry
+                // no caller-visible parameter names, and a foreign call is always @positional). So the
+                // name here is purely cosmetic: it may be OMITTED (type-only, `routine C::f(S32, Text)`)
+                // or, when present, may be ANY token — including a RazorForge keyword like `flags` that a
+                // C header uses — because it never has to be a bindable identifier. The `:` after the
+                // first token is the disambiguator: `<anything>: type` is a named param, otherwise the
+                // param is type-only.
+                Parameter param;
+                if (PeekToken(offset: 1).Type == TokenType.Colon)
+                {
+                    string paramName = Advance().Text; // cosmetic name; keywords allowed
+                    Consume(type: TokenType.Colon, errorMessage: "Expected ':' after parameter name");
+                    param = new Parameter(Name: paramName, Type: ParseType(), DefaultValue: null,
+                        Location: GetLocation());
+                }
+                else
+                {
+                    // Type-only parameter — synthesize a positional placeholder name.
+                    param = new Parameter(Name: $"arg{parameters.Count}", Type: ParseType(),
+                        DefaultValue: null, Location: GetLocation());
+                }
+                parameters.Add(item: param);
             } while (Match(type: TokenType.Comma));
         }
 

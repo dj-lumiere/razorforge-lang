@@ -613,6 +613,9 @@ public sealed partial class SemanticVerifier
 
     private void AnalyzeVariableDeclaration(VariableDeclaration varDecl)
     {
+        RejectLayoutAnnotation(annotations: varDecl.Annotations, location: varDecl.Location,
+            where: "a variable declaration");
+
         TypeSymbol varType;
 
         // Suflae: an entity-reference annotation (`x: E` / `x: E?`) stores a `Roamed[E]` handle. Track

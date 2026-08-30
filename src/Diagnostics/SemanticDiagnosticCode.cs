@@ -517,6 +517,15 @@ public enum SemanticDiagnosticCode
     /// a value (record/scalar/Text-as-value) has no identity — use <c>==</c> for value equality.</summary>
     IdentityOperandNotReference = 440,
 
+    /// <summary>A <c>@layout("...")</c> annotation has an unrecognized argument (not <c>C</c>,
+    /// <c>packed</c>, or <c>align=N</c>), or <c>align=N</c> where N is not a positive power of two.</summary>
+    InvalidLayoutAnnotation = 441,
+
+    /// <summary>A <c>@layout("...")</c> annotation appears somewhere other than a <c>record</c> type
+    /// declaration (e.g. on a variable declaration or a use-site type). Memory layout is a per-type
+    /// property fixed at the record's declaration.</summary>
+    LayoutAnnotationNotOnRecord = 442,
+
     // ═══════════════════════════════════════════════════════════════════════════
     // MEMBER ACCESS ERRORS (RF-S450 - RF-S499)
     // ═══════════════════════════════════════════════════════════════════════════
