@@ -300,15 +300,16 @@ public sealed partial class SemanticVerifier
                 ?? _registry.LookupRoutineByQualifiedName(qualifiedName: concreteName);
         }
 
-        // Final fallback: scan all routines for one with the same memberRoutine name.
-        // Tolerates registration/verification key mismatches for overloaded extension memberRoutines
-        // and concrete generic specializations. Prefer matching IsFailable to disambiguate
-        // overloads that share a base name but differ on '!'.
-        if (routineInfo == null && routine.MemberRoutineName is { } lastMemberRoutineName)
-        {
-            routineInfo = _registry.LookupAnyByMemberRoutineName(memberRoutineName: lastMemberRoutineName,
-                isFailable: routine.IsFailable);
-        }
+        // Final fallback: the exact decl→info binding pinned at registration (RoutineDeclaration.
+        // ResolvedInfo — set for every registered routine in StdlibLoader.Registration /
+        // SignatureResolver, and already used directly by codegen). A registered routine binds to
+        // EXACTLY ONE RoutineInfo, so use it verbatim instead of a module-blind name scan that could
+        // bind an arbitrary same-named overload's body to the WRONG owner — e.g. under the removed
+        // scan, `Integer.from_digit_bytes`'s body was analyzed with `S64.from_digit_bytes`'s
+        // RoutineInfo (first-registered by that name), mixing up the receiver type in the try_ variant.
+        // (Left null only for capability-default derive templates on a bare `T` owner, which carry no
+        // ResolvedInfo and are handled by the @innate / unresolved-body paths below.)
+        routineInfo ??= routine.ResolvedInfo;
 
         if (routineInfo == null)
         {
