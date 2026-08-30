@@ -637,6 +637,38 @@ public sealed partial class SemanticVerifier
                     }
                 }
 
+                // Zero-arg construction `Type()`: the arg-bearing constructor block below is gated on
+                // `Arguments.Count > 0`, and the free-routine path requires `routine != null`. A no-arg
+                // `Type()` therefore had NO handler here and relied on `LookupRoutine("Type")` (above)
+                // finding the routed `create` via the cross-module short-name scan; scan-off that misses
+                // and the call reaches codegen unresolved, emitting a bare `@Type()` stub → linker
+                // "undefined value @Type". Resolve the no-arg `create` on the import-resolved callableType
+                // directly (scan-independent). Variant/protocol construction and generic-def bare `T()`
+                // have their own paths, so exclude them.
+                // Ambient (RazorForge) realm only: a Suflae-realm `entity` (SF::…) constructs through its
+                // Roamed lowering — binding a plain `create` ResolvedRoutine here bypasses that and drops the
+                // `.hijack()` the SF iterator wrappers emit, so leave SF-realm 0-arg construction to the
+                // type-creator fallback below (which the SF lowering handles).
+                if (callableType is { IsGenericDefinition: false } zeroArgType
+                    && routine == null && call.Arguments.Count == 0
+                    && zeroArgType.Realm == _registry.AmbientRealm
+                    && zeroArgType is not (VariantTypeInfo or ProtocolTypeInfo))
+                {
+                    RoutineInfo? zeroCreate = _registry.LookupMemberRoutineOverload(type: zeroArgType,
+                        memberRoutineName: "create", argTypes: new List<TypeSymbol>())
+                        ?? _registry.LookupRoutineOverload(baseName: $"{zeroArgType.FullName}.create",
+                            argTypes: new List<TypeInfo>());
+                    call.ConstructedType = zeroArgType;
+                    call.LoweringKind = ClassifyConstruction(type: zeroArgType,
+                        isCollectionLiteral: call.IsCollectionLiteral);
+                    // A user-declared (non-synthesized) `create` has a real body/side-effects — route the
+                    // call through it. A synthesized memberwise creator is left to inline construction.
+                    if (zeroCreate is { IsSynthesized: false })
+                        call.ResolvedRoutine = zeroCreate;
+                    call.IsInFlight = zeroCreate?.IsInFlightReturn ?? false;
+                    return zeroCreate?.ReturnType ?? zeroArgType;
+                }
+
                 if (callableType != null && call.Arguments.Count > 0)
                 {
                     // NOTE: explicit `Type(...)` construction resolves to FIXED-ARITY constructors only —
