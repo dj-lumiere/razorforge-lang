@@ -1,4 +1,4 @@
-module Collections
+module Core
 
 import BuilderQuery
 

@@ -90,8 +90,11 @@ public sealed partial class SemanticVerifier
             "orderof" or "typeidof" or "placeof" or "sizeof" =>
                 _registry.LookupType(name: "U64") ?? ErrorTypeInfo.Instance,
             // `visibilityof(m)` yields the member's OPEN/POSTED/SECRET visibility as the existing
-            // `Visibility` choice (BuilderQuery), narrowed by `is SECRET` etc. at the use site.
-            "visibilityof" => _registry.LookupType(name: "Visibility") ?? ErrorTypeInfo.Instance,
+            // `Visibility` choice (BuilderQuery), narrowed by `is SECRET` etc. at the use site. Resolve
+            // through imports (Visibility lives in BuilderQuery, not Core) so the matched value is the
+            // concrete choice type — that lets the `is SECRET` pattern bind the case directly instead of
+            // resolving `SECRET` as a bare type via the cross-module short-name scan.
+            "visibilityof" => LookupTypeWithImports(name: "Visibility") ?? ErrorTypeInfo.Instance,
             "valueof" => _registry.LookupType(name: "S32") ?? ErrorTypeInfo.Instance,
             // `typeof(m)` in expression position is a comptime typewise receiver (deferred, like the
             // old `${m.type}`): the real type only exists post-monomorph.
@@ -1516,13 +1519,15 @@ public sealed partial class SemanticVerifier
                     memberRoutine = _registry.LookupMemberRoutineViaConstraints(param: genParam,
                         memberRoutineName: callLookupName,
                         isFailable: isFailableMemberRoutineCall,
-                        constraints: constraints);
+                        constraints: constraints,
+                        protocolResolver: LookupTypeWithImports);
                     if (memberRoutine == null && !isFailableMemberRoutineCall)
                     {
                         memberRoutine = _registry.LookupMemberRoutineViaConstraints(param: genParam,
                             memberRoutineName: callLookupName,
                             isFailable: true,
-                            constraints: constraints);
+                            constraints: constraints,
+                            protocolResolver: LookupTypeWithImports);
                     }
                 }
 
@@ -1702,7 +1707,28 @@ public sealed partial class SemanticVerifier
                     // Variadic member routine (e.g. a collection `create(elements...: T)`): pack the K
                     // trailing args into an Array[T, K] literal so arg count matches the desugared single
                     // Array parameter and the arity binds during inference below.
-                    PackVariadicCallArgs(call: call, routine: memberRoutine);
+                    bool didPackVariadic = TryPackVariadicCallArgs(arguments: call.Arguments,
+                        routine: memberRoutine, location: call.Location);
+
+                    // For a VARIADIC generic member routine (e.g. `List[T].from_literal(elements...: T)`),
+                    // the arity generic `__VarargN` must be inferred from the freshly-packed
+                    // `Array[T, K]` literal BEFORE AnalyzeCallArguments below re-analyzes that literal
+                    // against the still-generic parameter type `Array[T, __VarargN]` — which would
+                    // re-resolve the array's arity type-arg back to the unbound `__VarargN` and lose K.
+                    // Infer + monomorphize here so the subsequent analysis runs against the concrete
+                    // per-arity body. (Mirrors the free-routine path: pack → infer → analyze.)
+                    if (didPackVariadic && memberRoutine.IsGenericDefinition)
+                    {
+                        List<TypeInfo>? variadicArgs =
+                            InferMemberRoutineGenericTypeArguments(genericMemberRoutine: memberRoutine,
+                                arguments: call.Arguments,
+                                receiverType: dispatchType);
+                        if (variadicArgs != null)
+                        {
+                            memberRoutine = _registry.GetOrCreateRoutineResolution(
+                                genericDef: memberRoutine, typeArguments: variadicArgs);
+                        }
+                    }
 
                     AnalyzeCallArguments(routine: memberRoutine,
                         arguments: call.Arguments,

@@ -306,9 +306,11 @@ public class CompilerPipelineLoweringTests
     [Fact]
     public void Analyze_LambdaExpression_IsLiftedBeforeCodegen()
     {
+        // A lambda parameter needs an annotation or a typed target: RazorForge does not
+        // back-infer a lambda parameter's type from its body (RF-S638). Annotate `x`.
         string source = """
                         routine test() -> S32
-                          var double_it = x => x * 2_s32
+                          var double_it = (x: S32) => x * 2_s32
                           return 0_s32
                         """;
 
@@ -355,6 +357,7 @@ public class CompilerPipelineLoweringTests
     public void Codegen_PriorityQueueDictLiteral_GeneratesIr()
     {
         string source = """
+                        import Collections
                         routine test()
                           var items: PriorityQueue[S64, Text] = {1: "high", 10: "low"}
                           return
@@ -506,11 +509,13 @@ public class CompilerPipelineLoweringTests
     public void Codegen_LambdaLift_GeneratesIr()
     {
         // RazorForge has no module-level mutable state (RF-S435), so the captured binding is a
-        // routine local — the lambda lift still fires on the closure over `factor`.
+        // routine local — the lambda lift still fires on the closure over `factor`. The lambda
+        // parameter `x` needs a type annotation (RF-S638: no body back-inference); a single typed
+        // param with a `given` capture must be parenthesized.
         string source = """
                         routine test() -> S32
                           var factor = 100_s32
-                          var scale = x given factor => x * factor
+                          var scale = (x: S32) given factor => x * factor
                           return 0_s32
                         """;
 

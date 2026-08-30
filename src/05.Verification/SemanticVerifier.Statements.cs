@@ -169,6 +169,20 @@ public sealed partial class SemanticVerifier
                 TypeSymbol? bracketed = _registry.LookupType(name: typeName);
                 if (bracketed is ProtocolTypeInfo) ownerType = bracketed;
             }
+
+            // Universal member routine (`routine T.represent()`): a bare owner name that resolves to no
+            // registered type IS the generic parameter itself. Mirror the registration path
+            // (StdlibLoader.Registration: owner → GenericParameterTypeInfo when LookupType misses) so the
+            // body binds to the universal RoutineInfo (whose OwnerType is that generic param) and `T`
+            // inside the body resolves as a parameter — instead of falling through to a first-wins
+            // by-member-name match on some concrete type's same-named routine (e.g. BitArray.represent),
+            // which left `T` resolvable only via the cross-module short-name scan.
+            if (ownerType == null && routine.OwnerName is { } bareOwner
+                && !bareOwner.Contains(value: '['))
+            {
+                ownerType = new GenericParameterTypeInfo(name: bareOwner);
+            }
+
             routineOwnerType = ownerType;
 
             baseName = ownerType != null

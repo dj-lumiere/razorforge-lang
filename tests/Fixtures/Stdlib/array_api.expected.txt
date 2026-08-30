@@ -1,5 +1,5 @@
 a: Array([10, 20, 30, 40])
-a (diagnose): Collections.Array[Core.S64, 4]([10, 20, 30, 40])
+a (diagnose): Core.Array[Core.S64, 4]([10, 20, 30, 40])
 count: 4
 is_empty: false
 a[0]: 10

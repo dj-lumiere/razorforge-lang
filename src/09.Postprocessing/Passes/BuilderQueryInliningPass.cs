@@ -782,7 +782,8 @@ internal sealed class BuilderQueryInliningPass
 
             case "type_kind":
             {
-                TypeInfo? tkType = _registry.LookupType(name: "TypeKind");
+                // TypeKind lives in `module BuilderQuery` — qualify (bare lookup relied on the short-name scan).
+                TypeInfo? tkType = _registry.LookupType(name: "BuilderQuery.TypeKind");
                 if (tkType is not ChoiceTypeInfo tkChoice) return null;
                 // Wrappers (Retained/Modifying/etc) report the inner type's kind.
                 TypeInfo kindType = type is WrapperTypeInfo wt ? wt.InnerType : type;

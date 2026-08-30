@@ -68,9 +68,11 @@ internal sealed class AutoWiredRegistrationPass
         TypeSymbol? listRoutineInfoType = null;
         if (builderServiceImported)
         {
-            TypeSymbol? fieldInfoType = _registry.LookupType(name: "FieldInfo");
-            TypeSymbol? protocolInfoType = _registry.LookupType(name: "ProtocolInfo");
-            TypeSymbol? routineInfoType = _registry.LookupType(name: "RoutineInfo");
+            // FieldInfo/ProtocolInfo/RoutineInfo live in `module BuilderQuery` — qualify (a bare lookup
+            // depended on the cross-module short-name scan).
+            TypeSymbol? fieldInfoType = _registry.LookupType(name: "BuilderQuery.FieldInfo");
+            TypeSymbol? protocolInfoType = _registry.LookupType(name: "BuilderQuery.ProtocolInfo");
+            TypeSymbol? routineInfoType = _registry.LookupType(name: "BuilderQuery.RoutineInfo");
 
             listFieldInfoType = listDef != null && fieldInfoType != null
                 ? _registry.GetOrCreateResolution(genericDef: listDef, typeArguments: [fieldInfoType])

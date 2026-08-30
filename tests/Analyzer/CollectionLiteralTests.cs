@@ -184,6 +184,7 @@ public class CollectionLiteralTests
     public void ListLiteral_WithDequeAnnotation_RetargetsToDeque()
     {
         string source = """
+                        import Collections
                         routine test()
                           var items: Deque[S64] = [1, 2, 3]
                           return
@@ -200,6 +201,7 @@ public class CollectionLiteralTests
     public void ListLiteral_WithSortedListAnnotation_RetargetsToSortedList()
     {
         string source = """
+                        import Collections
                         routine test()
                           var items: SortedList[S64] = [3, 1, 2]
                           return
@@ -216,6 +218,7 @@ public class CollectionLiteralTests
     public void SetLiteral_WithSortedSetAnnotation_RetargetsToSortedSet()
     {
         string source = """
+                        import Collections
                         routine test()
                           var items: SortedSet[S64] = {3, 1, 2}
                           return
@@ -232,6 +235,7 @@ public class CollectionLiteralTests
     public void DictLiteral_WithSortedDictAnnotation_RetargetsToSortedDict()
     {
         string source = """
+                        import Collections
                         routine test()
                           var items: SortedDict[S32, S32] = {3: 30, 1: 10, 2: 20}
                           return
@@ -248,6 +252,7 @@ public class CollectionLiteralTests
     public void DictLiteral_WithPriorityQueueAnnotation_RetargetsToPriorityQueue()
     {
         string source = """
+                        import Collections
                         routine test()
                           var items: PriorityQueue[S64, Text] = {1: "high", 10: "low"}
                           return
@@ -280,6 +285,7 @@ public class CollectionLiteralTests
     public void ListLiteral_WithBitArrayAnnotation_RetargetsToBitArray()
     {
         string source = """
+                        import Collections
                         routine test()
                           var items: BitArray[8] = [true, false, true, true, false, true, false, true]
                           return
@@ -414,6 +420,7 @@ public class CollectionLiteralTests
     public void BitArrayLiteral_WithWrongArity_ReportsError()
     {
         string source = """
+                        import Collections
                         routine test()
                           var items: BitArray[4] = [true, false, true]
                           return

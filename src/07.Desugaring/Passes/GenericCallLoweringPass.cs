@@ -463,7 +463,10 @@ internal sealed class GenericCallLoweringPass
         if (gmc.Object is IdentifierExpression literalId && literalId.Name == gmc.MemberRoutineName
             && !gmc.IsMemoryOperation
             && gmc.ResolvedRoutine == null
-            && _registry.LookupType(name: gmc.MemberRoutineName) != null
+            // Constructor form `Type[Args](...)`: MemberRoutineName names a type. Prefer the SA-resolved
+            // ConstructedType (import-precise) over a bare `LookupType(name)`, which only found a
+            // cross-module type (e.g. Collections.BitArray) via the short-name scan.
+            && (gmc.ConstructedType != null || _registry.LookupType(name: gmc.MemberRoutineName) != null)
             && (gmc.Arguments.Count > 0
                 || HasZeroMemberVariables(type: gmc.ConstructedType)))
         {

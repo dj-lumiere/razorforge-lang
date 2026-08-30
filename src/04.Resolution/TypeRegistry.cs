@@ -1109,7 +1109,11 @@ public sealed partial class TypeRegistry
             return type;
         }
 
-        // Try any module prefix (e.g., Collections.SortedSet for bare "SortedSet")
+        // Try any module prefix (e.g., Collections.SortedSet for bare "SortedSet").
+        // NOTE: this cross-module short-name scan is the over-permissive "leak" task 18 aims to remove.
+        // Most of its load-bearing uses have been migrated to module-qualified / import-aware lookups;
+        // the remaining dependents are a numeric-generic instantiation `.add` and the SF codegen path
+        // (see [[variadic-collection-literals]] task-18 notes). Kept ON until those are migrated.
         if (!name.Contains(value: '.'))
         {
             // Fast path: cached from a previous scan

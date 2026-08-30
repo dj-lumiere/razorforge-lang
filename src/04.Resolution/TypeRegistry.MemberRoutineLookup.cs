@@ -927,7 +927,8 @@ public sealed partial class TypeRegistry
     /// </summary>
     public RoutineInfo? LookupMemberRoutineViaConstraints(GenericParameterTypeInfo param,
         string memberRoutineName, bool? isFailable,
-        IEnumerable<GenericConstraintDeclaration> constraints)
+        IEnumerable<GenericConstraintDeclaration> constraints,
+        Func<string, TypeInfo?>? protocolResolver = null)
     {
         foreach (GenericConstraintDeclaration c in constraints)
         {
@@ -937,7 +938,11 @@ public sealed partial class TypeRegistry
                 continue;
             foreach (TypeExpression protocolExpr in c.ConstraintTypes)
             {
-                TypeInfo? proto = LookupType(name: protocolExpr.Name);
+                // Resolve the constraint's protocol IMPORT-aware (a user protocol like `Greetable`
+                // lives in the referring module, not Core) — the bare registry lookup only resolved it
+                // via the cross-module short-name scan. Fall back to the bare lookup when no resolver.
+                TypeInfo? proto = protocolResolver?.Invoke(protocolExpr.Name)
+                                  ?? LookupType(name: protocolExpr.Name);
                 if (proto is not ProtocolTypeInfo protoInfo)
                     continue;
                 // Synthesize directly with the generic parameter as ownerType so that

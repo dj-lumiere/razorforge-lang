@@ -67,7 +67,8 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         TypeInfo? s64Type = ctx.Registry.LookupType(name: "S64");
         TypeInfo? byteSizeType = ctx.Registry.LookupType(name: "ByteSize");
         TypeInfo? logicBreachedErrorType = ctx.Registry.LookupType(name: "LogicBreachedError");
-        TypeInfo? typeKindType = ctx.Registry.LookupType(name: "TypeKind");
+        // TypeKind lives in `module BuilderQuery` — qualify (a bare lookup depended on the short-name scan).
+        TypeInfo? typeKindType = ctx.Registry.LookupType(name: "BuilderQuery.TypeKind");
         TypeInfo? listTypeDef = ctx.Registry.LookupType(name: "List");
         TypeInfo? listTextType = listTypeDef != null && textType != null
             ? ctx.Registry.GetOrCreateResolution(genericDef: listTypeDef,

@@ -540,8 +540,12 @@ public sealed partial class StdlibLoader
         {
             if (node is PresetDeclaration preset)
             {
+                // Pass the module context so the preset's type resolves via its OWN module prefix
+                // (e.g. `Q32_IDENTITY: Q32` in `module Math3D` → `Math3D.Q32`) instead of a bare lookup
+                // that depended on the cross-module short-name scan. A null type would drop the preset
+                // entirely (a bare cross-module reference then fails as UnknownIdentifier).
                 TypeInfo? presetType =
-                    ResolveSimpleType(registry: registry, typeExpr: preset.Type);
+                    ResolveSimpleType(registry: registry, typeExpr: preset.Type, moduleName: moduleName);
                 if (presetType != null)
                 {
                     SeedPresetValueMetadata(value: preset.Value, presetType: presetType);
@@ -991,8 +995,15 @@ public sealed partial class StdlibLoader
         }
 
         // Skip if already registered (non-entity-specialization types only;
-        // entity specializations need separate registration even if the base name exists)
-        if (!isEntitySpecialization && registry.LookupType(name: record.Name, realm: _registeringRealm ?? "RF") != null)
+        // entity specializations need separate registration even if the base name exists).
+        // Module-QUALIFIED (mirrors RegisterEntityType): a bare-name check depended on the cross-module
+        // short-name scan to find the existing registration — with that scan gone a same-module reload
+        // would miss and re-register (RF-S "already registered"), and a cross-module same-name type
+        // would spuriously skip.
+        string qualifiedRecordName = string.IsNullOrEmpty(value: moduleName)
+            ? record.Name : $"{moduleName}.{record.Name}";
+        if (!isEntitySpecialization
+            && registry.LookupType(name: qualifiedRecordName, realm: _registeringRealm ?? "RF") != null)
         {
             return;
         }
@@ -1132,8 +1143,10 @@ public sealed partial class StdlibLoader
     private static void RegisterCrashableType(TypeRegistry registry, CrashableDeclaration crashable,
         string moduleName)
     {
-        // Skip if already registered
-        if (registry.LookupType(name: crashable.Name, realm: _registeringRealm ?? "RF") != null)
+        // Skip if already registered (module-QUALIFIED — see RegisterRecordType).
+        string qualifiedCrashableName = string.IsNullOrEmpty(value: moduleName)
+            ? crashable.Name : $"{moduleName}.{crashable.Name}";
+        if (registry.LookupType(name: qualifiedCrashableName, realm: _registeringRealm ?? "RF") != null)
         {
             return;
         }
@@ -1375,8 +1388,10 @@ public sealed partial class StdlibLoader
     private static void RegisterChoiceType(TypeRegistry registry, ChoiceDeclaration choice,
         string moduleName)
     {
-        // Skip if already registered
-        if (registry.LookupType(name: choice.Name, realm: _registeringRealm ?? "RF") != null)
+        // Skip if already registered (module-QUALIFIED — see RegisterRecordType).
+        string qualifiedChoiceName = string.IsNullOrEmpty(value: moduleName)
+            ? choice.Name : $"{moduleName}.{choice.Name}";
+        if (registry.LookupType(name: qualifiedChoiceName, realm: _registeringRealm ?? "RF") != null)
         {
             return;
         }
@@ -1436,7 +1451,10 @@ public sealed partial class StdlibLoader
     private static void RegisterFlagsType(TypeRegistry registry, FlagsDeclaration flags,
         string moduleName)
     {
-        if (registry.LookupType(name: flags.Name, realm: _registeringRealm ?? "RF") != null)
+        // Skip if already registered (module-QUALIFIED — see RegisterRecordType).
+        string qualifiedFlagsName = string.IsNullOrEmpty(value: moduleName)
+            ? flags.Name : $"{moduleName}.{flags.Name}";
+        if (registry.LookupType(name: qualifiedFlagsName, realm: _registeringRealm ?? "RF") != null)
         {
             return;
         }
@@ -1461,8 +1479,10 @@ public sealed partial class StdlibLoader
     private static void RegisterVariantType(TypeRegistry registry, VariantDeclaration variant,
         string moduleName)
     {
-        // Skip if already registered
-        if (registry.LookupType(name: variant.Name, realm: _registeringRealm ?? "RF") != null)
+        // Skip if already registered (module-QUALIFIED — see RegisterRecordType).
+        string qualifiedVariantName = string.IsNullOrEmpty(value: moduleName)
+            ? variant.Name : $"{moduleName}.{variant.Name}";
+        if (registry.LookupType(name: qualifiedVariantName, realm: _registeringRealm ?? "RF") != null)
         {
             return;
         }
@@ -1541,8 +1561,10 @@ public sealed partial class StdlibLoader
     private static void RegisterProtocolTypeShell(TypeRegistry registry,
         ProtocolDeclaration protocol, string moduleName)
     {
-        // Skip if already registered
-        if (registry.LookupType(name: protocol.Name, realm: _registeringRealm ?? "RF") != null)
+        // Skip if already registered (module-QUALIFIED — see RegisterRecordType).
+        string qualifiedProtocolName = string.IsNullOrEmpty(value: moduleName)
+            ? protocol.Name : $"{moduleName}.{protocol.Name}";
+        if (registry.LookupType(name: qualifiedProtocolName, realm: _registeringRealm ?? "RF") != null)
         {
             return;
         }

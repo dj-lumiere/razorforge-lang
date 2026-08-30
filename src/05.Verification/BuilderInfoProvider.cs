@@ -96,8 +96,9 @@ public static class BuilderInfoProvider
                 registry: registry);
         }
 
-        // type_kind returns the declared TypeKind choice only.
-            TypeSymbol? typeKindType = registry.LookupType(name: "TypeKind");
+        // type_kind returns the declared TypeKind choice only (module-qualified: TypeKind lives in
+        // `module BuilderQuery`, so a bare lookup depended on the cross-module short-name scan).
+            TypeSymbol? typeKindType = registry.LookupType(name: "BuilderQuery.TypeKind");
             if (typeKindType != null)
             {
                 MaybeRegister(owner: type,
@@ -253,8 +254,11 @@ public static class BuilderInfoProvider
             RegisterStandalone(registry: registry, name: name, returnType: textType);
         }
 
-        // build_mode returns the declared BuildMode choice only.
-        TypeSymbol? buildModeType = registry.LookupType(name: "BuildMode");
+        // build_mode returns the declared BuildMode choice only. Look it up by its MODULE-qualified name:
+        // BuildMode lives in `module BuilderQuery`, so a bare `LookupType("BuildMode")` depended on the
+        // cross-module short-name scan (a Core-prefix auto-import miss) — with that scan gone the bare
+        // lookup returned null and `build_mode` never registered (bare call → UnknownIdentifier).
+        TypeSymbol? buildModeType = registry.LookupType(name: "BuilderQuery.BuildMode");
         if (buildModeType != null)
         {
             RegisterStandalone(registry: registry, name: "build_mode", returnType: buildModeType);

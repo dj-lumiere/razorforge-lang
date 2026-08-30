@@ -1,4 +1,4 @@
-module Core
+module Collections
 
 import BuilderExpansion
 

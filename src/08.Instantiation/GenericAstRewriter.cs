@@ -2391,7 +2391,8 @@ internal static class GenericAstRewriter
                 };
                 return new IdentifierExpression(Name: caseName, Location: location)
                 {
-                    ResolvedType = ctx.Registry?.LookupType(name: "Visibility")
+                    // Visibility lives in `module BuilderQuery` — qualify (bare lookup relied on the scan).
+                    ResolvedType = ctx.Registry?.LookupType(name: "BuilderQuery.Visibility")
                 };
             }
             case "valueof":
