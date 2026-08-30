@@ -1069,8 +1069,23 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx)
             ? type.TypeArguments.Select(selector: a => TypeInfoToExpr(type: a, loc: loc)).ToList()
             : null;
 
-        return new TypeExpression(Name: baseName, GenericArguments: args, Location: loc);
+        // Carry the already-resolved TypeInfo so codegen uses it directly instead of re-resolving the
+        // bare name (which depended on the cross-module short-name scan — e.g. a synthesized
+        // `var v: IOError = <payload>` for a `when e is IOError v` arm, IOError living in another module).
+        // ONLY for a fully-concrete type: annotating an unsubstituted generic parameter would trip the
+        // Track-C monomorphization-completeness guard (ResolvedType='T' reaching codegen).
+        return new TypeExpression(Name: baseName, GenericArguments: args, Location: loc)
+        {
+            ResolvedType = TypeContainsGenericParameter(type) ? null : type
+        };
     }
+
+    /// <summary>True when <paramref name="type"/> is (or transitively contains) an unsubstituted
+    /// generic parameter / protocol-self — such a type must NOT be frozen onto a synthesized
+    /// TypeExpression's ResolvedType (the monomorphizer would fail its completeness check).</summary>
+    private static bool TypeContainsGenericParameter(TypeInfo type) =>
+        type is GenericParameterTypeInfo or ProtocolSelfTypeInfo or ComptimeConstGenericTypeInfo
+        || (type.TypeArguments?.Any(predicate: TypeContainsGenericParameter) ?? false);
 
     /// <summary>
     /// Maps a <see cref="TokenType"/> comparison operator (as used in

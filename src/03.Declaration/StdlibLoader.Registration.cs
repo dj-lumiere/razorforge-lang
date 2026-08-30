@@ -117,13 +117,23 @@ public sealed partial class StdlibLoader
     /// </summary>
     private static void ResolveProgramMemberVariables(TypeRegistry registry, Program program) // NOSONAR S3776
     {
+        // The deferred member-variable re-resolution must find THIS program's types by their
+        // module-qualified name. A bare `LookupType(name)` depended on the cross-module short-name scan
+        // (e.g. `Complex` → `Numerics.Complex`); with that scan gone the bare lookup misses, `existing`
+        // is null, and the type's member variables never resolve — leaving fields like `Complex.real: Real`
+        // untyped, so `me.real + you.real` reaches codegen with a `<error>` receiver.
+        string? programModule = program.Declarations.OfType<ModuleDeclaration>().FirstOrDefault()?.Path;
+        TypeInfo? LookupOwn(string typeName) =>
+            (programModule != null ? registry.LookupType(name: $"{programModule}.{typeName}") : null)
+            ?? registry.LookupType(name: typeName);
+
         foreach (ISyntaxTreeNode node in program.Declarations)
         {
             switch (node)
             {
                 case EntityDeclaration entity:
                 {
-                    var existing = registry.LookupType(name: entity.Name) as EntityTypeInfo;
+                    var existing = LookupOwn(entity.Name) as EntityTypeInfo;
                     int expectedCount = entity.Members.Count(predicate: m =>
                         m is VariableDeclaration { Type: not null });
                     if (existing == null || existing.MemberVariables.Count >= expectedCount)
@@ -146,7 +156,7 @@ public sealed partial class StdlibLoader
                 }
                 case RecordDeclaration record:
                 {
-                    var existing = registry.LookupType(name: record.Name) as RecordTypeInfo;
+                    var existing = LookupOwn(record.Name) as RecordTypeInfo;
                     int expectedCount = record.Members.Count(predicate: m =>
                         m is VariableDeclaration { Type: not null });
                     if (existing == null || existing.MemberVariables.Count >= expectedCount)
@@ -168,7 +178,7 @@ public sealed partial class StdlibLoader
                 }
                 case VariantDeclaration variant:
                 {
-                    var existing = registry.LookupType(name: variant.Name) as VariantTypeInfo;
+                    var existing = LookupOwn(variant.Name) as VariantTypeInfo;
                     // Total declared arms (incl. None). If fewer resolved, some arm was a forward or
                     // self reference (e.g. List[SerialValue]) unresolvable on the first pass — retry now.
                     int expectedCount = variant.Members.Count;
@@ -188,8 +198,7 @@ public sealed partial class StdlibLoader
                 }
                 case CrashableDeclaration crashable:
                 {
-                    var existing =
-                        registry.LookupType(name: crashable.Name) as CrashableTypeInfo;
+                    var existing = LookupOwn(crashable.Name) as CrashableTypeInfo;
                     int expectedCount = crashable.Members.Count(predicate: m =>
                         m is VariableDeclaration { Type: not null });
                     if (existing == null || existing.MemberVariables.Count >= expectedCount)
