@@ -365,8 +365,13 @@ public partial class LlvmCodeGenerator
         TypeInfo? varType = null;
         if (varDecl.Type != null)
             varType = ResolveTypeExpression(typeExpr: varDecl.Type);
-        else if (varDecl.Initializer != null)
-            varType = GetExpressionType(expr: varDecl.Initializer);
+        // Declared-type resolution failed (a bare cross-module annotation whose TypeExpression lost its
+        // SA-stamped ResolvedType during a body-reconstructing pass — e.g. failable-variant expansion of
+        // `var abs_val: Integer = …` in `Integer.to_digit_bytes!()`, IO referencing the Numerics `Integer`,
+        // which codegen cannot re-resolve by bare name without the short-name scan). Fall back to the
+        // initializer's own resolved type (a hoisted temp identifier already carries it).
+        if (varType is null or ErrorTypeInfo && varDecl.Initializer != null)
+            varType = GetExpressionType(expr: varDecl.Initializer) ?? varType;
 
         // Fall back to the call's explicit generic-return-type resolution only when the
         // inferred varType is null or unresolved-generic. The earlier "ptr-typed" heuristic

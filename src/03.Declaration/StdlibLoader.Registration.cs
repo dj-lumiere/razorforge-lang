@@ -1339,18 +1339,28 @@ public sealed partial class StdlibLoader
     /// </summary>
     private static void ResolveAssociatedTypeBindings(TypeRegistry registry, Program program)
     {
+        // Find THIS program's types by their module-qualified name. A bare `LookupType(name)` depended on
+        // the cross-module short-name scan; with it gone a module type (e.g. `IterTools.WhereIterable`)
+        // misses, the `when ... is EntityTypeInfo` guard fails, and the type is SKIPPED — leaving its
+        // `relates X as Iter` associated binding empty, so a later `S/Iter` projection never resolves
+        // (`WhereIterable[..]/Iter` reaches codegen as an unemittable TypeParameter).
+        string? programModule = program.Declarations.OfType<ModuleDeclaration>().FirstOrDefault()?.Path;
+        TypeInfo? LookupOwn(string typeName) =>
+            (programModule != null ? registry.LookupType(name: $"{programModule}.{typeName}") : null)
+            ?? registry.LookupType(name: typeName);
+
         foreach (ISyntaxTreeNode node in program.Declarations)
         {
             switch (node)
             {
                 case EntityDeclaration { AssociatedTypes: { Count: > 0 } at } ed
-                    when registry.LookupType(name: ed.Name) is EntityTypeInfo ent:
+                    when LookupOwn(ed.Name) is EntityTypeInfo ent:
                     RegisterAssociatedTypeBindings(registry: registry, declared: at,
                         genericParams: ed.GenericParameters, moduleName: ent.Module ?? "",
                         bindings: ent.AssociatedTypeBindings);
                     break;
                 case RecordDeclaration { AssociatedTypes: { Count: > 0 } at } rd
-                    when registry.LookupType(name: rd.Name) is RecordTypeInfo rec:
+                    when LookupOwn(rd.Name) is RecordTypeInfo rec:
                     RegisterAssociatedTypeBindings(registry: registry, declared: at,
                         genericParams: rd.GenericParameters, moduleName: rec.Module ?? "",
                         bindings: rec.AssociatedTypeBindings);
