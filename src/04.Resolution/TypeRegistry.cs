@@ -1109,46 +1109,13 @@ public sealed partial class TypeRegistry
             return type;
         }
 
-        // Try any module prefix (e.g., Collections.SortedSet for bare "SortedSet").
-        // NOTE: this cross-module short-name scan is the over-permissive "leak" task 18 aims to remove.
-        // Most of its load-bearing uses have been migrated to module-qualified / import-aware lookups;
-        // the remaining dependents are a numeric-generic instantiation `.add` and the SF codegen path
-        // (see [[variadic-collection-literals]] task-18 notes). Kept ON until those are migrated.
-        if (!name.Contains(value: '.'))
-        {
-            // Fast path: cached from a previous scan
-            if (_typesByShortName.TryGetValue(key: name, value: out TypeInfo? cached))
-            {
-                return cached;
-            }
-
-            string suffix = $".{name}";
-            foreach ((string key, TypeInfo value) in _types)
-            {
-                // Skip realm-qualified (bridged) keys like `SF::Core.List` — this is the AMBIENT scan;
-                // the per-file ResolutionRealm preference is applied by the LookupType(name) wrapper.
-                if (key.Contains(value: "::"))
-                {
-                    continue;
-                }
-                if (key.EndsWith(value: suffix))
-                {
-                    _typesByShortName[key: name] = value; // cache for subsequent lookups
-                    return value;
-                }
-                // Generic definition keys end with "[T]" or "[T, U]" — strip params and retry.
-                // e.g., "Core.Hijacked[T]" -> strip to "Core.Hijacked" -> ends with ".Hijacked" ✓
-                if (key.Contains(value: '['))
-                {
-                    string keyBase = TypeInfo.StripTypeArgs(name: key);
-                    if (keyBase.EndsWith(value: suffix))
-                    {
-                        _typesByShortName[key: name] = value;
-                        return value;
-                    }
-                }
-            }
-        }
+        // (REMOVED — task 18) The cross-module short-name scan used to resolve a bare `Name` to ANY
+        // module's `*.Name` (an arbitrary first match). It was the over-permissive "leak": it let a bare
+        // reference bind a same-named type/routine in an unrelated module, masked missing imports, and
+        // made resolution order-dependent. Every load-bearing dependent has been migrated to a
+        // module-qualified or import-aware lookup (own-module / imported-module / Core-prefix above, or
+        // an explicit `{module}.{name}` at the call site). A bare name that resolves to nothing here is now
+        // an honest "unknown type" instead of a silent cross-module capture.
 
         return null;
     }
