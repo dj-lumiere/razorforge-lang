@@ -645,13 +645,8 @@ public sealed partial class SemanticVerifier
                 // "undefined value @Type". Resolve the no-arg `create` on the import-resolved callableType
                 // directly (scan-independent). Variant/protocol construction and generic-def bare `T()`
                 // have their own paths, so exclude them.
-                // Ambient (RazorForge) realm only: a Suflae-realm `entity` (SF::…) constructs through its
-                // Roamed lowering — binding a plain `create` ResolvedRoutine here bypasses that and drops the
-                // `.hijack()` the SF iterator wrappers emit, so leave SF-realm 0-arg construction to the
-                // type-creator fallback below (which the SF lowering handles).
                 if (callableType is { IsGenericDefinition: false } zeroArgType
                     && routine == null && call.Arguments.Count == 0
-                    && zeroArgType.Realm == _registry.AmbientRealm
                     && zeroArgType is not (VariantTypeInfo or ProtocolTypeInfo))
                 {
                     RoutineInfo? zeroCreate = _registry.LookupMemberRoutineOverload(type: zeroArgType,
@@ -662,11 +657,16 @@ public sealed partial class SemanticVerifier
                     call.LoweringKind = ClassifyConstruction(type: zeroArgType,
                         isCollectionLiteral: call.IsCollectionLiteral);
                     // A user-declared (non-synthesized) `create` has a real body/side-effects — route the
-                    // call through it. A synthesized memberwise creator is left to inline construction.
+                    // call through it (this ALSO seeds it for reachability). A synthesized memberwise creator
+                    // is left to inline construction.
                     if (zeroCreate is { IsSynthesized: false })
                         call.ResolvedRoutine = zeroCreate;
                     call.IsInFlight = zeroCreate?.IsInFlightReturn ?? false;
-                    return zeroCreate?.ReturnType ?? zeroArgType;
+                    // Return the BARE entity type (NOT create's declared return, which for a Suflae entity is
+                    // `Roamed[E]`): the SF entity-lowering pass keys on `ResolvedType is EntityTypeInfo` to
+                    // wrap a construction in `.roam()`, so a Roamed return type would divert it to the
+                    // arg-carrying-create path and drop the wrap. For an RF entity the two coincide.
+                    return zeroArgType;
                 }
 
                 if (callableType != null && call.Arguments.Count > 0)
