@@ -1114,7 +1114,8 @@ public sealed partial class TypeRegistry
         // Most of its load-bearing uses have been migrated to module-qualified / import-aware lookups;
         // the remaining dependents are a numeric-generic instantiation `.add` and the SF codegen path
         // (see [[variadic-collection-literals]] task-18 notes). Kept ON until those are migrated.
-        if (!name.Contains(value: '.'))
+        if (!name.Contains(value: '.')
+            && System.Environment.GetEnvironmentVariable("RF_NO_SHORTNAME_SCAN") != "1")
         {
             // Fast path: cached from a previous scan
             if (_typesByShortName.TryGetValue(key: name, value: out TypeInfo? cached))

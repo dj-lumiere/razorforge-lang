@@ -2918,7 +2918,11 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     /// </summary>
     private (TypeInfo entityType, TypeInfo listEntity)? ResolveEntityListType(string elementTypeName)
     {
-        TypeInfo? entityType = ctx.Registry.LookupType(name: elementTypeName);
+        // FieldInfo/ProtocolInfo/RoutineInfo live in `module BuilderQuery` — qualify (a bare lookup
+        // depended on the cross-module short-name scan; scan-off it missed, the synthesized
+        // member_variable_info/protocol_info/routine_info body bailed, and its routine over-pruned).
+        TypeInfo? entityType = ctx.Registry.LookupType(name: $"BuilderQuery.{elementTypeName}")
+                               ?? ctx.Registry.LookupType(name: elementTypeName);
         TypeInfo? listDef = ctx.Registry.LookupType(name: "List");
         if (entityType == null || listDef == null) return null;
         TypeInfo listEntity =

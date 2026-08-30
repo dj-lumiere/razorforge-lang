@@ -52,7 +52,11 @@ internal sealed class LiteralLoweringPass
         _variantBodies = ctx.VariantBodies;
         // `n`/`dn` arbitrary-precision literals are emitted as malformed scalar IR by codegen
         // (e.g. `store %Record.Integer 42n`); lower them to an infallible constructor call instead.
-        _integerType = ctx.Registry.LookupType(name: "Integer");
+        // Integer/Complex/Real live in `module Numerics` — qualify (a bare lookup depended on the
+        // cross-module short-name scan; scan-off it missed, the `42n`/`jn` literal lowering was skipped,
+        // and the raw arbitrary-precision literal reached codegen as malformed IR — `store %Record 42n`).
+        _integerType = ctx.Registry.LookupType(name: "Numerics.Integer")
+                       ?? ctx.Registry.LookupType(name: "Integer");
         _decimalType = ctx.Registry.LookupType(name: "Decimal");
         _textType = ctx.Registry.LookupType(name: "Text");
         _integerFromLiteral = _integerType != null
@@ -67,11 +71,13 @@ internal sealed class LiteralLoweringPass
         _c32Type = ctx.Registry.LookupType(name: "C32");
         _c64Type = ctx.Registry.LookupType(name: "C64");
         _c128Type = ctx.Registry.LookupType(name: "C128");
-        _complexType = ctx.Registry.LookupType(name: "Complex");
+        _complexType = ctx.Registry.LookupType(name: "Numerics.Complex")
+                       ?? ctx.Registry.LookupType(name: "Complex");
         _f32Type = ctx.Registry.LookupType(name: "F32");
         _f64Type = ctx.Registry.LookupType(name: "F64");
         _f128Type = ctx.Registry.LookupType(name: "F128");
-        _realType = ctx.Registry.LookupType(name: "Real");
+        _realType = ctx.Registry.LookupType(name: "Numerics.Real")
+                    ?? ctx.Registry.LookupType(name: "Real");
         _realFromLiteral = _realType != null
             ? ctx.Registry.LookupMemberRoutine(type: _realType, memberRoutineName: "from_literal")
             : null;
