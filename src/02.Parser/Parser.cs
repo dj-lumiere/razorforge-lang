@@ -268,9 +268,42 @@ public partial class Parser
         // Collect the executable top-level nodes (statements + runtime var decls) in source order.
         var body = new List<Statement>();
         var kept = new List<ISyntaxTreeNode>();
+        SourceLocation startLoc = PartitionScriptNodes(nodes: nodes, body: body, kept: kept,
+            explicitStart: out RoutineDeclaration? explicitStart);
+
+        if (explicitStart != null)
+        {
+            return ReportScriptStartConflict(kept: kept, startLoc: startLoc);
+        }
+
+        if (body.Count == 0 || body[^1] is not ReturnStatement)
+        {
+            body.Add(item: new ReturnStatement(Value: null, Location: startLoc));
+        }
+
+        kept.Add(item: new RoutineDeclaration(
+            Name: "start",
+            Parameters: [],
+            ReturnType: null,
+            Body: new BlockStatement(Statements: body, Location: startLoc),
+            Visibility: VisibilityModifier.Open,
+            Annotations: [],
+            Location: startLoc));
+        return kept;
+    }
+
+    /// <summary>
+    /// Splits the top-level nodes into the implicit-<c>start</c> body (loose statements + runtime var
+    /// declarations, wrapped) and the kept hoistable declarations, in source order. Records any explicit
+    /// <c>routine start()</c> found via <paramref name="explicitStart"/>. Returns the source location of
+    /// the first executable node (or a default location when there is none).
+    /// </summary>
+    private SourceLocation PartitionScriptNodes(List<ISyntaxTreeNode> nodes, List<Statement> body,
+        List<ISyntaxTreeNode> kept, out RoutineDeclaration? explicitStart)
+    {
         SourceLocation startLoc = GetLocation();
         bool locSet = false;
-        RoutineDeclaration? explicitStart = null;
+        explicitStart = null;
         foreach (ISyntaxTreeNode n in nodes)
         {
             switch (n)
@@ -290,34 +323,25 @@ public partial class Parser
             }
         }
 
-        if (explicitStart != null)
-        {
-            // Report a clean diagnostic (matching the per-statement error path) rather than throwing out of
-            // the parser; keep the explicit start so the Program stays well-formed and downstream is safe.
-            var ex = new GrammarException(code: GrammarDiagnosticCode.UnexpectedToken,
-                message:
-                "A Suflae file cannot mix top-level statements with an explicit `routine start()`. " +
-                "Either move the top-level statements into start(), or remove the explicit start().",
-                fileName: FileName, line: startLoc.Line, column: startLoc.Column, language: _language);
-            _errors.Add(item: ex.Message);
-            _structuredErrors.Add(item: ex);
-            DiagnosticRenderer.Print(ex: ex, writer: Console.Error);
-            return kept;
-        }
+        return startLoc;
+    }
 
-        if (body.Count == 0 || body[^1] is not ReturnStatement)
-        {
-            body.Add(item: new ReturnStatement(Value: null, Location: startLoc));
-        }
-
-        kept.Add(item: new RoutineDeclaration(
-            Name: "start",
-            Parameters: [],
-            ReturnType: null,
-            Body: new BlockStatement(Statements: body, Location: startLoc),
-            Visibility: VisibilityModifier.Open,
-            Annotations: [],
-            Location: startLoc));
+    /// <summary>
+    /// Reports the conflict between top-level statements and an explicit <c>routine start()</c> as a
+    /// clean diagnostic (matching the per-statement error path) rather than throwing out of the parser,
+    /// and returns the kept declarations so the Program stays well-formed.
+    /// </summary>
+    private List<ISyntaxTreeNode> ReportScriptStartConflict(List<ISyntaxTreeNode> kept,
+        SourceLocation startLoc)
+    {
+        var ex = new GrammarException(code: GrammarDiagnosticCode.UnexpectedToken,
+            message:
+            "A Suflae file cannot mix top-level statements with an explicit `routine start()`. " +
+            "Either move the top-level statements into start(), or remove the explicit start().",
+            fileName: FileName, line: startLoc.Line, column: startLoc.Column, language: _language);
+        _errors.Add(item: ex.Message);
+        _structuredErrors.Add(item: ex);
+        DiagnosticRenderer.Print(ex: ex, writer: Console.Error);
         return kept;
     }
 
@@ -472,20 +496,7 @@ public partial class Parser
         if (_parsingTypeBody && Check(type: TokenType.Identifier) && PeekToken(offset: 1)
                .Type == TokenType.Colon)
         {
-            // In record bodies, external is not allowed
-            if (_parsingStrictRecordBody && visibility is VisibilityModifier.External)
-            {
-                throw new GrammarException(code: GrammarDiagnosticCode.InvalidDeclarationInBody,
-                    message:
-                    $"'{visibility.ToString().ToLower()}' is not valid for record member variables. " +
-                    "Record member variables can use 'secret', 'posted', or 'open'",
-                    fileName: FileName,
-                    line: CurrentToken.Line,
-                    column: CurrentToken.Column,
-                    language: _language);
-            }
-
-            return ParseMemberVariableDeclaration(visibility: visibility);
+            return ParseTypeBodyFieldDeclaration(visibility: visibility);
         }
 
         // Variable declarations — optionally prefixed with `lateinit`
@@ -499,19 +510,7 @@ public partial class Parser
         // it becomes a PresetDeclaration carrying its secret (file-private) flag, not a VariableDeclaration.
         if (Check(type: TokenType.Preset))
         {
-            if (_parsingTypeBody)
-            {
-                throw new GrammarException(code: GrammarDiagnosticCode.InvalidDeclarationInBody,
-                    message: "Type member variables cannot use 'var' or 'preset'. " +
-                             "Use 'name: Type' syntax instead",
-                    fileName: FileName,
-                    line: CurrentToken.Line,
-                    column: CurrentToken.Column,
-                    language: _language);
-            }
-
-            Advance(); // consume 'preset'
-            return ParsePresetDeclaration(isSecret: visibility == VisibilityModifier.Secret);
+            return ParsePresetInDeclarationPosition(visibility: visibility);
         }
         // `global NAME: Type = value` — module-level mutable global. SUFLAE-ONLY: SF's GC + single-thread
         // + REPL model makes a session-lifetime global honest, whereas RazorForge's deterministic
@@ -519,28 +518,7 @@ public partial class Parser
         // Also not allowed inside a type body (member variables use bare `name: Type`).
         if (Check(type: TokenType.Global))
         {
-            if (_language == Language.RazorForge)
-            {
-                throw new GrammarException(code: GrammarDiagnosticCode.InvalidDeclarationInBody,
-                    message: "'global' is Suflae-only: RazorForge has no module-level mutable state " +
-                             "(thread state through parameters or a heap entity; use 'preset' for constants)",
-                    fileName: FileName,
-                    line: CurrentToken.Line,
-                    column: CurrentToken.Column,
-                    language: _language);
-            }
-            if (_parsingTypeBody)
-            {
-                throw new GrammarException(code: GrammarDiagnosticCode.InvalidDeclarationInBody,
-                    message: "Type member variables cannot use 'global'. Use 'name: Type' syntax instead",
-                    fileName: FileName,
-                    line: CurrentToken.Line,
-                    column: CurrentToken.Column,
-                    language: _language);
-            }
-
-            Advance(); // consume 'global'
-            return ParseGlobalDeclaration(visibility: visibility, storage: storage,
+            return ParseGlobalInDeclarationPosition(visibility: visibility, storage: storage,
                 annotations: annotations);
         }
         if (Match(TokenType.Var))
@@ -582,48 +560,12 @@ public partial class Parser
         // ROUTINE DECLARATION (with async status modifiers)
         // ═══════════════════════════════════════════════════════════════════════════
 
-        AsyncStatus asyncStatus = AsyncStatus.None;
-
-        // Concurrency modifier: threaded routine foo() (RazorForge only, v0.1)
-        if (_language == Language.RazorForge && Match(type: TokenType.Threaded))
-        {
-            asyncStatus = AsyncStatus.Threaded;
-        }
-        // Concurrency modifier: suspended routine foo() — a stackful coroutine. SHARED between RF and
-        // SF (SUFLAE-FOR-AI §2.8 lists `suspended` as an identical keyword; only `threaded` is RF-only,
-        // since SF's Roamed/cycle-collected model has no raw shared-memory threading). SF's single-
-        // thread/REPL model is exactly where cooperative coroutines fit.
-        else if (Match(type: TokenType.Suspended))
-        {
-            asyncStatus = AsyncStatus.Suspended;
-        }
+        AsyncStatus asyncStatus = ParseAsyncStatusModifier();
 
         // Routine (function) declaration
         if (Match(type: TokenType.Routine))
         {
-            // Realm-qualified FOREIGN routine: `routine C::malloc(...)` / `routine LLVM::sqrt(...)`. The
-            // realm tag before `::` picks the calling convention; the declaration is an ExternalDeclaration
-            // (no body, foreign impl) — the modern spelling of `external("C"|"llvm") routine ...`.
-            if (Check(type: TokenType.Identifier) &&
-                PeekToken(offset: 1).Type == TokenType.DoubleColon)
-            {
-                string? conv = CurrentToken.Text switch
-                {
-                    "C" => "C",
-                    "LLVM" => "llvm",
-                    _ => null
-                };
-                if (conv != null)
-                {
-                    Advance(); // realm tag (C / LLVM)
-                    Advance(); // ::
-                    return ParseExternalDeclaration(callingConvention: conv,
-                        annotations: annotations,
-                        isDangerous: isDangerous);
-                }
-            }
-
-            return ParseRoutineDeclaration(visibility: visibility,
+            return ParseRoutineOrForeignDeclaration(visibility: visibility,
                 annotations: annotations,
                 storage: storage,
                 asyncStatus: asyncStatus,
@@ -648,27 +590,7 @@ public partial class Parser
         }
 
         // Validate: storage class modifiers are not valid for type declarations
-        if (storage != StorageClass.None)
-        {
-            bool isTypeKeyword = Check(TokenType.Entity,
-                TokenType.Record,
-                TokenType.Choice,
-                TokenType.Flags,
-                TokenType.Crashable,
-                TokenType.Variant,
-                TokenType.Protocol);
-
-            if (isTypeKeyword)
-            {
-                throw new GrammarException(code: GrammarDiagnosticCode.InvalidDeclarationInBody,
-                    message:
-                    $"'{storage.ToString().ToLower()}' storage class is not valid for type declarations",
-                    fileName: FileName,
-                    line: CurrentToken.Line,
-                    column: CurrentToken.Column,
-                    language: _language);
-            }
-        }
+        RejectStorageClassOnTypeDeclaration(storage: storage);
 
         // Entity/Record/Choice declarations
         if (Match(type: TokenType.Entity))
@@ -727,6 +649,175 @@ public partial class Parser
 
         // Otherwise parse as statement
         return ParseStatement();
+    }
+
+    /// <summary>
+    /// Parses a member-variable field declaration (<c>name: Type</c>) inside a type body, after the
+    /// leading identifier+colon has been detected. Rejects the <c>external</c> visibility inside a
+    /// strict record body.
+    /// </summary>
+    private ISyntaxTreeNode ParseTypeBodyFieldDeclaration(VisibilityModifier visibility)
+    {
+        // In record bodies, external is not allowed
+        if (_parsingStrictRecordBody && visibility is VisibilityModifier.External)
+        {
+            throw new GrammarException(code: GrammarDiagnosticCode.InvalidDeclarationInBody,
+                message:
+                $"'{visibility.ToString().ToLower()}' is not valid for record member variables. " +
+                "Record member variables can use 'secret', 'posted', or 'open'",
+                fileName: FileName,
+                line: CurrentToken.Line,
+                column: CurrentToken.Column,
+                language: _language);
+        }
+
+        return ParseMemberVariableDeclaration(visibility: visibility);
+    }
+
+    /// <summary>
+    /// Handles a <c>preset</c> keyword encountered in declaration position (after modifiers). Rejects
+    /// <c>preset</c> inside a type body and routes to <see cref="ParsePresetDeclaration"/>, carrying the
+    /// secret (file-private) flag from the visibility modifier.
+    /// </summary>
+    private ISyntaxTreeNode ParsePresetInDeclarationPosition(VisibilityModifier visibility)
+    {
+        if (_parsingTypeBody)
+        {
+            throw new GrammarException(code: GrammarDiagnosticCode.InvalidDeclarationInBody,
+                message: "Type member variables cannot use 'var' or 'preset'. " +
+                         "Use 'name: Type' syntax instead",
+                fileName: FileName,
+                line: CurrentToken.Line,
+                column: CurrentToken.Column,
+                language: _language);
+        }
+
+        Advance(); // consume 'preset'
+        return ParsePresetDeclaration(isSecret: visibility == VisibilityModifier.Secret);
+    }
+
+    /// <summary>
+    /// Handles a <c>global</c> keyword encountered in declaration position. Rejects <c>global</c> in
+    /// RazorForge (no module-level mutable state) and inside a type body, then routes to
+    /// <see cref="ParseGlobalDeclaration"/>.
+    /// </summary>
+    private ISyntaxTreeNode ParseGlobalInDeclarationPosition(VisibilityModifier visibility,
+        StorageClass storage, List<string> annotations)
+    {
+        if (_language == Language.RazorForge)
+        {
+            throw new GrammarException(code: GrammarDiagnosticCode.InvalidDeclarationInBody,
+                message: "'global' is Suflae-only: RazorForge has no module-level mutable state " +
+                         "(thread state through parameters or a heap entity; use 'preset' for constants)",
+                fileName: FileName,
+                line: CurrentToken.Line,
+                column: CurrentToken.Column,
+                language: _language);
+        }
+        if (_parsingTypeBody)
+        {
+            throw new GrammarException(code: GrammarDiagnosticCode.InvalidDeclarationInBody,
+                message: "Type member variables cannot use 'global'. Use 'name: Type' syntax instead",
+                fileName: FileName,
+                line: CurrentToken.Line,
+                column: CurrentToken.Column,
+                language: _language);
+        }
+
+        Advance(); // consume 'global'
+        return ParseGlobalDeclaration(visibility: visibility, storage: storage,
+            annotations: annotations);
+    }
+
+    /// <summary>
+    /// Consumes an optional async-status concurrency modifier (<c>threaded</c> — RF only — or
+    /// <c>suspended</c>) preceding a <c>routine</c> declaration and returns the resulting status.
+    /// </summary>
+    private AsyncStatus ParseAsyncStatusModifier()
+    {
+        // Concurrency modifier: threaded routine foo() (RazorForge only, v0.1)
+        if (_language == Language.RazorForge && Match(type: TokenType.Threaded))
+        {
+            return AsyncStatus.Threaded;
+        }
+        // Concurrency modifier: suspended routine foo() — a stackful coroutine. SHARED between RF and
+        // SF (SUFLAE-FOR-AI §2.8 lists `suspended` as an identical keyword; only `threaded` is RF-only,
+        // since SF's Roamed/cycle-collected model has no raw shared-memory threading). SF's single-
+        // thread/REPL model is exactly where cooperative coroutines fit.
+        if (Match(type: TokenType.Suspended))
+        {
+            return AsyncStatus.Suspended;
+        }
+
+        return AsyncStatus.None;
+    }
+
+    /// <summary>
+    /// Parses a routine declaration after the <c>routine</c> keyword has been consumed, dispatching to
+    /// a realm-qualified FOREIGN routine (<c>routine C::malloc(...)</c> / <c>routine LLVM::sqrt(...)</c>)
+    /// when a realm tag before <c>::</c> is present, otherwise an ordinary routine declaration.
+    /// </summary>
+    private ISyntaxTreeNode ParseRoutineOrForeignDeclaration(VisibilityModifier visibility,
+        List<string> annotations, StorageClass storage, AsyncStatus asyncStatus, bool isDangerous)
+    {
+        // Realm-qualified FOREIGN routine: `routine C::malloc(...)` / `routine LLVM::sqrt(...)`. The
+        // realm tag before `::` picks the calling convention; the declaration is an ExternalDeclaration
+        // (no body, foreign impl) — the modern spelling of `external("C"|"llvm") routine ...`.
+        if (Check(type: TokenType.Identifier) &&
+            PeekToken(offset: 1).Type == TokenType.DoubleColon)
+        {
+            string? conv = CurrentToken.Text switch
+            {
+                "C" => "C",
+                "LLVM" => "llvm",
+                _ => null
+            };
+            if (conv != null)
+            {
+                Advance(); // realm tag (C / LLVM)
+                Advance(); // ::
+                return ParseExternalDeclaration(callingConvention: conv,
+                    annotations: annotations,
+                    isDangerous: isDangerous);
+            }
+        }
+
+        return ParseRoutineDeclaration(visibility: visibility,
+            annotations: annotations,
+            storage: storage,
+            asyncStatus: asyncStatus,
+            isDangerous: isDangerous);
+    }
+
+    /// <summary>
+    /// Rejects a storage-class modifier (<c>common</c>/<c>global</c>) placed before a type-declaration
+    /// keyword (entity/record/choice/flags/crashable/variant/protocol), which is not valid.
+    /// </summary>
+    private void RejectStorageClassOnTypeDeclaration(StorageClass storage)
+    {
+        if (storage == StorageClass.None)
+        {
+            return;
+        }
+
+        bool isTypeKeyword = Check(TokenType.Entity,
+            TokenType.Record,
+            TokenType.Choice,
+            TokenType.Flags,
+            TokenType.Crashable,
+            TokenType.Variant,
+            TokenType.Protocol);
+
+        if (isTypeKeyword)
+        {
+            throw new GrammarException(code: GrammarDiagnosticCode.InvalidDeclarationInBody,
+                message:
+                $"'{storage.ToString().ToLower()}' storage class is not valid for type declarations",
+                fileName: FileName,
+                line: CurrentToken.Line,
+                column: CurrentToken.Column,
+                language: _language);
+        }
     }
 
     /// <summary>

@@ -23,7 +23,7 @@ namespace Compiler.Postprocessing.Passes;
 /// <para><c>Bytes</c> literals (<c>b"..."</c>) are not lowered here -> they produce global-constant
 /// entity allocations and remain in codegen.</para>
 /// </summary>
-internal sealed class LiteralLoweringPass
+internal sealed class LiteralLoweringPass : AstRewriter
 {
     private readonly Dictionary<string, Statement>? _variantBodies;
     // Arbitrary-precision literal lowering: `123n`/`3.14dn` -> Integer/Decimal.from_literal(text:"...").
@@ -89,30 +89,7 @@ internal sealed class LiteralLoweringPass
     /// Runs this compiler phase over its configured input.
     /// </summary>
     public void Run(Program program)
-    {
-        for (int i = 0; i < program.Declarations.Count; i++)
-        {
-            switch (program.Declarations[i])
-            {
-                case RoutineDeclaration r:
-                {
-                    Statement newBody = LowerStatement(r.Body);
-                    if (!ReferenceEquals(newBody, r.Body))
-                        program.Declarations[i] = r with { Body = newBody };
-                    break;
-                }
-                case EntityDeclaration e:
-                    LowerMemberList(e.Members);
-                    break;
-                case RecordDeclaration rec:
-                    LowerMemberList(rec.Members);
-                    break;
-                case CrashableDeclaration cr:
-                    LowerMemberList(cr.Members);
-                    break;
-            }
-        }
-    }
+        => BodyDispatch.RunOnProgram(program, lower: r => VisitStatement(r.Body));
 
     /// <summary>
     /// Runs this compiler phase over its configured input.
@@ -120,390 +97,63 @@ internal sealed class LiteralLoweringPass
     public void RunOnVariantBodies()
     {
         if (_variantBodies == null) return;
-        foreach (string key in _variantBodies.Keys.ToList())
-        {
-            Statement body = _variantBodies[key];
-            Statement lowered = LowerStatement(body);
-            if (!ReferenceEquals(lowered, body))
-                _variantBodies[key] = lowered;
-        }
+        BodyDispatch.RunOnVariantBodies(_variantBodies, lower: (_, body) => VisitStatement(body));
     }
 
     // -----------------------------------------------------------------------------
 
     /// <summary>
-    /// Lower member list as part of this compiler phase.
+    /// The nodes this pass actually rewrites. A <see cref="LiteralExpression"/> is a leaf to the base
+    /// rewriter, but it is the primary transform here (domain literals -> constructor calls). A
+    /// <see cref="CarrierPayloadExpression"/> is not a node the base rewriter recurses into, so it is
+    /// handled here to keep its <c>Carrier</c> child lowered. All other structural recursion is supplied
+    /// by <see cref="AstRewriter"/>.
     /// </summary>
-    private void LowerMemberList(List<SyntaxTree.Declaration> members)
+    public override Expression VisitExpression(Expression expr)
     {
-        for (int j = 0; j < members.Count; j++)
-        {
-            if (members[j] is not RoutineDeclaration m) continue;
-            Statement newBody = LowerStatement(m.Body);
-            if (!ReferenceEquals(newBody, m.Body))
-                members[j] = m with { Body = newBody };
-        }
-    }
-
-    // -----------------------------------------------------------------------------
-
-    /// <summary>
-    /// Lower statement as part of this compiler phase.
-    /// </summary>
-    private Statement LowerStatement(Statement stmt)
-    {
-        switch (stmt)
-        {
-            case BlockStatement b:
-            {
-                bool changed = false;
-                var list = new List<Statement>(b.Statements.Count);
-                foreach (Statement s in b.Statements)
-                {
-                    Statement ns = LowerStatement(s);
-                    list.Add(ns);
-                    if (!ReferenceEquals(ns, s)) changed = true;
-                }
-                return changed ? b with { Statements = list } : stmt;
-            }
-            case IfStatement ifs:
-            {
-                Expression cond = LowerExpression(ifs.Condition);
-                Statement then = LowerStatement(ifs.ThenStatement);
-                Statement? elseS = ifs.ElseStatement != null ? LowerStatement(ifs.ElseStatement) : null;
-                bool changed = !ReferenceEquals(cond, ifs.Condition)
-                               || !ReferenceEquals(then, ifs.ThenStatement)
-                               || !ReferenceEquals(elseS, ifs.ElseStatement);
-                return changed ? ifs with { Condition = cond, ThenStatement = then, ElseStatement = elseS } : stmt;
-            }
-            case WhileStatement w:
-            {
-                Expression cond = LowerExpression(w.Condition);
-                Statement body = LowerStatement(w.Body);
-                bool changed = !ReferenceEquals(cond, w.Condition) || !ReferenceEquals(body, w.Body);
-                return changed ? w with { Condition = cond, Body = body } : stmt;
-            }
-            case LoopStatement loop:
-            {
-                Statement body = LowerStatement(loop.Body);
-                return ReferenceEquals(body, loop.Body) ? stmt : loop with { Body = body };
-            }
-            case EachStatement f:
-            {
-                Expression iter = LowerExpression(f.Iterable);
-                Statement body = LowerStatement(f.Body);
-                bool changed = !ReferenceEquals(iter, f.Iterable) || !ReferenceEquals(body, f.Body);
-                return changed ? f with { Iterable = iter, Body = body } : stmt;
-            }
-            case WhenStatement ws:
-            {
-                Expression subject = LowerExpression(ws.Expression);
-                bool changed = !ReferenceEquals(subject, ws.Expression);
-                var clauses = new List<WhenClause>(ws.Clauses.Count);
-                foreach (WhenClause c in ws.Clauses)
-                {
-                    Statement cb = LowerStatement(c.Body);
-                    if (!ReferenceEquals(cb, c.Body)) changed = true;
-                    clauses.Add(!ReferenceEquals(cb, c.Body) ? c with { Body = cb } : c);
-                }
-                return changed ? ws with { Expression = subject, Clauses = clauses } : stmt;
-            }
-            case ReturnStatement { Value: not null } ret:
-            {
-                Expression v = LowerExpression(ret.Value);
-                return ReferenceEquals(v, ret.Value) ? stmt : ret with { Value = v };
-            }
-            case AssignmentStatement assign:
-            {
-                Expression val = LowerExpression(assign.Value);
-                return ReferenceEquals(val, assign.Value) ? stmt : assign with { Value = val };
-            }
-            case DeclarationStatement { Declaration: VariableDeclaration { Initializer: not null } vd } ds:
-            {
-                Expression init = LowerExpression(vd.Initializer);
-                if (ReferenceEquals(init, vd.Initializer)) return stmt;
-                return ds with { Declaration = vd with { Initializer = init } };
-            }
-            case ExpressionStatement es:
-            {
-                Expression e = LowerExpression(es.Expression);
-                return ReferenceEquals(e, es.Expression) ? stmt : es with { Expression = e };
-            }
-            case DiscardStatement ds:
-            {
-                Expression e = LowerExpression(ds.Expression);
-                return ReferenceEquals(e, ds.Expression) ? stmt : ds with { Expression = e };
-            }
-            case ThrowStatement ts:
-            {
-                Expression e = LowerExpression(ts.Error);
-                return ReferenceEquals(e, ts.Error) ? stmt : ts with { Error = e };
-            }
-            case BecomesStatement bs:
-            {
-                Expression v = LowerExpression(bs.Value);
-                return ReferenceEquals(v, bs.Value) ? stmt : bs with { Value = v };
-            }
-            case UsingStatement us:
-            {
-                Statement body = LowerStatement(us.Body);
-                Statement? fb = us.FallbackBody != null ? LowerStatement(us.FallbackBody) : null;
-                return ReferenceEquals(body, us.Body) && ReferenceEquals(fb, us.FallbackBody)
-                    ? stmt
-                    : us with { Body = body, FallbackBody = fb };
-            }
-            case DangerStatement danger:
-            {
-                Statement newBody = LowerStatement(danger.Body);
-                if (!ReferenceEquals(newBody, danger.Body) && newBody is BlockStatement bs2)
-                    return danger with { Body = bs2 };
-                return stmt;
-            }
-            default:
-                return stmt;
-        }
-    }
-
-    // -----------------------------------------------------------------------------
-
-    /// <summary>
-    /// Lower expression as part of this compiler phase.
-    /// </summary>
-    private Expression LowerExpression(Expression expr)
-    {
-        if (expr is LiteralExpression literal)
-        {
-            // Arbitrary-precision `n`/`dn` literals -> infallible from_literal constructor call
-            // (instance lowering: needs the cached Integer/Decimal types + routines).
-            Expression? fromLit = TryLowerArbitraryPrecisionLiteral(literal);
-            if (fromLit != null) return fromLit;
-
-            // Imaginary `j*` literals -> pure-imaginary complex constructor.
-            Expression? imag = TryLowerImaginaryLiteral(literal);
-            if (imag != null) return imag;
-
-            Expression? lowered = TryLowerLiteral(literal);
-            if (lowered != null) return lowered;
-            return expr;
-        }
-
         switch (expr)
         {
-            case BinaryExpression bin:
+            case LiteralExpression literal:
             {
-                Expression l = LowerExpression(bin.Left);
-                Expression r = LowerExpression(bin.Right);
-                return ReferenceEquals(l, bin.Left) && ReferenceEquals(r, bin.Right)
-                    ? expr : bin with { Left = l, Right = r };
-            }
-            case UnaryExpression un:
-            {
-                Expression o = LowerExpression(un.Operand);
-                return ReferenceEquals(o, un.Operand) ? expr : un with { Operand = o };
-            }
-            case CallExpression call:
-            {
-                Expression callee = LowerExpression(call.Callee);
-                List<Expression> args = LowerExpressionList(call.Arguments);
-                bool changed = !ReferenceEquals(callee, call.Callee) || !ReferenceEquals(args, call.Arguments);
-                return changed ? call with { Callee = callee, Arguments = args } : expr;
-            }
-            case NamedArgumentExpression named:
-            {
-                Expression v = LowerExpression(named.Value);
-                return ReferenceEquals(v, named.Value) ? expr : named with { Value = v };
-            }
-            case MemberExpression mem:
-            {
-                Expression o = LowerExpression(mem.Object);
-                return ReferenceEquals(o, mem.Object) ? expr : mem with { Object = o };
-            }
-            case OptionalMemberExpression omem:
-            {
-                Expression o = LowerExpression(omem.Object);
-                return ReferenceEquals(o, omem.Object) ? expr : omem with { Object = o };
-            }
-            case IndexExpression idx:
-            {
-                Expression o = LowerExpression(idx.Object);
-                Expression i = LowerExpression(idx.Index);
-                bool changed = !ReferenceEquals(o, idx.Object) || !ReferenceEquals(i, idx.Index);
-                if (!changed) return expr;
-                var rewritten = idx with { Object = o, Index = i };
-                rewritten.ResolvedType = idx.ResolvedType;
-                rewritten.ResolvedSetItem = idx.ResolvedSetItem;
-                return rewritten;
-            }
-            case TypeConversionExpression conv:
-            {
-                Expression e = LowerExpression(conv.Expression);
-                return ReferenceEquals(e, conv.Expression) ? expr : conv with { Expression = e };
-            }
-            case StealExpression steal:
-            {
-                Expression o = LowerExpression(steal.Operand);
-                return ReferenceEquals(o, steal.Operand) ? expr : steal with { Operand = o };
-            }
-            case GenericMemberRoutineCallExpression gmc:
-            {
-                Expression obj = LowerExpression(gmc.Object);
-                List<Expression> args = LowerExpressionList(gmc.Arguments);
-                bool changed = !ReferenceEquals(obj, gmc.Object) || !ReferenceEquals(args, gmc.Arguments);
-                return changed ? gmc with { Object = obj, Arguments = args } : expr;
-            }
-            case GenericMemberExpression gmem:
-            {
-                Expression o = LowerExpression(gmem.Object);
-                return ReferenceEquals(o, gmem.Object) ? expr : gmem with { Object = o };
-            }
-            case IsPatternExpression ip:
-            {
-                Expression e = LowerExpression(ip.Expression);
-                return ReferenceEquals(e, ip.Expression) ? expr : ip with { Expression = e };
-            }
-            case FlagsTestExpression flags:
-            {
-                Expression s = LowerExpression(flags.Subject);
-                return ReferenceEquals(s, flags.Subject) ? expr : flags with { Subject = s };
-            }
-            case ChainedComparisonExpression chain:
-            {
-                List<Expression> operands = LowerExpressionList(chain.Operands);
-                return ReferenceEquals(operands, chain.Operands) ? expr : chain with { Operands = operands };
-            }
-            case CompoundAssignmentExpression comp:
-            {
-                Expression target = LowerExpression(comp.Target);
-                Expression value = LowerExpression(comp.Value);
-                bool changed = !ReferenceEquals(target, comp.Target) || !ReferenceEquals(value, comp.Value);
-                return changed ? comp with { Target = target, Value = value } : expr;
-            }
-            case RangeExpression range:
-            {
-                Expression start = LowerExpression(range.Start);
-                Expression end = LowerExpression(range.End);
-                Expression? step = range.Step != null ? LowerExpression(range.Step) : null;
-                bool changed = !ReferenceEquals(start, range.Start)
-                               || !ReferenceEquals(end, range.End)
-                               || !ReferenceEquals(step, range.Step);
-                return changed ? range with { Start = start, End = end, Step = step } : expr;
-            }
-            case ConditionalExpression cond:
-            {
-                Expression c = LowerExpression(cond.Condition);
-                Expression t = LowerExpression(cond.TrueExpression);
-                Expression f = LowerExpression(cond.FalseExpression);
-                bool changed = !ReferenceEquals(c, cond.Condition)
-                               || !ReferenceEquals(t, cond.TrueExpression)
-                               || !ReferenceEquals(f, cond.FalseExpression);
-                return changed ? cond with { Condition = c, TrueExpression = t, FalseExpression = f } : expr;
-            }
-            case TupleLiteralExpression tuple:
-            {
-                List<Expression> elems = LowerExpressionList(tuple.Elements);
-                return ReferenceEquals(elems, tuple.Elements) ? expr : tuple with { Elements = elems };
-            }
-            case ListLiteralExpression list:
-            {
-                List<Expression> elems = LowerExpressionList(list.Elements);
-                return ReferenceEquals(elems, list.Elements) ? expr : list with { Elements = elems };
-            }
-            case SetLiteralExpression set:
-            {
-                List<Expression> elems = LowerExpressionList(set.Elements);
-                return ReferenceEquals(elems, set.Elements) ? expr : set with { Elements = elems };
-            }
-            case DictLiteralExpression dict:
-            {
-                bool changed = false;
-                var pairs = new List<(Expression Key, Expression Value)>(dict.Pairs.Count);
-                foreach ((Expression k, Expression v) in dict.Pairs)
-                {
-                    Expression lk = LowerExpression(k);
-                    Expression lv = LowerExpression(v);
-                    pairs.Add((lk, lv));
-                    if (!ReferenceEquals(lk, k) || !ReferenceEquals(lv, v)) changed = true;
-                }
-                return changed ? dict with { Pairs = pairs } : expr;
-            }
-            case CreatorExpression creator:
-            {
-                bool changed = false;
-                var members = new List<(string Name, Expression Value)>(creator.MemberVariables.Count);
-                foreach ((string name, Expression value) in creator.MemberVariables)
-                {
-                    Expression v = LowerExpression(value);
-                    members.Add((name, v));
-                    if (!ReferenceEquals(v, value)) changed = true;
-                }
-                return changed ? creator with { MemberVariables = members } : expr;
-            }
-            case InsertedTextExpression fstr:
-            {
-                bool changed = false;
-                var parts = new List<InsertedTextPart>(fstr.Parts.Count);
-                foreach (InsertedTextPart part in fstr.Parts)
-                {
-                    if (part is ExpressionPart ep)
-                    {
-                        Expression e = LowerExpression(ep.Expression);
-                        if (!ReferenceEquals(e, ep.Expression))
-                        {
-                            parts.Add(ep with { Expression = e });
-                            changed = true;
-                            continue;
-                        }
-                    }
-                    parts.Add(part);
-                }
-                return changed ? fstr with { Parts = parts } : expr;
-            }
-            case BackIndexExpression back:
-            {
-                // `^n` is NOT materialized into a value here — it stays a `BackIndexExpression` marker.
-                // OperatorLoweringPass (runs after this pass) rewrites the enclosing subscript/slice to
-                // `back_resolve(count: coll.count(), offset: n)`. Retag an untyped/signed integer-literal
-                // offset to U64 (the `^n` position is U64) BEFORE lowering, so it stays a scalar i64 and
-                // is not lowered to an arbitrary-precision Integer (which is heap/Text-backed).
-                Expression operand = back.Operand is LiteralExpression
-                    {
-                        LiteralType: TokenType.UndecidedInteger or TokenType.IntegerLiteral
-                            or TokenType.S64Literal
-                    } lit
-                    ? lit with { LiteralType = TokenType.U64Literal }
-                    : back.Operand;
-                Expression o = LowerExpression(operand);
-                return back with { Operand = o };
-            }
-            case BlockExpression block:
-            {
-                Expression v = LowerExpression(block.Value);
-                return ReferenceEquals(v, block.Value) ? expr : block with { Value = v };
+                // Arbitrary-precision `n`/`dn` literals -> infallible from_literal constructor call
+                // (instance lowering: needs the cached Integer/Decimal types + routines).
+                Expression? fromLit = TryLowerArbitraryPrecisionLiteral(literal);
+                if (fromLit != null) return fromLit;
+
+                // Imaginary `j*` literals -> pure-imaginary complex constructor.
+                Expression? imag = TryLowerImaginaryLiteral(literal);
+                if (imag != null) return imag;
+
+                Expression? lowered = TryLowerLiteral(literal);
+                if (lowered != null) return lowered;
+                return expr;
             }
             case CarrierPayloadExpression cpe:
             {
-                Expression c = LowerExpression(cpe.Carrier);
+                Expression c = VisitExpression(cpe.Carrier);
                 return ReferenceEquals(c, cpe.Carrier) ? expr : cpe with { Carrier = c };
             }
             default:
-                return expr;
+                return base.VisitExpression(expr);
         }
     }
 
-    /// <summary>
-    /// Lower expression list as part of this compiler phase.
-    /// </summary>
-    private List<Expression> LowerExpressionList(List<Expression> list)
+    protected override Expression VisitBackIndex(BackIndexExpression back)
     {
-        bool changed = false;
-        var result = new List<Expression>(list.Count);
-        foreach (Expression e in list)
-        {
-            Expression le = LowerExpression(e);
-            result.Add(le);
-            if (!ReferenceEquals(le, e)) changed = true;
-        }
-        return changed ? result : list;
+        // `^n` is NOT materialized into a value here — it stays a `BackIndexExpression` marker.
+        // OperatorLoweringPass (runs after this pass) rewrites the enclosing subscript/slice to
+        // `back_resolve(count: coll.count(), offset: n)`. Retag an untyped/signed integer-literal
+        // offset to U64 (the `^n` position is U64) BEFORE lowering, so it stays a scalar i64 and
+        // is not lowered to an arbitrary-precision Integer (which is heap/Text-backed).
+        Expression operand = back.Operand is LiteralExpression
+            {
+                LiteralType: TokenType.UndecidedInteger or TokenType.IntegerLiteral
+                    or TokenType.S64Literal
+            } lit
+            ? lit with { LiteralType = TokenType.U64Literal }
+            : back.Operand;
+        Expression o = VisitExpression(operand);
+        return back with { Operand = o };
     }
 
     // -----------------------------------------------------------------------------

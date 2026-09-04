@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using Compiler.Diagnostics;
 using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Symbols;
@@ -73,6 +74,91 @@ public sealed partial class SemanticVerifier
     }
 
     /// <summary>
+    /// Reports RF-S150 for each <c>needs &lt;param&gt; obeys P</c> constraint on a generic ROUTINE that the
+    /// resolved explicit type arguments violate — the clean call-site diagnostic that replaces the
+    /// over-prune codegen crash (the body's <c>x.duplicate()</c> etc. would otherwise be pruned when the
+    /// arg fails the bound, surfacing as an "undefined symbol"). Uses the onlyif-aware
+    /// <see cref="ImplementsProtocol"/> so a conditional-conformance failure (e.g. <c>List[NonCopyable]</c>
+    /// vs <c>T obeys Copyable</c>) is caught. Args still abstract (a nested generic param) are skipped —
+    /// they are validated once fully concrete.
+    /// </summary>
+    internal void ValidateRoutineGenericConstraints(RoutineInfo routine, List<TypeSymbol> typeArgs,
+        SourceLocation location)
+    {
+        if (routine.GenericConstraints is not { Count: > 0 } constraints ||
+            routine.GenericParameters is not { Count: > 0 } genParams)
+            return;
+        foreach (GenericConstraintDeclaration c in constraints)
+        {
+            if (c.ConstraintType != ConstraintKind.Obeys || c.ConstraintTypes == null)
+                continue;
+            int idx = genParams.IndexOf(item: c.ParameterName);
+            if (idx < 0 || idx >= typeArgs.Count)
+                continue;
+            TypeSymbol arg = typeArgs[index: idx];
+            if (arg is GenericParameterTypeInfo)
+                continue;
+            foreach (TypeExpression protoExpr in c.ConstraintTypes)
+                if (!ImplementsProtocol(type: arg, protocolName: protoExpr.Name))
+                    ReportError(code: SemanticDiagnosticCode.ProtocolConstraintViolation,
+                        message: $"Type '{arg.Name}' does not implement protocol '{protoExpr.Name}' " +
+                                 $"required by constraint on '{c.ParameterName}'.",
+                        location: location);
+        }
+    }
+
+    /// <summary>
+    /// Reports RF-S150 when a resolved MEMBER routine's owner-level <c>needs &lt;param&gt; obeys P</c>
+    /// constraints are violated by the concrete receiver's bound type args — e.g.
+    /// <c>List[Widget].duplicate()</c> where <c>List.duplicate</c> carries <c>needs T obeys Copyable</c> but
+    /// <c>Widget</c> is not Copyable. Without this the call resolves, a body-less concrete instance is
+    /// referenced, and codegen trips the "declared+called but never defined" over-prune crash instead of a
+    /// clean diagnostic. Permissive on anything unevaluable (non-generic receiver, missing def params).
+    /// </summary>
+    internal void ValidateMemberOwnerConstraints(RoutineInfo memberRoutine, TypeSymbol ownerType,
+        SourceLocation location)
+    {
+        // Owner-level `needs param obeys P` can only exist on a GENERIC receiver; a non-generic receiver
+        // (no bound type args) has nothing to check. Short-circuit here so the common member call never
+        // pays the def-method lookup below — this runs on EVERY member call, so the guard is load-bearing
+        // for compile speed (variant-body analysis touches thousands of member calls).
+        if (ownerType.TypeArguments is not { Count: > 0 })
+            return;
+        // The owner's generic DEFINITION (List[T] for a List[Widget] receiver) carries the def params +
+        // the method's `needs`; the resolved instance drops the constraints, so read them from the def.
+        TypeSymbol? ownerDef =
+            (ownerType as EntityTypeInfo)?.GenericDefinition
+            ?? (ownerType as RecordTypeInfo)?.GenericDefinition as TypeSymbol;
+        List<GenericConstraintDeclaration>? constraints = memberRoutine.GenericConstraints;
+        if (constraints is not { Count: > 0 } && ownerDef != null)
+            constraints = _registry.LookupMemberRoutine(type: ownerDef,
+                memberRoutineName: memberRoutine.Name)?.GenericConstraints;
+        if (constraints is not { Count: > 0 })
+            return;
+        List<string>? paramNames = (ownerDef ?? ownerType).GenericParameters ?? ownerType.GenericParameters;
+        List<TypeSymbol>? args = ownerType.TypeArguments;
+        if (paramNames is null || args is null)
+            return;
+        var subs = new Dictionary<string, TypeSymbol>(comparer: System.StringComparer.Ordinal);
+        for (int i = 0; i < paramNames.Count && i < args.Count; i++)
+            subs[key: paramNames[i]] = args[i];
+        foreach (GenericConstraintDeclaration c in constraints)
+        {
+            if (c.ConstraintType != ConstraintKind.Obeys || c.ConstraintTypes == null)
+                continue;
+            if (!subs.TryGetValue(key: c.ParameterName, value: out TypeSymbol? actual)
+                || actual is GenericParameterTypeInfo)
+                continue;
+            foreach (TypeExpression protoExpr in c.ConstraintTypes)
+                if (!ImplementsProtocol(type: actual, protocolName: protoExpr.Name))
+                    ReportError(code: SemanticDiagnosticCode.ProtocolConstraintViolation,
+                        message: $"'{ownerType.Name}.{memberRoutine.Name}' requires '{c.ParameterName} " +
+                                 $"obeys {protoExpr.Name}', but '{actual.Name}' does not.",
+                        location: location);
+        }
+    }
+
+    /// <summary>
     /// Returns true if <paramref name="type"/> implements the named protocol.
     /// Checks explicit protocol declarations, parent protocol chains, and structural conformance
     /// (i.e., whether the type has all required memberRoutines of the protocol).
@@ -99,7 +185,52 @@ public sealed partial class SemanticVerifier
         // Equatable/Hashable are auto-derived for these categories). Without this, a
         // `needs M obeys RecordType` constraint can only be met by the wrong-spelling
         // workaround `M is RecordType`.
-        bool categoryMatch = protocolName switch
+        if (MatchesCategoryProtocol(type: type, protocolName: protocolName))
+        {
+            return true;
+        }
+
+        // Generic parameter: check current routine/owner type constraints for obeys declarations.
+        // e.g., needs T obeys Equatable means T satisfies Equatable inside this routine's body.
+        if (type is GenericParameterTypeInfo)
+        {
+            return GenericParamObeysConstraint(type: type, protocolName: protocolName);
+        }
+
+        // DECLARED conformance (own ImplementedProtocols + their parent chain, gated by `onlyif`, plus the
+        // reflexive marker-protocol rule) is decided by the single registry authority — no duplicate walk
+        // here. A positive result covers e.g. `List[NonCopyable]` NOT satisfying `T obeys Copyable`
+        // (RF-S150), and Viewing/Modifying/value types satisfying Accessing/Controlling.
+        if (_registry.TypeObeysProtocol(type: type, protocolName: protocolName))
+        {
+            return true;
+        }
+
+        // STRUCTURAL conformance (the type has all of the protocol's required member routines) is the
+        // SA-only fallback the registry cannot compute.
+        List<TypeSymbol>? implementedProtocols = type switch
+        {
+            RecordTypeInfo record => record.ImplementedProtocols,
+            EntityTypeInfo entity => entity.ImplementedProtocols,
+            _ => null
+        };
+        if (implementedProtocols != null && protocol is ProtocolTypeInfo protoType)
+        {
+            return ImplementsProtocolStructurally(type: type, protoType: protoType,
+                protocolName: protocolName, implementedProtocols: implementedProtocols);
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="protocolName"/> is a type-category protocol
+    /// (RecordType/EntityType/…) that <paramref name="type"/> satisfies by category membership.
+    /// Extracted from <see cref="ImplementsProtocol"/>.
+    /// </summary>
+    private static bool MatchesCategoryProtocol(TypeSymbol type, string protocolName)
+    {
+        return protocolName switch
         {
             "RecordType" => type.Category == TypeCategory.Record,
             "EntityType" => type.Category == TypeCategory.Entity,
@@ -109,83 +240,64 @@ public sealed partial class SemanticVerifier
             "Crashable" => type.Category == TypeCategory.Crashable,
             _ => false
         };
-        if (categoryMatch)
-        {
-            return true;
-        }
+    }
 
-        // Generic parameter: check current routine/owner type constraints for obeys declarations.
-        // e.g., needs T obeys Equatable means T satisfies Equatable inside this routine's body.
-        if (type is GenericParameterTypeInfo)
-        {
-            if (_currentRoutine?.GenericConstraints != null &&
-                _currentRoutine.GenericConstraints.Any(c =>
-                    c.ParameterName == type.Name && c is { ConstraintType: ConstraintKind.Obeys, ConstraintTypes: not null } &&
-                    c.ConstraintTypes.Any(ct => ct.Name == protocolName)))
-                return true;
-
-            TypeSymbol? ownerType = _currentRoutine?.OwnerType;
-            if (ownerType?.GenericConstraints == null)
-            {
-                return false;
-            }
-
-            return ownerType.GenericConstraints.Any(c =>
+    /// <summary>
+    /// Returns true when the generic-parameter <paramref name="type"/> obeys
+    /// <paramref name="protocolName"/> via an active <c>obeys</c> constraint on the current routine or
+    /// its owner type. Extracted from <see cref="ImplementsProtocol"/>.
+    /// </summary>
+    private bool GenericParamObeysConstraint(TypeSymbol type, string protocolName)
+    {
+        if (_currentRoutine?.GenericConstraints != null &&
+            _currentRoutine.GenericConstraints.Any(c =>
                 c.ParameterName == type.Name && c is { ConstraintType: ConstraintKind.Obeys, ConstraintTypes: not null } &&
-                c.ConstraintTypes.Any(ct => ct.Name == protocolName));
-        }
+                c.ConstraintTypes.Any(ct => ct.Name == protocolName)))
+            return true;
 
-        // Get the list of implemented protocols for this type
-        List<TypeSymbol>? implementedProtocols = type switch
-        {
-            RecordTypeInfo record => record.ImplementedProtocols,
-            EntityTypeInfo entity => entity.ImplementedProtocols,
-            _ => null
-        };
-
-        if (implementedProtocols == null)
+        TypeSymbol? ownerType = _currentRoutine?.OwnerType;
+        if (ownerType?.GenericConstraints == null)
         {
             return false;
         }
 
-        // Check if the protocol is directly declared (or via parent protocols recursively)
-        if (implementedProtocols.Any(implemented =>
-                implemented.Name == protocolName ||
-                implemented.BareName == protocolName ||
-                (implemented is ProtocolTypeInfo proto &&
-                 CheckParentProtocols(proto: proto, targetName: protocolName))))
-            return true;
+        return ownerType.GenericConstraints.Any(c =>
+            c.ParameterName == type.Name && c is { ConstraintType: ConstraintKind.Obeys, ConstraintTypes: not null } &&
+            c.ConstraintTypes.Any(ct => ct.Name == protocolName));
+    }
 
-        // Check if the type has all required memberRoutines of the protocol (structural conformance)
-        if (protocol is ProtocolTypeInfo protoType)
+    /// <summary>
+    /// Handles the structural-conformance tail of <see cref="ImplementsProtocol"/>: the implicit
+    /// entity Accessing/Controlling satisfaction, the transparent readonly relay through a wrapper's
+    /// inner type, and the final member-routine structural check.
+    /// </summary>
+    private bool ImplementsProtocolStructurally(TypeSymbol type, ProtocolTypeInfo protoType,
+        string protocolName, List<TypeSymbol> implementedProtocols)
+    {
+        // Entity T implicitly satisfies Accessing[T] and Controlling[T]
+        if (type.Category == TypeCategory.Entity &&
+            protoType.TypeArguments is { Count: 1 } args &&
+            args[index: 0].Name == type.Name)
         {
-            // Entity T implicitly satisfies Accessing[T] and Controlling[T]
-            if (type.Category == TypeCategory.Entity &&
-                protoType.TypeArguments is { Count: 1 } args &&
-                args[index: 0].Name == type.Name)
+            string baseProto = (protoType.GenericDefinition ?? protoType).BareName;
+            if (Compiler.Resolution.RuntimeContract.IsMarkerProtocol(baseName: baseProto))
             {
-                string baseProto = (protoType.GenericDefinition ?? protoType).BareName;
-                if (baseProto is Compiler.Resolution.RuntimeContract.Accessing or Compiler.Resolution.RuntimeContract.Controlling)
-                {
-                    return true;
-                }
+                return true;
             }
-
-            // Transparent relay for Accessing[T] / Controlling[T]:
-            // A wrapper type satisfies any readonly protocol that its inner entity type satisfies.
-            // All @readonly protocol memberRoutines are safe to delegate through both read-only
-            // (Accessing) and read-write (Controlling) wrappers.
-            if (IsAllReadOnlyProtocol(protoType))
-            {
-                TypeSymbol? innerT = GetReferringControllingInnerType(protocols: implementedProtocols);
-                if (innerT != null && ImplementsProtocol(type: innerT, protocolName: protocolName))
-                    return true;
-            }
-
-            return CheckStructuralConformance(type: type, protocol: protoType);
         }
 
-        return false;
+        // Transparent relay for Accessing[T] / Controlling[T]:
+        // A wrapper type satisfies any readonly protocol that its inner entity type satisfies.
+        // All @readonly protocol memberRoutines are safe to delegate through both read-only
+        // (Accessing) and read-write (Controlling) wrappers.
+        if (IsAllReadOnlyProtocol(protoType))
+        {
+            TypeSymbol? innerT = GetReferringControllingInnerType(protocols: implementedProtocols);
+            if (innerT != null && ImplementsProtocol(type: innerT, protocolName: protocolName))
+                return true;
+        }
+
+        return CheckStructuralConformance(type: type, protocol: protoType);
     }
 
     /// <summary>
@@ -298,7 +410,7 @@ public sealed partial class SemanticVerifier
     /// <summary>
     /// Checks if a type's memberRoutine signature matches a protocol memberRoutine signature.
     /// </summary>
-    private bool memberRoutineSignatureMatches(RoutineInfo typeMemberRoutine, ProtocolMemberRoutineInfo protoMemberRoutine) // NOSONAR S3776
+    private bool memberRoutineSignatureMatches(RoutineInfo typeMemberRoutine, ProtocolMemberRoutineInfo protoMemberRoutine)
     {
         // Check failable matches
         if (typeMemberRoutine.IsFailable != protoMemberRoutine.IsFailable)
@@ -321,6 +433,25 @@ public sealed partial class SemanticVerifier
             return false;
         }
 
+        if (!MemberRoutineParameterTypesMatch(typeMemberRoutine: typeMemberRoutine,
+                protoMemberRoutine: protoMemberRoutine, expectedParamCount: expectedParamCount,
+                hasMeParam: hasMeParam))
+        {
+            return false;
+        }
+
+        return MemberRoutineReturnTypeMatches(typeMemberRoutine: typeMemberRoutine,
+            protoMemberRoutine: protoMemberRoutine);
+    }
+
+    /// <summary>
+    /// Checks that each of the type memberRoutine's parameter types (skipping 'me' when present)
+    /// matches the corresponding protocol parameter type. Extracted from
+    /// <see cref="memberRoutineSignatureMatches"/>.
+    /// </summary>
+    private bool MemberRoutineParameterTypesMatch(RoutineInfo typeMemberRoutine,
+        ProtocolMemberRoutineInfo protoMemberRoutine, int expectedParamCount, bool hasMeParam)
+    {
         // Check parameter types - skip 'me' if present
         int startIndex = hasMeParam
             ? 1
@@ -346,6 +477,17 @@ public sealed partial class SemanticVerifier
             }
         }
 
+        return true;
+    }
+
+    /// <summary>
+    /// Checks that the type memberRoutine's return type is compatible with the protocol
+    /// memberRoutine's declared return type. Extracted from
+    /// <see cref="memberRoutineSignatureMatches"/>.
+    /// </summary>
+    private bool MemberRoutineReturnTypeMatches(RoutineInfo typeMemberRoutine,
+        ProtocolMemberRoutineInfo protoMemberRoutine)
+    {
         // Check return type (if specified)
         if (protoMemberRoutine.ReturnType != null && typeMemberRoutine.ReturnType != null)
         {
@@ -401,7 +543,7 @@ public sealed partial class SemanticVerifier
         foreach (TypeSymbol proto in protocols)
         {
             string baseName = proto.BareName;
-            if (baseName is Compiler.Resolution.RuntimeContract.Accessing or Compiler.Resolution.RuntimeContract.Controlling && proto.TypeArguments is { Count: 1 })
+            if (Compiler.Resolution.RuntimeContract.IsMarkerProtocol(baseName: baseName) && proto.TypeArguments is { Count: 1 })
                 return proto.TypeArguments[index: 0];
         }
 

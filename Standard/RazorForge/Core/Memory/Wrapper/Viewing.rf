@@ -55,7 +55,7 @@ routine Viewing[T].access() -> T
 
 ### Returns the display form of the viewed entity.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine Viewing[T].represent() -> Text
   danger
     var hijacked = Hijacked[T](me)
@@ -63,11 +63,12 @@ routine Viewing[T].represent() -> Text
 
 ### Returns the diagnostic form of the viewed entity.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine Viewing[T].diagnose() -> Text
   danger
     var hijacked = Hijacked[T](me)
     return me.type_name() + "(" + hijacked.as_entity().diagnose() + ")"
 
+@override
 dangerous routine Viewing[T].destroy()
   return

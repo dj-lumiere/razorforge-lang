@@ -286,42 +286,10 @@ public sealed partial class SemanticVerifier
             return operandType;
         }
 
-        // Check if the type is a scope-bound wrapper (cannot be stolen)
-        if (IsMemoryToken(type: operandType))
+        // Check the scope-bound / internal / shared-ownership wrapper rejections. Each reports its own
+        // diagnostic; on any hit, analysis stops with the operand type.
+        if (TryRejectUnstealableWrapper(steal: steal, operandType: operandType))
         {
-            string tokenKind = GetMemoryTokenKind(type: operandType);
-            ReportError(code: SemanticDiagnosticCode.StealScopeBoundToken,
-                message: $"Cannot steal '{tokenKind}' - scope-bound wrappers cannot be stolen. " +
-                         $"Only raw entities can be stolen.",
-                location: steal.Location);
-            steal.ResolvedType = operandType;
-            return operandType;
-        }
-
-        // Check for Hijacked[T] (internal ownership, not for user code)
-        if (IsHijacked(type: operandType))
-        {
-            ReportError(code: SemanticDiagnosticCode.StealHijacked,
-                message: "Cannot steal 'Hijacked[T]' - internal ownership type cannot be stolen.",
-                location: steal.Location);
-            steal.ResolvedType = operandType;
-            return operandType;
-        }
-
-        // Check for a single-threaded reference-counted handle (Retained/Tracked). These are SHARED
-        // ownership, not unique — multiple handles to the same non-atomic control block can coexist,
-        // so `steal` (an exclusive-transfer marker) is a category error: moving one handle proves
-        // nothing about the others. Clone with `.retain()`/`.track()`, or convert to `Guarded`/
-        // `Witnessed` (atomic Arc) to move ownership across a coroutine/thread boundary.
-        if (operandType.BareName is
-            Compiler.Resolution.RuntimeContract.Retained or Compiler.Resolution.RuntimeContract.Tracked)
-        {
-            ReportError(code: SemanticDiagnosticCode.StealSharedOwnership,
-                message:
-                $"Cannot steal '{operandType.Name}' - a reference-counted handle is shared ownership, " +
-                "not unique, so it cannot be exclusively moved. Copy it with `.assign()`, " +
-                "or use `Guarded`/`Witnessed` to move ownership across a coroutine/thread boundary.",
-                location: steal.Location);
             steal.ResolvedType = operandType;
             return operandType;
         }
@@ -364,6 +332,54 @@ public sealed partial class SemanticVerifier
 
         steal.ResolvedType = operandType;
         return operandType;
+    }
+
+    /// <summary>
+    /// Rejects a <c>steal</c> whose operand is an unstealable wrapper: a scope-bound token
+    /// (Viewing/Modifying), the internal <c>Hijacked[T]</c>, or a single-threaded reference-counted
+    /// handle (Retained/Tracked, which is SHARED ownership). Reports the matching diagnostic and
+    /// returns true on any hit; false when the operand is not one of these wrappers.
+    /// </summary>
+    private bool TryRejectUnstealableWrapper(StealExpression steal, TypeSymbol operandType)
+    {
+        // Check if the type is a scope-bound wrapper (cannot be stolen)
+        if (IsMemoryToken(type: operandType))
+        {
+            string tokenKind = GetMemoryTokenKind(type: operandType);
+            ReportError(code: SemanticDiagnosticCode.StealScopeBoundToken,
+                message: $"Cannot steal '{tokenKind}' - scope-bound wrappers cannot be stolen. " +
+                         $"Only raw entities can be stolen.",
+                location: steal.Location);
+            return true;
+        }
+
+        // Check for Hijacked[T] (internal ownership, not for user code)
+        if (IsHijacked(type: operandType))
+        {
+            ReportError(code: SemanticDiagnosticCode.StealHijacked,
+                message: "Cannot steal 'Hijacked[T]' - internal ownership type cannot be stolen.",
+                location: steal.Location);
+            return true;
+        }
+
+        // Check for a single-threaded reference-counted handle (Retained/Tracked). These are SHARED
+        // ownership, not unique — multiple handles to the same non-atomic control block can coexist,
+        // so `steal` (an exclusive-transfer marker) is a category error: moving one handle proves
+        // nothing about the others. Clone with `.retain()`/`.track()`, or convert to `Guarded`/
+        // `Witnessed` (atomic Arc) to move ownership across a coroutine/thread boundary.
+        if (operandType.BareName is
+            Compiler.Resolution.RuntimeContract.Retained or Compiler.Resolution.RuntimeContract.Tracked)
+        {
+            ReportError(code: SemanticDiagnosticCode.StealSharedOwnership,
+                message:
+                $"Cannot steal '{operandType.Name}' - a reference-counted handle is shared ownership, " +
+                "not unique, so it cannot be exclusively moved. Copy it with `.assign()`, " +
+                "or use `Guarded`/`Witnessed` to move ownership across a coroutine/thread boundary.",
+                location: steal.Location);
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>

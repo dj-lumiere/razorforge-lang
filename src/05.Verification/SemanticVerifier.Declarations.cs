@@ -407,7 +407,7 @@ public sealed partial class SemanticVerifier
 
         call.LoweringKind = presetType switch
         {
-            RecordTypeInfo { HasDirectBackendType: true } => CallLoweringKind.TypeConstructor,
+            RecordTypeInfo { BackendType: not null } => CallLoweringKind.TypeConstructor,
             _ => call.LoweringKind
         };
     }
@@ -424,7 +424,7 @@ public sealed partial class SemanticVerifier
         bool found = false;
         foreach (TypeInfo t in _registry.GetAllTypes().ToList())
         {
-            if (t is not RecordTypeInfo { HasDirectBackendType: false, IsGenericDefinition: false } rec
+            if (t is not RecordTypeInfo { BackendType: null, IsGenericDefinition: false } rec
                 || rec is TupleTypeInfo)
             {
                 continue;
@@ -459,7 +459,7 @@ public sealed partial class SemanticVerifier
         HashSet<string> seen)
     {
         // Only inline value aggregates (plain records / tuples) propagate the cycle.
-        if (current is not RecordTypeInfo { HasDirectBackendType: false } rec)
+        if (current is not RecordTypeInfo { BackendType: null } rec)
         {
             return false;
         }
@@ -745,8 +745,33 @@ public sealed partial class SemanticVerifier
 
     private void CollectRoutineDeclaration(RoutineDeclaration routine)
     {
-        // Determine the kind of routine
-        RoutineKind kind;
+        // Determine the kind of routine (member/creator/free) plus its owner + canonical name.
+        (RoutineKind kind, TypeSymbol? ownerType, string routineName) =
+            DetermineRoutineKind(routine: routine);
+
+        CheckSuflaeSignatureHasNoBareRfEntity(routine: routine, kind: kind);
+
+        // Validate declaration-level constraints (operator/kind restrictions, wired names, annotations,
+        // mutation-category conflicts, varargs placement) before deferring registration.
+        ValidateRoutineDeclarationConstraints(routine: routine, kind: kind, ownerType: ownerType,
+            routineName: routineName);
+
+        // Store for deferred resolution and registration in Phase 4.1
+        _pendingRoutines.Add(item: new PendingRoutine(Declaration: routine,
+            OwnerType: ownerType,
+            Kind: kind,
+            RoutineName: routineName,
+            Module: GetCurrentModuleName(),
+            FilePath: _currentFilePath));
+    }
+
+    /// <summary>
+    /// Classifies a routine declaration as a member routine, creator, or free function, returning its
+    /// <see cref="RoutineKind"/>, resolved owner type (when any), and canonical internal name.
+    /// </summary>
+    private (RoutineKind Kind, TypeSymbol? OwnerType, string RoutineName) DetermineRoutineKind(
+        RoutineDeclaration routine)
+    {
         TypeSymbol? ownerType = _currentType;
         string routineName = routine.Name;
 
@@ -754,52 +779,54 @@ public sealed partial class SemanticVerifier
         {
             // Inside a type body
             // TODO: create routine name is dead.
-            kind = routine.Name == "create"
+            RoutineKind innerKind = routine.Name == "create"
                 ? RoutineKind.Creator
                 : RoutineKind.MemberRoutine;
+            return (innerKind, ownerType, routineName);
         }
-        else if (routine.MemberRoutineName is { } declaredMember)
+
+        if (routine.MemberRoutineName is { } declaredMember)
         {
             // Member routine syntax: "Type.routine" or "Type[T].routine". The parser already split
             // the owner base (args-stripped) and member routine into structured fields — read them instead of
             // re-parsing the concatenated Name (name-canonicalization).
             routineName = declaredMember;
 
-            kind = RoutineKind.MemberRoutine;
-
             // OwnerName is the bare owner base (e.g. "Stack" for "Stack[T].push") — already the
             // generic-definition key, so no generic-param strip needed here.
             ownerType = LookupTypeWithImports(name: routine.OwnerName!);
+            return (RoutineKind.MemberRoutine, ownerType, routineName);
         }
-        else
+
+        // Top-level routine. A routine whose bare name matches a known type is a
+        // CONSTRUCTOR — the surface syntax `routine T(...)` / `routine T[params](...)`
+        // (renamed from the old `routine T.create(...)`). Route it to the reserved
+        // creator kind with the type as owner and the canonical internal name "create",
+        // so registration/monomorphization/reachability/codegen treat it exactly as the
+        // old `T.create` spelling did. The trailing `!` (failable) is carried structurally
+        // on routine.IsFailable, not in the name.
+        // TODO: Why is this handled here? Constructor-sugar detection should have been parser's role.
+        // A free routine's Name is the canonical bare identifier (the parser folds `[params]` into the
+        // structured GenericParameters, never into Name for a non-member routine), so it is looked up
+        // directly with no generic-suffix strip.
+        TypeSymbol? ctorOwner = LookupTypeWithImports(name: routine.Name);
+        if (ctorOwner is EntityTypeInfo or RecordTypeInfo or ChoiceTypeInfo
+            or FlagsTypeInfo or VariantTypeInfo or CrashableTypeInfo)
         {
-            // Top-level routine. A routine whose bare name matches a known type is a
-            // CONSTRUCTOR — the surface syntax `routine T(...)` / `routine T[params](...)`
-            // (renamed from the old `routine T.create(...)`). Route it to the reserved
-            // creator kind with the type as owner and the canonical internal name "create",
-            // so registration/monomorphization/reachability/codegen treat it exactly as the
-            // old `T.create` spelling did. The trailing `!` (failable) is carried structurally
-            // on routine.IsFailable, not in the name.
-            // TODO: Why is this handled here? Constructor-sugar detection should have been parser's role.
-            // A free routine's Name is the canonical bare identifier (the parser folds `[params]` into the
-            // structured GenericParameters, never into Name for a non-member routine), so it is looked up
-            // directly with no generic-suffix strip.
-            TypeSymbol? ctorOwner = LookupTypeWithImports(name: routine.Name);
-            if (ctorOwner is EntityTypeInfo or RecordTypeInfo or ChoiceTypeInfo
-                or FlagsTypeInfo or VariantTypeInfo or CrashableTypeInfo)
-            {
-                kind = RoutineKind.Creator;
-                ownerType = ctorOwner;
-                routineName = "create";
-            }
-            else
-            {
-                kind = RoutineKind.Function;
-            }
+            return (RoutineKind.Creator, ctorOwner, "create");
         }
 
-        CheckSuflaeSignatureHasNoBareRfEntity(routine: routine, kind: kind);
+        return (RoutineKind.Function, ownerType, routineName);
+    }
 
+    /// <summary>
+    /// Validates a routine declaration's surface constraints at collection time: operator-on-choice/flags
+    /// restrictions, unknown wired names, misplaced annotations, conflicting mutation categories, and
+    /// varargs placement. Pure reporting — no registration side effects.
+    /// </summary>
+    private void ValidateRoutineDeclarationConstraints(RoutineDeclaration routine, RoutineKind kind,
+        TypeSymbol? ownerType, string routineName)
+    {
         // Validate that choice types cannot define any operator wired member routines
         if (ownerType is ChoiceTypeInfo && kind == RoutineKind.MemberRoutine &&
             IsOperatorWired(name: routineName))
@@ -889,7 +916,15 @@ public sealed partial class SemanticVerifier
                 location: routine.Location);
         }
 
-        // #74: Validate varargs placement
+        ValidateVarargsPlacement(routine: routine);
+    }
+
+    /// <summary>
+    /// #74: Validates varargs placement — at most one variadic parameter, positioned first (or second
+    /// after an implicit <c>me</c>).
+    /// </summary>
+    private void ValidateVarargsPlacement(RoutineDeclaration routine)
+    {
         var varargParams = routine.Parameters
                                   .Where(predicate: p => p.IsVariadic)
                                   .ToList();
@@ -913,14 +948,6 @@ public sealed partial class SemanticVerifier
                     location: varargParams[index: 0].Location);
             }
         }
-
-        // Store for deferred resolution and registration in Phase 4.1
-        _pendingRoutines.Add(item: new PendingRoutine(Declaration: routine,
-            OwnerType: ownerType,
-            Kind: kind,
-            RoutineName: routineName,
-            Module: GetCurrentModuleName(),
-            FilePath: _currentFilePath));
     }
 
     #endregion
@@ -1083,83 +1110,95 @@ public sealed partial class SemanticVerifier
     /// <summary>
     /// Validates that a type implements all member routines required by a protocol.
     /// </summary>
-    private void ValidateProtocolMemberRoutines(TypeSymbol type, ProtocolTypeInfo protocol) // NOSONAR S3776
+    private void ValidateProtocolMemberRoutines(TypeSymbol type, ProtocolTypeInfo protocol)
     {
         foreach (ProtocolMemberRoutineInfo requiredMemberRoutine in protocol.MemberRoutines)
         {
-            // Skip member routines with default implementations
-            if (requiredMemberRoutine.HasDefaultImplementation)
-            {
-                continue;
-            }
-
-            // Skip auto-derived failable variants. These `try_X` / `check_X` / `lookup_X`
-            // entries are synthesized by FillProtocolMemberRoutines from the failable original
-            // (`X!`) so call sites typed against the bare protocol can resolve them. The
-            // implementer only owes the failable original — ErrorHandlingVariantPass
-            // generates the variants on user types at synthesis time. A protocol-declared
-            // `try_X` written by hand (no auto-derivation flag) still produces an obligation.
-            if (requiredMemberRoutine.IsAutoDerivedVariant)
-            {
-                continue;
-            }
-
-            // Look for the member routine on the type (not on its protocols — that would find the protocol's own declaration)
-            // Routine names are bare; the failable `!` is a structured flag. Match the bare name,
-            // then (for a failable requirement) fall back to a same-named failable implementation.
-            IEnumerable<RoutineInfo> ownMemberRoutines = _registry.GetMemberRoutinesForType(type: type);
-            RoutineInfo? typeMemberRoutine =
-                ownMemberRoutines.FirstOrDefault(predicate: m => m.Name == requiredMemberRoutine.Name);
-            if (typeMemberRoutine == null && requiredMemberRoutine.IsFailable)
-            {
-                typeMemberRoutine =
-                    ownMemberRoutines.FirstOrDefault(predicate: m =>
-                        m.Name == requiredMemberRoutine.Name && m.IsFailable);
-            }
-
-            if (typeMemberRoutine == null)
-            {
-                ReportError(code: SemanticDiagnosticCode.MissingProtocolMemberRoutine,
-                    message:
-                    $"Type '{type.Name}' declares 'obeys {protocol.Name}' but does not implement required memberRoutine '{requiredMemberRoutine.Name}'.",
-                    location: type.Location ?? new SourceLocation(FileName: "",
-                        Line: 0,
-                        Column: 0,
-                        Position: 0));
-            }
-            else if (requiredMemberRoutine.GenerationKind == ProtocolRoutineKind.Innate &&
-                     !typeMemberRoutine.IsSynthesized)
-            {
-                ReportError(code: SemanticDiagnosticCode.InnateOverrideNotAllowed,
-                    message:
-                    $"Cannot override innate routine '{protocol.Name}.{requiredMemberRoutine.Name}'. " +
-                    "Innate routines are compiler-provided and cannot be overridden.",
-                    location: typeMemberRoutine.Location ?? new SourceLocation("", 0, 0, 0));
-            }
-            else if (typeMemberRoutine != null)
-            {
-                // #61: Protocol mutation contract validation. The implementation must not be MORE
-                // mutating than the protocol declares (Readonly < Writable < Reshaping): callers
-                // hold tokens sized to the protocol's category — e.g. a Viewing token for @readonly,
-                // a Modifying token for the writable default — so an impl that mutates or relocates
-                // beyond that contract would be unsound (a Reshaping impl behind a Writable protocol
-                // could relocate mid-iteration through a Modifying token, invalidating iterators).
-                if (typeMemberRoutine.MutationCategory > requiredMemberRoutine.Mutation)
-                {
-                    ReportError(code: SemanticDiagnosticCode.ProtocolMutationContractViolation,
-                        message:
-                        $"Protocol '{protocol.Name}' requires '{requiredMemberRoutine.Name}' to be " +
-                        $"@{requiredMemberRoutine.Mutation.ToString().ToLowerInvariant()} (or less mutating), " +
-                        $"but implementation on '{type.Name}' is @{typeMemberRoutine.MutationCategory.ToString().ToLowerInvariant()}.",
-                        location: typeMemberRoutine.Location ?? new SourceLocation("", 0, 0, 0));
-                }
-            }
+            ValidateRequiredProtocolMemberRoutine(type: type, protocol: protocol,
+                requiredMemberRoutine: requiredMemberRoutine);
         }
 
         // Also check parent protocols
         foreach (ProtocolTypeInfo parentProtocol in protocol.ParentProtocols)
         {
             ValidateProtocolMemberRoutines(type: type, protocol: parentProtocol);
+        }
+    }
+
+    /// <summary>
+    /// Validates a single required protocol member routine against <paramref name="type"/>'s
+    /// implementation: skips defaulted / auto-derived-variant requirements, reports a missing
+    /// implementation, an illegal innate override, or a mutation-contract violation.
+    /// </summary>
+    private void ValidateRequiredProtocolMemberRoutine(TypeSymbol type, ProtocolTypeInfo protocol,
+        ProtocolMemberRoutineInfo requiredMemberRoutine)
+    {
+        // Skip member routines with default implementations
+        if (requiredMemberRoutine.HasDefaultImplementation)
+        {
+            return;
+        }
+
+        // Skip auto-derived failable variants. These `try_X` / `check_X` / `lookup_X`
+        // entries are synthesized by FillProtocolMemberRoutines from the failable original
+        // (`X!`) so call sites typed against the bare protocol can resolve them. The
+        // implementer only owes the failable original — ErrorHandlingVariantPass
+        // generates the variants on user types at synthesis time. A protocol-declared
+        // `try_X` written by hand (no auto-derivation flag) still produces an obligation.
+        if (requiredMemberRoutine.IsAutoDerivedVariant)
+        {
+            return;
+        }
+
+        // Look for the member routine on the type (not on its protocols — that would find the protocol's own declaration)
+        // Routine names are bare; the failable `!` is a structured flag. Match the bare name,
+        // then (for a failable requirement) fall back to a same-named failable implementation.
+        IEnumerable<RoutineInfo> ownMemberRoutines = _registry.GetMemberRoutinesForType(type: type);
+        RoutineInfo? typeMemberRoutine =
+            ownMemberRoutines.FirstOrDefault(predicate: m => m.Name == requiredMemberRoutine.Name);
+        if (typeMemberRoutine == null && requiredMemberRoutine.IsFailable)
+        {
+            typeMemberRoutine =
+                ownMemberRoutines.FirstOrDefault(predicate: m =>
+                    m.Name == requiredMemberRoutine.Name && m.IsFailable);
+        }
+
+        if (typeMemberRoutine == null)
+        {
+            ReportError(code: SemanticDiagnosticCode.MissingProtocolMemberRoutine,
+                message:
+                $"Type '{type.Name}' declares 'obeys {protocol.Name}' but does not implement required memberRoutine '{requiredMemberRoutine.Name}'.",
+                location: type.Location ?? new SourceLocation(FileName: "",
+                    Line: 0,
+                    Column: 0,
+                    Position: 0));
+        }
+        else if (requiredMemberRoutine.GenerationKind == ProtocolRoutineKind.Innate &&
+                 !typeMemberRoutine.IsSynthesized)
+        {
+            ReportError(code: SemanticDiagnosticCode.InnateOverrideNotAllowed,
+                message:
+                $"Cannot override innate routine '{protocol.Name}.{requiredMemberRoutine.Name}'. " +
+                "Innate routines are compiler-provided and cannot be overridden.",
+                location: typeMemberRoutine.Location ?? new SourceLocation("", 0, 0, 0));
+        }
+        else if (typeMemberRoutine != null)
+        {
+            // #61: Protocol mutation contract validation. The implementation must not be MORE
+            // mutating than the protocol declares (Readonly < Writable < Reshaping): callers
+            // hold tokens sized to the protocol's category — e.g. a Viewing token for @readonly,
+            // a Modifying token for the writable default — so an impl that mutates or relocates
+            // beyond that contract would be unsound (a Reshaping impl behind a Writable protocol
+            // could relocate mid-iteration through a Modifying token, invalidating iterators).
+            if (typeMemberRoutine.MutationCategory > requiredMemberRoutine.Mutation)
+            {
+                ReportError(code: SemanticDiagnosticCode.ProtocolMutationContractViolation,
+                    message:
+                    $"Protocol '{protocol.Name}' requires '{requiredMemberRoutine.Name}' to be " +
+                    $"@{requiredMemberRoutine.Mutation.ToString().ToLowerInvariant()} (or less mutating), " +
+                    $"but implementation on '{type.Name}' is @{typeMemberRoutine.MutationCategory.ToString().ToLowerInvariant()}.",
+                    location: typeMemberRoutine.Location ?? new SourceLocation("", 0, 0, 0));
+            }
         }
     }
 

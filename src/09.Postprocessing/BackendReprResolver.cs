@@ -35,7 +35,7 @@ public static class BackendReprResolver
 
             RecordTypeInfo
             {
-                HasDirectBackendType: true, IsGenericDefinition: false
+                BackendType: not null, IsGenericDefinition: false
             } record => ResolveDirectBackendRecord(record: record),
 
             RecordTypeInfo record => new BackendRepr(

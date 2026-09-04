@@ -213,7 +213,7 @@ public sealed class ModuleResolver
     /// silently during pre-registration. Only converts '/' (module hierarchy separator) to OS path
     /// separators; the '.' module-symbol separator is stripped before constructing file paths.
     /// </summary>
-    private string? TryFilesystemFallback(string importPath) // NOSONAR S3776
+    private string? TryFilesystemFallback(string importPath)
     {
         // Split on the last '.' to separate module path from symbol name.
         // "Collections.List"   -> module="Collections",  symbol="List"
@@ -238,41 +238,57 @@ public sealed class ModuleResolver
 
         foreach (string root in roots)
         {
-            // Try: root/module.rf  or  .sf
-            string modRf = Path.Combine(path1: root, path2: relPath + ".rf");
-            if (File.Exists(path: modRf)) return modRf;
-
-            string modSf = Path.Combine(path1: root, path2: relPath + ".sf");
-            if (File.Exists(path: modSf)) return modSf;
-
-            // Try: root/module/symbol.rf  (type-per-file convention)
-            if (symbolPart is not null)
+            string? found = TryFilesystemRoot(root: root, relPath: relPath, symbolPart: symbolPart);
+            if (found != null)
             {
-                string symRf = Path.Combine(path1: root, path2: relPath,
-                    path3: symbolPart + ".rf");
-                if (File.Exists(path: symRf)) return symRf;
-
-                string symSf = Path.Combine(path1: root, path2: relPath,
-                    path3: symbolPart + ".sf");
-                if (File.Exists(path: symSf)) return symSf;
+                return found;
             }
+        }
 
-            // Try: root/module/index.rf
-            string idxRf = Path.Combine(path1: root, path2: relPath, path3: "index.rf");
-            if (File.Exists(path: idxRf)) return idxRf;
+        return null;
+    }
 
-            // Try: root/module/module.rf (same-name-as-directory convention, e.g., BuilderQuery/BuilderQuery.rf)
-            string dirName = Path.GetFileName(path: relPath);
-            if (!string.IsNullOrEmpty(value: dirName))
-            {
-                string sameNameRf = Path.Combine(path1: root, path2: relPath,
-                    path3: dirName + ".rf");
-                if (File.Exists(path: sameNameRf)) return sameNameRf;
+    /// <summary>
+    /// Probes one search root for the import's module/symbol under every file-layout convention
+    /// (module file, type-per-file symbol, index.rf, same-name-as-directory). Returns the first
+    /// existing file, or null if none match under this root.
+    /// </summary>
+    private static string? TryFilesystemRoot(string root, string relPath, string? symbolPart)
+    {
+        // Try: root/module.rf  or  .sf
+        string modRf = Path.Combine(path1: root, path2: relPath + ".rf");
+        if (File.Exists(path: modRf)) return modRf;
 
-                string sameNameSf = Path.Combine(path1: root, path2: relPath,
-                    path3: dirName + ".sf");
-                if (File.Exists(path: sameNameSf)) return sameNameSf;
-            }
+        string modSf = Path.Combine(path1: root, path2: relPath + ".sf");
+        if (File.Exists(path: modSf)) return modSf;
+
+        // Try: root/module/symbol.rf  (type-per-file convention)
+        if (symbolPart is not null)
+        {
+            string symRf = Path.Combine(path1: root, path2: relPath,
+                path3: symbolPart + ".rf");
+            if (File.Exists(path: symRf)) return symRf;
+
+            string symSf = Path.Combine(path1: root, path2: relPath,
+                path3: symbolPart + ".sf");
+            if (File.Exists(path: symSf)) return symSf;
+        }
+
+        // Try: root/module/index.rf
+        string idxRf = Path.Combine(path1: root, path2: relPath, path3: "index.rf");
+        if (File.Exists(path: idxRf)) return idxRf;
+
+        // Try: root/module/module.rf (same-name-as-directory convention, e.g., BuilderQuery/BuilderQuery.rf)
+        string dirName = Path.GetFileName(path: relPath);
+        if (!string.IsNullOrEmpty(value: dirName))
+        {
+            string sameNameRf = Path.Combine(path1: root, path2: relPath,
+                path3: dirName + ".rf");
+            if (File.Exists(path: sameNameRf)) return sameNameRf;
+
+            string sameNameSf = Path.Combine(path1: root, path2: relPath,
+                path3: dirName + ".sf");
+            if (File.Exists(path: sameNameSf)) return sameNameSf;
         }
 
         return null;

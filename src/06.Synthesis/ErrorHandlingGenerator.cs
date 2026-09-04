@@ -75,7 +75,41 @@ public sealed class ErrorHandlingGenerator
             return ErrorHandlingResult.Empty;
         }
 
-        // Phase 1: Keyword Detection
+        // Phase 1: Keyword Detection (+ pessimistic override + propagated failability merge).
+        ErrorHandlingAnalysis analysis = BuildFailabilityAnalysis(routine: routine, body: body,
+            pessimistic: pessimistic);
+
+        // Validate: ! functions must use throw, absent, or call other failable functions
+        if (analysis is { HasThrow: false, HasAbsent: false })
+        {
+            return new ErrorHandlingResult
+            {
+                Error = $"Failable function '{routine.Name}!' must use 'throw' or 'absent'",
+                HasThrow = false,
+                HasAbsent = false
+            };
+        }
+
+        // Phase 2: Variant Generation
+        var variants = BuildVariants(routine: routine, analysis: analysis);
+
+        return new ErrorHandlingResult
+        {
+            Variants = variants,
+            HasThrow = analysis.HasThrow,
+            HasAbsent = analysis.HasAbsent,
+            ThrownTypes = analysis.ThrownTypes.ToList()
+        };
+    }
+
+    /// <summary>
+    /// Phase 1: builds the throw/absent analysis for a failable routine — scans the body,
+    /// applies the <paramref name="pessimistic"/> override, merges propagated failability from
+    /// called <c>!</c> routines, and applies the failable-calls fallback.
+    /// </summary>
+    private static ErrorHandlingAnalysis BuildFailabilityAnalysis(RoutineInfo routine, Statement body,
+        bool pessimistic)
+    {
         ErrorHandlingAnalysis analysis = AnalyzeBody(body: body);
 
         if (pessimistic)
@@ -104,18 +138,15 @@ public sealed class ErrorHandlingGenerator
             analysis.HasThrow = true;
         }
 
-        // Validate: ! functions must use throw, absent, or call other failable functions
-        if (analysis is { HasThrow: false, HasAbsent: false })
-        {
-            return new ErrorHandlingResult
-            {
-                Error = $"Failable function '{routine.Name}!' must use 'throw' or 'absent'",
-                HasThrow = false,
-                HasAbsent = false
-            };
-        }
+        return analysis;
+    }
 
-        // Phase 2: Variant Generation
+    /// <summary>
+    /// Phase 2: builds the list of wrapper variants (try_ always; check_ for throw-only;
+    /// lookup_ for throw+absent) for a failable routine from its <paramref name="analysis"/>.
+    /// </summary>
+    private List<GeneratedVariant> BuildVariants(RoutineInfo routine, ErrorHandlingAnalysis analysis)
+    {
         var variants = new List<GeneratedVariant>();
 
         // try_ variant is always generated
@@ -146,13 +177,7 @@ public sealed class ErrorHandlingGenerator
             variants.Add(item: new GeneratedVariant(Kind: lookupKind, Routine: lookupVariant));
         }
 
-        return new ErrorHandlingResult
-        {
-            Variants = variants,
-            HasThrow = analysis.HasThrow,
-            HasAbsent = analysis.HasAbsent,
-            ThrownTypes = analysis.ThrownTypes.ToList()
-        };
+        return variants;
     }
 
     /// <summary>

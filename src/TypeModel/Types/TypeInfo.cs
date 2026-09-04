@@ -274,17 +274,7 @@ public abstract class TypeInfo
 
         if (llvmType.StartsWith('{') && llvmType.EndsWith('}'))
         {
-            int size = 0;
-            int maxAlignment = 1;
-            foreach (string field in SplitTopLevelCommas(input: llvmType[1..^1]))
-            {
-                int fieldSize = SizeOfLlvmType(llvmType: field, pointerSize: pointerSize);
-                int alignment = AlignOfLlvmType(llvmType: field, pointerSize: pointerSize);
-                maxAlignment = Math.Max(val1: maxAlignment, val2: alignment);
-                size = AlignTo(size: size, alignment: alignment);
-                size += fieldSize;
-            }
-            return AlignTo(size: size, alignment: maxAlignment);
+            return SizeOfLlvmStructLiteral(inner: llvmType[1..^1], pointerSize: pointerSize);
         }
 
         return llvmType switch
@@ -303,6 +293,23 @@ public abstract class TypeInfo
             "void" => 0,
             _ => SizeOfArbitraryInt(llvmType: llvmType)
         };
+    }
+
+    // Size of an inline LLVM struct literal body (fields already stripped of the outer braces).
+    // Applies the same per-field alignment + final natural-alignment rule as RecordTypeInfo.SizeBytes.
+    private static int SizeOfLlvmStructLiteral(string inner, int pointerSize)
+    {
+        int size = 0;
+        int maxAlignment = 1;
+        foreach (string field in SplitTopLevelCommas(input: inner))
+        {
+            int fieldSize = SizeOfLlvmType(llvmType: field, pointerSize: pointerSize);
+            int alignment = AlignOfLlvmType(llvmType: field, pointerSize: pointerSize);
+            maxAlignment = Math.Max(val1: maxAlignment, val2: alignment);
+            size = AlignTo(size: size, alignment: alignment);
+            size += fieldSize;
+        }
+        return AlignTo(size: size, alignment: maxAlignment);
     }
 
     /// <summary>
@@ -335,14 +342,7 @@ public abstract class TypeInfo
 
         if (llvmType.StartsWith('{') && llvmType.EndsWith('}'))
         {
-            int maxAlignment = 1;
-            foreach (string field in SplitTopLevelCommas(input: llvmType[1..^1]))
-            {
-                maxAlignment = Math.Max(val1: maxAlignment,
-                    val2: AlignOfLlvmType(llvmType: field, pointerSize: pointerSize));
-            }
-
-            return maxAlignment;
+            return AlignOfLlvmStructLiteral(inner: llvmType[1..^1], pointerSize: pointerSize);
         }
 
         return llvmType switch
@@ -357,6 +357,19 @@ public abstract class TypeInfo
             // Wide integers (i256/i512/…): align to size, capped at 16 (the max useful struct alignment).
             _ => Math.Max(val1: 1, val2: Math.Min(val1: SizeOfArbitraryInt(llvmType: llvmType), val2: 16))
         };
+    }
+
+    // Natural alignment of an inline LLVM struct literal body = the MAX of its field alignments.
+    private static int AlignOfLlvmStructLiteral(string inner, int pointerSize)
+    {
+        int maxAlignment = 1;
+        foreach (string field in SplitTopLevelCommas(input: inner))
+        {
+            maxAlignment = Math.Max(val1: maxAlignment,
+                val2: AlignOfLlvmType(llvmType: field, pointerSize: pointerSize));
+        }
+
+        return maxAlignment;
     }
 
     /// <summary>

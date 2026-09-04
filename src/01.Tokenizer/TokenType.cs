@@ -889,6 +889,13 @@ public enum TokenType
     Needs,
 
     /// <summary>
+    /// The 'onlyif' keyword for CONDITIONAL conformance in an obeys clause: a generic type obeys a
+    /// protocol only when the parenthesized conditions hold (comma = AND).
+    /// Example: entity List[T] obeys Copyable onlyif (T obeys Copyable)
+    /// </summary>
+    OnlyIf,
+
+    /// <summary>
     /// The 'relates' keyword for associated types on type declarations.
     /// Declares an associated-type slot on a protocol, or binds one on an implementer.
     /// Example: protocol Iterable[T] \n relates Iter obeys Iterator[T]

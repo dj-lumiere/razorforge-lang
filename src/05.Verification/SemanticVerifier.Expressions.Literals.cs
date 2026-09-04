@@ -22,7 +22,7 @@ public sealed partial class SemanticVerifier
     /// Analyze literal expression as part of this compiler phase.
     /// </summary>
     private TypeSymbol AnalyzeLiteralExpression(LiteralExpression literal,
-        TypeSymbol? expectedType = null) // NOSONAR S3776
+        TypeSymbol? expectedType = null)
     {
         // Map token type to the corresponding type (PascalCase)
         // `none` value literal: needs a carrier-slot expected type
@@ -30,105 +30,10 @@ public sealed partial class SemanticVerifier
         // `none` has no standalone meaning outside an absence-carrying slot.
         if (literal.LiteralType == TokenType.NoneValue)
         {
-            if (expectedType != null && IsNoneCarrierSlot(type: expectedType))
-            {
-                return expectedType;
-            }
-            // Suflae: `none` against a `Roamed[E]` slot (an OPTIONAL entity reference `x: E?`) is a null
-            // Roamed handle (roamed_none). Entity references carry their own none via a null pointer, so
-            // no Maybe carrier is needed.
-            if (_registry.Language == Language.Suflae
-                && expectedType is RecordTypeInfo { GenericDefinition.Name: Compiler.Resolution.RuntimeContract.Roamed })
-            {
-                return expectedType;
-            }
-            ReportError(code: SemanticDiagnosticCode.NoneOutsideCarrierSlot,
-                message:
-                $"'none' is only valid where the expected type is Maybe[T], Lookup[T], or a variant with a None arm; got {(expectedType?.Name ?? "no contextual type")}.",
-                location: literal.Location);
-            return ErrorTypeInfo.Instance;
+            return AnalyzeNoneValueLiteral(literal: literal, expectedType: expectedType);
         }
 
-        string? typeName = literal.LiteralType switch
-        {
-            // Signed integers
-            TokenType.S8Literal => "S8",
-            TokenType.S16Literal => "S16",
-            TokenType.S32Literal => "S32",
-            TokenType.S64Literal => "S64",
-            TokenType.S128Literal => "S128",
-            TokenType.S256Literal => "S256",
-            // Unsigned integers
-            TokenType.U8Literal => "U8",
-            TokenType.U16Literal => "U16",
-            TokenType.U32Literal => "U32",
-            TokenType.U64Literal => "U64",
-            TokenType.U128Literal => "U128",
-            TokenType.U256Literal => "U256",
-            TokenType.AddressLiteral => AddressTypeName,
-
-            // Floating-point
-            TokenType.F16Literal => "F16",
-            TokenType.F32Literal => "F32",
-            TokenType.F64Literal => "F64",
-            TokenType.F128Literal => "F128",
-
-            // Decimal floating-point
-            TokenType.D32Literal => "D32",
-            TokenType.D64Literal => "D64",
-            TokenType.D128Literal => "D128",
-
-            // Unsuffixed literals: type inference resolves these; fallback is S64/F64 (RF) or Integer/Decimal
-            // (Suflae). CRITICAL: the Suflae default applies ONLY to Suflae SOURCE. The RF stdlib is shared
-            // by SF ("SF's Core IS RF's Core") and its bodies get (re-)analyzed under an SF compile (generic
-            // monomorphization / variant-body collection) OUTSIDE the AnalyzeStdlibBodies RF-mode override —
-            // there `_registry.Language` is Suflae. A stdlib `int_eq[U256](b: 0)` must keep RF's S64 default
-            // (coerces to the U256/i256 compare); the SF Integer default is a HEAP RECORD that can't coerce
-            // into a scalar op → `store %Record.Numerics.Integer` / `icmp i256, %Record` type errors. Key on
-            // the LITERAL's own file (its Location), NOT `_currentFilePath` (stale = the user entry under
-            // cross-module body analysis).
-            TokenType.UndecidedInteger => UsesSuflaeNumericDefaults(literal)
-                ? "Integer"
-                : "S64",
-            TokenType.UndecidedDecimal => UsesSuflaeNumericDefaults(literal)
-                ? "Decimal"
-                : "F64",
-
-            // Explicit arbitrary-precision suffix (n): always Integer or Decimal
-            TokenType.IntegerLiteral => "Integer",
-            TokenType.DecimalLiteral => "Decimal",
-
-            // Boolean
-            TokenType.True or TokenType.False => "Bool",
-
-            // Text and characters — a raw string `r"..."` (RawText) is a Text too; only the escape
-            // processing differed at tokenize time, the resulting value is a plain Text.
-            TokenType.TextLiteral or TokenType.RawText => "Text",
-            TokenType.BytesLiteral => "Bytes",
-            TokenType.BytesRawLiteral => "Bytes",
-            TokenType.ByteLetterLiteral => "Byte",
-            TokenType.CharacterLiteral => "Character",
-
-            // byte size literals (all map to ByteSize type)
-            TokenType.ByteLiteral or TokenType.KilobyteLiteral or TokenType.KibibyteLiteral
-                or TokenType.MegabyteLiteral or TokenType.MebibyteLiteral
-                or TokenType.GigabyteLiteral or TokenType.GibibyteLiteral => "ByteSize",
-
-            // Duration literals (all map to Duration type)
-            TokenType.WeekLiteral or TokenType.DayLiteral or TokenType.HourLiteral
-                or TokenType.MinuteLiteral or TokenType.SecondLiteral
-                or TokenType.MillisecondLiteral or TokenType.MicrosecondLiteral
-                or TokenType.NanosecondLiteral => "Duration",
-
-            // Complex/Imaginary literals
-            TokenType.J32Literal => "C32",
-            TokenType.J64Literal => "C64",
-            TokenType.J128Literal => "C128",
-            TokenType.JnLiteral => "Complex",
-
-            // Unknown literal type - error
-            _ => null
-        };
+        string? typeName = MapLiteralTypeName(literal: literal);
 
         // Report error for unknown literal types
         if (typeName == null)
@@ -208,6 +113,121 @@ public sealed partial class SemanticVerifier
         }
 
         return type;
+    }
+
+    /// <summary>
+    /// Resolves the type of a bare <c>none</c> value literal against its expected carrier slot
+    /// (Maybe[T] / Lookup[T] / variant-with-None, or a Suflae <c>Roamed[E]</c> optional entity slot).
+    /// Reports RF-S if no valid carrier context is present.
+    /// </summary>
+    private TypeSymbol AnalyzeNoneValueLiteral(LiteralExpression literal, TypeSymbol? expectedType)
+    {
+        if (expectedType != null && IsNoneCarrierSlot(type: expectedType))
+        {
+            return expectedType;
+        }
+        // Suflae: `none` against a `Roamed[E]` slot (an OPTIONAL entity reference `x: E?`) is a null
+        // Roamed handle (roamed_none). Entity references carry their own none via a null pointer, so
+        // no Maybe carrier is needed.
+        if (_registry.Language == Language.Suflae
+            && expectedType is RecordTypeInfo { GenericDefinition.Name: Compiler.Resolution.RuntimeContract.Roamed })
+        {
+            return expectedType;
+        }
+        ReportError(code: SemanticDiagnosticCode.NoneOutsideCarrierSlot,
+            message:
+            $"'none' is only valid where the expected type is Maybe[T], Lookup[T], or a variant with a None arm; got {(expectedType?.Name ?? "no contextual type")}.",
+            location: literal.Location);
+        return ErrorTypeInfo.Instance;
+    }
+
+    /// <summary>
+    /// Maps a literal's token type to its resolved type name (PascalCase), or null for an unknown
+    /// literal type. Unsuffixed integer/decimal literals default to S64/F64 (RF) or Integer/Decimal
+    /// (Suflae) per the literal's own source-file language.
+    /// </summary>
+    private string? MapLiteralTypeName(LiteralExpression literal)
+    {
+        return literal.LiteralType switch
+        {
+            // Signed integers
+            TokenType.S8Literal => "S8",
+            TokenType.S16Literal => "S16",
+            TokenType.S32Literal => "S32",
+            TokenType.S64Literal => "S64",
+            TokenType.S128Literal => "S128",
+            TokenType.S256Literal => "S256",
+            // Unsigned integers
+            TokenType.U8Literal => "U8",
+            TokenType.U16Literal => "U16",
+            TokenType.U32Literal => "U32",
+            TokenType.U64Literal => "U64",
+            TokenType.U128Literal => "U128",
+            TokenType.U256Literal => "U256",
+            TokenType.AddressLiteral => AddressTypeName,
+
+            // Floating-point
+            TokenType.F16Literal => "F16",
+            TokenType.F32Literal => "F32",
+            TokenType.F64Literal => "F64",
+            TokenType.F128Literal => "F128",
+
+            // Decimal floating-point
+            TokenType.D32Literal => "D32",
+            TokenType.D64Literal => "D64",
+            TokenType.D128Literal => "D128",
+
+            // Unsuffixed literals: type inference resolves these; fallback is S64/F64 (RF) or Integer/Decimal
+            // (Suflae). CRITICAL: the Suflae default applies ONLY to Suflae SOURCE. The RF stdlib is shared
+            // by SF ("SF's Core IS RF's Core") and its bodies get (re-)analyzed under an SF compile (generic
+            // monomorphization / variant-body collection) OUTSIDE the AnalyzeStdlibBodies RF-mode override —
+            // there `_registry.Language` is Suflae. A stdlib `int_eq[U256](b: 0)` must keep RF's S64 default
+            // (coerces to the U256/i256 compare); the SF Integer default is a HEAP RECORD that can't coerce
+            // into a scalar op → `store %Record.Numerics.Integer` / `icmp i256, %Record` type errors. Key on
+            // the LITERAL's own file (its Location), NOT `_currentFilePath` (stale = the user entry under
+            // cross-module body analysis).
+            TokenType.UndecidedInteger => UsesSuflaeNumericDefaults(literal)
+                ? "Integer"
+                : "S64",
+            TokenType.UndecidedDecimal => UsesSuflaeNumericDefaults(literal)
+                ? "Decimal"
+                : "F64",
+
+            // Explicit arbitrary-precision suffix (n): always Integer or Decimal
+            TokenType.IntegerLiteral => "Integer",
+            TokenType.DecimalLiteral => "Decimal",
+
+            // Boolean
+            TokenType.True or TokenType.False => "Bool",
+
+            // Text and characters — a raw string `r"..."` (RawText) is a Text too; only the escape
+            // processing differed at tokenize time, the resulting value is a plain Text.
+            TokenType.TextLiteral or TokenType.RawText => "Text",
+            TokenType.BytesLiteral => "Bytes",
+            TokenType.BytesRawLiteral => "Bytes",
+            TokenType.ByteLetterLiteral => "Byte",
+            TokenType.CharacterLiteral => "Character",
+
+            // byte size literals (all map to ByteSize type)
+            TokenType.ByteLiteral or TokenType.KilobyteLiteral or TokenType.KibibyteLiteral
+                or TokenType.MegabyteLiteral or TokenType.MebibyteLiteral
+                or TokenType.GigabyteLiteral or TokenType.GibibyteLiteral => "ByteSize",
+
+            // Duration literals (all map to Duration type)
+            TokenType.WeekLiteral or TokenType.DayLiteral or TokenType.HourLiteral
+                or TokenType.MinuteLiteral or TokenType.SecondLiteral
+                or TokenType.MillisecondLiteral or TokenType.MicrosecondLiteral
+                or TokenType.NanosecondLiteral => "Duration",
+
+            // Complex/Imaginary literals
+            TokenType.J32Literal => "C32",
+            TokenType.J64Literal => "C64",
+            TokenType.J128Literal => "C128",
+            TokenType.JnLiteral => "Complex",
+
+            // Unknown literal type - error
+            _ => null
+        };
     }
 
     /// <summary>
@@ -1265,7 +1285,7 @@ public sealed partial class SemanticVerifier
     /// <summary>
     /// Parses C99 hex float format: 0x1.ABCDp5 = (hex mantissa) 2^(exponent).
     /// </summary>
-    private static bool TryParseHexFloat(string value, out double result) // NOSONAR S3776
+    private static bool TryParseHexFloat(string value, out double result)
     {
         result = 0;
         if (!value.StartsWith(value: "0x", comparisonType: StringComparison.OrdinalIgnoreCase) ||
@@ -1289,7 +1309,22 @@ public sealed partial class SemanticVerifier
             return false;
         }
 
-        double mantissa = 0;
+        if (!TryParseHexMantissa(mantissaStr: mantissaStr, mantissa: out double mantissa))
+        {
+            return false;
+        }
+
+        result = Math.ScaleB(x: mantissa, n: exponent);
+        return !double.IsNaN(d: result) && !double.IsInfinity(d: result);
+    }
+
+    /// <summary>
+    /// Parses the (possibly fractional) hex mantissa of a C99 hex float — the part before the
+    /// <c>p</c>/<c>P</c> exponent marker. Returns false only when a whole-number mantissa fails to parse.
+    /// </summary>
+    private static bool TryParseHexMantissa(string mantissaStr, out double mantissa)
+    {
+        mantissa = 0;
         int dotIndex = mantissaStr.IndexOf(value: '.');
 
         if (dotIndex >= 0)
@@ -1318,22 +1353,20 @@ public sealed partial class SemanticVerifier
                 mantissa += digit * scale;
                 scale /= 16;
             }
+
+            return true;
         }
-        else
+
+        if (!ulong.TryParse(s: mantissaStr,
+                style: NumberStyles.HexNumber,
+                provider: null,
+                result: out ulong wholeVal))
         {
-            if (!ulong.TryParse(s: mantissaStr,
-                    style: NumberStyles.HexNumber,
-                    provider: null,
-                    result: out ulong intVal))
-            {
-                return false;
-            }
-
-            mantissa = intVal;
+            return false;
         }
 
-        result = Math.ScaleB(x: mantissa, n: exponent);
-        return !double.IsNaN(d: result) && !double.IsInfinity(d: result);
+        mantissa = wholeVal;
+        return true;
     }
 
     /// <summary>

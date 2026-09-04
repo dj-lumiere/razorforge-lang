@@ -88,7 +88,7 @@ internal partial class Program
                         .TrimStart(trimChar: '-');
 
         // Check if first arg is a command or a file
-        bool isCommand = command is "parse" or "tokenize" or "codegen" or BuildCommand or "buildandrun" or "check" or "validate-stdlib" or "help" or "version" or "v";
+        bool isCommand = command is "parse" or "tokenize" or "codegen" or BuildCommand or "buildandrun" or "check" or "validate-stdlib" or "emit-pbrf" or "help" or "version" or "v";
 
         if (command is "version" or "v")
         {
@@ -173,77 +173,10 @@ internal partial class Program
                     buildMode: RfBuildMode.Debug);
 
             case BuildCommand:
-            {
-                // `build` compiles all the way to a native executable for the HOST OS
-                // (codegen -> opt -> link -> stage runtime DLLs) but does NOT run it. The
-                // intermediate <entry>.ll / .opt.ll are kept as byproducts for inspection;
-                // `codegen` remains the IR-only verb. (All-OS artifacts come from the release CI.)
-                ResolvedEntry resolved = ResolveEntryFile(args: args, needsOutputArg: false);
-                if (resolved.EntryFile == null)
-                {
-                    return 1;
-                }
-
-                // Warm-daemon path: delegate the compile to a running daemon (skips stdlib reprocessing).
-                if (CompileDaemon.TryClientBuild(resolved: resolved, exitCode: out int dbrc))
-                {
-                    return dbrc;
-                }
-
-                int buildRc = BuildExecutable(entryFile: resolved.EntryFile,
-                    exeFile: out string builtExe,
-                    projectRoot: resolved.ProjectRoot,
-                    buildMode: resolved.BuildMode,
-                    dumpAst: resolved.DumpAst,
-                    saTiming: resolved.SaTiming,
-                    requireStartRoutine: resolved.RequireStartRoutine,
-                    showBuildStages: resolved.ShowBuildStages,
-                    libraryRoots: resolved.LibraryRoots,
-                    cLibraries: resolved.CLibraries,
-                    libraryPaths: resolved.LibraryPaths,
-                    libraryConfigs: resolved.LibraryConfigs);
-                if (buildRc == 0)
-                {
-                    Console.WriteLine(value: $"Executable written to: {Path.GetFullPath(path: builtExe)}");
-                }
-
-                return buildRc;
-            }
+                return RunBuildCommand(args: args);
 
             case "buildandrun":
-            {
-                ResolvedEntry resolved = ResolveEntryFile(args: args, needsOutputArg: false);
-                if (resolved.EntryFile == null)
-                {
-                    return 1;
-                }
-
-                // ORC-JIT dev-loop path (RAZORFORGE_JIT=1): JIT the module in-process — no opt/clang/link,
-                // no exe, no spawn. IR comes warm from the daemon when it's up, else a local cold compile.
-                if (CompileDaemon.TryClientJitRun(resolved: resolved, exitCode: out int jrc))
-                {
-                    return jrc;
-                }
-
-                // Warm-daemon path: delegate the COMPILE to a running daemon (skips stdlib reprocessing),
-                // then run the produced exe locally so interactive stdin/stdout stays with this process.
-                if (CompileDaemon.TryClientBuildAndRun(resolved: resolved, exitCode: out int drc))
-                {
-                    return drc;
-                }
-
-                return BuildAndRun(entryFile: resolved.EntryFile,
-                    projectRoot: resolved.ProjectRoot,
-                    buildMode: resolved.BuildMode,
-                    dumpAst: resolved.DumpAst,
-                    saTiming: resolved.SaTiming,
-                    requireStartRoutine: resolved.RequireStartRoutine,
-                    showBuildStages: resolved.ShowBuildStages,
-                    libraryRoots: resolved.LibraryRoots,
-                    cLibraries: resolved.CLibraries,
-                    libraryPaths: resolved.LibraryPaths,
-                    libraryConfigs: resolved.LibraryConfigs);
-            }
+                return RunBuildAndRunCommand(args: args);
 
             case "check":
             {
@@ -269,6 +202,9 @@ internal partial class Program
                 return ValidateStdlib(language: stdlibLang);
             }
 
+            case "emit-pbrf":
+                return EmitPbrf(args: args);
+
             case "help":
                 PrintUsage();
                 return 0;
@@ -277,6 +213,139 @@ internal partial class Program
                 PrintUsage();
                 return 1;
         }
+    }
+
+    /// <summary>
+    /// Handles the <c>build</c> verb: compiles all the way to a native executable for the HOST OS
+    /// (codegen -> opt -> link -> stage runtime DLLs) but does NOT run it. The intermediate
+    /// <c>&lt;entry&gt;.ll</c> / <c>.opt.ll</c> are kept as byproducts for inspection; <c>codegen</c> remains
+    /// the IR-only verb. (All-OS artifacts come from the release CI.)
+    /// </summary>
+    private static int RunBuildCommand(string[] args)
+    {
+        ResolvedEntry resolved = ResolveEntryFile(args: args, needsOutputArg: false);
+        if (resolved.EntryFile == null)
+        {
+            return 1;
+        }
+
+        // Warm-daemon path: delegate the compile to a running daemon (skips stdlib reprocessing).
+        if (CompileDaemon.TryClientBuild(resolved: resolved, exitCode: out int dbrc))
+        {
+            return dbrc;
+        }
+
+        int buildRc = BuildExecutable(entryFile: resolved.EntryFile,
+            exeFile: out string builtExe,
+            projectRoot: resolved.ProjectRoot,
+            buildMode: resolved.BuildMode,
+            dumpAst: resolved.DumpAst,
+            saTiming: resolved.SaTiming,
+            requireStartRoutine: resolved.RequireStartRoutine,
+            showBuildStages: resolved.ShowBuildStages,
+            libraryRoots: resolved.LibraryRoots,
+            cLibraries: resolved.CLibraries,
+            libraryPaths: resolved.LibraryPaths,
+            libraryConfigs: resolved.LibraryConfigs);
+        if (buildRc == 0)
+        {
+            Console.WriteLine(value: $"Executable written to: {Path.GetFullPath(path: builtExe)}");
+        }
+
+        return buildRc;
+    }
+
+    /// <summary>
+    /// Handles the <c>buildandrun</c> verb: builds and executes. Prefers the in-process ORC-JIT dev loop and
+    /// the warm-daemon compile path (both skip work) before falling back to a full local AOT build+run.
+    /// </summary>
+    private static int RunBuildAndRunCommand(string[] args)
+    {
+        ResolvedEntry resolved = ResolveEntryFile(args: args, needsOutputArg: false);
+        if (resolved.EntryFile == null)
+        {
+            return 1;
+        }
+
+        // ORC-JIT dev-loop path (RAZORFORGE_JIT=1): JIT the module in-process — no opt/clang/link,
+        // no exe, no spawn. IR comes warm from the daemon when it's up, else a local cold compile.
+        if (CompileDaemon.TryClientJitRun(resolved: resolved, exitCode: out int jrc))
+        {
+            return jrc;
+        }
+
+        // Warm-daemon path: delegate the COMPILE to a running daemon (skips stdlib reprocessing),
+        // then run the produced exe locally so interactive stdin/stdout stays with this process.
+        if (CompileDaemon.TryClientBuildAndRun(resolved: resolved, exitCode: out int drc))
+        {
+            return drc;
+        }
+
+        return BuildAndRun(entryFile: resolved.EntryFile,
+            projectRoot: resolved.ProjectRoot,
+            buildMode: resolved.BuildMode,
+            dumpAst: resolved.DumpAst,
+            saTiming: resolved.SaTiming,
+            requireStartRoutine: resolved.RequireStartRoutine,
+            showBuildStages: resolved.ShowBuildStages,
+            libraryRoots: resolved.LibraryRoots,
+            cLibraries: resolved.CLibraries,
+            libraryPaths: resolved.LibraryPaths,
+            libraryConfigs: resolved.LibraryConfigs);
+    }
+
+    /// <summary>
+    /// Emits the modular (per-module) compiled-stdlib <c>.pbrf</c> artifacts as a BUILD BYPRODUCT — the
+    /// daemon / cold path then LOADS them instead of paying a ~8 s capture on first run. Invoked by the
+    /// MSBuild post-build target (and manually). Writes to <c>&lt;Standard&gt;/.pbrf/&lt;Language&gt;/</c>.
+    /// Incremental: a <c>stamp.txt</c> holds the stdlib content hash — if it matches and an index exists, the
+    /// (re)capture is SKIPPED, so a no-stdlib-change rebuild is near-instant. Each language is best-effort:
+    /// one failing does not fail the others (or the build — the caller uses ContinueOnError).
+    /// Usage: <c>emit-pbrf [outDir] [--all|--sf]</c>. Default outDir = the resolved stdlib root's <c>.pbrf</c>.
+    /// </summary>
+    private static int EmitPbrf(string[] args)
+    {
+        string? outDir = args.Length > 1 && !args[1].StartsWith(value: "--")
+            ? args[1]
+            : Path.Combine(path1: Compiler.Declaration.StdlibLoader.GetDefaultStdlibPath(), path2: ".pbrf");
+
+        var langs = new List<Language> { Language.RazorForge };
+        if (args.Contains(value: "--all") || args.Contains(value: "--sf"))
+            langs.Add(item: Language.Suflae);
+
+        foreach (Language lang in langs)
+        {
+            try
+            {
+                string langDir = Path.Combine(path1: outDir, path2: lang.ToString());
+                string stampPath = Path.Combine(path1: langDir, path2: "stamp.txt");
+                string? hash = Compiler.Serialization.StdlibSnapshotCache.ComputeStdlibHash(language: lang);
+
+                if (hash != null && File.Exists(path: stampPath) &&
+                    File.ReadAllText(path: stampPath).Trim() == hash &&
+                    File.Exists(path: Path.Combine(path1: langDir, path2: "index.pbrf")))
+                {
+                    Console.WriteLine(value: $"[emit-pbrf] {lang}: up to date");
+                    continue;
+                }
+
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                SemanticVerifier.CompiledStdlibState state =
+                    SemanticVerifier.CaptureCompiledStdlib(language: lang);
+                if (Directory.Exists(path: langDir)) Directory.Delete(path: langDir, recursive: true);
+                IReadOnlyList<string> labels =
+                    Compiler.Serialization.ModularStdlibCache.Serialize(state: state, dir: langDir);
+                if (hash != null) File.WriteAllText(path: stampPath, contents: hash);
+                Console.WriteLine(
+                    value: $"[emit-pbrf] {lang}: {labels.Count} modules ({sw.ElapsedMilliseconds} ms) -> {langDir}");
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine(value: $"[emit-pbrf] {lang} FAILED (non-fatal): {ex.Message}");
+            }
+        }
+
+        return 0;
     }
 
     /// <summary>
@@ -330,13 +399,37 @@ internal partial class Program
     /// mode, dump-ast, sa-timing, show-build-stages) — the CLI deliberately takes no flags.
     /// On error the returned entry's <see cref="ResolvedEntry.EntryFile"/> is null.
     /// </summary>
-    private static ResolvedEntry ResolveEntryFile(string[] args, bool needsOutputArg) // NOSONAR S3776
+    private static ResolvedEntry ResolveEntryFile(string[] args, bool needsOutputArg)
     {
         // args[0] is the command name (build/buildandrun/check)
-        string? explicitEntry = null;
-        string? outputFile = null;
+        if (!ParsePositionalArgs(args: args, needsOutputArg: needsOutputArg,
+                explicitEntry: out string? explicitEntry, outputFile: out string? outputFile))
+        {
+            return new ResolvedEntry();
+        }
 
-        // Parse remaining args (positional only: [entry-file] [out.ll])
+        // Explicit source file given — use it as the entry point, but still honor the
+        // nearest config.toml (walking up from the file's directory): the manifest
+        // remains the single source of build configuration (mode, library deps, debug
+        // fields) even for single-file builds; only [target] executable is overridden.
+        // .toml files are treated as manifests, not source files.
+        if (explicitEntry != null &&
+            !explicitEntry.EndsWith(value: ".toml", comparisonType: StringComparison.OrdinalIgnoreCase))
+        {
+            return ResolveExplicitEntry(explicitEntry: explicitEntry, outputFile: outputFile);
+        }
+
+        return ResolveManifestEntry(explicitEntry: explicitEntry, outputFile: outputFile);
+    }
+
+    /// <summary>Parses the positional CLI args (<c>[entry-file] [out.ll]</c>) after the command name. Returns
+    /// false (after printing an error) if an unknown <c>-</c>-prefixed option is encountered.</summary>
+    private static bool ParsePositionalArgs(string[] args, bool needsOutputArg,
+        out string? explicitEntry, out string? outputFile)
+    {
+        explicitEntry = null;
+        outputFile = null;
+
         int i = 1;
         while (i < args.Length)
         {
@@ -359,81 +452,85 @@ internal partial class Program
                 Console.WriteLine(
                     value:
                     $"Error: unknown option '{args[i]}'. RazorForge takes no build flags — configure builds in config.toml ([target] executable, library, mode, ...).");
-                return new ResolvedEntry();
+                return false;
             }
         }
 
-        // Explicit source file given — use it as the entry point, but still honor the
-        // nearest config.toml (walking up from the file's directory): the manifest
-        // remains the single source of build configuration (mode, library deps, debug
-        // fields) even for single-file builds; only [target] executable is overridden.
-        // .toml files are treated as manifests, not source files.
-        if (explicitEntry != null &&
-            !explicitEntry.EndsWith(value: ".toml", comparisonType: StringComparison.OrdinalIgnoreCase))
+        return true;
+    }
+
+    /// <summary>Resolves an explicitly-given source-file entry: honors the nearest config.toml (or debug
+    /// defaults when manifest-less); only [target] executable is overridden by the command-line entry.</summary>
+    private static ResolvedEntry ResolveExplicitEntry(string explicitEntry, string? outputFile)
+    {
+        if (!File.Exists(path: explicitEntry))
         {
-            if (!File.Exists(path: explicitEntry))
-            {
-                Console.WriteLine(value: $"Error: File '{explicitEntry}' not found.");
-                return new ResolvedEntry();
-            }
+            Console.WriteLine(value: $"Error: File '{explicitEntry}' not found.");
+            return new ResolvedEntry();
+        }
 
-            string entryDir =
-                Path.GetDirectoryName(path: Path.GetFullPath(path: explicitEntry)) ?? ".";
-            string? nearbyManifest = ManifestLoader.FindManifest(startDir: entryDir);
-            if (nearbyManifest == null)
+        string entryDir =
+            Path.GetDirectoryName(path: Path.GetFullPath(path: explicitEntry)) ?? ".";
+        string? nearbyManifest = ManifestLoader.FindManifest(startDir: entryDir);
+        if (nearbyManifest == null)
+        {
+            // Truly manifest-less — debug defaults. Assume an executable build so
+            // codegen knows to synthesize @main and SA can require a 'start' routine.
+            DiagnosticFlags.Reset();
+            return new ResolvedEntry
             {
-                // Truly manifest-less — debug defaults. Assume an executable build so
-                // codegen knows to synthesize @main and SA can require a 'start' routine.
-                DiagnosticFlags.Reset();
-                return new ResolvedEntry
+                EntryFile = explicitEntry, ProjectRoot = entryDir, OutputFile = outputFile,
+                RequireStartRoutine = true
+            };
+        }
+
+        try
+        {
+            ProjectManifest manifest = ManifestLoader.Load(tomlPath: nearbyManifest,
+                resolveExecutable: false);
+            BuildTarget target = manifest.Target;
+            RfBuildMode buildMode = ParseBuildMode(mode: target.Mode);
+
+            if (manifest.Debug.ShowBuildStages)
+            {
+                Console.WriteLine(value: $"Using manifest: {nearbyManifest}");
+                Console.WriteLine(
+                    value:
+                    $"Executable: {explicitEntry} ({target.Mode}, entry from command line)");
+                if (target.Libraries.Count > 0)
                 {
-                    EntryFile = explicitEntry, ProjectRoot = entryDir, OutputFile = outputFile,
-                    RequireStartRoutine = true
-                };
-            }
-
-            try
-            {
-                ProjectManifest manifest = ManifestLoader.Load(tomlPath: nearbyManifest,
-                    resolveExecutable: false);
-                BuildTarget target = manifest.Target;
-                RfBuildMode buildMode = ParseBuildMode(mode: target.Mode);
-
-                if (manifest.Debug.ShowBuildStages)
-                {
-                    Console.WriteLine(value: $"Using manifest: {nearbyManifest}");
                     Console.WriteLine(
                         value:
-                        $"Executable: {explicitEntry} ({target.Mode}, entry from command line)");
-                    if (target.Libraries.Count > 0)
-                    {
-                        Console.WriteLine(
-                            value:
-                            $"Libraries: {string.Join(separator: ", ", values: target.Libraries)}");
-                    }
+                        $"Libraries: {string.Join(separator: ", ", values: target.Libraries)}");
                 }
-
-                ApplyDiagnosticFlags(manifest: manifest);
-                return new ResolvedEntry
-                {
-                    EntryFile = explicitEntry, ProjectRoot = manifest.ManifestDirectory,
-                    OutputFile = outputFile, BuildMode = buildMode, DumpAst = manifest.Debug.DumpAst,
-                    SaTiming = manifest.Debug.Timing, RequireStartRoutine = true,
-                    ShowBuildStages = manifest.Debug.ShowBuildStages, LibraryRoots = target.Libraries,
-                    CLibraries = target.CLibraries, LibraryPaths = target.LibraryPaths,
-                    LibraryConfigs = target.LibraryConfigs,
-                    UseDaemon = target.UseDaemon, Jit = ModeUsesJit(mode: target.Mode),
-                    Incremental = target.Incremental
-                };
             }
-            catch (Exception ex)
+
+            ApplyDiagnosticFlags(manifest: manifest);
+            return new ResolvedEntry
             {
-                Console.WriteLine(
-                    value: $"Error loading {ManifestLoader.ManifestFileName}: {ex.Message}");
-                return new ResolvedEntry();
-            }
+                EntryFile = explicitEntry, ProjectRoot = manifest.ManifestDirectory,
+                OutputFile = outputFile, BuildMode = buildMode, DumpAst = manifest.Debug.DumpAst,
+                SaTiming = manifest.Debug.Timing, RequireStartRoutine = true,
+                ShowBuildStages = manifest.Debug.ShowBuildStages, LibraryRoots = target.Libraries,
+                CLibraries = target.CLibraries, LibraryPaths = target.LibraryPaths,
+                LibraryConfigs = target.LibraryConfigs,
+                UseDaemon = target.UseDaemon, Jit = ModeUsesJit(mode: target.Mode),
+                Incremental = target.Incremental
+            };
         }
+        catch (Exception ex)
+        {
+            Console.WriteLine(
+                value: $"Error loading {ManifestLoader.ManifestFileName}: {ex.Message}");
+            return new ResolvedEntry();
+        }
+    }
 
+    /// <summary>Resolves the entry from a manifest: either a <c>.toml</c> passed explicitly, or (no explicit
+    /// entry) the nearest config.toml found from the current directory. The manifest's [target] executable is
+    /// the entry point.</summary>
+    private static ResolvedEntry ResolveManifestEntry(string? explicitEntry, string? outputFile)
+    {
         // No explicit entry (or .toml manifest given) — load manifest
         string? manifestPath = explicitEntry != null
             ? (File.Exists(path: explicitEntry)
@@ -530,7 +627,6 @@ internal partial class Program
     {
         DiagnosticFlags.Reset();
         DiagnosticFlags.PhaseTiming = manifest.Debug.Timing;
-        DiagnosticFlags.MarkerSurvey = manifest.Debug.MarkerSurvey;
         DiagnosticFlags.PruneStats = manifest.Debug.PruneStats;
         DiagnosticFlags.JitTrace = manifest.Debug.JitTrace;
         DiagnosticFlags.ReachabilityDump = manifest.Debug.ReachabilityDump;
@@ -1013,6 +1109,57 @@ internal partial class Program
         }
     }
 
+    /// <summary>Filters the build graph's units down to USER files (dropping the stdlib files already loaded
+    /// by TypeRegistry/StdlibLoader — those under the normalized stdlib root).</summary>
+    private static List<FileBuildUnit> FilterUserUnits(BuildResult buildResult, string stdlibRoot)
+    {
+        string normalizedStdlib = Path.GetFullPath(path: stdlibRoot);
+        return buildResult.Units
+                          .Where(predicate: u => !Path.GetFullPath(path: u.FilePath)
+                              .StartsWith(value: normalizedStdlib,
+                                   comparisonType: StringComparison
+                                      .OrdinalIgnoreCase))
+                          .ToList();
+    }
+
+    /// <summary>Orders the user file units by module initialization order, appending any unit not covered by
+    /// that order (e.g. an entry file with no module decl) in encounter order.</summary>
+    private static List<(SyntaxTree.Program Program, string FilePath)> OrderUserFiles(
+        List<FileBuildUnit> userUnits, IReadOnlyList<string> initializationOrder)
+    {
+        // Map module names back to file units for ordering
+        var unitsByModule =
+            new Dictionary<string, FileBuildUnit>(comparer: StringComparer.OrdinalIgnoreCase);
+        foreach (FileBuildUnit unit in userUnits)
+        {
+            string moduleName =
+                unit.Module ?? Path.GetFileNameWithoutExtension(path: unit.FilePath);
+            unitsByModule[key: moduleName] = unit;
+        }
+
+        var orderedFiles = new List<(SyntaxTree.Program Program, string FilePath)>();
+        foreach (string moduleName in initializationOrder)
+        {
+            if (unitsByModule.TryGetValue(key: moduleName, value: out FileBuildUnit? unit))
+            {
+                orderedFiles.Add(item: (unit.Ast, unit.FilePath));
+            }
+        }
+
+        // Fallback: if init order doesn't cover all units (e.g., entry file with no module decl)
+        foreach (FileBuildUnit unit in userUnits)
+        {
+            if (!orderedFiles.Any(predicate: f => string.Equals(a: f.FilePath,
+                    b: unit.FilePath,
+                    comparisonType: StringComparison.OrdinalIgnoreCase)))
+            {
+                orderedFiles.Add(item: (unit.Ast, unit.FilePath));
+            }
+        }
+
+        return orderedFiles;
+    }
+
     /// <summary>
     /// Runs the multi-file build pipeline: BuildDriver (parse + resolve imports + topo sort)
     /// -> SemanticVerifier.AnalyzeMultiple -> LLVMCodeGenerator with multiple user programs.
@@ -1095,13 +1242,7 @@ internal partial class Program
                     .InitializationOrder)}");
 
             // Filter out stdlib files they are already loaded by TypeRegistry/StdlibLoader
-            string normalizedStdlib = Path.GetFullPath(path: stdlibRoot);
-            var userUnits = buildResult.Units
-                                       .Where(predicate: u => !Path.GetFullPath(path: u.FilePath)
-                                           .StartsWith(value: normalizedStdlib,
-                                                comparisonType: StringComparison
-                                                   .OrdinalIgnoreCase))
-                                       .ToList();
+            List<FileBuildUnit> userUnits = FilterUserUnits(buildResult: buildResult, stdlibRoot: stdlibRoot);
 
             // Build file list in topological order
             var unitsByFile =
@@ -1111,35 +1252,8 @@ internal partial class Program
                 unitsByFile[key: unit.FilePath] = unit;
             }
 
-            // Map module names back to file units for ordering
-            var unitsByModule =
-                new Dictionary<string, FileBuildUnit>(comparer: StringComparer.OrdinalIgnoreCase);
-            foreach (FileBuildUnit unit in userUnits)
-            {
-                string moduleName =
-                    unit.Module ?? Path.GetFileNameWithoutExtension(path: unit.FilePath);
-                unitsByModule[key: moduleName] = unit;
-            }
-
-            var orderedFiles = new List<(SyntaxTree.Program Program, string FilePath)>();
-            foreach (string moduleName in buildResult.InitializationOrder)
-            {
-                if (unitsByModule.TryGetValue(key: moduleName, value: out FileBuildUnit? unit))
-                {
-                    orderedFiles.Add(item: (unit.Ast, unit.FilePath));
-                }
-            }
-
-            // Fallback: if init order doesn't cover all units (e.g., entry file with no module decl)
-            foreach (FileBuildUnit unit in userUnits)
-            {
-                if (!orderedFiles.Any(predicate: f => string.Equals(a: f.FilePath,
-                        b: unit.FilePath,
-                        comparisonType: StringComparison.OrdinalIgnoreCase)))
-                {
-                    orderedFiles.Add(item: (unit.Ast, unit.FilePath));
-                }
-            }
+            List<(SyntaxTree.Program Program, string FilePath)> orderedFiles =
+                OrderUserFiles(userUnits: userUnits, initializationOrder: buildResult.InitializationOrder);
 
             // Collect `@link("...")` C-library directives from the compiled files' declarations (only
             // files that passed the `@target` gate are in orderedFiles, so this is per-target correct).
@@ -1170,6 +1284,11 @@ internal partial class Program
             // restore ctor skips the ~5 s of stdlib desugaring/verification/monomorphization and only the
             // user program is analyzed. Cold path (warm == null) constructs a fresh verifier as before.
             SemanticVerifier.CompiledStdlibState? warm = warmProvider?.Invoke(language);
+            // NOTE: a cold-path fallback to StdlibSnapshotCache.LoadOrCapture (route cold builds through the
+            // .pbrf snapshot) is DEFERRED — it exposed a pre-existing warm-restore OVER-PRUNE on complex
+            // programs (the full-stdlib StdlibApiTests harness: "declared and called but never defined").
+            // The .pbrf round-trip itself is faithful (proven: deleting the .pbrf and using an in-memory
+            // warm capture over-prunes identically). Fix the warm-restore liveness gap first, then re-enable.
             // `timing` ([debug]) drives both the granular [SA] sub-phase lines (analyzer.SaTiming) and the
             // coarse [phase] lines below — via the single DiagnosticFlags.PhaseTiming source.
             var analyzer = warm != null
@@ -1348,7 +1467,7 @@ internal partial class Program
     /// Reports errors and warnings. Returns 0 if type-checking succeeds, 1 otherwise.
     /// </summary>
     private static int CheckMultiFile(string entryFile, string? projectRoot = null,
-        IReadOnlyList<string>? libraryRoots = null) // NOSONAR S3776
+        IReadOnlyList<string>? libraryRoots = null)
     {
         if (!File.Exists(path: entryFile))
         {
@@ -1402,42 +1521,10 @@ internal partial class Program
                 }
             }
 
-            // Filter out stdlib files
-            string normalizedStdlib = Path.GetFullPath(path: stdlibRoot);
-            var userUnits = buildResult.Units
-                                       .Where(predicate: u => !Path.GetFullPath(path: u.FilePath)
-                                           .StartsWith(value: normalizedStdlib,
-                                                comparisonType: StringComparison
-                                                   .OrdinalIgnoreCase))
-                                       .ToList();
-
-            var unitsByModule =
-                new Dictionary<string, FileBuildUnit>(comparer: StringComparer.OrdinalIgnoreCase);
-            foreach (FileBuildUnit unit in userUnits)
-            {
-                string moduleName =
-                    unit.Module ?? Path.GetFileNameWithoutExtension(path: unit.FilePath);
-                unitsByModule[key: moduleName] = unit;
-            }
-
-            var orderedFiles = new List<(SyntaxTree.Program Program, string FilePath)>();
-            foreach (string moduleName in buildResult.InitializationOrder)
-            {
-                if (unitsByModule.TryGetValue(key: moduleName, value: out FileBuildUnit? unit))
-                {
-                    orderedFiles.Add(item: (unit.Ast, unit.FilePath));
-                }
-            }
-
-            foreach (FileBuildUnit unit in userUnits)
-            {
-                if (!orderedFiles.Any(predicate: f => string.Equals(a: f.FilePath,
-                        b: unit.FilePath,
-                        comparisonType: StringComparison.OrdinalIgnoreCase)))
-                {
-                    orderedFiles.Add(item: (unit.Ast, unit.FilePath));
-                }
-            }
+            // Filter out stdlib files, then order the user files in initialization order.
+            List<FileBuildUnit> userUnits = FilterUserUnits(buildResult: buildResult, stdlibRoot: stdlibRoot);
+            List<(SyntaxTree.Program Program, string FilePath)> orderedFiles =
+                OrderUserFiles(userUnits: userUnits, initializationOrder: buildResult.InitializationOrder);
 
             // Phase 2: Semantic analysis (multi-file) -> no codegen
             Console.WriteLine();
@@ -1579,74 +1666,8 @@ internal partial class Program
         //    a cycle) at build time, with zero runtime cost. (Member-routine calls are not followed — a
         //    global read hidden behind `x.foo()` is the remaining residual.)
         int n = globals.Count;
-        var nameToIdx = new Dictionary<string, int>(comparer: StringComparer.Ordinal);
-        for (int i = 0; i < n; i++) nameToIdx[key: globals[index: i].Name] = i; // last decl of a dup name wins
-
-        // Index every free routine's body by bare name so the dependency scan can follow calls.
-        var routineBodies = new Dictionary<string, Statement>(comparer: StringComparer.Ordinal);
-        foreach ((SyntaxTree.Program program, string _) in orderedFiles)
-        {
-            foreach (ISyntaxTreeNode node in program.Declarations)
-            {
-                if (node is RoutineDeclaration { Body: { } body } r)
-                {
-                    routineBodies[key: r.Name] = body;
-                }
-            }
-        }
-
-        var deps = new List<HashSet<int>>(capacity: n);
-        for (int i = 0; i < n; i++)
-        {
-            var d = new HashSet<int>();
-            var visitedRoutines = new HashSet<string>(comparer: StringComparer.Ordinal);
-            var toScan = new Queue<object>();
-            toScan.Enqueue(item: globals[index: i].Init);
-            while (toScan.Count > 0)
-            {
-                object root = toScan.Dequeue();
-                AstWalker.WalkExpressions(root: root, visit: e =>
-                {
-                    if (e is IdentifierExpression id && nameToIdx.TryGetValue(key: id.Name, value: out int j))
-                    {
-                        d.Add(item: j);
-                    }
-                    // Follow a call into the callee's body once (transitive hidden dependency).
-                    if (e is CallExpression { Callee: IdentifierExpression callee }
-                        && routineBodies.TryGetValue(key: callee.Name, value: out Statement? calleeBody)
-                        && visitedRoutines.Add(item: callee.Name))
-                    {
-                        toScan.Enqueue(item: calleeBody);
-                    }
-                });
-            }
-            deps.Add(item: d);
-        }
-
-        // Kahn's algorithm, stable in source order among ready nodes.
-        var indegree = new int[n];
-        for (int i = 0; i < n; i++)
-            foreach (int j in deps[index: i])
-                if (j != i) indegree[i]++; // edge j -> i (dependency j before dependent i)
-
-        var order = new List<int>(capacity: n);
-        bool ready;
-        do
-        {
-            ready = false;
-            for (int i = 0; i < n; i++)
-            {
-                if (indegree[i] == 0)
-                {
-                    indegree[i] = -1; // consumed
-                    order.Add(item: i);
-                    ready = true;
-                    for (int k = 0; k < n; k++)
-                        if (k != i && deps[index: k].Contains(item: i))
-                            indegree[k]--;
-                }
-            }
-        } while (ready);
+        List<HashSet<int>> deps = ComputeGlobalDependencies(orderedFiles: orderedFiles, globals: globals);
+        List<int> order = KahnOrder(deps: deps, n: n);
 
         if (order.Count != n)
         {
@@ -1757,6 +1778,94 @@ internal partial class Program
             value: "error[RF-S438]: module-level 'global' declarations require a 'routine start()' entry " +
                    "point to host their initialization.");
         return false;
+    }
+
+    /// <summary>Computes, for each global, the set of OTHER globals it (transitively) depends on. A global's
+    /// initializer reading another global is a dependency; a free-routine call is followed once into the
+    /// callee's body so a hidden read (`global a = compute()` where `compute` reads `b`) counts too.
+    /// (Member-routine calls are not followed — a global read hidden behind `x.foo()` is the residual.)</summary>
+    private static List<HashSet<int>> ComputeGlobalDependencies(
+        List<(SyntaxTree.Program Program, string FilePath)> orderedFiles,
+        List<(string Name, TypeExpression Type, Expression Init, SourceLocation Loc)> globals)
+    {
+        int n = globals.Count;
+        var nameToIdx = new Dictionary<string, int>(comparer: StringComparer.Ordinal);
+        for (int i = 0; i < n; i++) nameToIdx[key: globals[index: i].Name] = i; // last decl of a dup name wins
+
+        // Index every free routine's body by bare name so the dependency scan can follow calls.
+        var routineBodies = new Dictionary<string, Statement>(comparer: StringComparer.Ordinal);
+        foreach ((SyntaxTree.Program program, string _) in orderedFiles)
+        {
+            foreach (ISyntaxTreeNode node in program.Declarations)
+            {
+                if (node is RoutineDeclaration { Body: { } body } r)
+                {
+                    routineBodies[key: r.Name] = body;
+                }
+            }
+        }
+
+        var deps = new List<HashSet<int>>(capacity: n);
+        for (int i = 0; i < n; i++)
+        {
+            var d = new HashSet<int>();
+            var visitedRoutines = new HashSet<string>(comparer: StringComparer.Ordinal);
+            var toScan = new Queue<object>();
+            toScan.Enqueue(item: globals[index: i].Init);
+            while (toScan.Count > 0)
+            {
+                object root = toScan.Dequeue();
+                AstWalker.WalkExpressions(root: root, visit: e =>
+                {
+                    if (e is IdentifierExpression id && nameToIdx.TryGetValue(key: id.Name, value: out int j))
+                    {
+                        d.Add(item: j);
+                    }
+                    // Follow a call into the callee's body once (transitive hidden dependency).
+                    if (e is CallExpression { Callee: IdentifierExpression callee }
+                        && routineBodies.TryGetValue(key: callee.Name, value: out Statement? calleeBody)
+                        && visitedRoutines.Add(item: callee.Name))
+                    {
+                        toScan.Enqueue(item: calleeBody);
+                    }
+                });
+            }
+            deps.Add(item: d);
+        }
+
+        return deps;
+    }
+
+    /// <summary>Kahn's topological sort over the dependency edges (dependency j before dependent i), stable
+    /// in source order among ready nodes. A returned order shorter than <paramref name="n"/> signals a cycle
+    /// (the caller reports the un-ordered globals as RF-S436).</summary>
+    private static List<int> KahnOrder(List<HashSet<int>> deps, int n)
+    {
+        var indegree = new int[n];
+        for (int i = 0; i < n; i++)
+            foreach (int j in deps[index: i])
+                if (j != i) indegree[i]++; // edge j -> i (dependency j before dependent i)
+
+        var order = new List<int>(capacity: n);
+        bool ready;
+        do
+        {
+            ready = false;
+            for (int i = 0; i < n; i++)
+            {
+                if (indegree[i] == 0)
+                {
+                    indegree[i] = -1; // consumed
+                    order.Add(item: i);
+                    ready = true;
+                    for (int k = 0; k < n; k++)
+                        if (k != i && deps[index: k].Contains(item: i))
+                            indegree[k]--;
+                }
+            }
+        } while (ready);
+
+        return order;
     }
 
     /// <summary>A build-time default value for a <c>global</c> whose initializer depends on another

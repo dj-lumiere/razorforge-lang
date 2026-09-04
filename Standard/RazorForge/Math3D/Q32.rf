@@ -187,6 +187,7 @@ routine Q32.angle() -> F32
 
 ### Formats this quaternion as `w+xi+yj+zk` (signs collapse for negatives).
 ### :returns: The resulting `Text` value.
+@override
 routine Q32.represent() -> Text
   return me.w.represent() + __q32_term(v: me.x, unit: "i") + __q32_term(v: me.y, unit: "j") + __q32_term(v: me.z, unit: "k")
 
@@ -202,6 +203,7 @@ routine __q32_term(v: F32, unit: Text) -> Text
 
 ### Returns a diagnostic string wrapping the value with its type name.
 ### :returns: The resulting `Text` value.
+@override
 routine Q32.diagnose() -> Text
   return "Q32(" + me.represent() + ")"
 

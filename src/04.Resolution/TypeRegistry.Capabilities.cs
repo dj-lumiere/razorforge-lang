@@ -124,33 +124,11 @@ public sealed partial class TypeRegistry
             gParams.Count == typeArgs.Count)
         {
             RoutineInfo? defMemberRoutine = LookupMemberRoutine(type: genericDef, memberRoutineName: wiredName);
-            if (defMemberRoutine is { GenericConstraints: { Count: > 0 } constraints })
+            if (defMemberRoutine is { GenericConstraints: { Count: > 0 } constraints }
+                && !GenericArgConstraintsHoldForWired(constraints: constraints,
+                    gParams: gParams, typeArgs: typeArgs))
             {
-                foreach (GenericConstraintDeclaration c in constraints)
-                {
-                    if (c.ConstraintType != ConstraintKind.Obeys ||
-                        c.ConstraintTypes is not { Count: > 0 } protos) continue;
-                    int idx = -1;
-                    for (int i = 0; i < gParams.Count; i++)
-                        if (gParams[index: i] == c.ParameterName) { idx = i; break; }
-                    if (idx < 0) continue;
-
-                    TypeInfo argType = typeArgs[index: idx];
-                    foreach (TypeExpression protoExpr in protos)
-                    {
-                        // Each `T obeys P` constraint demands that the corresponding type
-                        // arg has P's underlying capability. Look up the canonical wired
-                        // routine for P from the central map; unknown protocols (e.g.
-                        // marker traits without a wired routine) are skipped.
-                        if (!_protocolToWired.TryGetValue(key: protoExpr.Name,
-                                value: out string? requiredWired))
-                            continue;
-                        if (!HasCapability(type: argType,
-                                protocol: protoExpr.Name,
-                                wiredName: requiredWired))
-                            return false;
-                    }
-                }
+                return false;
             }
         }
 
@@ -162,12 +140,55 @@ public sealed partial class TypeRegistry
         // check below (concrete impl) or by obeying the protocol.
         RoutineInfo? direct = LookupMemberRoutine(type: type, memberRoutineName: wiredName);
         if (direct != null && direct.OwnerType is not ProtocolTypeInfo) return true;
+        // A name-only lookup returns null when >1 overload shares the name (no first-wins). This is an
+        // EXISTENCE check ("does the type host a concrete impl?"), not a unique binding — any concrete
+        // overload counts. Probe the candidate set directly so an overloaded member (e.g. a container's
+        // `getitem(index:)` + `getitem(range:)`) still reports the capability instead of losing it.
+        if (direct == null && HasConcreteMemberOverload(type: type, memberRoutineName: wiredName)) return true;
 
         // Marker conformance: the type obeys the named protocol — we expect a body to
         // appear eventually (via auto-synthesis) or for it to be an abstract marker.
         if (TypeObeysProtocol(type: type, protocolName: protocol)) return true;
 
         return false;
+    }
+
+    /// <summary>
+    /// Checks each <c>Ti obeys P</c> constraint on a generic-def wired routine against the corresponding
+    /// type argument: for every obeys-constraint whose parameter maps to a slot, the type arg in that
+    /// slot must have P's underlying wired capability. Returns false as soon as one fails; unknown
+    /// protocols (marker traits with no wired routine) are skipped.
+    /// </summary>
+    private bool GenericArgConstraintsHoldForWired(List<GenericConstraintDeclaration> constraints,
+        List<string> gParams, List<TypeInfo> typeArgs)
+    {
+        foreach (GenericConstraintDeclaration c in constraints)
+        {
+            if (c.ConstraintType != ConstraintKind.Obeys ||
+                c.ConstraintTypes is not { Count: > 0 } protos) continue;
+            int idx = -1;
+            for (int i = 0; i < gParams.Count; i++)
+                if (gParams[index: i] == c.ParameterName) { idx = i; break; }
+            if (idx < 0) continue;
+
+            TypeInfo argType = typeArgs[index: idx];
+            foreach (TypeExpression protoExpr in protos)
+            {
+                // Each `T obeys P` constraint demands that the corresponding type
+                // arg has P's underlying capability. Look up the canonical wired
+                // routine for P from the central map; unknown protocols (e.g.
+                // marker traits without a wired routine) are skipped.
+                if (!_protocolToWired.TryGetValue(key: protoExpr.Name,
+                        value: out string? requiredWired))
+                    continue;
+                if (!HasCapability(type: argType,
+                        protocol: protoExpr.Name,
+                        wiredName: requiredWired))
+                    return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -377,8 +398,23 @@ public sealed partial class TypeRegistry
         return names;
     }
 
-    private bool TypeObeysProtocol(TypeInfo type, string protocolName) // NOSONAR S3776
+    /// <summary>
+    /// The SINGLE authority for "does this concrete <paramref name="type"/> obey the protocol named
+    /// <paramref name="protocolName"/>" via its DECLARED conformance: the type's own
+    /// <c>ImplementedProtocols</c> (+ their parent chain), gated by any <c>onlyif</c> clause, plus the
+    /// reflexive marker-protocol rule. Both the generic-constraint gate (<see cref="ImplementerSatisfiesConstraint"/>)
+    /// and the SA-level <c>SemanticVerifier.ImplementsProtocol</c> delegate here for the declared-conformance
+    /// check (the latter adds category/generic-param/structural cases around this core). Matches on either the
+    /// exact name or the bare (bracket-stripped) name, so a parameterised <c>Controlling[List[S64]]</c> and the
+    /// registered generic-def <c>Controlling</c> both resolve.
+    /// </summary>
+    internal bool TypeObeysProtocol(TypeInfo type, string protocolName)
     {
+        // Marker reference protocols (Accessing/Controlling) are obeyed reflexively by any non-entity
+        // type — folded here so every caller (constraint gate + ImplementsProtocol) shares the one rule.
+        if (SatisfiesMarkerProtocolReflexively(implementer: type, protocolName: protocolName))
+            return true;
+
         List<TypeInfo>? implemented = type switch
         {
             ChoiceTypeInfo c => c.ImplementedProtocols,
@@ -388,17 +424,71 @@ public sealed partial class TypeRegistry
             _ => null
         };
         if (implemented == null) return false;
+        // Reduce the target to the registry's ONE canonical protocol object, then match every implemented
+        // protocol (+ its parent chain) by reference IDENTITY against it — no name-string equality anywhere.
+        // Canonicalizing both sides through the registry (rather than trusting the object a type happened to
+        // store at declaration time) is what makes identity reliable despite realm/registration duplication.
+        TypeInfo? targetDef = CanonicalProtocolDef(LookupType(name: protocolName));
+        if (targetDef == null) return false;
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        return implemented.Any(p => Walk(p, protocolName, seen));
+        if (!implemented.Any(p => Walk(p, targetDef, seen))) return false;
+        // Conditional-conformance gate: an `obeys P onlyif (…)` protocol is obeyed by a concrete
+        // generic INSTANCE only when the clause's conditions hold for its bound type args.
+        return ConditionalConformanceHolds(type: type, protocolName: protocolName);
 
-        bool Walk(TypeInfo candidate, string target, HashSet<string> seenSet)
+        bool Walk(TypeInfo candidate, TypeInfo tgtDef, HashSet<string> seenSet)
         {
             if (!seenSet.Add(item: candidate.Name)) return false;
-            if (candidate.Name == target) return true;
+            if (ReferenceEquals(objA: CanonicalProtocolDef(candidate), objB: tgtDef)) return true;
             TypeInfo latest = LookupType(name: candidate.Name) ?? candidate;
             if (latest is ProtocolTypeInfo proto)
-                return proto.ParentProtocols.Any(parent => Walk(parent, target, seenSet));
+                return proto.ParentProtocols.Any(parent => Walk(parent, tgtDef, seenSet));
             return false;
         }
+    }
+
+    /// <summary>The registry's single CANONICAL object for the protocol <paramref name="t"/> names — its
+    /// generic definition, re-fetched through <see cref="LookupType"/> so two references to the "same"
+    /// protocol (one stored on a type's <c>ImplementedProtocols</c>, one freshly resolved) collapse to ONE
+    /// object that reference-identity can compare. Returns the type unchanged when it is not a protocol.</summary>
+    private TypeInfo? CanonicalProtocolDef(TypeInfo? t)
+    {
+        if (t is not ProtocolTypeInfo p) return t;
+        TypeInfo def = p.GenericDefinition ?? p;
+        return LookupType(name: def.Name) ?? def;
+    }
+
+    /// <summary>
+    /// Evaluates an <c>obeys P onlyif (param obeys proto, …)</c> clause for a concrete generic instance:
+    /// true unless <paramref name="type"/> is an instance whose definition declared conditions for
+    /// <paramref name="protocolName"/> and some condition fails for the bound type argument. Permissive on
+    /// anything it cannot evaluate (a bare def with no args, an unknown param) — the clause only ever
+    /// TIGHTENS an already-positive conformance, never widens it.
+    /// </summary>
+    internal bool ConditionalConformanceHolds(TypeInfo type, string protocolName)
+    {
+        if (type.TypeArguments is not { Count: > 0 } args)
+            return true;
+        TypeInfo? def = LookupType(name: type.BareName);
+        Dictionary<string, List<(string ParamName, string ProtocolName)>>? map = def switch
+        {
+            EntityTypeInfo e => e.ConditionalObeys,
+            RecordTypeInfo r => r.ConditionalObeys,
+            _ => null
+        };
+        if (map == null || !map.TryGetValue(key: protocolName, value: out List<(string, string)>? conds))
+            return true;
+        List<string>? defParams = def!.GenericParameters;
+        if (defParams == null)
+            return true;
+        foreach ((string param, string proto) in conds)
+        {
+            int idx = defParams.IndexOf(item: param);
+            if (idx < 0 || idx >= args.Count)
+                continue;
+            if (!TypeObeysProtocol(type: args[index: idx], protocolName: proto))
+                return false;
+        }
+        return true;
     }
 }

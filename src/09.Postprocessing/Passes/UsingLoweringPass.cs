@@ -35,127 +35,29 @@ namespace Compiler.Postprocessing.Passes;
 /// <para>Nested usings are lowered bottom-up: the body is recursively lowered before the outer
 /// using is processed, so inner <c>exit()</c> calls appear before outer ones in every escape path.</para>
 /// </summary>
-internal sealed class UsingLoweringPass(PostprocessingContext ctx)
+internal sealed class UsingLoweringPass(PostprocessingContext ctx) : AstRewriter
 {
     private int _tempCount;
 
     private string NextResTemp() => $"__uf_{_tempCount++}";
 
     public void Run(Program program)
-    {
-        for (int i = 0; i < program.Declarations.Count; i++)
-        {
-            switch (program.Declarations[i])
-            {
-                case RoutineDeclaration r:
-                {
-                    Statement newBody = LowerStatement(r.Body);
-                    if (!ReferenceEquals(newBody, r.Body))
-                        program.Declarations[i] = r with { Body = newBody };
-                    break;
-                }
-                case EntityDeclaration e:
-                    LowerMemberList(e.Members);
-                    break;
-                case RecordDeclaration rec:
-                    LowerMemberList(rec.Members);
-                    break;
-                case CrashableDeclaration cr:
-                    LowerMemberList(cr.Members);
-                    break;
-            }
-        }
-    }
+        => BodyDispatch.RunOnProgram(program, lower: r => VisitStatement(r.Body));
 
     public void RunOnVariantBodies()
-    {
-        foreach (string key in ctx.VariantBodies.Keys.ToList())
-        {
-            Statement body = ctx.VariantBodies[key];
-            Statement lowered = LowerStatement(body);
-            if (!ReferenceEquals(lowered, body))
-                ctx.VariantBodies[key] = lowered;
-        }
-    }
+        => BodyDispatch.RunOnVariantBodies(ctx.VariantBodies, lower: (_, body) => VisitStatement(body));
 
-    private void LowerMemberList(List<SyntaxTree.Declaration> members)
-    {
-        for (int j = 0; j < members.Count; j++)
-        {
-            if (members[j] is not RoutineDeclaration m) continue;
-            Statement newBody = LowerStatement(m.Body);
-            if (!ReferenceEquals(newBody, m.Body))
-                members[j] = m with { Body = newBody };
-        }
-    }
-
-    private Statement LowerStatement(Statement stmt)
-    {
-        switch (stmt)
-        {
-            case UsingStatement u:
-                return LowerUsing(u);
-
-            case BlockStatement b:
-            {
-                bool changed = false;
-                var stmts = new List<Statement>(capacity: b.Statements.Count);
-                foreach (Statement s in b.Statements)
-                {
-                    Statement n = LowerStatement(s);
-                    stmts.Add(n);
-                    if (!ReferenceEquals(n, s)) changed = true;
-                }
-                return changed ? b with { Statements = stmts } : b;
-            }
-
-            case IfStatement ifs:
-            {
-                Statement then = LowerStatement(ifs.ThenStatement);
-                Statement? elseS = ifs.ElseStatement != null
-                    ? LowerStatement(ifs.ElseStatement)
-                    : null;
-                bool changed = !ReferenceEquals(then, ifs.ThenStatement)
-                               || !ReferenceEquals(elseS, ifs.ElseStatement);
-                return changed ? ifs with { ThenStatement = then, ElseStatement = elseS } : ifs;
-            }
-
-            case WhenStatement w:
-            {
-                bool changed = false;
-                var clauses = new List<WhenClause>(capacity: w.Clauses.Count);
-                foreach (WhenClause c in w.Clauses)
-                {
-                    Statement body = LowerStatement(c.Body);
-                    clauses.Add(!ReferenceEquals(body, c.Body) ? c with { Body = body } : c);
-                    if (!ReferenceEquals(body, c.Body)) changed = true;
-                }
-                return changed ? w with { Clauses = clauses } : w;
-            }
-
-            case LoopStatement loop:
-            {
-                Statement body = LowerStatement(loop.Body);
-                return !ReferenceEquals(body, loop.Body) ? loop with { Body = body } : loop;
-            }
-
-            case DangerStatement d:
-            {
-                Statement lowered = LowerStatement(d.Body);
-                return !ReferenceEquals(lowered, d.Body)
-                    ? d with { Body = (BlockStatement)lowered }
-                    : d;
-            }
-
-            default:
-                return stmt;
-        }
-    }
+    /// <summary>
+    /// The only node this pass rewrites: a <c>using</c> becomes its explicit enter/exit call sequence.
+    /// All structural recursion (blocks, if/when/loop/danger bodies, nested usings) is supplied by
+    /// <see cref="AstRewriter"/>.
+    /// </summary>
+    protected override Statement VisitUsing(UsingStatement s) => LowerUsing(u: s);
 
     private BlockStatement LowerUsing(UsingStatement u)
     {
         // Lower body first -> nested usings expand bottom-up.
-        Statement loweredBody = LowerStatement(u.Body);
+        Statement loweredBody = VisitStatement(u.Body);
 
         if (u.FallbackBody != null)
             return LowerFallibleUsing(u, loweredBody);
@@ -182,51 +84,12 @@ internal sealed class UsingLoweringPass(PostprocessingContext ctx)
         stmts.Add(MakeBinding(name: resTemp, value: u.Resource, type: resourceType, loc: loc));
 
         // Bind user's name via enter (or directly to the resource if no enter)
-        if (enterMemberRoutine != null)
-        {
-            var enterCallee = new MemberExpression(
-                Object: resTempIdent, MemberName: "enter", Location: loc);
-            var enterCall = new CallExpression(
-                Callee: enterCallee, Arguments: [], Location: loc)
-            {
-                ResolvedRoutine = enterMemberRoutine,
-                ResolvedType = enterMemberRoutine.ReturnType
-            };
-
-            bool returnsValue = enterMemberRoutine.ReturnType != null
-                && enterMemberRoutine.ReturnType.Name != "None";
-
-            if (returnsValue)
-            {
-                stmts.Add(MakeBinding(name: u.Name, value: enterCall,
-                    type: enterMemberRoutine.ReturnType, loc: loc));
-            }
-            else
-            {
-                stmts.Add(new ExpressionStatement(Expression: enterCall, Location: loc));
-                stmts.Add(MakeBinding(name: u.Name, value: resTempIdent,
-                    type: resourceType, loc: loc));
-            }
-        }
-        else
-        {
-            stmts.Add(MakeBinding(name: u.Name, value: resTempIdent, type: resourceType, loc: loc));
-        }
+        EmitEnterBinding(stmts: stmts, u: u, enterMemberRoutine: enterMemberRoutine,
+            resTempIdent: resTempIdent, resourceType: resourceType, loc: loc);
 
         // Build the exit() call expression (reused for injection and normal exit)
-        ExpressionStatement? exitCallStmt = null;
-        if (exitMemberRoutine != null)
-        {
-            var exitCallee = new MemberExpression(
-                Object: resTempIdent, MemberName: "exit", Location: loc);
-            var exitCall = new CallExpression(
-                Callee: exitCallee, Arguments: [], Location: loc)
-            {
-                ResolvedRoutine = exitMemberRoutine,
-                ResolvedType = null
-            };
-            exitCallStmt = new ExpressionStatement(Expression: exitCall, Location: loc);
-        }
+        ExpressionStatement? exitCallStmt =
+            MakeExitCallStmt(exitMemberRoutine: exitMemberRoutine, resTempIdent: resTempIdent, loc: loc);
 
         Statement body = exitCallStmt != null
             ? InjectExitBeforeEscapes(loweredBody, exitCallStmt, loopDepth: 0)
@@ -239,6 +102,61 @@ internal sealed class UsingLoweringPass(PostprocessingContext ctx)
             stmts.Add(exitCallStmt);
 
         return new BlockStatement(Statements: stmts, Location: loc);
+    }
+
+    // Bind user's name via enter (or directly to the resource if no enter).
+    private static void EmitEnterBinding(List<Statement> stmts, UsingStatement u,
+        RoutineInfo? enterMemberRoutine, IdentifierExpression resTempIdent, TypeInfo? resourceType,
+        SourceLocation loc)
+    {
+        if (enterMemberRoutine == null)
+        {
+            stmts.Add(MakeBinding(name: u.Name, value: resTempIdent, type: resourceType, loc: loc));
+            return;
+        }
+
+        var enterCallee = new MemberExpression(
+            Object: resTempIdent, MemberName: "enter", Location: loc);
+        var enterCall = new CallExpression(
+            Callee: enterCallee, Arguments: [], Location: loc)
+        {
+            ResolvedRoutine = enterMemberRoutine,
+            ResolvedType = enterMemberRoutine.ReturnType
+        };
+
+        bool returnsValue = enterMemberRoutine.ReturnType != null
+            && enterMemberRoutine.ReturnType.Name != "None";
+
+        if (returnsValue)
+        {
+            stmts.Add(MakeBinding(name: u.Name, value: enterCall,
+                type: enterMemberRoutine.ReturnType, loc: loc));
+        }
+        else
+        {
+            stmts.Add(new ExpressionStatement(Expression: enterCall, Location: loc));
+            stmts.Add(MakeBinding(name: u.Name, value: resTempIdent,
+                type: resourceType, loc: loc));
+        }
+    }
+
+    // Build the exit() call statement (reused for injection and normal exit), or null when the
+    // resource type has no exit memberRoutine.
+    private static ExpressionStatement? MakeExitCallStmt(RoutineInfo? exitMemberRoutine,
+        IdentifierExpression resTempIdent, SourceLocation loc)
+    {
+        if (exitMemberRoutine == null)
+            return null;
+
+        var exitCallee = new MemberExpression(
+            Object: resTempIdent, MemberName: "exit", Location: loc);
+        var exitCall = new CallExpression(
+            Callee: exitCallee, Arguments: [], Location: loc)
+        {
+            ResolvedRoutine = exitMemberRoutine,
+            ResolvedType = null
+        };
+        return new ExpressionStatement(Expression: exitCall, Location: loc);
     }
 
     /// <summary>
@@ -259,7 +177,7 @@ internal sealed class UsingLoweringPass(PostprocessingContext ctx)
     /// </summary>
     private BlockStatement LowerFallibleUsing(UsingStatement u, Statement loweredBody)
     {
-        Statement loweredFallback = LowerStatement(u.FallbackBody!);
+        Statement loweredFallback = VisitStatement(u.FallbackBody!);
 
         TypeInfo? resourceType = u.Resource.ResolvedType;
         SourceLocation loc = u.Location;
@@ -298,19 +216,8 @@ internal sealed class UsingLoweringPass(PostprocessingContext ctx)
             MakeBinding(name: u.Name, value: resTempIdent, type: resourceType, loc: loc)
         };
 
-        ExpressionStatement? exitCallStmt = null;
-        if (exitMemberRoutine != null)
-        {
-            var exitCallee = new MemberExpression(
-                Object: resTempIdent, MemberName: "exit", Location: loc);
-            var exitCall = new CallExpression(
-                Callee: exitCallee, Arguments: [], Location: loc)
-            {
-                ResolvedRoutine = exitMemberRoutine,
-                ResolvedType = null
-            };
-            exitCallStmt = new ExpressionStatement(Expression: exitCall, Location: loc);
-        }
+        ExpressionStatement? exitCallStmt =
+            MakeExitCallStmt(exitMemberRoutine: exitMemberRoutine, resTempIdent: resTempIdent, loc: loc);
 
         Statement successBody = exitCallStmt != null
             ? InjectExitBeforeEscapes(loweredBody, exitCallStmt, loopDepth: 0)

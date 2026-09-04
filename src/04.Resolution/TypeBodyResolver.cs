@@ -96,7 +96,7 @@ internal sealed class TypeBodyResolver
         }
     }
 
-    private void ResolveRecordBody(RecordDeclaration record) // NOSONAR S3776
+    private void ResolveRecordBody(RecordDeclaration record)
     {
         if (record.Members.Count == 0 && !record.HasPassBody)
         {
@@ -114,26 +114,7 @@ internal sealed class TypeBodyResolver
         // Resolve implemented protocols
         if (_sa._currentType is RecordTypeInfo && record.Protocols.Count > 0)
         {
-            var resolvedProtocols = new List<TypeInfo>();
-            foreach (TypeExpression protoExpr in record.Protocols)
-            {
-                TypeSymbol protoType = _typeResolver.ResolveType(typeExpr: protoExpr);
-                if (protoType is ProtocolTypeInfo proto)
-                {
-                    resolvedProtocols.Add(item: proto);
-                }
-                else if (protoType is not ErrorTypeInfo)
-                {
-                    _sa.ReportError(code: SemanticDiagnosticCode.NotAProtocol,
-                        message:
-                        $"'{protoExpr.Name}' is not a protocol. Only protocols can be used with 'obeys'.",
-                        location: protoExpr.Location);
-                }
-            }
-
-            // Update the type with resolved protocols
-            _sa._registry.UpdateRecordProtocols(recordName: _sa._currentType!.FullName,
-                protocols: resolvedProtocols);
+            ResolveRecordProtocols(record: record);
         }
 
         // Validate generic constraints reference declared type parameters
@@ -156,51 +137,8 @@ internal sealed class TypeBodyResolver
 
             if (member is VariableDeclaration memberVariable)
             {
-                // Resolve member variable type
-                TypeSymbol memberVariableType = memberVariable.Type != null
-                    ? _typeResolver.ResolveType(typeExpr: memberVariable.Type)
-                    : ErrorTypeInfo.Instance;
-
-                // Records can contain: value types, entity/crashable REFERENCE fields (entities are
-                // pointer-shaped reference types, so the field stores a reference), generic parameters,
-                // and Assignable wrappers (Hijacked, Retained, Guarded, Tracked, Witnessed). Scoped access
-                // tokens (Viewing, Modifying, Consulting, Amending) are wrappers NOT in the Assignable set.
-                bool isReferenceTyped =
-                    memberVariableType?.Category == TypeCategory.Entity ||
-                    memberVariableType?.Category == TypeCategory.Crashable;
-                // A Routine-typed field is a callback slot: the routine VALUE is pointer-shaped
-                // (a `ptr` to a closure blob = C's `(fnptr[, userdata])`), stored NON-OWNING like a
-                // bare C function pointer. So a record may hold one, mirroring how a C struct stores a
-                // `(callback, userdata)` pair.
-                bool isRoutineTyped = memberVariableType is RoutineTypeInfo;
-                if (memberVariableType != null &&
-                    memberVariableType is not ErrorTypeInfo &&
-                    memberVariableType is not GenericParameterTypeInfo &&
-                    !TypeRegistry.IsValueType(type: memberVariableType) &&
-                    !isReferenceTyped &&
-                    !isRoutineTyped &&
-                    !(memberVariableType is WrapperTypeInfo wrapper &&
-                      AssignableWrapperTypes.Contains(item: wrapper.BareName)))
-                {
-                    _sa.ReportError(code: SemanticDiagnosticCode.RecordContainsNonValueType,
-                        message:
-                        $"Record member variable '{memberVariable.Name}' has type '{memberVariableType.Name}' which is not a value type. " +
-                        "Records can only contain value types, Hijacked[T], and RC wrappers (Retained, Guarded, Tracked, Witnessed).",
-                        location: memberVariable.Location);
-                }
-
-                // Create member variable info
-                var memberVariableInfo =
-                    new MemberVariableInfo(name: memberVariable.Name, type: memberVariableType ?? ErrorTypeInfo.Instance)
-                    {
-                        Visibility = memberVariable.Visibility,
-                        Index = memberVariableIndex++,
-                        HasDefaultValue = memberVariable.Initializer != null,
-                        Location = memberVariable.Location,
-                        Owner = _sa._currentType
-                    };
-
-                memberVariables.Add(item: memberVariableInfo);
+                memberVariables.Add(item: ResolveRecordMemberVariable(
+                    memberVariable: memberVariable, memberVariableIndex: memberVariableIndex++));
             }
 
             // Still call CollectDeclaration for validation and other member types
@@ -226,6 +164,89 @@ internal sealed class TypeBodyResolver
     }
 
     /// <summary>
+    /// Resolves the <c>obeys</c> protocol list on a record declaration, reporting non-protocols and
+    /// updating the registered record with the resolved protocols + conditional-obeys clause.
+    /// </summary>
+    private void ResolveRecordProtocols(RecordDeclaration record)
+    {
+        var resolvedProtocols = new List<TypeInfo>();
+        foreach (TypeExpression protoExpr in record.Protocols)
+        {
+            TypeSymbol protoType = _typeResolver.ResolveType(typeExpr: protoExpr);
+            if (protoType is ProtocolTypeInfo proto)
+            {
+                resolvedProtocols.Add(item: proto);
+            }
+            else if (protoType is not ErrorTypeInfo)
+            {
+                _sa.ReportError(code: SemanticDiagnosticCode.NotAProtocol,
+                    message:
+                    $"'{protoExpr.Name}' is not a protocol. Only protocols can be used with 'obeys'.",
+                    location: protoExpr.Location);
+            }
+        }
+
+        // Update the type with resolved protocols
+        _sa._registry.UpdateRecordProtocols(recordName: _sa._currentType!.FullName,
+            protocols: resolvedProtocols);
+        if (_sa._currentType is RecordTypeInfo recTi)
+            recTi.ConditionalObeys =
+                Compiler.Declaration.StdlibLoader.BuildConditionalObeys(protoExprs: record.Protocols);
+    }
+
+    /// <summary>
+    /// Resolves a single record member variable: resolves its type, validates it is a legal record
+    /// field type (value type, entity/crashable reference, generic param, routine, or Assignable
+    /// wrapper), and builds the <see cref="MemberVariableInfo"/>.
+    /// </summary>
+    private MemberVariableInfo ResolveRecordMemberVariable(VariableDeclaration memberVariable,
+        int memberVariableIndex)
+    {
+        // Resolve member variable type
+        TypeSymbol memberVariableType = memberVariable.Type != null
+            ? _typeResolver.ResolveType(typeExpr: memberVariable.Type)
+            : ErrorTypeInfo.Instance;
+
+        // Records can contain: value types, entity/crashable REFERENCE fields (entities are
+        // pointer-shaped reference types, so the field stores a reference), generic parameters,
+        // and Assignable wrappers (Hijacked, Retained, Guarded, Tracked, Witnessed). Scoped access
+        // tokens (Viewing, Modifying, Consulting, Amending) are wrappers NOT in the Assignable set.
+        bool isReferenceTyped =
+            memberVariableType?.Category == TypeCategory.Entity ||
+            memberVariableType?.Category == TypeCategory.Crashable;
+        // A Routine-typed field is a callback slot: the routine VALUE is pointer-shaped
+        // (a `ptr` to a closure blob = C's `(fnptr[, userdata])`), stored NON-OWNING like a
+        // bare C function pointer. So a record may hold one, mirroring how a C struct stores a
+        // `(callback, userdata)` pair.
+        bool isRoutineTyped = memberVariableType is RoutineTypeInfo;
+        if (memberVariableType != null &&
+            memberVariableType is not ErrorTypeInfo &&
+            memberVariableType is not GenericParameterTypeInfo &&
+            !TypeRegistry.IsValueType(type: memberVariableType) &&
+            !isReferenceTyped &&
+            !isRoutineTyped &&
+            !(memberVariableType is WrapperTypeInfo wrapper &&
+              AssignableWrapperTypes.Contains(item: wrapper.BareName)))
+        {
+            _sa.ReportError(code: SemanticDiagnosticCode.RecordContainsNonValueType,
+                message:
+                $"Record member variable '{memberVariable.Name}' has type '{memberVariableType.Name}' which is not a value type. " +
+                "Records can only contain value types, Hijacked[T], and RC wrappers (Retained, Guarded, Tracked, Witnessed).",
+                location: memberVariable.Location);
+        }
+
+        // Create member variable info
+        return new MemberVariableInfo(name: memberVariable.Name, type: memberVariableType ?? ErrorTypeInfo.Instance)
+        {
+            Visibility = memberVariable.Visibility,
+            Index = memberVariableIndex,
+            HasDefaultValue = memberVariable.Initializer != null,
+            Location = memberVariable.Location,
+            Owner = _sa._currentType
+        };
+    }
+
+    /// <summary>
     /// Resolves a decl-position <c>expand</c> directive into per-template
     /// <see cref="MemberExpandTemplateInfo"/>. Each column type is resolved with the <c>${m.type}</c>
     /// splice standing in for the synthetic per-field placeholder; the registry substitutes the real
@@ -246,7 +267,7 @@ internal sealed class TypeBodyResolver
         return result;
     }
 
-    private void ResolveEntityBody(EntityDeclaration entity) // NOSONAR S3776
+    private void ResolveEntityBody(EntityDeclaration entity)
     {
         if (entity.Members.Count == 0 && !entity.HasPassBody)
         {
@@ -264,25 +285,7 @@ internal sealed class TypeBodyResolver
         // Resolve implemented protocols
         if (_sa._currentType is EntityTypeInfo && entity.Protocols.Count > 0)
         {
-            var resolvedProtocols = new List<TypeInfo>();
-            foreach (TypeExpression protoExpr in entity.Protocols)
-            {
-                TypeSymbol protoType = _typeResolver.ResolveType(typeExpr: protoExpr);
-                if (protoType is ProtocolTypeInfo proto)
-                {
-                    resolvedProtocols.Add(item: proto);
-                }
-                else if (protoType is not ErrorTypeInfo)
-                {
-                    _sa.ReportError(code: SemanticDiagnosticCode.NotAProtocol,
-                        message:
-                        $"'{protoExpr.Name}' is not a protocol. Only protocols can be used with 'obeys'.",
-                        location: protoExpr.Location);
-                }
-            }
-
-            _sa._registry.UpdateEntityProtocols(entityName: _sa._currentType!.FullName,
-                protocols: resolvedProtocols);
+            ResolveEntityProtocols(entity: entity);
         }
 
         // Collect member variables and other members
@@ -300,34 +303,8 @@ internal sealed class TypeBodyResolver
 
             if (member is VariableDeclaration memberVariable)
             {
-                TypeSymbol memberVariableType = memberVariable.Type != null
-                    ? _typeResolver.ResolveType(typeExpr: memberVariable.Type)
-                    : ErrorTypeInfo.Instance;
-
-                // Suflae: an entity-typed field is a `Roamed[E]` biased-RC handle. The substitution now
-                // happens at the single ResolveType choke point (TypeResolver.RoamSuflaeEntitySlot), so
-                // memberVariableType is ALREADY `Roamed[E]` here (bare `x: E`) or a nullable `Roamed[E]`
-                // (`x: E?` — the choke point collapses `Maybe[E]` to a bare nullable Roamed, since an
-                // entity reference carries its own none via a null handle). We only still record
-                // NULLABILITY as a flow fact: it is no longer visible in the resolved type, so detect it
-                // from the AST — the field was written `E?`, which desugars to a `Maybe[...]` type expr.
-                bool fieldNullable = _sa._registry.Language == Language.Suflae
-                    && memberVariable.Type is { Name: "Maybe" }
-                    && memberVariableType is RecordTypeInfo
-                        { GenericDefinition.Name: RuntimeContract.Roamed };
-
-                var memberVariableInfo =
-                    new MemberVariableInfo(name: memberVariable.Name, type: memberVariableType)
-                    {
-                        Visibility = memberVariable.Visibility,
-                        Index = memberVariableIndex++,
-                        HasDefaultValue = memberVariable.Initializer != null,
-                        IsNullable = fieldNullable,
-                        Location = memberVariable.Location,
-                        Owner = _sa._currentType
-                    };
-
-                memberVariables.Add(item: memberVariableInfo);
+                memberVariables.Add(item: ResolveEntityMemberVariable(
+                    memberVariable: memberVariable, memberVariableIndex: memberVariableIndex++));
             }
 
             _sa.CollectDeclaration(node: member);
@@ -346,6 +323,70 @@ internal sealed class TypeBodyResolver
 
         _sa._currentType = previousType;
         _sa._currentTypeMemberVariableNames = previousMemberVariableNames;
+    }
+
+    /// <summary>
+    /// Resolves the <c>obeys</c> protocol list on an entity declaration, reporting non-protocols and
+    /// updating the registered entity with the resolved protocols + conditional-obeys clause.
+    /// </summary>
+    private void ResolveEntityProtocols(EntityDeclaration entity)
+    {
+        var resolvedProtocols = new List<TypeInfo>();
+        foreach (TypeExpression protoExpr in entity.Protocols)
+        {
+            TypeSymbol protoType = _typeResolver.ResolveType(typeExpr: protoExpr);
+            if (protoType is ProtocolTypeInfo proto)
+            {
+                resolvedProtocols.Add(item: proto);
+            }
+            else if (protoType is not ErrorTypeInfo)
+            {
+                _sa.ReportError(code: SemanticDiagnosticCode.NotAProtocol,
+                    message:
+                    $"'{protoExpr.Name}' is not a protocol. Only protocols can be used with 'obeys'.",
+                    location: protoExpr.Location);
+            }
+        }
+
+        _sa._registry.UpdateEntityProtocols(entityName: _sa._currentType!.FullName,
+            protocols: resolvedProtocols);
+        if (_sa._currentType is EntityTypeInfo entTi)
+            entTi.ConditionalObeys =
+                Compiler.Declaration.StdlibLoader.BuildConditionalObeys(protoExprs: entity.Protocols);
+    }
+
+    /// <summary>
+    /// Resolves a single entity member variable: resolves its (already-Roamed) type and records
+    /// Suflae nullability as a flow fact from the <c>E?</c>-desugared <c>Maybe[...]</c> type expr.
+    /// </summary>
+    private MemberVariableInfo ResolveEntityMemberVariable(VariableDeclaration memberVariable,
+        int memberVariableIndex)
+    {
+        TypeSymbol memberVariableType = memberVariable.Type != null
+            ? _typeResolver.ResolveType(typeExpr: memberVariable.Type)
+            : ErrorTypeInfo.Instance;
+
+        // Suflae: an entity-typed field is a `Roamed[E]` biased-RC handle. The substitution now
+        // happens at the single ResolveType choke point (TypeResolver.RoamSuflaeEntitySlot), so
+        // memberVariableType is ALREADY `Roamed[E]` here (bare `x: E`) or a nullable `Roamed[E]`
+        // (`x: E?` — the choke point collapses `Maybe[E]` to a bare nullable Roamed, since an
+        // entity reference carries its own none via a null handle). We only still record
+        // NULLABILITY as a flow fact: it is no longer visible in the resolved type, so detect it
+        // from the AST — the field was written `E?`, which desugars to a `Maybe[...]` type expr.
+        bool fieldNullable = _sa._registry.Language == Language.Suflae
+            && memberVariable.Type is { Name: "Maybe" }
+            && memberVariableType is RecordTypeInfo
+                { GenericDefinition.Name: RuntimeContract.Roamed };
+
+        return new MemberVariableInfo(name: memberVariable.Name, type: memberVariableType)
+        {
+            Visibility = memberVariable.Visibility,
+            Index = memberVariableIndex,
+            HasDefaultValue = memberVariable.Initializer != null,
+            IsNullable = fieldNullable,
+            Location = memberVariable.Location,
+            Owner = _sa._currentType
+        };
     }
 
     private void ResolveCrashableBody(CrashableDeclaration crashable)
@@ -406,93 +447,13 @@ internal sealed class TypeBodyResolver
         _sa._currentType = protocolInfo;
 
         // Resolve parent protocols (protocol X obeys Y, Z)
-        var parentProtocols = new List<ProtocolTypeInfo>();
-        foreach (TypeExpression parentExpr in protocol.ParentProtocols)
-        {
-            TypeSymbol parentType = _typeResolver.ResolveType(typeExpr: parentExpr);
-            if (parentType is ProtocolTypeInfo parentProtocol)
-            {
-                parentProtocols.Add(item: parentProtocol);
-            }
-            else if (parentType is not ErrorTypeInfo)
-            {
-                _sa.ReportError(code: SemanticDiagnosticCode.NotAProtocol,
-                    message:
-                    $"'{parentExpr}' is not a protocol. Only protocols can be inherited with 'obeys'.",
-                    location: parentExpr.Location);
-            }
-        }
+        List<ProtocolTypeInfo> parentProtocols = ResolveParentProtocols(protocol: protocol);
 
         // Convert memberRoutine signatures to ProtocolMemberRoutineInfo
         var memberRoutines = new List<ProtocolMemberRoutineInfo>();
         foreach (RoutineSignature sig in protocol.MemberRoutines)
         {
-            bool isFailable = sig.IsFailable;
-            string fullName = sig.Name;
-
-            // Check if this is an instance memberRoutine (has "Me." prefix).
-            // Protocol memberRoutines: "Me.MemberRoutineName" = instance, "memberRoutineName" = type-level.
-            // The `common` qualifier overrides this — `common routine Me.identity()` is a
-            // type-level memberRoutine even with the `Me.` prefix, matching the impl-side syntax
-            // `common routine NumericSumAdd[T].identity() -> T`.
-            bool isCommonMemberRoutine = sig.Annotations?.Contains(item: "common") == true;
-            bool hasMePrefix = fullName.StartsWith(value: "Me.");
-            bool isInstanceMemberRoutine = hasMePrefix && !isCommonMemberRoutine;
-            string memberRoutineName = hasMePrefix
-                ? fullName[3..]
-                : fullName;
-
-            // Resolve parameter types (skip 'me' if it appears as explicit parameter)
-            var paramTypes = new List<TypeSymbol>();
-            var paramNames = new List<string>();
-            foreach (Parameter param in sig.Parameters)
-            {
-                // Skip the 'me' parameter - it's implicit for instance memberRoutines
-                if (param.Name == "me")
-                {
-                    continue;
-                }
-
-                TypeSymbol paramType = _typeResolver.ResolveProtocolType(typeExpr: param.Type);
-                paramTypes.Add(item: paramType);
-                paramNames.Add(item: param.Name);
-            }
-
-            // Resolve return type
-            TypeSymbol? returnType = sig.ReturnType != null
-                ? _typeResolver.ResolveProtocolType(typeExpr: sig.ReturnType)
-                : null;
-
-            // Extract mutation category from attributes (@readonly/@reshaping), via the one shared
-            // derivation so this path can't drift from SignatureResolver / StdlibLoader.
-            MutationCategory modification =
-                MutationCategoryExtensions.FromAnnotations(annotations: sig.Annotations);
-
-            // Extract generation kind from annotations
-            ProtocolRoutineKind generationKind = ProtocolRoutineKind.None;
-            if (sig.Annotations?.Contains(item: "innate") == true)
-            {
-                generationKind = ProtocolRoutineKind.Innate;
-            }
-            else if (sig.Annotations?.Contains(item: "generated") == true)
-            {
-                generationKind = ProtocolRoutineKind.Generated;
-            }
-
-            var memberRoutineInfo = new ProtocolMemberRoutineInfo(name: memberRoutineName)
-            {
-                IsInstanceMemberRoutine = isInstanceMemberRoutine,
-                Mutation = modification,
-                GenerationKind = generationKind,
-                ParameterTypes = paramTypes,
-                ParameterNames = paramNames,
-                ReturnType = returnType,
-                IsFailable = isFailable,
-                HasDefaultImplementation = false, // Abstract protocol memberRoutines have no default
-                Location = sig.Location
-            };
-
-            memberRoutines.Add(item: memberRoutineInfo);
+            memberRoutines.Add(item: ConvertProtocolMemberRoutine(sig: sig));
         }
 
         // Update the protocol with resolved memberRoutines and parent protocols
@@ -513,7 +474,105 @@ internal sealed class TypeBodyResolver
         _sa._currentType = previousType;
     }
 
-    private void ResolveVariantBody(VariantDeclaration variant) // NOSONAR S3776
+    /// <summary>
+    /// Resolves a protocol's parent protocols (<c>protocol X obeys Y, Z</c>), reporting non-protocols.
+    /// </summary>
+    private List<ProtocolTypeInfo> ResolveParentProtocols(ProtocolDeclaration protocol)
+    {
+        var parentProtocols = new List<ProtocolTypeInfo>();
+        foreach (TypeExpression parentExpr in protocol.ParentProtocols)
+        {
+            TypeSymbol parentType = _typeResolver.ResolveType(typeExpr: parentExpr);
+            if (parentType is ProtocolTypeInfo parentProtocol)
+            {
+                parentProtocols.Add(item: parentProtocol);
+            }
+            else if (parentType is not ErrorTypeInfo)
+            {
+                _sa.ReportError(code: SemanticDiagnosticCode.NotAProtocol,
+                    message:
+                    $"'{parentExpr}' is not a protocol. Only protocols can be inherited with 'obeys'.",
+                    location: parentExpr.Location);
+            }
+        }
+
+        return parentProtocols;
+    }
+
+    /// <summary>
+    /// Converts a single protocol member-routine signature to a <see cref="ProtocolMemberRoutineInfo"/>:
+    /// classifies instance/type-level (Me. prefix vs common), resolves param + return types (skipping
+    /// implicit <c>me</c>), and extracts mutation + generation-kind annotations.
+    /// </summary>
+    private ProtocolMemberRoutineInfo ConvertProtocolMemberRoutine(RoutineSignature sig)
+    {
+        bool isFailable = sig.IsFailable;
+        string fullName = sig.Name;
+
+        // Check if this is an instance memberRoutine (has "Me." prefix).
+        // Protocol memberRoutines: "Me.MemberRoutineName" = instance, "memberRoutineName" = type-level.
+        // The `common` qualifier overrides this — `common routine Me.identity()` is a
+        // type-level memberRoutine even with the `Me.` prefix, matching the impl-side syntax
+        // `common routine NumericSumAdd[T].identity() -> T`.
+        bool isCommonMemberRoutine = sig.Annotations?.Contains(item: "common") == true;
+        bool hasMePrefix = fullName.StartsWith(value: "Me.");
+        bool isInstanceMemberRoutine = hasMePrefix && !isCommonMemberRoutine;
+        string memberRoutineName = hasMePrefix
+            ? fullName[3..]
+            : fullName;
+
+        // Resolve parameter types (skip 'me' if it appears as explicit parameter)
+        var paramTypes = new List<TypeSymbol>();
+        var paramNames = new List<string>();
+        foreach (Parameter param in sig.Parameters)
+        {
+            // Skip the 'me' parameter - it's implicit for instance memberRoutines
+            if (param.Name == "me")
+            {
+                continue;
+            }
+
+            TypeSymbol paramType = _typeResolver.ResolveProtocolType(typeExpr: param.Type);
+            paramTypes.Add(item: paramType);
+            paramNames.Add(item: param.Name);
+        }
+
+        // Resolve return type
+        TypeSymbol? returnType = sig.ReturnType != null
+            ? _typeResolver.ResolveProtocolType(typeExpr: sig.ReturnType)
+            : null;
+
+        // Extract mutation category from attributes (@readonly/@reshaping), via the one shared
+        // derivation so this path can't drift from SignatureResolver / StdlibLoader.
+        MutationCategory modification =
+            MutationCategoryExtensions.FromAnnotations(annotations: sig.Annotations);
+
+        // Extract generation kind from annotations
+        ProtocolRoutineKind generationKind = ProtocolRoutineKind.None;
+        if (sig.Annotations?.Contains(item: "innate") == true)
+        {
+            generationKind = ProtocolRoutineKind.Innate;
+        }
+        else if (sig.Annotations?.Contains(item: "generated") == true)
+        {
+            generationKind = ProtocolRoutineKind.Generated;
+        }
+
+        return new ProtocolMemberRoutineInfo(name: memberRoutineName)
+        {
+            IsInstanceMemberRoutine = isInstanceMemberRoutine,
+            Mutation = modification,
+            GenerationKind = generationKind,
+            ParameterTypes = paramTypes,
+            ParameterNames = paramNames,
+            ReturnType = returnType,
+            IsFailable = isFailable,
+            HasDefaultImplementation = false, // Abstract protocol memberRoutines have no default
+            Location = sig.Location
+        };
+    }
+
+    private void ResolveVariantBody(VariantDeclaration variant)
     {
         if (variant.Members.Count == 0)
         {
@@ -530,60 +589,8 @@ internal sealed class TypeBodyResolver
 
         foreach (VariantMember member in variant.Members)
         {
-            string typeName = member.Type.Name;
-
-            // Handle None state (zero-sized, no payload)
-            if (typeName == "None")
-            {
-                if (hasNone)
-                {
-                    _sa.ReportError(code: SemanticDiagnosticCode.VariantCaseContainsInvalidType,
-                        message: $"Variant type '{variant.Name}' has duplicate 'None' member.",
-                        location: member.Location);
-                    continue;
-                }
-
-                hasNone = true;
-                // None is always tag 0
-                members.Insert(index: 0,
-                    item: VariantMemberInfo.CreateNone(ordinal: 0, location: member.Location));
-                continue;
-            }
-
-            TypeSymbol memberType = _typeResolver.ResolveType(typeExpr: member.Type);
-
-            // Check for duplicate types
-            string memberTypeName = memberType.Name;
-            if (!seenTypeNames.Add(item: memberTypeName))
-            {
-                _sa.ReportError(code: SemanticDiagnosticCode.VariantCaseContainsInvalidType,
-                    message:
-                    $"Variant type '{variant.Name}' has duplicate member type '{memberTypeName}'.",
-                    location: member.Location);
-                continue;
-            }
-
-            // Validate that tokens cannot be used as variant members
-            _sa.ValidateNotTokenVariantPayload(type: memberType,
-                caseName: memberTypeName,
-                location: member.Location);
-
-            // #59: Variant members cannot hold Result[T] or Lookup[T]. Nested variants are allowed.
-            if (IsCarrierType(type: memberType) && !IsMaybeType(type: memberType))
-            {
-                _sa.ReportError(code: SemanticDiagnosticCode.VariantCaseContainsInvalidType,
-                    message: $"Variant member '{memberTypeName}' cannot be '{memberType.Name}'. " +
-                             "Use failable routines (!) instead of storing Result/Lookup in variants.",
-                    location: member.Location);
-            }
-            // Post-Owned-retirement: bare entity T IS the bound/lvalue form (record-shaped
-            // pointer), so a variant member of type T owns the bound entity directly.
-            // Variant copyability derives from all members being Assignable.
-
-            members.Add(item: new VariantMemberInfo(type: memberType)
-            {
-                Location = member.Location
-            });
+            ResolveVariantMember(variant: variant, member: member, members: members,
+                seenTypeNames: seenTypeNames, hasNone: ref hasNone);
         }
 
         foreach (VariantMemberInfo m in members)
@@ -632,6 +639,70 @@ internal sealed class TypeBodyResolver
     }
 
     /// <summary>
+    /// Resolves a single variant member into the accumulating <paramref name="members"/> list: handles
+    /// the zero-sized None case (dedup + tag-0 insert), rejects duplicate payload types, validates that
+    /// tokens and Result/Lookup carriers are not used as payloads.
+    /// </summary>
+    private void ResolveVariantMember(VariantDeclaration variant, VariantMember member,
+        List<VariantMemberInfo> members, HashSet<string> seenTypeNames, ref bool hasNone)
+    {
+        string typeName = member.Type.Name;
+
+        // Handle None state (zero-sized, no payload)
+        if (typeName == "None")
+        {
+            if (hasNone)
+            {
+                _sa.ReportError(code: SemanticDiagnosticCode.VariantCaseContainsInvalidType,
+                    message: $"Variant type '{variant.Name}' has duplicate 'None' member.",
+                    location: member.Location);
+                return;
+            }
+
+            hasNone = true;
+            // None is always tag 0
+            members.Insert(index: 0,
+                item: VariantMemberInfo.CreateNone(ordinal: 0, location: member.Location));
+            return;
+        }
+
+        TypeSymbol memberType = _typeResolver.ResolveType(typeExpr: member.Type);
+
+        // Check for duplicate types
+        string memberTypeName = memberType.Name;
+        if (!seenTypeNames.Add(item: memberTypeName))
+        {
+            _sa.ReportError(code: SemanticDiagnosticCode.VariantCaseContainsInvalidType,
+                message:
+                $"Variant type '{variant.Name}' has duplicate member type '{memberTypeName}'.",
+                location: member.Location);
+            return;
+        }
+
+        // Validate that tokens cannot be used as variant members
+        _sa.ValidateNotTokenVariantPayload(type: memberType,
+            caseName: memberTypeName,
+            location: member.Location);
+
+        // #59: Variant members cannot hold Result[T] or Lookup[T]. Nested variants are allowed.
+        if (IsCarrierType(type: memberType) && !IsMaybeType(type: memberType))
+        {
+            _sa.ReportError(code: SemanticDiagnosticCode.VariantCaseContainsInvalidType,
+                message: $"Variant member '{memberTypeName}' cannot be '{memberType.Name}'. " +
+                         "Use failable routines (!) instead of storing Result/Lookup in variants.",
+                location: member.Location);
+        }
+        // Post-Owned-retirement: bare entity T IS the bound/lvalue form (record-shaped
+        // pointer), so a variant member of type T owns the bound entity directly.
+        // Variant copyability derives from all members being Assignable.
+
+        members.Add(item: new VariantMemberInfo(type: memberType)
+        {
+            Location = member.Location
+        });
+    }
+
+    /// <summary>
     /// Resolves choice body, populating the choice cases.
     /// </summary>
     private void ResolveChoiceBody(ChoiceDeclaration choice)
@@ -655,73 +726,8 @@ internal sealed class TypeBodyResolver
 
         foreach (ChoiceCase caseDecl in choice.Cases)
         {
-            int? explicitValue = null;
-
-            // Evaluate explicit value if provided
-            if (caseDecl.Value != null)
-            {
-                long? longValue = TryEvaluateChoiceCaseValue(expression: caseDecl.Value,
-                    choice: choice,
-                    caseName: caseDecl.Name,
-                    location: caseDecl.Location);
-                if (longValue.HasValue)
-                {
-                    if (longValue.Value is < int.MinValue or > int.MaxValue)
-                    {
-                        _sa.ReportError(code: SemanticDiagnosticCode.ChoiceCaseValueOverflow,
-                            message:
-                            $"Choice '{choice.Name}' case '{caseDecl.Name}': explicit value {longValue.Value} exceeds S32 range.",
-                            location: caseDecl.Location);
-                    }
-                    else
-                    {
-                        explicitValue = (int)longValue.Value;
-                    }
-                }
-
-                if (explicitValue.HasValue)
-                {
-                    autoValue = explicitValue.Value;
-                    // Check auto-increment overflow
-                    if (autoValue == int.MaxValue)
-                    {
-                        // Next auto-increment would overflow; only report if there are more cases after this
-                        // The overflow will be caught when the next case tries to use autoValue + 1
-                    }
-                    else
-                    {
-                        autoValue += 1;
-                    }
-                }
-            }
-
-            int computedValue;
-            if (explicitValue.HasValue)
-            {
-                computedValue = explicitValue.Value;
-            }
-            else
-            {
-                computedValue = autoValue;
-                if (autoValue == int.MaxValue)
-                {
-                    _sa.ReportError(code: SemanticDiagnosticCode.ChoiceCaseValueOverflow,
-                        message:
-                        $"Choice '{choice.Name}' case '{caseDecl.Name}': auto-assigned value would overflow S32 range.",
-                        location: caseDecl.Location);
-                }
-                else
-                {
-                    autoValue += 1;
-                }
-            }
-
-            cases.Add(item: new ChoiceCaseInfo(name: caseDecl.Name)
-            {
-                Value = explicitValue,
-                ComputedValue = computedValue,
-                Location = caseDecl.Location
-            });
+            cases.Add(item: ResolveChoiceCase(choice: choice, caseDecl: caseDecl,
+                autoValue: ref autoValue));
         }
 
         // Validate all-or-nothing explicit values
@@ -754,6 +760,82 @@ internal sealed class TypeBodyResolver
 
         // Update the choice with resolved cases
         _sa._registry.UpdateChoiceCases(choiceName: choiceInfo.FullName, cases: cases);
+    }
+
+    /// <summary>
+    /// Resolves a single choice case's value: evaluates an explicit value (checking S32 range) or
+    /// assigns the running auto-increment value (checking overflow), advancing <paramref name="autoValue"/>.
+    /// </summary>
+    private ChoiceCaseInfo ResolveChoiceCase(ChoiceDeclaration choice, ChoiceCase caseDecl,
+        ref int autoValue)
+    {
+        int? explicitValue = null;
+
+        // Evaluate explicit value if provided
+        if (caseDecl.Value != null)
+        {
+            long? longValue = TryEvaluateChoiceCaseValue(expression: caseDecl.Value,
+                choice: choice,
+                caseName: caseDecl.Name,
+                location: caseDecl.Location);
+            if (longValue.HasValue)
+            {
+                if (longValue.Value is < int.MinValue or > int.MaxValue)
+                {
+                    _sa.ReportError(code: SemanticDiagnosticCode.ChoiceCaseValueOverflow,
+                        message:
+                        $"Choice '{choice.Name}' case '{caseDecl.Name}': explicit value {longValue.Value} exceeds S32 range.",
+                        location: caseDecl.Location);
+                }
+                else
+                {
+                    explicitValue = (int)longValue.Value;
+                }
+            }
+
+            if (explicitValue.HasValue)
+            {
+                autoValue = explicitValue.Value;
+                // Check auto-increment overflow
+                if (autoValue == int.MaxValue)
+                {
+                    // Next auto-increment would overflow; only report if there are more cases after this
+                    // The overflow will be caught when the next case tries to use autoValue + 1
+                }
+                else
+                {
+                    autoValue += 1;
+                }
+            }
+        }
+
+        int computedValue;
+        if (explicitValue.HasValue)
+        {
+            computedValue = explicitValue.Value;
+        }
+        else
+        {
+            computedValue = autoValue;
+            if (autoValue == int.MaxValue)
+            {
+                _sa.ReportError(code: SemanticDiagnosticCode.ChoiceCaseValueOverflow,
+                    message:
+                    $"Choice '{choice.Name}' case '{caseDecl.Name}': auto-assigned value would overflow S32 range.",
+                    location: caseDecl.Location);
+            }
+            else
+            {
+                autoValue += 1;
+            }
+        }
+
+        return new ChoiceCaseInfo(name: caseDecl.Name)
+        {
+            Value = explicitValue,
+            ComputedValue = computedValue,
+            Location = caseDecl.Location
+        };
     }
 
     private void ResolveFlagsBody(FlagsDeclaration flags)

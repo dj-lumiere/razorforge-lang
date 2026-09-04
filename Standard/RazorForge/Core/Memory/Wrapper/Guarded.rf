@@ -119,14 +119,14 @@ routine Guarded[T, P].weak_count() -> U64
 
 ### Returns the textual representation of this value.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine Guarded[T, P].represent() -> Text
   danger
     return me.type_name()
 
 ### Returns the diagnostic representation of this value.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine Guarded[T, P].diagnose() -> Text
   danger
     var ctrl = Hijacked[GuardController[T, P]](me).as_entity()
@@ -137,6 +137,7 @@ routine Guarded[T, P].diagnose() -> Text
 
 ### Decrements the strong count, tearing down the entity at zero (and the controller when both counts
 ### reach zero). This IS the decrement — no separate `release` verb; `destroy` is the teardown.
+@override
 dangerous routine Guarded[T, P].destroy()
   var ctrl = Hijacked[GuardController[T, P]](me).as_entity()
   ctrl.unhold()

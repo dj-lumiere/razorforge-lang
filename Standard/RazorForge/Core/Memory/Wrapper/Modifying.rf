@@ -64,7 +64,7 @@ routine Modifying[T].control() -> T
 
 ### Returns the display form of the modifying entity.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine Modifying[T].represent() -> Text
   danger
     var hijacked = Hijacked[T](me)
@@ -72,11 +72,12 @@ routine Modifying[T].represent() -> Text
 
 ### Returns the diagnostic form of the modifying entity.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine Modifying[T].diagnose() -> Text
   danger
     var hijacked = Hijacked[T](me)
     return me.type_name() + "(" + hijacked.as_entity().diagnose() + ")"
 
+@override
 dangerous routine Modifying[T].destroy()
   return

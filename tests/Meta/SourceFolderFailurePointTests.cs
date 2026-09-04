@@ -49,7 +49,7 @@ public sealed partial class SourceFolderFailurePointTests
         {
             "07.Desugaring",
             "syntax lowering covers user programs and generated variant bodies",
-            ["RunOnVariantBodies", "LowerStatement", "LowerExpression"]
+            ["RunOnVariantBodies", "LowerStatement", "VisitExpression"]
         },
         {
             "06.Synthesis",

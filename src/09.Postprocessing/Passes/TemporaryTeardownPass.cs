@@ -192,19 +192,7 @@ internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
             // ---- Leaf statements that bear expressions ----
 
             case ExpressionStatement es:
-            {
-                // Operator-form assignment (`x = …`): recurse the RHS for spillable receivers, but the
-                // RHS value itself is owned by the target — never spill the top.
-                if (es.Expression is BinaryExpression { Operator: BinaryOperator.Assign,
-                        Left: IdentifierExpression t1 } bin)
-                    return LowerReassign(es, bin.Right, t1,
-                        rebuild: rhs => es with { Expression = bin with { Right = rhs } });
-                // A bare expression statement: recurse for receivers only. We do NOT spill the
-                // discarded top value — a fluent `me`-returning call (e.g. `b.append(x)`) yields an
-                // alias of an existing owned binding, so freeing it would double-free.
-                return SpillAround(es, es.Expression,
-                    rebuildWithCondition: e => es with { Expression = e });
-            }
+                return TransformExpressionStatement(es: es);
 
             case DeclarationStatement { Declaration: VariableDeclaration v } ds
                 when v.Initializer != null:
@@ -235,6 +223,21 @@ internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
             default:
                 return stmt;
         }
+    }
+
+    private Statement TransformExpressionStatement(ExpressionStatement es)
+    {
+        // Operator-form assignment (`x = …`): recurse the RHS for spillable receivers, but the
+        // RHS value itself is owned by the target — never spill the top.
+        if (es.Expression is BinaryExpression { Operator: BinaryOperator.Assign,
+                Left: IdentifierExpression t1 } bin)
+            return LowerReassign(es, bin.Right, t1,
+                rebuild: rhs => es with { Expression = bin with { Right = rhs } });
+        // A bare expression statement: recurse for receivers only. We do NOT spill the
+        // discarded top value — a fluent `me`-returning call (e.g. `b.append(x)`) yields an
+        // alias of an existing owned binding, so freeing it would double-free.
+        return SpillAround(es, es.Expression,
+            rebuildWithCondition: e => es with { Expression = e });
     }
 
     /// <summary>
@@ -271,21 +274,26 @@ internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
                 Location: owner.Location));
 
         if (isTerminator)
-        {
-            // Compute the transferred value while the spills are still alive, tear them down, then
-            // transfer control. Without this the destroys would sit after an unreachable point.
-            string retName = $"__ret_{_counter++}";
-            stmts.Add(DeclStmt(retName, rewritten, owner.Location));
-            for (int i = spills.Count - 1; i >= 0; i--)
-                stmts.Add(MakeDestroyStmt(spills[i], owner.Location));
-            stmts.Add(rebuildWithCondition(new IdentifierExpression(Name: retName,
-                Location: owner.Location) { ResolvedType = rewritten.ResolvedType }));
-            return new BlockStatement(Statements: stmts, Location: owner.Location);
-        }
+            return EmitTerminatorSpillBlock(owner: owner, rewritten: rewritten,
+                rebuildWithCondition: rebuildWithCondition, spills: spills, stmts: stmts);
 
         stmts.Add(rebuildWithCondition(rewritten));
         for (int i = spills.Count - 1; i >= 0; i--)
             stmts.Add(MakeDestroyStmt(spills[i], owner.Location));
+        return new BlockStatement(Statements: stmts, Location: owner.Location);
+    }
+
+    // Compute the transferred value while the spills are still alive, tear them down, then
+    // transfer control. Without this the destroys would sit after an unreachable point.
+    private Statement EmitTerminatorSpillBlock(Statement owner, Expression rewritten,
+        Func<Expression, Statement> rebuildWithCondition, List<Spill> spills, List<Statement> stmts)
+    {
+        string retName = $"__ret_{_counter++}";
+        stmts.Add(DeclStmt(retName, rewritten, owner.Location));
+        for (int i = spills.Count - 1; i >= 0; i--)
+            stmts.Add(MakeDestroyStmt(spills[i], owner.Location));
+        stmts.Add(rebuildWithCondition(new IdentifierExpression(Name: retName,
+            Location: owner.Location) { ResolvedType = rewritten.ResolvedType }));
         return new BlockStatement(Statements: stmts, Location: owner.Location);
     }
 
@@ -303,6 +311,17 @@ internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
     private Statement LowerReassign(Statement owner, Expression rhs, IdentifierExpression target,
         Func<Expression, Statement> rebuild)
     {
+        // Idempotency guard. The tail THIS pass emits for a managed-leaf reassignment is `target = __rv`,
+        // whose RHS identifier carries the STRUCTURED marker below. If the pass runs a second time over an
+        // already-lowered body — which happens on the warm-restore path, where a synthesized derive body
+        // (e.g. a user record's auto-`represent`) is lowered once as a variant body and again when the
+        // program is re-processed — re-lowering that tail would inject a SECOND `target.destroy()` + a
+        // second spill, double-freeing the heap buffer (the record-`represent` heap-corruption bug). The
+        // marker is set on the tail identifier, NOT recovered by parsing the `__rv_` name, so this is a
+        // precise no-op only for the pass's own output.
+        if (rhs is IdentifierExpression { IsSynthesizedTeardownTemp: true })
+            return owner;
+
         if (!IsManagedLeafReassignTarget(target.ResolvedType))
             return SpillAround(owner, rhs, rebuildWithCondition: rebuild);
 
@@ -318,7 +337,7 @@ internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
         stmts.Add(DeclStmt(newName, rhs2, owner.Location));
         stmts.Add(MakeDestroyCall(target.Name, t, destroy, owner.Location));
         stmts.Add(rebuild(new IdentifierExpression(Name: newName, Location: owner.Location)
-            { ResolvedType = t }));
+            { ResolvedType = t, IsSynthesizedTeardownTemp = true }));
         for (int i = spills.Count - 1; i >= 0; i--)
             stmts.Add(MakeDestroyStmt(spills[i], owner.Location));
         return new BlockStatement(Statements: stmts, Location: owner.Location);
@@ -360,56 +379,7 @@ internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
         switch (e)
         {
             case CallExpression { Callee: MemberExpression m } call:
-            {
-                // Recurse the receiver WITHOUT letting it self-spill (objectPos:false): receiver
-                // teardown is decided HERE, where the enclosing call's result type is known, so the
-                // aliasing guard can apply. Nested receivers (a.b().c()) are handled by this same
-                // branch one level down, each guarded by its own call's result type.
-                // A COPY verb (`store` / a variant's deep `copy`) reads its receiver to MINT an owned
-                // value — so the receiver is a value being copied FROM (an lvalue read, or the raw `peek`
-                // an `a[i]` desugars to), never a fresh owned producer to tear down here. The minted copy
-                // (the call result) is what gets torn down. This is uniform: nothing about `getitem` is
-                // special — any copy-verb receiver is left alone. (No `freshProducer().assign()` is ever
-                // emitted — the copy pass injects `store` only onto lvalue reads and `a[i]`.)
-                // A COPY verb (`store`/`copy`) reads its receiver, and constructing an RC wrapper FROM a
-                // bare entity (STRUCTURAL: entity receiver + RC-wrapper result) moves it into the
-                // controller — in both cases the receiver is not a fresh producer to tear down here.
-                bool receiverConsumed = m.MemberName is "assign" or "copy"
-                                        || (m.Object.ResolvedType is EntityTypeInfo
-                                            && call.ResolvedType is { } rcCtorRes
-                                            && TypeRegistry.GetRcWrapperBaseName(type: rcCtorRes) is not null);
-                Expression newRecv = Visit(m.Object, objectPos: false, spills);
-
-                // Spill the receiver iff it is a fresh heap-owning RC-record producer, the verb does
-                // not consume it (retain/track move it into the RC controller), and the call result
-                // cannot be a borrow/view aliasing it. An RC-record receiver is safe to free even when
-                // the result is another owned value: a memberRoutine's RC-record/record return is always
-                // independent of the receiver — fresh (e.g. string concat allocates a new buffer) or a
-                // retaining +1 copy (RecordCopyLoweringPass injects store on lvalue/`me` returns) — so
-                // the controller refcount stays balanced. The only hazard is a borrow/view result
-                // (Viewing/Modifying/…) pointing into the receiver, which the guard excludes.
-                if (!receiverConsumed && IsSpillableProducer(newRecv)
-                    && !ResultMayAliasReceiver(call.ResolvedType))
-                    newRecv = MakeSpill(newRecv, spills);
-
-                // Three-rules model: a fresh owned RVALUE arg passed to a borrow param is torn down at
-                // the CALLER (the callee only borrows it and no longer frees it). So visit args in owning
-                // position — EXCEPT for a store primitive (poke/store_element_ref/store), whose value arg
-                // is MOVED into raw storage (RecordCopyLoweringPass retains it there); spilling it would
-                // free the just-inserted element → UAF.
-                // A CONSTRUCTOR/conversion call (ConstructedType != null) persists its args into the new
-                // value's fields (a destination that RETAINS via RecordCopyLoweringPass), and a store
-                // primitive MOVES its value into storage — in both cases the arg lives on, so it must NOT
-                // be torn down at the caller. Only a plain routine/memberRoutine borrows a fresh rvalue arg.
-                bool argsOwned = call.ConstructedType is null && !IsStorePrimitiveCall(m.MemberName);
-                List<Expression> newArgs = call.Arguments
-                    .Select(a => Visit(a, objectPos: argsOwned, spills)).ToList();
-                Expression result = call with
-                {
-                    Callee = m with { Object = newRecv }, Arguments = newArgs
-                };
-                return MaybeSpillTop(result, objectPos, spills);
-            }
+                return VisitMemberCall(call: call, m: m, objectPos: objectPos, spills: spills);
 
             case CallExpression call:
             {
@@ -461,6 +431,59 @@ internal sealed class TemporaryTeardownPass(PostprocessingContext ctx)
                 // sitting at the very top in a discarded position is still handled below.
                 return MaybeSpillTop(e, objectPos, spills);
         }
+    }
+
+    private Expression VisitMemberCall(CallExpression call, MemberExpression m, bool objectPos,
+        List<Spill> spills)
+    {
+        // Recurse the receiver WITHOUT letting it self-spill (objectPos:false): receiver
+        // teardown is decided HERE, where the enclosing call's result type is known, so the
+        // aliasing guard can apply. Nested receivers (a.b().c()) are handled by this same
+        // branch one level down, each guarded by its own call's result type.
+        // A COPY verb (`store` / a variant's deep `copy`) reads its receiver to MINT an owned
+        // value — so the receiver is a value being copied FROM (an lvalue read, or the raw `peek`
+        // an `a[i]` desugars to), never a fresh owned producer to tear down here. The minted copy
+        // (the call result) is what gets torn down. This is uniform: nothing about `getitem` is
+        // special — any copy-verb receiver is left alone. (No `freshProducer().assign()` is ever
+        // emitted — the copy pass injects `store` only onto lvalue reads and `a[i]`.)
+        // A COPY verb (`store`/`copy`) reads its receiver, and constructing an RC wrapper FROM a
+        // bare entity (STRUCTURAL: entity receiver + RC-wrapper result) moves it into the
+        // controller — in both cases the receiver is not a fresh producer to tear down here.
+        bool receiverConsumed = m.MemberName is "assign" or "duplicate"
+                                || (m.Object.ResolvedType is EntityTypeInfo
+                                    && call.ResolvedType is { } rcCtorRes
+                                    && TypeRegistry.GetRcWrapperBaseName(type: rcCtorRes) is not null);
+        Expression newRecv = Visit(m.Object, objectPos: false, spills);
+
+        // Spill the receiver iff it is a fresh heap-owning RC-record producer, the verb does
+        // not consume it (retain/track move it into the RC controller), and the call result
+        // cannot be a borrow/view aliasing it. An RC-record receiver is safe to free even when
+        // the result is another owned value: a memberRoutine's RC-record/record return is always
+        // independent of the receiver — fresh (e.g. string concat allocates a new buffer) or a
+        // retaining +1 copy (RecordCopyLoweringPass injects store on lvalue/`me` returns) — so
+        // the controller refcount stays balanced. The only hazard is a borrow/view result
+        // (Viewing/Modifying/…) pointing into the receiver, which the guard excludes.
+        if (!receiverConsumed && IsSpillableProducer(newRecv)
+            && !ResultMayAliasReceiver(call.ResolvedType))
+            newRecv = MakeSpill(newRecv, spills);
+
+        // Three-rules model: a fresh owned RVALUE arg passed to a borrow param is torn down at
+        // the CALLER (the callee only borrows it and no longer frees it). So visit args in owning
+        // position — EXCEPT for a store primitive (poke/store_element_ref/store), whose value arg
+        // is MOVED into raw storage (RecordCopyLoweringPass retains it there); spilling it would
+        // free the just-inserted element → UAF.
+        // A CONSTRUCTOR/conversion call (ConstructedType != null) persists its args into the new
+        // value's fields (a destination that RETAINS via RecordCopyLoweringPass), and a store
+        // primitive MOVES its value into storage — in both cases the arg lives on, so it must NOT
+        // be torn down at the caller. Only a plain routine/memberRoutine borrows a fresh rvalue arg.
+        bool argsOwned = call.ConstructedType is null && !IsStorePrimitiveCall(m.MemberName);
+        List<Expression> newArgs = call.Arguments
+            .Select(a => Visit(a, objectPos: argsOwned, spills)).ToList();
+        Expression result = call with
+        {
+            Callee = m with { Object = newRecv }, Arguments = newArgs
+        };
+        return MaybeSpillTop(result, objectPos, spills);
     }
 
     /// <summary>Spills <paramref name="e"/> when it sits in a discard/borrow position and is a

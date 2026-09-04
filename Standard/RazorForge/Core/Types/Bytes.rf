@@ -35,8 +35,18 @@ routine Bytes.assign() -> Bytes
       me.ctrl.as_entity().hold()
   return Bytes(data: me.data, count: me.count, ctrl: me.ctrl)
 
+### Copy (Copyable): for a managed Bytes this is the same reference-share as `assign` (the buffer is a
+### co-owned managed resource behind a ptr, so a co-owning ref-bump is the copy). Defined explicitly —
+### Bytes is a managed leaf (its logical value is the buffer behind a Hijacked ptr, not a field tuple), so
+### the field-walk auto-derive does not apply (its Hijacked fields don't obey Copyable); it declares
+### `obeys Copyable` and implements `copy` here, mirroring Text.copy.
+@[readonly, inline]
+routine Bytes.duplicate() -> Bytes
+  return me.assign()
+
 ### Releases this value's reference. Frees the buffer + controller when this
 ### was the last live ref. No-op when `ctrl` is null (empty / static literal).
+@override
 dangerous routine Bytes.destroy()
   if me.ctrl.is_none()
     return
@@ -535,7 +545,7 @@ routine BytesEmittable.emit!() -> Byte
 ### Returns the display form of this byte sequence.
 ### Each byte is rendered using its escaped `\\xHH` representation.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine Bytes.represent() -> Text
   var result = List[Character]()
   var i: U64 = 0u64
@@ -555,7 +565,7 @@ routine Bytes.represent() -> Text
 ### Returns the diagnostic form of this byte sequence.
 ### The diagnostic form includes both the byte count and the escaped payload.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine Bytes.diagnose() -> Text
   return "Bytes(count: " + me.count.represent() + ", " + me.represent() + ")"
 

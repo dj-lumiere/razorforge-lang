@@ -104,11 +104,13 @@ routine Vector3D.eq(you: Vector3D) -> Bool
 
 ### Formats this vector as `(x, y, z)`.
 ### :returns: The resulting `Text` value.
+@override
 routine Vector3D.represent() -> Text
   return "(" + me.x.represent() + ", " + me.y.represent() + ", " + me.z.represent() + ")"
 
 ### Returns a diagnostic string wrapping the value with its type name.
 ### :returns: The resulting `Text` value.
+@override
 routine Vector3D.diagnose() -> Text
   return "Vector3D" + me.represent()
 

@@ -4,8 +4,20 @@ using Compiler.Resolution;
 using Compiler.Targeting;
 using Microsoft.Win32;
 using SyntaxTree;
+using TypeInfo = TypeModel.Types.TypeInfo;
 
 namespace Compiler.Instantiation;
+
+/// <summary>
+/// Invariant result of <c>RoutineReachabilityPass</c>'s per-body AST walk, keyed by
+/// <see cref="RoutineDeclaration"/> reference. The set of call-like nodes and the var-decl type map
+/// a body produces are a pure function of its AST (both are collected WITHOUT the frame's generic-type
+/// substitutions — see <c>CollectCallsAndLocalVarTypes</c>), so they can be computed once and reused.
+/// Because a warm-restored stdlib AST reuses the same decl objects across compiles, caching this in the
+/// daemon-lifetime warm state lets each warm run skip re-walking the ~1641 reachable stdlib bodies (the
+/// dominant reachability cost); per-frame resolution/substitution still runs, so liveness is unchanged.
+/// </summary>
+public sealed record RoutineBodyScan(List<object> Calls, Dictionary<string, TypeInfo> VarDeclTypes);
 
 /// <summary>
 /// Guarded context for Phase 7 generic instantiation work.
@@ -27,6 +39,18 @@ public sealed class InstantiationContext
     /// Verified routine bodies keyed by registry key, used as source bodies for instantiation.
     /// </summary>
     public IReadOnlyDictionary<string, Statement> RoutineBodies { get; }
+
+    /// <summary>
+    /// WARM-ONLY lookup source for stdlib routine template bodies (keyed by registry key). On a warm
+    /// compile <see cref="RoutineBodies"/> holds ONLY the user program's bodies — the restore path
+    /// deliberately keeps the stdlib out of the variant-generation working set. But protocol
+    /// default-impl lowering still needs the stdlib EXTENSION template body (e.g.
+    /// <c>Iterable[Text].join</c>) to recognize + clone it per implementer, so this dictionary makes
+    /// those templates available for CONTAINMENT/LOOKUP only — it is NOT iterated as a live body set
+    /// (that would re-walk the whole stdlib every warm run). Empty on a cold compile, where
+    /// <see cref="RoutineBodies"/> already contains every stdlib body.
+    /// </summary>
+    public IReadOnlyDictionary<string, Statement> StdlibTemplateBodies { get; }
 
     /// <summary>
     /// Synthesized error-handling variant bodies that may contain reachable generic calls.
@@ -96,6 +120,23 @@ public sealed class InstantiationContext
     public bool SaTiming { get; set; }
 
     /// <summary>
+    /// When true, root EVERY concrete stdlib routine in reachability so monomorphization materializes the
+    /// FULL stdlib generic closure, not just what the entry program reaches. Used when emitting a precompiled
+    /// stdlib "base" that must define everything it references (a user's own instantiations are compiled
+    /// separately, on demand). Normal per-run / release builds leave this false → entry-point-driven liveness.
+    /// </summary>
+    public bool SeedAllStdlibRoutines { get; init; }
+
+    /// <summary>
+    /// Daemon-lifetime cache of per-body reachability scans (see <see cref="RoutineBodyScan"/>), keyed
+    /// by stdlib <see cref="RoutineDeclaration"/> reference. Null on a plain compile with no warm state;
+    /// when non-null, <c>RoutineReachabilityPass</c> reuses a cached scan instead of re-walking the body
+    /// and stores newly-walked stdlib bodies for the next warm run. Only stdlib decls are cached (user
+    /// decls change every edit and are cheap to walk), so it is bounded and never returns stale results.
+    /// </summary>
+    public Dictionary<RoutineDeclaration, RoutineBodyScan>? BodyScanCache { get; }
+
+    /// <summary>
     /// Initializes shared state for Phase 7 generic reachability and monomorphization.
     /// </summary>
     public InstantiationContext(TypeRegistry registry,
@@ -104,14 +145,18 @@ public sealed class InstantiationContext
         Dictionary<string, Statement>? variantBodies = null,
         Dictionary<string, MonomorphizedBody>? instantiatedGenericBodies = null,
         TargetConfig? target = null,
-        RfBuildMode buildMode = RfBuildMode.Debug)
+        RfBuildMode buildMode = RfBuildMode.Debug,
+        Dictionary<RoutineDeclaration, RoutineBodyScan>? bodyScanCache = null,
+        IReadOnlyDictionary<string, Statement>? stdlibTemplateBodies = null)
     {
         Registry = registry;
         UserPrograms = userPrograms;
         RoutineBodies = routineBodies;
+        StdlibTemplateBodies = stdlibTemplateBodies ?? new Dictionary<string, Statement>();
         VariantBodies = variantBodies ?? [];
         InstantiatedGenericBodies = instantiatedGenericBodies ?? [];
         Target = target ?? TargetConfig.ForCurrentHost();
         BuildMode = buildMode;
+        BodyScanCache = bodyScanCache;
     }
 }

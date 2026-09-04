@@ -79,7 +79,7 @@ public partial class LlvmCodeGenerator
                 return true;
             }
 
-            if (m.Type is RecordTypeInfo { HasDirectBackendType: false } && StructHasFloatField(type: m.Type))
+            if (m.Type is RecordTypeInfo { BackendType: null } && StructHasFloatField(type: m.Type))
             {
                 return true;
             }
@@ -98,7 +98,7 @@ public partial class LlvmCodeGenerator
     private static bool IsByValueStructRecord(TypeInfo type) =>
         type is RecordTypeInfo
         {
-            HasDirectBackendType: false, IsGenericDefinition: false, CarrierKind: CarrierKind.None
+            BackendType: null, IsGenericDefinition: false, CarrierKind: CarrierKind.None
         };
 
     /// <summary>
@@ -158,6 +158,13 @@ public partial class LlvmCodeGenerator
             return IntegerChunks(size: size);
         }
 
+        return ClassifySysVFloatStruct(type: type, size: size);
+    }
+
+    // SysV x86-64 per-eightbyte INTEGER/SSE classification for a float-bearing struct: ≤ 8 bytes → one
+    // classified chunk; 9–16 → a classified pair; > 16 → Indirect.
+    private AbiPassing ClassifySysVFloatStruct(TypeInfo type, int size)
+    {
         if (size > 16)
         {
             return AbiPassing.Indirect;

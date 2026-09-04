@@ -212,17 +212,9 @@ internal sealed class IteratorInlineLoweringPass
 
         // Extract the none-clause (for for-else exhaustion scaffold) and the else-clause
         // (loop-var bindings + user body).
-        WhenClause? noneClause = null;
-        WhenClause? elseClause = null;
-        foreach (WhenClause c in when.Clauses)
-        {
-            switch (c.Pattern)
-            {
-                case NonePattern: noneClause = c; break;
-                case ElsePattern: elseClause = c; break;
-            }
-        }
-        if (noneClause == null || elseClause == null) return null;
+        if (!TryExtractClauses(when: when, noneClause: out WhenClause? noneClause,
+                elseClause: out WhenClause? elseClause))
+            return null;
         var elsePattern = (ElsePattern)elseClause.Pattern;
 
         // Resolve the concrete `emit!` on the emitter and fetch its monomorphized body.
@@ -255,6 +247,27 @@ internal sealed class IteratorInlineLoweringPass
 
         Statement inlinedBody = RewriteNextStatement(stmt: nextBody, ctx: renameCtx);
         return new LoopStatement(Body: inlinedBody, Location: loop.Location);
+    }
+
+    /// <summary>
+    /// Extracts the none-clause (for-else exhaustion scaffold) and else-clause (loop-var bindings +
+    /// user body) from the CFLP `when`. Returns false when either is missing.
+    /// </summary>
+    private static bool TryExtractClauses(WhenStatement when,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out WhenClause? noneClause,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out WhenClause? elseClause)
+    {
+        noneClause = null;
+        elseClause = null;
+        foreach (WhenClause c in when.Clauses)
+        {
+            switch (c.Pattern)
+            {
+                case NonePattern: noneClause = c; break;
+                case ElsePattern: elseClause = c; break;
+            }
+        }
+        return noneClause != null && elseClause != null;
     }
 
     // ---------------------------------------------------------------------------------------------

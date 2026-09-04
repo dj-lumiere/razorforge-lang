@@ -33,6 +33,21 @@
     <Exec Command="bash $(MSBuildProjectDirectory)/native/build.sh" WorkingDirectory="$(MSBuildProjectDirectory)/native" Condition="'$(OS)' != 'Windows_NT'"/>
   </Target>
 
+  <!-- Emit the modular compiled-stdlib .pbrf artifacts as a BUILD BYPRODUCT (the daemon/cold path LOADS
+       them instead of paying a ~8s stdlib capture on first run). Runs the JUST-BUILT compiler after Build.
+       MSBuild Inputs/Outputs make this INCREMENTAL: when no stdlib source and no compiler dll changed since
+       the last emit, the whole target is SKIPPED (no process launch → zero per-build cost). Disable with
+       -p:EmitPbrf=false. Best-effort (ContinueOnError) so a compiler hiccup never fails the build. -->
+  <ItemGroup>
+    <RfStdlibSource Include="Standard\RazorForge\**\*.rf"/>
+  </ItemGroup>
+  <Target Name="EmitModularPbrf" AfterTargets="Build"
+          Condition="'$(EmitPbrf)' != 'false' and Exists('$(TargetPath)')"
+          Inputs="@(RfStdlibSource);$(TargetPath)"
+          Outputs="$(TargetDir)Standard\.pbrf\RazorForge\index.pbrf">
+    <Exec Command="dotnet &quot;$(TargetPath)&quot; emit-pbrf" WorkingDirectory="$(TargetDir)" ContinueOnError="true"/>
+  </Target>
+
   <!-- Include native libraries in output -->
   <ItemGroup>
     <Content Include="native\build\bin\**\*.*" LinkBase="." CopyToOutputDirectory="PreserveNewest" PackageCopyToOutput="true" Condition="Exists('native\build\bin')"/>
@@ -79,7 +94,4 @@
     <Folder Include="src\"/>
   </ItemGroup>
 
-  <ItemGroup>
-    <None Remove="Standard\RazorForge\Core\CSubsystem\CTypes.rf"/>
-  </ItemGroup>
 </Project>

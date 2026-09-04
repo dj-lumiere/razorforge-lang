@@ -383,7 +383,7 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
     /// <summary>
     /// Lower for as part of this compiler phase.
     /// </summary>
-    private BlockStatement LowerEach(EachStatement eachStmt) // NOSONAR S3776
+    private BlockStatement LowerEach(EachStatement eachStmt)
     {
         SourceLocation loc = eachStmt.Location;
         int n = _iterCount++;
@@ -414,11 +414,50 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
             Arguments: [],
             Location: loc) { IsSynthesizedLowering = true };
 
-        // When running after SA (stdlib/variant bodies), annotate ResolvedType, ResolvedRoutine,
-        // and LoweringKind on the iter and try_emit calls so CallOverloadResolutionPass doesn't
-        // need to re-classify them (which fails for instantiated bodies where the receiver variable
-        // has no SA-annotated type), and so reachability marks the CONCRETE emitter's try_emit.
-        // Skip ErrorTypeInfo: SA suppresses stdlib errors.
+        tryNextCallExpr = AnnotateIterAndTryEmit(eachStmt: eachStmt, iterCallExpr: iterCallExpr,
+            tryNextReceiver: tryNextReceiver, tryNextCallExpr: tryNextCallExpr);
+        Expression tryNextCall = tryNextCallExpr;
+
+        Statement iterVarStmt = new DeclarationStatement(
+            Declaration: new VariableDeclaration(
+                Name: iterName,
+                Type: null,
+                Initializer: iterCallExpr,
+                Visibility: VisibilityModifier.Secret,
+                Location: loc),
+            Location: loc);
+
+        // -----------------------------------------------------------------------------
+        Statement loweredBody = LowerStatement(stmt: eachStmt.Body);
+
+        // -----------------------------------------------------------------------------
+        (Statement elseBody, string? elseVarName) = BuildElseArm(eachStmt: eachStmt, n: n,
+            loweredBody: loweredBody, loc: loc);
+
+        // -----------------------------------------------------------------------------
+        Statement? elseBranchLowered = eachStmt.ElseBranch != null
+            ? LowerStatement(stmt: eachStmt.ElseBranch)
+            : null;
+
+        return elseBranchLowered != null
+            ? BuildForElse(elseBranchLowered: elseBranchLowered, tryNextCall: tryNextCall,
+                elseBody: elseBody, elseVarName: elseVarName, iterVarStmt: iterVarStmt, n: n,
+                iterationSourceName: iterationSourceName, loc: loc)
+            : BuildPlainFor(tryNextCall: tryNextCall, elseBody: elseBody, elseVarName: elseVarName,
+                iterVarStmt: iterVarStmt, iterationSourceName: iterationSourceName, loc: loc);
+    }
+
+    /// <summary>
+    /// When running after SA (stdlib/variant bodies), annotate ResolvedType, ResolvedRoutine,
+    /// and LoweringKind on the iter and try_emit calls so CallOverloadResolutionPass doesn't
+    /// need to re-classify them (which fails for instantiated bodies where the receiver variable
+    /// has no SA-annotated type), and so reachability marks the CONCRETE emitter's try_emit.
+    /// Skip ErrorTypeInfo: SA suppresses stdlib errors. Returns the (possibly re-annotated)
+    /// try_emit call expression.
+    /// </summary>
+    private CallExpression AnnotateIterAndTryEmit(EachStatement eachStmt, CallExpression iterCallExpr,
+        IdentifierExpression tryNextReceiver, CallExpression tryNextCallExpr)
+    {
         if (eachStmt.Iterable.ResolvedType is { } iterType and not ErrorTypeInfo)
         {
             RoutineInfo? iterMemberRoutine = ctx.Registry.LookupMemberRoutine(type: iterType, memberRoutineName: "iter");
@@ -446,29 +485,21 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
                     };
             }
         }
-        Expression tryNextCall = tryNextCallExpr;
+        return tryNextCallExpr;
+    }
 
-        Statement iterVarStmt = new DeclarationStatement(
-            Declaration: new VariableDeclaration(
-                Name: iterName,
-                Type: null,
-                Initializer: iterCallExpr,
-                Visibility: VisibilityModifier.Secret,
-                Location: loc),
-            Location: loc);
-
-        // -----------------------------------------------------------------------------
-        Statement loweredBody = LowerStatement(stmt: eachStmt.Body);
-
-        // -----------------------------------------------------------------------------
-        Statement elseBody;
-        string? elseVarName;
-
+    /// <summary>
+    /// Builds the <c>else var</c> arm body of the emitted <c>when</c> and the arm's bound variable
+    /// name. For tuple destructuring, prepends the positional <c>var a = elem.itemI</c> bindings to
+    /// the loop body; otherwise the arm binds the loop variable directly (or discards on <c>_</c>).
+    /// </summary>
+    private static (Statement elseBody, string? elseVarName) BuildElseArm(EachStatement eachStmt,
+        int n, Statement loweredBody, SourceLocation loc)
+    {
         if (eachStmt.VariablePattern != null)
         {
             // Tuple destructuring: else var _lf_elem_M -> { var a = elem.item0; var b = elem.item1; ... body }
             string elemName = $"_lf_elem_{n}";
-            elseVarName = elemName;
 
             // Prepend: var a = _lf_elem_M.item0, var b = _lf_elem_M.item1, ??
             var bindStmts = new List<Statement>(capacity: eachStmt.VariablePattern.Bindings.Count + 1);
@@ -494,97 +525,98 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
             if (loweredBody is BlockStatement bodyBlock)
             {
                 bindStmts.AddRange(collection: bodyBlock.Statements);
-                elseBody = bodyBlock with { Statements = bindStmts };
+                return (bodyBlock with { Statements = bindStmts }, elemName);
             }
-            else
-            {
-                bindStmts.Add(item: loweredBody);
-                elseBody = new BlockStatement(Statements: bindStmts, Location: loc);
-            }
-        }
-        else
-        {
-            // Simple variable or discard
-            elseVarName = eachStmt.Variable == "_" ? null : eachStmt.Variable;
-            elseBody    = loweredBody;
+
+            bindStmts.Add(item: loweredBody);
+            return (new BlockStatement(Statements: bindStmts, Location: loc), elemName);
         }
 
-        // -----------------------------------------------------------------------------
-        Statement? elseBranchLowered = eachStmt.ElseBranch != null
-            ? LowerStatement(stmt: eachStmt.ElseBranch)
-            : null;
+        // Simple variable or discard
+        string? elseVarName = eachStmt.Variable == "_" ? null : eachStmt.Variable;
+        return (loweredBody, elseVarName);
+    }
 
-        Statement noneBody;
-        if (elseBranchLowered != null)
-        {
-            // For-else: set exhausted flag, then break
-            string exhaustedName = $"_lf_exhausted_{n}";
-            noneBody = new BlockStatement(
-                Statements:
-                [
-                    new AssignmentStatement(
-                        Target: new IdentifierExpression(Name: exhaustedName, Location: loc),
-                        Value: new LiteralExpression(Value: true, LiteralType: TokenType.True,
-                            Location: loc),
+    /// <summary>
+    /// Builds the for-else lowering: an exhausted flag set inside the <c>None</c> arm, and an
+    /// <c>if _lf_exhausted_N { alt }</c> check after the loop.
+    /// </summary>
+    private static BlockStatement BuildForElse(Statement elseBranchLowered, Expression tryNextCall,
+        Statement elseBody, string? elseVarName, Statement iterVarStmt, int n,
+        string? iterationSourceName, SourceLocation loc)
+    {
+        // For-else: set exhausted flag, then break
+        string exhaustedName = $"_lf_exhausted_{n}";
+        Statement noneBody = new BlockStatement(
+            Statements:
+            [
+                new AssignmentStatement(
+                    Target: new IdentifierExpression(Name: exhaustedName, Location: loc),
+                    Value: new LiteralExpression(Value: true, LiteralType: TokenType.True,
                         Location: loc),
-                    new BreakStatement(Location: loc)
-                ],
-                Location: loc);
-
-            var noneClause = new WhenClause(Pattern: new NonePattern(Location: loc), Body: noneBody,
-                Location: loc);
-            var elseClause = new WhenClause(
-                Pattern: new ElsePattern(VariableName: elseVarName, Location: loc),
-                Body: elseBody, Location: loc);
-
-            var whenStmt = new WhenStatement(Expression: tryNextCall,
-                Clauses: [noneClause, elseClause], Location: loc);
-            var loopStmt = new LoopStatement(
-                Body: new BlockStatement(Statements: [whenStmt], Location: loc), Location: loc)
-                { IsIteratorEachLoop = true, IterationSourceName = iterationSourceName };
-
-            // var _lf_exhausted_N: Bool = false
-            Statement exhaustedVarStmt = new DeclarationStatement(
-                Declaration: new VariableDeclaration(
-                    Name: exhaustedName,
-                    Type: new TypeExpression(Name: "Bool", GenericArguments: null, Location: loc),
-                    Initializer: new LiteralExpression(Value: false, LiteralType: TokenType.False,
-                        Location: loc),
-                    Visibility: VisibilityModifier.Secret,
                     Location: loc),
-                Location: loc);
+                new BreakStatement(Location: loc)
+            ],
+            Location: loc);
 
-            // if _lf_exhausted_N { alt }
-            Statement exhaustionCheck = new IfStatement(
-                Condition: new IdentifierExpression(Name: exhaustedName, Location: loc),
-                ThenStatement: elseBranchLowered,
-                ElseStatement: null,
-                Location: loc);
+        var noneClause = new WhenClause(Pattern: new NonePattern(Location: loc), Body: noneBody,
+            Location: loc);
+        var elseClause = new WhenClause(
+            Pattern: new ElsePattern(VariableName: elseVarName, Location: loc),
+            Body: elseBody, Location: loc);
 
-            return new BlockStatement(
-                Statements: [exhaustedVarStmt, iterVarStmt, loopStmt, exhaustionCheck],
-                Location: loc);
-        }
-        else
-        {
-            // Plain for (no else branch)
-            noneBody = new BlockStatement(
-                Statements: [new BreakStatement(Location: loc)], Location: loc);
+        var whenStmt = new WhenStatement(Expression: tryNextCall,
+            Clauses: [noneClause, elseClause], Location: loc);
+        var loopStmt = new LoopStatement(
+            Body: new BlockStatement(Statements: [whenStmt], Location: loc), Location: loc)
+            { IsIteratorEachLoop = true, IterationSourceName = iterationSourceName };
 
-            var noneClause = new WhenClause(Pattern: new NonePattern(Location: loc), Body: noneBody,
-                Location: loc);
-            var elseClause = new WhenClause(
-                Pattern: new ElsePattern(VariableName: elseVarName, Location: loc),
-                Body: elseBody, Location: loc);
+        // var _lf_exhausted_N: Bool = false
+        Statement exhaustedVarStmt = new DeclarationStatement(
+            Declaration: new VariableDeclaration(
+                Name: exhaustedName,
+                Type: new TypeExpression(Name: "Bool", GenericArguments: null, Location: loc),
+                Initializer: new LiteralExpression(Value: false, LiteralType: TokenType.False,
+                    Location: loc),
+                Visibility: VisibilityModifier.Secret,
+                Location: loc),
+            Location: loc);
 
-            var whenStmt = new WhenStatement(Expression: tryNextCall,
-                Clauses: [noneClause, elseClause], Location: loc);
-            var loopStmt = new LoopStatement(
-                Body: new BlockStatement(Statements: [whenStmt], Location: loc), Location: loc)
-                { IsIteratorEachLoop = true, IterationSourceName = iterationSourceName };
+        // if _lf_exhausted_N { alt }
+        Statement exhaustionCheck = new IfStatement(
+            Condition: new IdentifierExpression(Name: exhaustedName, Location: loc),
+            ThenStatement: elseBranchLowered,
+            ElseStatement: null,
+            Location: loc);
 
-            return new BlockStatement(Statements: [iterVarStmt, loopStmt], Location: loc);
-        }
+        return new BlockStatement(
+            Statements: [exhaustedVarStmt, iterVarStmt, loopStmt, exhaustionCheck],
+            Location: loc);
+    }
+
+    /// <summary>
+    /// Builds the plain for lowering (no else branch): the <c>None</c> arm breaks directly.
+    /// </summary>
+    private static BlockStatement BuildPlainFor(Expression tryNextCall, Statement elseBody,
+        string? elseVarName, Statement iterVarStmt, string? iterationSourceName, SourceLocation loc)
+    {
+        // Plain for (no else branch)
+        Statement noneBody = new BlockStatement(
+            Statements: [new BreakStatement(Location: loc)], Location: loc);
+
+        var noneClause = new WhenClause(Pattern: new NonePattern(Location: loc), Body: noneBody,
+            Location: loc);
+        var elseClause = new WhenClause(
+            Pattern: new ElsePattern(VariableName: elseVarName, Location: loc),
+            Body: elseBody, Location: loc);
+
+        var whenStmt = new WhenStatement(Expression: tryNextCall,
+            Clauses: [noneClause, elseClause], Location: loc);
+        var loopStmt = new LoopStatement(
+            Body: new BlockStatement(Statements: [whenStmt], Location: loc), Location: loc)
+            { IsIteratorEachLoop = true, IterationSourceName = iterationSourceName };
+
+        return new BlockStatement(Statements: [iterVarStmt, loopStmt], Location: loc);
     }
 
     /// <summary>

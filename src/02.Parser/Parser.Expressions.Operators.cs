@@ -427,7 +427,7 @@ public partial class Parser
     /// Context-sensitive: disabled inside when clause bodies to avoid ambiguity.
     /// </summary>
     /// <returns>The parsed expression.</returns>
-    private Expression ParseIsExpression() // NOSONAR S3776
+    private Expression ParseIsExpression()
     {
         Expression expr = ParseBitwiseOr();
 
@@ -444,101 +444,7 @@ public partial class Parser
 
             if (op.Type is TokenType.Is or TokenType.IsNot)
             {
-                bool isNegated = op.Type == TokenType.IsNot;
-
-                // Handle 'is None' or 'isnot None' as a special case - None is a keyword
-                TypeExpression type;
-                if (Match(type: TokenType.None))
-                {
-                    type = new TypeExpression(Name: "None",
-                        GenericArguments: null,
-                        Location: location);
-                }
-                else
-                {
-                    type = ParseType();
-
-                    // Accept qualified choice/variant cases: `is Color.RED`, `isnot HttpStatus.OK`.
-                    // Mirrors ParseTypePattern's dotted-name handling so f-string holes like
-                    // `f"{c is Color.RED}"` parse — without this, `.RED` leaks out of the hole
-                    // and the f-string parser sees a stray Dot before the closing brace.
-                    while (Match(type: TokenType.Dot))
-                    {
-                        string member = ConsumeIdentifier(
-                            errorMessage: "Expected identifier after '.' in 'is' pattern");
-                        type = type with { Name = type.Name + "." + member };
-                    }
-                }
-
-                // `None` carries no payload, so it binds nothing: reject a binding (`is None x`) or a
-                // destructuring (`is None (x, y)`) after it.
-                if (type.Name == "None" &&
-                    ((Check(type: TokenType.Identifier) && !IsKeywordToken(token: CurrentToken)) ||
-                     Check(type: TokenType.LeftParen)))
-                {
-                    throw ThrowParseError(code: GrammarDiagnosticCode.InvalidPattern,
-                        message:
-                        "The 'None' pattern binds no value — remove the binding or destructuring after 'None'.");
-                }
-
-                // Check if this is a flags test chain: identifier followed by and/or/but
-                if (Check(type: TokenType.And) || Check(type: TokenType.Or) ||
-                    Check(type: TokenType.But))
-                {
-                    string firstFlag = type.Name;
-                    expr = ParseFlagsTestChain(subject: expr,
-                        firstFlag: firstFlag,
-                        isNegated: isNegated,
-                        location: location);
-                    continue;
-                }
-
-                switch (isNegated)
-                {
-                    // Check for destructuring pattern: is Type (...)
-                    case false when Check(type: TokenType.LeftParen):
-                    {
-                        // Destructuring pattern: is Point (x, y) or is Point (x: a, y: b)
-                        List<DestructuringBinding> bindings = ParseDestructuringBindings();
-                        var pattern = new TypeDestructuringPattern(Type: type,
-                            Bindings: bindings,
-                            Location: location);
-                        expr = new IsPatternExpression(Expression: expr,
-                            Pattern: pattern,
-                            IsNegated: false,
-                            Location: location);
-                        break;
-                    }
-                    // Check for single binding: is Type identifier (only for 'is', not 'isnot')
-                    case false when Check(type: TokenType.Identifier) &&
-                                    !IsKeywordToken(token: CurrentToken):
-                    {
-                        string variableName = Advance()
-                           .Text;
-                        var pattern = new TypePattern(Type: type,
-                            VariableName: variableName,
-                            Bindings: null,
-                            Location: location);
-                        expr = new IsPatternExpression(Expression: expr,
-                            Pattern: pattern,
-                            IsNegated: false,
-                            Location: location);
-                        break;
-                    }
-                    default:
-                    {
-                        // Simple type check: is Type or isnot Type
-                        var pattern = new TypePattern(Type: type,
-                            VariableName: null,
-                            Bindings: null,
-                            Location: location);
-                        expr = new IsPatternExpression(Expression: expr,
-                            Pattern: pattern,
-                            IsNegated: isNegated,
-                            Location: location);
-                        break;
-                    }
-                }
+                expr = ParseIsOrIsNotPattern(expr: expr, op: op, location: location);
             }
             else
             {
@@ -552,5 +458,124 @@ public partial class Parser
         }
 
         return expr;
+    }
+
+    /// <summary>
+    /// Parses the type/pattern following an <c>is</c> / <c>isnot</c> operator (the leading operator token
+    /// has already been consumed). Handles <c>None</c>, qualified choice cases, flags-test chains, and
+    /// the destructuring/single-binding/simple-type-check pattern forms.
+    /// </summary>
+    private Expression ParseIsOrIsNotPattern(Expression expr, Token op, SourceLocation location)
+    {
+        bool isNegated = op.Type == TokenType.IsNot;
+
+        TypeExpression type = ParseIsPatternType(location: location);
+
+        // `None` carries no payload, so it binds nothing: reject a binding (`is None x`) or a
+        // destructuring (`is None (x, y)`) after it.
+        if (type.Name == "None" &&
+            ((Check(type: TokenType.Identifier) && !IsKeywordToken(token: CurrentToken)) ||
+             Check(type: TokenType.LeftParen)))
+        {
+            throw ThrowParseError(code: GrammarDiagnosticCode.InvalidPattern,
+                message:
+                "The 'None' pattern binds no value — remove the binding or destructuring after 'None'.");
+        }
+
+        // Check if this is a flags test chain: identifier followed by and/or/but
+        if (Check(type: TokenType.And) || Check(type: TokenType.Or) ||
+            Check(type: TokenType.But))
+        {
+            string firstFlag = type.Name;
+            return ParseFlagsTestChain(subject: expr,
+                firstFlag: firstFlag,
+                isNegated: isNegated,
+                location: location);
+        }
+
+        return BuildIsPatternExpression(expr: expr, type: type, isNegated: isNegated,
+            location: location);
+    }
+
+    /// <summary>
+    /// Parses the type after an <c>is</c>/<c>isnot</c>: either the <c>None</c> keyword or a type with an
+    /// optional dotted qualifier (`is Color.RED`).
+    /// </summary>
+    private TypeExpression ParseIsPatternType(SourceLocation location)
+    {
+        // Handle 'is None' or 'isnot None' as a special case - None is a keyword
+        if (Match(type: TokenType.None))
+        {
+            return new TypeExpression(Name: "None",
+                GenericArguments: null,
+                Location: location);
+        }
+
+        TypeExpression type = ParseType();
+
+        // Accept qualified choice/variant cases: `is Color.RED`, `isnot HttpStatus.OK`.
+        // Mirrors ParseTypePattern's dotted-name handling so f-string holes like
+        // `f"{c is Color.RED}"` parse — without this, `.RED` leaks out of the hole
+        // and the f-string parser sees a stray Dot before the closing brace.
+        while (Match(type: TokenType.Dot))
+        {
+            string member = ConsumeIdentifier(
+                errorMessage: "Expected identifier after '.' in 'is' pattern");
+            type = type with { Name = type.Name + "." + member };
+        }
+
+        return type;
+    }
+
+    /// <summary>
+    /// Builds the IsPatternExpression for the destructuring / single-binding / simple-type-check forms
+    /// after the type is parsed and flags/None special cases are ruled out.
+    /// </summary>
+    private Expression BuildIsPatternExpression(Expression expr, TypeExpression type, bool isNegated,
+        SourceLocation location)
+    {
+        switch (isNegated)
+        {
+            // Check for destructuring pattern: is Type (...)
+            case false when Check(type: TokenType.LeftParen):
+            {
+                // Destructuring pattern: is Point (x, y) or is Point (x: a, y: b)
+                List<DestructuringBinding> bindings = ParseDestructuringBindings();
+                var pattern = new TypeDestructuringPattern(Type: type,
+                    Bindings: bindings,
+                    Location: location);
+                return new IsPatternExpression(Expression: expr,
+                    Pattern: pattern,
+                    IsNegated: false,
+                    Location: location);
+            }
+            // Check for single binding: is Type identifier (only for 'is', not 'isnot')
+            case false when Check(type: TokenType.Identifier) &&
+                            !IsKeywordToken(token: CurrentToken):
+            {
+                string variableName = Advance()
+                   .Text;
+                var pattern = new TypePattern(Type: type,
+                    VariableName: variableName,
+                    Bindings: null,
+                    Location: location);
+                return new IsPatternExpression(Expression: expr,
+                    Pattern: pattern,
+                    IsNegated: false,
+                    Location: location);
+            }
+            default:
+            {
+                // Simple type check: is Type or isnot Type
+                var pattern = new TypePattern(Type: type,
+                    VariableName: null,
+                    Bindings: null,
+                    Location: location);
+                return new IsPatternExpression(Expression: expr,
+                    Pattern: pattern,
+                    IsNegated: isNegated,
+                    Location: location);
+            }
+        }
     }
 }

@@ -93,9 +93,11 @@ routine U512.mod(you: U512) -> U512
     return LLVM::reinterpret_bits[Hijacked[Array[U64, 8]], Hijacked[U512]](rem.hijack()).peek()
 
 ### Diagnostic name (raw wide intermediate; not decimal-formatted).
+@override
 routine U512.represent() -> Text
   return wide_dec[U512](me)
 
 ### Diagnostic representation tagged with the type name.
+@override
 routine U512.diagnose() -> Text
   return "U512"

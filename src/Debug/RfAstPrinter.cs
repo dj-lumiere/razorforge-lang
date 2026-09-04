@@ -38,12 +38,43 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
     /// Produces a human-readable dump of all user programs and synthesized bodies
     /// after the full desugaring pipeline has run.
     /// </summary>
+    /// <summary>The categorized output buckets for <see cref="PrintMultiProgram"/>: the flat stream is
+    /// ordered presets → each type definition followed by its member routines → free routines → the entry
+    /// point <c>start</c>.</summary>
+    private sealed class ProgramBuckets
+    {
+        public readonly List<string> Presets = new();
+        public readonly List<(string Key, string Text)> TypeDefs = new();
+        public readonly Dictionary<string, List<string>> MemberRoutinesByOwner = new();
+        public readonly List<string> FreeRoutines = new();
+        public string? StartText;
+
+        public void AddMemberRoutine(string ownerKey, string text)
+        {
+            if (!MemberRoutinesByOwner.TryGetValue(key: ownerKey, value: out List<string>? list))
+                MemberRoutinesByOwner[key: ownerKey] = list = new List<string>();
+            list.Add(item: text);
+        }
+
+        public void CategorizeRoutine(RoutineInfo ri, string text)
+        {
+            if (ri.OwnerType is { IsGenericDefinition: false } owner)
+                AddMemberRoutine(ownerKey: owner.FullName, text: text);
+            else if (ri.OwnerType == null && ri.Name == "start")
+                StartText = text;
+            else if (ri.OwnerType == null)
+                FreeRoutines.Add(item: text);
+            else
+                AddMemberRoutine(ownerKey: ri.OwnerType.FullName, text: text);
+        }
+    }
+
     public string PrintMultiProgram(
         IEnumerable<(SyntaxTree.Program Program, string FilePath, string Module)> programs,
         IReadOnlyDictionary<string, Statement> synthesizedBodies,
         TypeRegistry registry,
         IEnumerable<(SyntaxTree.Program Program, string FilePath, string Module)>? stdlibPrograms = null,
-        IReadOnlyDictionary<string, MonomorphizedBody>? instantiatedGenericBodies = null) // NOSONAR S3776
+        IReadOnlyDictionary<string, MonomorphizedBody>? instantiatedGenericBodies = null)
     {
         // Build RegistryKey -> RoutineInfo for signature reconstruction.
         var routineByKey = registry.GetAllRoutines()
@@ -51,32 +82,7 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
                                    .GroupBy(r => r.RegistryKey)
                                    .ToDictionary(g => g.Key, g => g.First());
 
-        // Categorized buckets so the flat stream is ordered: presets → each type definition
-        // followed by its member routines → free routines → the entry point `start`.
-        var presets = new List<string>();
-        var typeDefs = new List<(string Key, string Text)>();
-        var memberRoutinesByOwner = new Dictionary<string, List<string>>();
-        var freeRoutines = new List<string>();
-        string? startText = null;
-
-        void AddMemberRoutine(string ownerKey, string text)
-        {
-            if (!memberRoutinesByOwner.TryGetValue(key: ownerKey, value: out List<string>? list))
-                memberRoutinesByOwner[key: ownerKey] = list = new List<string>();
-            list.Add(item: text);
-        }
-
-        void CategorizeRoutine(RoutineInfo ri, string text)
-        {
-            if (ri.OwnerType is { IsGenericDefinition: false } owner)
-                AddMemberRoutine(ownerKey: owner.FullName, text: text);
-            else if (ri.OwnerType == null && ri.Name == "start")
-                startText = text;
-            else if (ri.OwnerType == null)
-                freeRoutines.Add(item: text);
-            else
-                AddMemberRoutine(ownerKey: ri.OwnerType.FullName, text: text);
-        }
+        var buckets = new ProgramBuckets();
 
         // 1. AST declarations from every program (stdlib + user), bucketed.
         foreach ((SyntaxTree.Program prog, string _, string module) in
@@ -90,33 +96,7 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
                     || IsGenericTemplate(d: node) || node is not Declaration decl)
                     continue;
                 _indent = 0;
-                switch (decl)
-                {
-                    case PresetDeclaration:
-                        presets.Add(item: decl.Accept(this));
-                        break;
-                    case RecordDeclaration or EntityDeclaration or ChoiceDeclaration
-                        or FlagsDeclaration or VariantDeclaration or CrashableDeclaration
-                        or ProtocolDeclaration:
-                        typeDefs.Add(item: ($"{QualifyDecl(NodeTypeName(decl))}", decl.Accept(this)));
-                        break;
-                    case RoutineDeclaration routine when routine.ResolvedInfo is { } ri:
-                        CategorizeRoutine(ri: ri, text: routine.Accept(this));
-                        break;
-                    case RoutineDeclaration { Name: "start" } startRoutine:
-                        startText = startRoutine.Accept(this);
-                        break;
-                    case RoutineDeclaration { ResolvedInfo: null }:
-                        // Unregistered routine surface decl — e.g. an @innate BuilderQuery standalone
-                        // (build_mode/target_os/…) whose sole real definition is the synthesized,
-                        // build-time-folded routine emitted from the synthesizedBodies bucket. Its bare
-                        // decl has no ResolvedInfo; drop it so the dump shows one bodied routine, not a
-                        // bodiless duplicate.
-                        break;
-                    default:
-                        freeRoutines.Add(item: decl.Accept(this));
-                        break;
-                }
+                BucketDeclaration(buckets: buckets, decl: decl);
             }
         }
         _currentModule = "";
@@ -128,7 +108,7 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
             if (!routineByKey.TryGetValue(key: key, value: out RoutineInfo? ri)
                 || ri.IsGenericDefinition || ri.OwnerType?.IsGenericDefinition == true)
                 continue;
-            CategorizeRoutine(ri: ri, text: $"{FormatRoutineSignature(ri: ri)}\n{PrintBodyOf(body)}");
+            buckets.CategorizeRoutine(ri: ri, text: $"{FormatRoutineSignature(ri: ri)}\n{PrintBodyOf(body)}");
         }
 
         // 3. Monomorphized instances (concrete AST bodies), bucketed by owner.
@@ -138,11 +118,50 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
             if (mono.IsSynthesized)
                 continue;
             _indent = 0;
-            CategorizeRoutine(ri: mono.Info,
+            buckets.CategorizeRoutine(ri: mono.Info,
                 text: $"{FormatRoutineSignature(ri: mono.Info)}\n{PrintBodyOf(mono.Ast.Body)}");
         }
 
-        // Emit in the requested order.
+        return EmitBuckets(buckets: buckets);
+    }
+
+    /// <summary>Routes one top-level declaration into the correct output bucket (presets, type defs,
+    /// member/free routines, or the entry point).</summary>
+    private void BucketDeclaration(ProgramBuckets buckets, Declaration decl)
+    {
+        switch (decl)
+        {
+            case PresetDeclaration:
+                buckets.Presets.Add(item: decl.Accept(this));
+                break;
+            case RecordDeclaration or EntityDeclaration or ChoiceDeclaration
+                or FlagsDeclaration or VariantDeclaration or CrashableDeclaration
+                or ProtocolDeclaration:
+                buckets.TypeDefs.Add(item: ($"{QualifyDecl(NodeTypeName(decl))}", decl.Accept(this)));
+                break;
+            case RoutineDeclaration routine when routine.ResolvedInfo is { } ri:
+                buckets.CategorizeRoutine(ri: ri, text: routine.Accept(this));
+                break;
+            case RoutineDeclaration { Name: "start" } startRoutine:
+                buckets.StartText = startRoutine.Accept(this);
+                break;
+            case RoutineDeclaration { ResolvedInfo: null }:
+                // Unregistered routine surface decl — e.g. an @innate BuilderQuery standalone
+                // (build_mode/target_os/…) whose sole real definition is the synthesized,
+                // build-time-folded routine emitted from the synthesizedBodies bucket. Its bare
+                // decl has no ResolvedInfo; drop it so the dump shows one bodied routine, not a
+                // bodiless duplicate.
+                break;
+            default:
+                buckets.FreeRoutines.Add(item: decl.Accept(this));
+                break;
+        }
+    }
+
+    /// <summary>Assembles the categorized buckets into the final flat dump text, in the requested order:
+    /// presets → each type + its member routines → orphaned member routines → free routines → entry point.</summary>
+    private static string EmitBuckets(ProgramBuckets buckets)
+    {
         var sb = new StringBuilder();
         void Emit(string text)
         {
@@ -152,27 +171,27 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
             sb.AppendLine();
         }
 
-        foreach (string preset in presets)
+        foreach (string preset in buckets.Presets)
             Emit(text: preset);
-        foreach ((string key, string text) in typeDefs)
+        foreach ((string key, string text) in buckets.TypeDefs)
         {
             Emit(text: text);
-            if (memberRoutinesByOwner.Remove(key: key, value: out List<string>? typeMemberRoutines))
+            if (buckets.MemberRoutinesByOwner.Remove(key: key, value: out List<string>? typeMemberRoutines))
                 foreach (string memberRoutine in typeMemberRoutines)
                     Emit(text: memberRoutine);
         }
         // memberRoutines whose owner type has no printed definition here (e.g. its def was a filtered generic
         // template) — emit them so nothing is dropped.
-        foreach (List<string> orphaned in memberRoutinesByOwner.Values)
+        foreach (List<string> orphaned in buckets.MemberRoutinesByOwner.Values)
             foreach (string memberRoutine in orphaned)
                 Emit(text: memberRoutine);
-        foreach (string free in freeRoutines)
+        foreach (string free in buckets.FreeRoutines)
             Emit(text: free);
-        if (startText != null)
+        if (buckets.StartText != null)
         {
             // Mark the executable entry point.
             sb.AppendLine(value: "# Starting from here");
-            Emit(text: startText);
+            Emit(text: buckets.StartText);
         }
 
         return sb.ToString();
@@ -1401,7 +1420,7 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
         if (type is GenericParameterTypeInfo or ErrorTypeInfo or ProtocolSelfTypeInfo
             or ComptimeConstGenericTypeInfo)
             return true;
-        if (type is RecordTypeInfo { HasDirectBackendType: true })
+        if (type is RecordTypeInfo { BackendType: not null })
             return false;
         return type.TypeArguments?.Any(ContainsGenericParameter) ?? false;
     }

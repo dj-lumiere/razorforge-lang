@@ -34,6 +34,7 @@ routine Watching[T].is_destroyed() -> Bool
 
 ### Releases the weak observation. If this was the last observer of an already-dead (tombstoned)
 ### controller, the controller struct is finally freed. Called at scope exit like any owned handle.
+@override
 dangerous routine Watching[T].destroy()
   if me.ctrl != 0_addr
     Hijacked[RoamController[T]](from: me.ctrl).as_entity().unobserve()

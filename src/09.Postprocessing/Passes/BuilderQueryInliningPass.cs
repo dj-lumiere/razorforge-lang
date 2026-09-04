@@ -31,7 +31,7 @@ namespace Compiler.Postprocessing.Passes;
 /// monomorphization), <see cref="GenericAstRewriter"/> folds these during its substitution
 /// rewrite. This pass handles the concrete-type residue left in instantiated or non-generic bodies.</para>
 /// </summary>
-internal sealed class BuilderQueryInliningPass
+internal sealed class BuilderQueryInliningPass : AstRewriter
 {
     private readonly TypeRegistry _registry;
 
@@ -121,7 +121,7 @@ internal sealed class BuilderQueryInliningPass
                 {
                     _currentRoutineName = r.Name;
                     _currentRoutineModule = programModule;
-                    Statement newBody = LowerStatement(r.Body);
+                    Statement newBody = VisitStatement(r.Body);
                     if (!ReferenceEquals(newBody, r.Body))
                         program.Declarations[i] = r with { Body = newBody };
                     break;
@@ -154,7 +154,7 @@ internal sealed class BuilderQueryInliningPass
         foreach (string key in bodies.Keys.ToList())
         {
             Statement body = bodies[key];
-            Statement lowered = LowerStatement(body);
+            Statement lowered = VisitStatement(body);
             if (!ReferenceEquals(lowered, body))
                 bodies[key] = lowered;
         }
@@ -167,17 +167,26 @@ internal sealed class BuilderQueryInliningPass
     /// <c>GenericMonomorphizationPass</c> populates the map.
     /// </summary>
     public void RunOnInstantiatedGenericBodies()
+        => RunOnInstantiatedGenericBodies(bodies: _ctx!.InstantiatedGenericBodies);
+
+    /// <summary>
+    /// Inlines builder-query GMCEs in the GIVEN body map. Warm-restore passes a SEPARATE <c>freshBodies</c>
+    /// dict so the lowering survives the merge-back into the shared instantiation map (see
+    /// <c>GenericCallLoweringPass.RunOnInstantiatedGenericBodies(Dictionary)</c> for why running on the
+    /// shared map strands fresh-body lowering). Cold passes the shared map (freshBodies IS the map).
+    /// </summary>
+    public void RunOnInstantiatedGenericBodies(Dictionary<string, MonomorphizedBody> bodies)
     {
-        foreach (string key in _ctx!.InstantiatedGenericBodies.Keys.ToList())
+        foreach (string key in bodies.Keys.ToList())
         {
-            MonomorphizedBody entry = _ctx.InstantiatedGenericBodies[key];
+            MonomorphizedBody entry = bodies[key];
             if (entry.IsSynthesized) continue; // pure-synthesized: no AST to walk
 
             _currentTypeSubs = entry.TypeSubs;
-            Statement lowered = LowerStatement(entry.Ast.Body);
+            Statement lowered = VisitStatement(entry.Ast.Body);
             _currentTypeSubs = null;
             if (!ReferenceEquals(lowered, entry.Ast.Body))
-                _ctx.InstantiatedGenericBodies[key] = entry with
+                bodies[key] = entry with
                 {
                     Ast = entry.Ast with { Body = lowered }
                 };
@@ -193,159 +202,79 @@ internal sealed class BuilderQueryInliningPass
             if (members[j] is not RoutineDeclaration m) continue;
             _currentRoutineName = m.Name;
             _currentRoutineModule = module;
-            Statement newBody = LowerStatement(m.Body);
+            Statement newBody = VisitStatement(m.Body);
             if (!ReferenceEquals(newBody, m.Body))
                 members[j] = m with { Body = newBody };
         }
     }
 
-    //  Statement walker
+    //  Real transforms — the only nodes this pass rewrites
 
-    private Statement LowerStatement(Statement stmt)
+    /// <summary>
+    /// A zero-arg <see cref="CallExpression"/> is the ONLY node this pass rewrites: it folds either a
+    /// standalone source-location constant call (<c>source_file</c>/<c>source_line</c>/...) or a zero-arg
+    /// BuilderQuery constant memberRoutine call (<c>data_size</c>/<c>type_id</c>/...) to a literal — each
+    /// tried on the RAW call BEFORE its children are visited, matching the original walk order. When
+    /// neither fold applies the base rewrites the callee/arguments; the mutable resolution metadata that
+    /// <c>with</c> drops is then re-copied onto the rebuilt node.
+    /// </summary>
+    protected override Expression VisitCall(CallExpression call)
     {
-        switch (stmt)
+        // Source location constant-call folding (standalone calls, not memberRoutine calls).
+        if (TryFoldSourceLocationCall(call) is { } slFolded) return slFolded;
+
+        // BuilderQuery constant-call folding.
+        if (TryFoldBuilderQueryCall(call) is { } bqFolded) return bqFolded;
+
+        Expression rewrittenExpr = base.VisitCall(call);
+        // Unchanged: no metadata to preserve.
+        if (ReferenceEquals(rewrittenExpr, call)) return rewrittenExpr;
+
+        // ResolvedRoutine/ResolvedType/etc. are mutable {get;set;} properties — `with` drops them.
+        var rewritten = (CallExpression)rewrittenExpr;
+        rewritten.ResolvedRoutine = call.ResolvedRoutine;
+        rewritten.LoweringKind = call.LoweringKind;
+        rewritten.ConstructedType = call.ConstructedType;
+        rewritten.IsCollectionLiteral = call.IsCollectionLiteral;
+        rewritten.TypeArguments = call.TypeArguments;
+        rewritten.ResolvedType = call.ResolvedType;
+        return rewritten;
+    }
+
+    /// <summary>
+    /// Extends the base expression dispatch with the two node kinds the base does not cover
+    /// (<see cref="WaitforExpression"/>, <see cref="CarrierPayloadExpression"/>) so BuilderQuery calls
+    /// nested inside them are still folded — the original hand-rolled walker recursed into these.
+    /// </summary>
+    public override Expression VisitExpression(Expression expr)
+    {
+        switch (expr)
         {
-            case BlockStatement b:
+            case WaitforExpression wf:
             {
-                bool changed = false;
-                var list = new List<Statement>(b.Statements.Count);
-                foreach (Statement s in b.Statements)
-                {
-                    Statement ns = LowerStatement(s);
-                    list.Add(ns);
-                    if (!ReferenceEquals(ns, s)) changed = true;
-                }
-                return changed ? b with { Statements = list } : stmt;
+                Expression o = VisitExpression(wf.Operand);
+                Expression? timeout = wf.Timeout != null ? VisitExpression(wf.Timeout) : null;
+                bool changed = !ReferenceEquals(o, wf.Operand)
+                               || !ReferenceEquals(timeout, wf.Timeout);
+                return changed ? wf with { Operand = o, Timeout = timeout } : expr;
             }
 
-            case IfStatement ifs:
+            case CarrierPayloadExpression cpe:
             {
-                Expression cond = LowerExpression(ifs.Condition);
-                Statement then = LowerStatement(ifs.ThenStatement);
-                Statement? elseS = ifs.ElseStatement != null
-                    ? LowerStatement(ifs.ElseStatement)
-                    : null;
-                bool changed = !ReferenceEquals(cond, ifs.Condition)
-                               || !ReferenceEquals(then, ifs.ThenStatement)
-                               || !ReferenceEquals(elseS, ifs.ElseStatement);
-                return changed
-                    ? ifs with { Condition = cond, ThenStatement = then, ElseStatement = elseS }
-                    : stmt;
-            }
-
-            case WhileStatement w:
-            {
-                Expression cond = LowerExpression(w.Condition);
-                Statement body = LowerStatement(w.Body);
-                bool changed = !ReferenceEquals(cond, w.Condition)
-                               || !ReferenceEquals(body, w.Body);
-                return changed ? w with { Condition = cond, Body = body } : stmt;
-            }
-
-            case LoopStatement loop:
-            {
-                Statement body = LowerStatement(loop.Body);
-                return ReferenceEquals(body, loop.Body) ? stmt : loop with { Body = body };
-            }
-
-            case EachStatement f:
-            {
-                Expression iter = LowerExpression(f.Iterable);
-                Statement body = LowerStatement(f.Body);
-                bool changed = !ReferenceEquals(iter, f.Iterable)
-                               || !ReferenceEquals(body, f.Body);
-                return changed ? f with { Iterable = iter, Body = body } : stmt;
-            }
-
-            case WhenStatement ws:
-            {
-                Expression subject = LowerExpression(ws.Expression);
-                bool changed = !ReferenceEquals(subject, ws.Expression);
-                var clauses = new List<WhenClause>(ws.Clauses.Count);
-                foreach (WhenClause c in ws.Clauses)
-                {
-                    Statement cb = LowerStatement(c.Body);
-                    if (!ReferenceEquals(cb, c.Body)) changed = true;
-                    clauses.Add(!ReferenceEquals(cb, c.Body) ? c with { Body = cb } : c);
-                }
-                return changed ? ws with { Expression = subject, Clauses = clauses } : stmt;
-            }
-
-            case ReturnStatement { Value: not null } ret:
-            {
-                Expression v = LowerExpression(ret.Value);
-                return ReferenceEquals(v, ret.Value) ? stmt : ret with { Value = v };
-            }
-
-            case AssignmentStatement assign:
-            {
-                Expression val = LowerExpression(assign.Value);
-                return ReferenceEquals(val, assign.Value)
-                    ? stmt
-                    : assign with { Value = val };
-            }
-
-            case DeclarationStatement { Declaration: VariableDeclaration { Initializer: not null } vd } ds:
-            {
-                Expression init = LowerExpression(vd.Initializer);
-                if (ReferenceEquals(init, vd.Initializer)) return stmt;
-                return ds with { Declaration = vd with { Initializer = init } };
-            }
-
-            case ExpressionStatement es:
-            {
-                Expression e = LowerExpression(es.Expression);
-                return ReferenceEquals(e, es.Expression) ? stmt : es with { Expression = e };
-            }
-
-            case DiscardStatement ds:
-            {
-                Expression e = LowerExpression(ds.Expression);
-                return ReferenceEquals(e, ds.Expression) ? stmt : ds with { Expression = e };
-            }
-
-            case ThrowStatement ts:
-            {
-                Expression e = LowerExpression(ts.Error);
-                return ReferenceEquals(e, ts.Error) ? stmt : ts with { Error = e };
-            }
-
-            case BecomesStatement bs:
-            {
-                Expression v = LowerExpression(bs.Value);
-                return ReferenceEquals(v, bs.Value) ? stmt : bs with { Value = v };
-            }
-
-            case UsingStatement us:
-            {
-                Statement body = LowerStatement(us.Body);
-                Statement? fb = us.FallbackBody != null ? LowerStatement(us.FallbackBody) : null;
-                return ReferenceEquals(body, us.Body) && ReferenceEquals(fb, us.FallbackBody)
-                    ? stmt
-                    : us with { Body = body, FallbackBody = fb };
-            }
-
-            case DangerStatement danger:
-            {
-                Statement newBody = LowerStatement(danger.Body);
-                if (!ReferenceEquals(newBody, danger.Body) && newBody is BlockStatement bs2)
-                    return danger with { Body = bs2 };
-                return stmt;
+                Expression c = VisitExpression(cpe.Carrier);
+                return ReferenceEquals(c, cpe.Carrier) ? expr : cpe with { Carrier = c };
             }
 
             default:
-                return stmt;
+                return base.VisitExpression(expr);
         }
     }
 
-    //  Expression walker
+    //  Fold matchers
 
-    private Expression LowerExpression(Expression expr)
+    // Folds a standalone source-location constant call (source_file/source_line/...), or null.
+    private Expression? TryFoldSourceLocationCall(Expression expr)
     {
-        // Leaf nodes: nothing to fold or recurse into.
-        if (expr is LiteralExpression or TypeIdExpression) return expr;
-
-        // Source location constant-call folding (standalone calls, not memberRoutine calls)
         if (expr is CallExpression
             {
                 Callee: IdentifierExpression { Name: var slName },
@@ -354,11 +283,14 @@ internal sealed class BuilderQueryInliningPass
             && _sourceLocationRoutines.Contains(slName))
         {
             EnsureTypes();
-            Expression? slFolded = FoldSourceLocationCall(slName, slCall.Location);
-            if (slFolded != null) return slFolded;
+            return FoldSourceLocationCall(slName, slCall.Location);
         }
+        return null;
+    }
 
-        //  BuilderQuery constant-call folding
+    // Folds a zero-arg BuilderQuery constant memberRoutine call (data_size/type_id/...), or null.
+    private Expression? TryFoldBuilderQueryCall(Expression expr)
+    {
         if (expr is CallExpression
             {
                 Callee: MemberExpression { MemberName: var routineName } bsCallee,
@@ -368,272 +300,10 @@ internal sealed class BuilderQueryInliningPass
         {
             TypeInfo? receiverType = ResolveReceiverType(bsCallee.Object);
             if (receiverType != null)
-            {
-                Expression? folded = FoldBsCall(routineName, receiverType, bsCall.Location,
+                return FoldBsCall(routineName, receiverType, bsCall.Location,
                     receiverIsInFlight: bsCallee.Object.IsInFlight);
-                if (folded != null) return folded;
-            }
         }
-
-        //  Structural recursion
-        switch (expr)
-        {
-            case BinaryExpression bin:
-            {
-                Expression l = LowerExpression(bin.Left);
-                Expression r = LowerExpression(bin.Right);
-                return ReferenceEquals(l, bin.Left) && ReferenceEquals(r, bin.Right)
-                    ? expr : bin with { Left = l, Right = r };
-            }
-
-            case UnaryExpression un:
-            {
-                Expression o = LowerExpression(un.Operand);
-                return ReferenceEquals(o, un.Operand) ? expr : un with { Operand = o };
-            }
-
-            case CallExpression call:
-            {
-                Expression callee = LowerExpression(call.Callee);
-                List<Expression> args = LowerExpressionList(call.Arguments);
-                bool changed = !ReferenceEquals(callee, call.Callee)
-                               || !ReferenceEquals(args, call.Arguments);
-                if (!changed) return expr;
-                var rewritten = call with { Callee = callee, Arguments = args };
-                // ResolvedRoutine/ResolvedType/etc. are mutable {get;set;} properties — `with` drops them.
-                rewritten.ResolvedRoutine = call.ResolvedRoutine;
-                rewritten.LoweringKind = call.LoweringKind;
-                rewritten.ConstructedType = call.ConstructedType;
-                rewritten.IsCollectionLiteral = call.IsCollectionLiteral;
-                rewritten.TypeArguments = call.TypeArguments;
-                rewritten.ResolvedType = call.ResolvedType;
-                return rewritten;
-            }
-
-            case NamedArgumentExpression named:
-            {
-                Expression v = LowerExpression(named.Value);
-                return ReferenceEquals(v, named.Value) ? expr : named with { Value = v };
-            }
-
-            case MemberExpression mem:
-            {
-                Expression o = LowerExpression(mem.Object);
-                return ReferenceEquals(o, mem.Object) ? expr : mem with { Object = o };
-            }
-
-            case OptionalMemberExpression omem:
-            {
-                Expression o = LowerExpression(omem.Object);
-                return ReferenceEquals(o, omem.Object) ? expr : omem with { Object = o };
-            }
-
-            case IndexExpression idx:
-            {
-                Expression o = LowerExpression(idx.Object);
-                Expression i = LowerExpression(idx.Index);
-                bool changed = !ReferenceEquals(o, idx.Object) || !ReferenceEquals(i, idx.Index);
-                if (!changed)
-                    return expr;
-
-                var rewritten = idx with { Object = o, Index = i };
-                rewritten.ResolvedType = idx.ResolvedType;
-                rewritten.ResolvedSetItem = idx.ResolvedSetItem;
-                return rewritten;
-            }
-
-            case TypeConversionExpression conv:
-            {
-                Expression e = LowerExpression(conv.Expression);
-                return ReferenceEquals(e, conv.Expression) ? expr : conv with { Expression = e };
-            }
-
-            case StealExpression steal:
-            {
-                Expression o = LowerExpression(steal.Operand);
-                return ReferenceEquals(o, steal.Operand) ? expr : steal with { Operand = o };
-            }
-
-            case GenericMemberRoutineCallExpression gmc:
-            {
-                Expression obj = LowerExpression(gmc.Object);
-                List<Expression> args = LowerExpressionList(gmc.Arguments);
-                bool changed = !ReferenceEquals(obj, gmc.Object)
-                               || !ReferenceEquals(args, gmc.Arguments);
-                return changed ? gmc with { Object = obj, Arguments = args } : expr;
-            }
-
-            case GenericMemberExpression gmem:
-            {
-                Expression o = LowerExpression(gmem.Object);
-                return ReferenceEquals(o, gmem.Object) ? expr : gmem with { Object = o };
-            }
-
-            case IsPatternExpression ip:
-            {
-                Expression e = LowerExpression(ip.Expression);
-                return ReferenceEquals(e, ip.Expression) ? expr : ip with { Expression = e };
-            }
-
-            case FlagsTestExpression flags:
-            {
-                Expression s = LowerExpression(flags.Subject);
-                return ReferenceEquals(s, flags.Subject) ? expr : flags with { Subject = s };
-            }
-
-            case ChainedComparisonExpression chain:
-            {
-                List<Expression> operands = LowerExpressionList(chain.Operands);
-                return ReferenceEquals(operands, chain.Operands)
-                    ? expr : chain with { Operands = operands };
-            }
-
-            case CompoundAssignmentExpression comp:
-            {
-                Expression target = LowerExpression(comp.Target);
-                Expression value = LowerExpression(comp.Value);
-                bool changed = !ReferenceEquals(target, comp.Target)
-                               || !ReferenceEquals(value, comp.Value);
-                return changed ? comp with { Target = target, Value = value } : expr;
-            }
-
-            case RangeExpression range:
-            {
-                Expression start = LowerExpression(range.Start);
-                Expression end = LowerExpression(range.End);
-                Expression? step = range.Step != null ? LowerExpression(range.Step) : null;
-                bool changed = !ReferenceEquals(start, range.Start)
-                               || !ReferenceEquals(end, range.End)
-                               || !ReferenceEquals(step, range.Step);
-                return changed ? range with { Start = start, End = end, Step = step } : expr;
-            }
-
-            case ConditionalExpression cond:
-            {
-                Expression c = LowerExpression(cond.Condition);
-                Expression t = LowerExpression(cond.TrueExpression);
-                Expression f = LowerExpression(cond.FalseExpression);
-                bool changed = !ReferenceEquals(c, cond.Condition)
-                               || !ReferenceEquals(t, cond.TrueExpression)
-                               || !ReferenceEquals(f, cond.FalseExpression);
-                return changed
-                    ? cond with { Condition = c, TrueExpression = t, FalseExpression = f }
-                    : expr;
-            }
-
-            case TupleLiteralExpression tuple:
-            {
-                List<Expression> elems = LowerExpressionList(tuple.Elements);
-                return ReferenceEquals(elems, tuple.Elements)
-                    ? expr : tuple with { Elements = elems };
-            }
-
-            case ListLiteralExpression list:
-            {
-                List<Expression> elems = LowerExpressionList(list.Elements);
-                return ReferenceEquals(elems, list.Elements)
-                    ? expr : list with { Elements = elems };
-            }
-
-            case SetLiteralExpression set:
-            {
-                List<Expression> elems = LowerExpressionList(set.Elements);
-                return ReferenceEquals(elems, set.Elements)
-                    ? expr : set with { Elements = elems };
-            }
-
-            case DictLiteralExpression dict:
-            {
-                bool changed = false;
-                var pairs = new List<(Expression Key, Expression Value)>(dict.Pairs.Count);
-                foreach ((Expression k, Expression v) in dict.Pairs)
-                {
-                    Expression lk = LowerExpression(k);
-                    Expression lv = LowerExpression(v);
-                    pairs.Add((lk, lv));
-                    if (!ReferenceEquals(lk, k) || !ReferenceEquals(lv, v)) changed = true;
-                }
-                return changed ? dict with { Pairs = pairs } : expr;
-            }
-
-            case CreatorExpression creator:
-            {
-                bool changed = false;
-                var members = new List<(string Name, Expression Value)>(
-                    creator.MemberVariables.Count);
-                foreach ((string name, Expression value) in creator.MemberVariables)
-                {
-                    Expression v = LowerExpression(value);
-                    members.Add((name, v));
-                    if (!ReferenceEquals(v, value)) changed = true;
-                }
-                return changed ? creator with { MemberVariables = members } : expr;
-            }
-
-            case InsertedTextExpression fstr:
-            {
-                bool changed = false;
-                var parts = new List<InsertedTextPart>(fstr.Parts.Count);
-                foreach (InsertedTextPart part in fstr.Parts)
-                {
-                    if (part is ExpressionPart ep)
-                    {
-                        Expression e = LowerExpression(ep.Expression);
-                        if (!ReferenceEquals(e, ep.Expression))
-                        {
-                            parts.Add(ep with { Expression = e });
-                            changed = true;
-                            continue;
-                        }
-                    }
-                    parts.Add(part);
-                }
-                return changed ? fstr with { Parts = parts } : expr;
-            }
-
-            case BackIndexExpression back:
-            {
-                Expression o = LowerExpression(back.Operand);
-                return ReferenceEquals(o, back.Operand) ? expr : back with { Operand = o };
-            }
-
-            case BlockExpression block:
-            {
-                Expression v = LowerExpression(block.Value);
-                return ReferenceEquals(v, block.Value) ? expr : block with { Value = v };
-            }
-
-            case WaitforExpression wf:
-            {
-                Expression o = LowerExpression(wf.Operand);
-                Expression? timeout = wf.Timeout != null ? LowerExpression(wf.Timeout) : null;
-                bool changed = !ReferenceEquals(o, wf.Operand)
-                               || !ReferenceEquals(timeout, wf.Timeout);
-                return changed ? wf with { Operand = o, Timeout = timeout } : expr;
-            }
-
-            case CarrierPayloadExpression cpe:
-            {
-                Expression c = LowerExpression(cpe.Carrier);
-                return ReferenceEquals(c, cpe.Carrier) ? expr : cpe with { Carrier = c };
-            }
-
-            default:
-                return expr;
-        }
-    }
-
-    private List<Expression> LowerExpressionList(List<Expression> list)
-    {
-        bool changed = false;
-        var result = new List<Expression>(list.Count);
-        foreach (Expression e in list)
-        {
-            Expression le = LowerExpression(e);
-            result.Add(le);
-            if (!ReferenceEquals(le, e)) changed = true;
-        }
-        return changed ? result : list;
+        return null;
     }
 
     //  Type resolution
@@ -717,7 +387,7 @@ internal sealed class BuilderQueryInliningPass
     /// types are not yet registered.
     /// </summary>
     private Expression? FoldBsCall(string routineName, TypeInfo type, SourceLocation loc,
-        bool receiverIsInFlight = false) // NOSONAR S3776
+        bool receiverIsInFlight = false)
     {
         EnsureTypes();
         string inFlightPrefix = receiverIsInFlight && type is EntityTypeInfo ? "?" : "";
@@ -748,67 +418,83 @@ internal sealed class BuilderQueryInliningPass
                     _textType, loc);
 
             case "member_variable_count" when _s64Type != null:
-            {
-                long count = type switch
-                {
-                    TupleTypeInfo t => t.MemberVariables.Count,
-                    ChoiceTypeInfo ch => ch.Cases.Count,
-                    FlagsTypeInfo f => f.Members.Count,
-                    VariantTypeInfo v => v.Members.Count,
-                    RecordTypeInfo r => r.MemberVariables.Count,
-                    EntityTypeInfo e => e.MemberVariables.Count,
-                    _ => 0L
-                };
-                return MakeLiteralS64(count, _s64Type, loc);
-            }
+                return FoldMemberVariableCount(type: type, loc: loc);
 
             case "is_generic" when _boolType != null:
-            {
-                bool isGen = type.IsGenericDefinition;
-                return new LiteralExpression(
-                    Value: isGen,
-                    LiteralType: isGen ? TokenType.True : TokenType.False,
-                    Location: loc) { ResolvedType = _boolType };
-            }
+                return FoldIsGeneric(type: type, loc: loc);
 
             case "is_in_flight" when _boolType != null:
-            {
-                bool inFlight = receiverIsInFlight && type is EntityTypeInfo;
-                return new LiteralExpression(
-                    Value: inFlight,
-                    LiteralType: inFlight ? TokenType.True : TokenType.False,
-                    Location: loc) { ResolvedType = _boolType };
-            }
+                return FoldIsInFlight(type: type, receiverIsInFlight: receiverIsInFlight, loc: loc);
 
             case "type_kind":
-            {
-                // TypeKind lives in `module BuilderQuery` — qualify (bare lookup relied on the short-name scan).
-                TypeInfo? tkType = _registry.LookupType(name: "BuilderQuery.TypeKind");
-                if (tkType is not ChoiceTypeInfo tkChoice) return null;
-                // Wrappers (Retained/Modifying/etc) report the inner type's kind.
-                TypeInfo kindType = type is WrapperTypeInfo wt ? wt.InnerType : type;
-                string caseName = kindType.Category switch
-                {
-                    TypeCategory.Record => "RECORD",
-                    TypeCategory.Entity => "ENTITY",
-                    TypeCategory.Crashable => "CRASHABLE",
-                    TypeCategory.Choice => "CHOICE",
-                    TypeCategory.Variant => "VARIANT",
-                    TypeCategory.Flags => "FLAGS",
-                    TypeCategory.Routine => "ROUTINE",
-                    TypeCategory.Protocol => "PROTOCOL",
-                    _ => throw new InvalidOperationException(
-                        $"Unhandled TypeCategory '{kindType.Category}' in type_kind BuilderQuery mapping.")
-                };
-                ChoiceCaseInfo? found = tkChoice.Cases.FirstOrDefault(c => c.Name == caseName);
-                if (found == null) return null;
-                // Emit as S64 literal with ResolvedType = TypeKind (choice), mirrors WiredRoutinePass.
-                return MakeLiteralS64(found.ComputedValue, tkType, loc);
-            }
+                return FoldTypeKind(type: type, loc: loc);
 
             default:
                 return null;
         }
+    }
+
+    // Folds `member_variable_count` to an S64 literal of the type's declared member count.
+    private Expression FoldMemberVariableCount(TypeInfo type, SourceLocation loc)
+    {
+        long count = type switch
+        {
+            TupleTypeInfo t => t.MemberVariables.Count,
+            ChoiceTypeInfo ch => ch.Cases.Count,
+            FlagsTypeInfo f => f.Members.Count,
+            VariantTypeInfo v => v.Members.Count,
+            RecordTypeInfo r => r.MemberVariables.Count,
+            EntityTypeInfo e => e.MemberVariables.Count,
+            _ => 0L
+        };
+        return MakeLiteralS64(count, _s64Type!, loc);
+    }
+
+    // Folds `is_generic` to a Bool literal.
+    private Expression FoldIsGeneric(TypeInfo type, SourceLocation loc)
+    {
+        bool isGen = type.IsGenericDefinition;
+        return new LiteralExpression(
+            Value: isGen,
+            LiteralType: isGen ? TokenType.True : TokenType.False,
+            Location: loc) { ResolvedType = _boolType };
+    }
+
+    // Folds `is_in_flight` to a Bool literal (true only for an in-flight entity receiver).
+    private Expression FoldIsInFlight(TypeInfo type, bool receiverIsInFlight, SourceLocation loc)
+    {
+        bool inFlight = receiverIsInFlight && type is EntityTypeInfo;
+        return new LiteralExpression(
+            Value: inFlight,
+            LiteralType: inFlight ? TokenType.True : TokenType.False,
+            Location: loc) { ResolvedType = _boolType };
+    }
+
+    // Folds `type_kind` to the matching TypeKind choice case, or null if unresolvable.
+    private Expression? FoldTypeKind(TypeInfo type, SourceLocation loc)
+    {
+        // TypeKind lives in `module BuilderQuery` — qualify (bare lookup relied on the short-name scan).
+        TypeInfo? tkType = _registry.LookupType(name: "BuilderQuery.TypeKind");
+        if (tkType is not ChoiceTypeInfo tkChoice) return null;
+        // Wrappers (Retained/Modifying/etc) report the inner type's kind.
+        TypeInfo kindType = type is WrapperTypeInfo wt ? wt.InnerType : type;
+        string caseName = kindType.Category switch
+        {
+            TypeCategory.Record => "RECORD",
+            TypeCategory.Entity => "ENTITY",
+            TypeCategory.Crashable => "CRASHABLE",
+            TypeCategory.Choice => "CHOICE",
+            TypeCategory.Variant => "VARIANT",
+            TypeCategory.Flags => "FLAGS",
+            TypeCategory.Routine => "ROUTINE",
+            TypeCategory.Protocol => "PROTOCOL",
+            _ => throw new InvalidOperationException(
+                $"Unhandled TypeCategory '{kindType.Category}' in type_kind BuilderQuery mapping.")
+        };
+        ChoiceCaseInfo? found = tkChoice.Cases.FirstOrDefault(c => c.Name == caseName);
+        if (found == null) return null;
+        // Emit as S64 literal with ResolvedType = TypeKind (choice), mirrors WiredRoutinePass.
+        return MakeLiteralS64(found.ComputedValue, tkType, loc);
     }
 
     private void EnsureTypes()
@@ -895,7 +581,7 @@ internal sealed class BuilderQueryInliningPass
         // Variant is a tagged union: tag + MAX arm payload (not sum). Delegate to SizeBytes.
         // Variant is a RecordTypeInfo subclass, so it MUST precede the Record arms below.
         VariantTypeInfo v => (ulong)v.SizeBytes(pointerSize: 8),
-        RecordTypeInfo { HasDirectBackendType: true } r => LlvmBackendTypeSize(r.BackendType!),
+        RecordTypeInfo { BackendType: not null } r => LlvmBackendTypeSize(r.BackendType!),
         // Delegate to the SAME size function codegen uses (RecordTypeInfo.SizeBytes) so the List
         // element stride matches the actual struct layout. `member_count * 8` was wrong for any
         // record with a non-8-byte member (a nested value-record like Text=24, or i32/i128).
@@ -917,6 +603,10 @@ internal sealed class BuilderQueryInliningPass
         "i128" or "fp128" => 16,
         var s when s.StartsWith('[') => ParseLlvmArraySize(s),
         var s when s.Contains('{') => 0,
+        // Arbitrary-width integer `iN` (i256/i512/i1024 — the wide U*/S* numeric types): ceil(N/8).
+        // These reach here only in the non-pruned base, which force-builds data_size() for every width.
+        var s when s.Length > 1 && s[0] == 'i' && int.TryParse(s: s[1..], result: out int bits) && bits > 0
+            => (ulong)((bits + 7) / 8),
         _ => throw new InvalidOperationException(
             $"Unknown LLVM type '{llvmType}' in LlvmBackendTypeSize — cannot determine byte size.")
     };

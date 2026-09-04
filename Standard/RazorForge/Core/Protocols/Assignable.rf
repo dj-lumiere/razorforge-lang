@@ -5,16 +5,20 @@ module Core
 ### `var x = a`, passing as a non-`steal` argument, returning a non-`T` value, and `with`
 ### lens-copy. Auto-derived for any type whose `@llvm` layout contains no `ptr` (and for
 ### `@llvm("void")`). Types with managed-pointer payloads (`Retained[T]`, `Text`, …) opt in by
-### writing `obeys Assignable` and a `store` body that spells out each field's verb (a refcount
-### bump / COW share), centralising the cost in one visible place. `Copyable obeys Assignable`:
-### a deep-`copy`-able value is always `store`-able, and a `store`-able value is always assignable.
+### writing `obeys Assignable` and an `assign` body that spells out each field's verb (a refcount
+### bump / COW share), centralising the cost in one visible place. `Assignable obeys Copyable`:
+### anything you can shallow-`assign` (share) you can also `duplicate`, and its `duplicate` DEFAULTS to
+### `assign` (for a managed leaf the share IS the independent copy — same immutable buffer, refcount-held).
+### The reverse does NOT hold: an aggregate (List/Dict) is `Copyable` (deep) but NOT `Assignable` (a
+### single-owner entity cannot be shallow-shared), so `Assignable` is the STRONGER, narrower capability.
 ### `needs Assignable everywhere` auto-confers Assignable on any member-bearing type all of whose members
-### are themselves Assignable — the structural gate that drives the auto-derived `store`.
-protocol Assignable
+### are themselves Assignable — the structural gate that drives the auto-derived `assign`.
+protocol Assignable obeys Copyable
 needs Assignable everywhere
   ### Produces the value to bind at the store/assignment destination. For auto-derived types this
   ### is a bitwise duplicate; for opt-in managed types it is the cheap COW share (e.g. a refcount
-  ### bump). The heavier deep, independent duplicate is `Copyable.copy`.
+  ### bump). The heavier deep, independent duplicate is `Copyable.duplicate` (which, for an Assignable
+  ### type, defaults to this `assign`).
   ### :returns: The value to store into the destination slot.
   @[readonly, inline]
   routine Me.assign() -> Me

@@ -357,7 +357,7 @@ public sealed partial class SemanticVerifier
     }
 
     private TypeSymbol AnalyzeDictLiteralExpression(DictLiteralExpression dict,
-        TypeSymbol? expectedType = null) // NOSONAR S3776
+        TypeSymbol? expectedType = null)
     {
         // Collection literals are entity rvalues; see AnalyzeListLiteralExpression.
         dict.IsInFlight = true;
@@ -377,35 +377,8 @@ public sealed partial class SemanticVerifier
             expectedValueType = collectionExpectedType.TypeArguments![index: 1];
         }
 
-        TypeSymbol? keyType = null;
-        TypeSymbol? valueType = null;
-
-        if (dict is { KeyType: not null, ValueType: not null })
-        {
-            keyType = ResolveType(typeExpr: dict.KeyType);
-            valueType = ResolveType(typeExpr: dict.ValueType);
-        }
-        else if (dict.Pairs.Count > 0)
-        {
-            keyType = AnalyzeExpression(expression: dict.Pairs[index: 0].Key,
-                expectedType: expectedKeyType);
-            valueType = AnalyzeExpression(expression: dict.Pairs[index: 0].Value,
-                expectedType: expectedValueType);
-        }
-        else if (expectedKeyType != null && expectedValueType != null)
-        {
-            // Empty dict with expected types from context — use them
-            keyType = expectedKeyType;
-            valueType = expectedValueType;
-        }
-        else
-        {
-            ReportError(code: SemanticDiagnosticCode.EmptyDictNoTypeAnnotation,
-                message: "Cannot infer types from empty dict literal without type annotation.",
-                location: dict.Location);
-            keyType = ErrorTypeInfo.Instance;
-            valueType = ErrorTypeInfo.Instance;
-        }
+        (TypeSymbol? keyType, TypeSymbol? valueType) = InferDictKeyValueTypes(dict: dict,
+            expectedKeyType: expectedKeyType, expectedValueType: expectedValueType);
 
         // Analyze all pairs with the inferred/expected key/value types.
         foreach ((Expression Key, Expression Value) pair in dict.Pairs)
@@ -447,6 +420,39 @@ public sealed partial class SemanticVerifier
                 elementCount: dict.Pairs.Count);
         }
         return dictResult;
+    }
+
+    /// <summary>
+    /// Determines a dict literal's key/value types: from an explicit annotation, inferred from the first
+    /// pair, taken from the expected type for an empty literal, else RF-S (empty, no annotation) with
+    /// error types.
+    /// </summary>
+    private (TypeSymbol? keyType, TypeSymbol? valueType) InferDictKeyValueTypes(DictLiteralExpression dict,
+        TypeSymbol? expectedKeyType, TypeSymbol? expectedValueType)
+    {
+        if (dict is { KeyType: not null, ValueType: not null })
+        {
+            return (ResolveType(typeExpr: dict.KeyType), ResolveType(typeExpr: dict.ValueType));
+        }
+
+        if (dict.Pairs.Count > 0)
+        {
+            return (AnalyzeExpression(expression: dict.Pairs[index: 0].Key,
+                    expectedType: expectedKeyType),
+                AnalyzeExpression(expression: dict.Pairs[index: 0].Value,
+                    expectedType: expectedValueType));
+        }
+
+        if (expectedKeyType != null && expectedValueType != null)
+        {
+            // Empty dict with expected types from context — use them
+            return (expectedKeyType, expectedValueType);
+        }
+
+        ReportError(code: SemanticDiagnosticCode.EmptyDictNoTypeAnnotation,
+            message: "Cannot infer types from empty dict literal without type annotation.",
+            location: dict.Location);
+        return (ErrorTypeInfo.Instance, ErrorTypeInfo.Instance);
     }
 
     private TypeSymbol AnalyzeDictEntryLiteralExpression(DictEntryLiteralExpression dictEntry,
@@ -671,38 +677,10 @@ public sealed partial class SemanticVerifier
             : _registry.LookupType(name: "Bool") ?? ErrorTypeInfo.Instance;
 
         // #88: Pattern order enforcement — else/wildcard must be last
-        {
-            bool seenElse = false;
-            foreach (WhenClause clause in when.Clauses)
-            {
-                if (seenElse)
-                {
-                    ReportError(code: SemanticDiagnosticCode.PatternOrderViolation,
-                        message: "Unreachable pattern after 'else' or wildcard.",
-                        location: clause.Pattern.Location);
-                }
-
-                if (clause.Pattern is ElsePattern or WildcardPattern)
-                {
-                    seenElse = true;
-                }
-            }
-        }
+        ValidateWhenPatternOrder(when: when);
 
         // #130/#148: Duplicate pattern detection
-        {
-            var seenPatterns = new HashSet<string>();
-            foreach (WhenClause clause in when.Clauses)
-            {
-                string? patternKey = GetPatternKey(pattern: clause.Pattern);
-                if (patternKey != null && !seenPatterns.Add(item: patternKey))
-                {
-                    ReportError(code: SemanticDiagnosticCode.DuplicatePattern,
-                        message: $"Duplicate pattern: {patternKey}.",
-                        location: clause.Pattern.Location);
-                }
-            }
-        }
+        ValidateWhenDuplicatePatterns(when: when);
 
         TypeSymbol? resultType = null;
         bool hasElse = false;
@@ -720,94 +698,7 @@ public sealed partial class SemanticVerifier
                 hasElse = true;
             }
 
-            // When expressions require expression bodies that return values
-            // The Body is a Statement, but for expressions it should typically be an ExpressionStatement
-            if (clause.Body is ExpressionStatement exprStmt)
-            {
-                TypeSymbol branchType = AnalyzeExpression(expression: exprStmt.Expression);
-
-                if (resultType == null)
-                {
-                    resultType = branchType;
-                }
-                else if (!IsAssignableTo(source: branchType, target: resultType))
-                {
-                    ReportError(code: SemanticDiagnosticCode.WhenBranchTypeMismatch,
-                        message:
-                        $"When expression branches have incompatible types: '{resultType.Name}' and '{branchType.Name}'.",
-                        location: clause.Body.Location);
-                }
-            }
-            else if (clause.Body is ReturnStatement { Value: not null } ret)
-            {
-                // Allow return statements in when expressions
-                TypeSymbol branchType = AnalyzeExpression(expression: ret.Value);
-
-                if (resultType == null)
-                {
-                    resultType = branchType;
-                }
-            }
-            else if (clause.Body is BlockStatement block)
-            {
-                // For block statements in when expressions, we need to validate 'becomes' usage
-                // and extract the result type from the becomes statement
-                BecomesStatement? becomesStmt = null;
-                int statementCount = 0;
-
-                foreach (Statement stmt in block.Statements)
-                {
-                    AnalyzeStatement(statement: stmt);
-                    statementCount++;
-
-                    if (stmt is BecomesStatement becomes)
-                    {
-                        becomesStmt = becomes;
-                    }
-                }
-
-                if (becomesStmt != null)
-                {
-                    // Found a becomes statement - check if it's a single-statement block
-                    if (statementCount == 1)
-                    {
-                        // Block contains only 'becomes expr' - should use => syntax instead
-                        ReportError(code: SemanticDiagnosticCode.SingleExpressionBranchUsesBecomes,
-                            message:
-                            "Single-expression when branch should use '=>' syntax instead of block with 'becomes'.",
-                            location: becomesStmt.Location);
-                    }
-
-                    // Extract the result type from the becomes expression (already analyzed via AnalyzeStatement)
-                    TypeSymbol branchType =
-                        becomesStmt.Value.ResolvedType ?? ErrorTypeInfo.Instance;
-
-                    if (resultType == null)
-                    {
-                        resultType = branchType;
-                    }
-                    else if (!IsAssignableTo(source: branchType, target: resultType))
-                    {
-                        ReportError(code: SemanticDiagnosticCode.WhenBranchTypeMismatch,
-                            message:
-                            $"When expression branches have incompatible types: '{resultType.Name}' and '{branchType.Name}'.",
-                            location: becomesStmt.Location);
-                    }
-                }
-                else if (statementCount > 0)
-                {
-                    // Multi-statement block without 'becomes' in a when expression
-                    ReportError(code: SemanticDiagnosticCode.WhenExpressionBlockMissingBecomes,
-                        message:
-                        "Multi-statement block in when expression requires 'becomes' to specify the result value.",
-                        location: block.Location);
-                }
-            }
-            else
-            {
-                // Analyze as regular statement
-                AnalyzeStatement(statement: clause.Body);
-            }
+            resultType = AnalyzeWhenClauseBody(clause: clause, resultType: resultType);
 
             _registry.ExitScope();
         }
@@ -832,6 +723,146 @@ public sealed partial class SemanticVerifier
         }
 
         return resultType ?? ErrorTypeInfo.Instance;
+    }
+
+    /// <summary>
+    /// #88: Reports PatternOrderViolation for any clause that follows an <c>else</c>/wildcard pattern
+    /// (which must be last).
+    /// </summary>
+    private void ValidateWhenPatternOrder(WhenExpression when)
+    {
+        bool seenElse = false;
+        foreach (WhenClause clause in when.Clauses)
+        {
+            if (seenElse)
+            {
+                ReportError(code: SemanticDiagnosticCode.PatternOrderViolation,
+                    message: "Unreachable pattern after 'else' or wildcard.",
+                    location: clause.Pattern.Location);
+            }
+
+            if (clause.Pattern is ElsePattern or WildcardPattern)
+            {
+                seenElse = true;
+            }
+        }
+    }
+
+    /// <summary>
+    /// #130/#148: Reports DuplicatePattern for any clause whose pattern key repeats an earlier one.
+    /// </summary>
+    private void ValidateWhenDuplicatePatterns(WhenExpression when)
+    {
+        var seenPatterns = new HashSet<string>();
+        foreach (WhenClause clause in when.Clauses)
+        {
+            string? patternKey = GetPatternKey(pattern: clause.Pattern);
+            if (patternKey != null && !seenPatterns.Add(item: patternKey))
+            {
+                ReportError(code: SemanticDiagnosticCode.DuplicatePattern,
+                    message: $"Duplicate pattern: {patternKey}.",
+                    location: clause.Pattern.Location);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Analyzes one <c>when</c>-expression clause body — an expression (<c>=&gt;</c>), a return, or a
+    /// <c>becomes</c> block — and folds its branch type into the running <paramref name="resultType"/>
+    /// (reporting a mismatch against the first branch). Returns the updated result type.
+    /// </summary>
+    private TypeSymbol? AnalyzeWhenClauseBody(WhenClause clause, TypeSymbol? resultType)
+    {
+        // When expressions require expression bodies that return values
+        // The Body is a Statement, but for expressions it should typically be an ExpressionStatement
+        if (clause.Body is ExpressionStatement exprStmt)
+        {
+            TypeSymbol branchType = AnalyzeExpression(expression: exprStmt.Expression);
+
+            if (resultType == null)
+            {
+                resultType = branchType;
+            }
+            else if (!IsAssignableTo(source: branchType, target: resultType))
+            {
+                ReportError(code: SemanticDiagnosticCode.WhenBranchTypeMismatch,
+                    message:
+                    $"When expression branches have incompatible types: '{resultType.Name}' and '{branchType.Name}'.",
+                    location: clause.Body.Location);
+            }
+        }
+        else if (clause.Body is ReturnStatement { Value: not null } ret)
+        {
+            // Allow return statements in when expressions
+            TypeSymbol branchType = AnalyzeExpression(expression: ret.Value);
+
+            if (resultType == null)
+            {
+                resultType = branchType;
+            }
+        }
+        else if (clause.Body is BlockStatement block)
+        {
+            // For block statements in when expressions, we need to validate 'becomes' usage
+            // and extract the result type from the becomes statement
+            BecomesStatement? becomesStmt = null;
+            int statementCount = 0;
+
+            foreach (Statement stmt in block.Statements)
+            {
+                AnalyzeStatement(statement: stmt);
+                statementCount++;
+
+                if (stmt is BecomesStatement becomes)
+                {
+                    becomesStmt = becomes;
+                }
+            }
+
+            if (becomesStmt != null)
+            {
+                // Found a becomes statement - check if it's a single-statement block
+                if (statementCount == 1)
+                {
+                    // Block contains only 'becomes expr' - should use => syntax instead
+                    ReportError(code: SemanticDiagnosticCode.SingleExpressionBranchUsesBecomes,
+                        message:
+                        "Single-expression when branch should use '=>' syntax instead of block with 'becomes'.",
+                        location: becomesStmt.Location);
+                }
+
+                // Extract the result type from the becomes expression (already analyzed via AnalyzeStatement)
+                TypeSymbol branchType =
+                    becomesStmt.Value.ResolvedType ?? ErrorTypeInfo.Instance;
+
+                if (resultType == null)
+                {
+                    resultType = branchType;
+                }
+                else if (!IsAssignableTo(source: branchType, target: resultType))
+                {
+                    ReportError(code: SemanticDiagnosticCode.WhenBranchTypeMismatch,
+                        message:
+                        $"When expression branches have incompatible types: '{resultType.Name}' and '{branchType.Name}'.",
+                        location: becomesStmt.Location);
+                }
+            }
+            else if (statementCount > 0)
+            {
+                // Multi-statement block without 'becomes' in a when expression
+                ReportError(code: SemanticDiagnosticCode.WhenExpressionBlockMissingBecomes,
+                    message:
+                    "Multi-statement block in when expression requires 'becomes' to specify the result value.",
+                    location: block.Location);
+            }
+        }
+        else
+        {
+            // Analyze as regular statement
+            AnalyzeStatement(statement: clause.Body);
+        }
+
+        return resultType;
     }
 
     /// <summary>
@@ -1049,7 +1080,7 @@ public sealed partial class SemanticVerifier
         // bare-generic inner so wrappers around constructed types (e.g. `Accessing[List[T]]`) keep
         // the normal element-wise unification that binds their inner params (T) correctly.
         if (paramType is { TypeArguments: [GenericParameterTypeInfo markerParam] } &&
-            ProtocolBaseName(type: paramType) is Compiler.Resolution.RuntimeContract.Accessing or Compiler.Resolution.RuntimeContract.Controlling &&
+            Compiler.Resolution.RuntimeContract.IsMarkerProtocol(baseName: ProtocolBaseName(type: paramType)) &&
             ProtocolBaseName(type: argType) is not (Compiler.Resolution.RuntimeContract.Accessing or Compiler.Resolution.RuntimeContract.Controlling))
         {
             int markerIdx = genericParameters.ToList().IndexOf(item: markerParam.Name);

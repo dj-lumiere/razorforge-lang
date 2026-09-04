@@ -548,10 +548,12 @@ routine D32.pow!(you: D32) -> D32
   throw NumericOverflowError(description: "overflow: out of range")
 
 ### Shortest decimal text (widens to D128Parts and reuses the shared formatter).
+@override
 routine D32.represent() -> Text
   return d128_represent(p: d32parts_to_d128(p: me.decode()))
 
 ### Debug form: `D32(<value>)`.
+@override
 routine D32.diagnose() -> Text
   return "D32(" + me.represent() + ")"
 

@@ -595,8 +595,7 @@ public partial class LlvmCodeGenerator
         RoutineInfo? destroy = routine.ReturnType is { } rt
             ? _registry.LookupMemberRoutine(type: rt, memberRoutineName: "destroy")
             : null;
-        bool needsDiscard = destroy != null && routine.ReturnType != null
-            && !_registry.IsTriviallyDestructible(type: routine.ReturnType);
+        bool needsDiscard = destroy != null && routine.ReturnType != null;
 
         if (needsDiscard)
         {
@@ -739,20 +738,7 @@ public partial class LlvmCodeGenerator
         // resolved routine alone rather than its ResolvedType label.
         if (identifier.ResolvedRoutine is { } preResolved)
         {
-            // Cycle-collector roam hooks (`roam_trace_impl` / `roam_free_impl`, injected by
-            // RoamHookRefLoweringPass) are stored into a `CPtr` field on the controller and invoked
-            // NATIVELY as a bare `void(void* me)` fn pointer (rf_cyclic_invoke_hook) — NOT as a fat
-            // Routine value. They are captureless, so emit just the bare `@sym` (a 1-word ptr) to match
-            // the CPtr slot. See [[cabi-callback-ffi]].
-            if (preResolved.Name is "roam_trace_impl" or "roam_free_impl")
-            {
-                _referencedKeys.Add(item: preResolved.RegistryKey);
-                _referencedKeys.Add(item: StripRealmPrefix(preResolved.RegistryKey));
-                return $"@{MangleRoutineName(routine: preResolved)}";
-            }
-            return preResolved.IsLambda
-                ? EmitClosureValue(sb: sb, lambda: preResolved)
-                : EmitRoutineValueClosure(sb: sb, routine: preResolved);
+            return EmitPreResolvedRoutineValue(sb: sb, preResolved: preResolved);
         }
 
         if (identifier.ResolvedType is RoutineTypeInfo routineType && TryResolveRoutineReference(
@@ -801,6 +787,25 @@ public partial class LlvmCodeGenerator
         string tmp = NextTemp();
         EmitLine(sb: sb, line: $"  {tmp} = load {llvmType}, ptr %{llvmName}.addr");
         return tmp;
+    }
+
+    /// <summary>
+    /// Materializes a value for an identifier whose routine was pre-resolved by a lowering pass.
+    /// Cycle-collector roam hooks (`roam_trace_impl` / `roam_free_impl`) emit a bare captureless
+    /// `@sym` (they are invoked natively through a CPtr slot, not as a fat Routine value); every
+    /// other routine value flows through the closure-materialization path (lambda vs plain routine).
+    /// </summary>
+    private string EmitPreResolvedRoutineValue(StringBuilder sb, RoutineInfo preResolved)
+    {
+        if (preResolved.Name is "roam_trace_impl" or "roam_free_impl")
+        {
+            _referencedKeys.Add(item: preResolved.RegistryKey);
+            _referencedKeys.Add(item: StripRealmPrefix(preResolved.RegistryKey));
+            return $"@{MangleRoutineName(routine: preResolved)}";
+        }
+        return preResolved.IsLambda
+            ? EmitClosureValue(sb: sb, lambda: preResolved)
+            : EmitRoutineValueClosure(sb: sb, routine: preResolved);
     }
 
     /// <summary>
@@ -1027,6 +1032,18 @@ public partial class LlvmCodeGenerator
             return integerResult;
         }
 
+        return EmitScalarWidthOrFloatCast(sb: sb, value: value, sourceType: sourceType,
+            targetType: targetType, sourceLlvm: sourceLlvm, targetLlvm: targetLlvm);
+    }
+
+    /// <summary>
+    /// Emits the float↔float / float↔int / int-width-change cast for two same-kind-or-mixed scalar
+    /// LLVM types (both already known to be non-ptr and not equal). The signedness comes from the
+    /// RazorForge <paramref name="sourceType"/>/<paramref name="targetType"/>.
+    /// </summary>
+    private string EmitScalarWidthOrFloatCast(StringBuilder sb, string value, TypeInfo? sourceType,
+        TypeInfo targetType, string sourceLlvm, string targetLlvm)
+    {
         bool sourceIsFloat = sourceLlvm is "half" or FloatTypeName or DoubleTypeName or Fp128TypeName;
         bool targetIsFloat = targetLlvm is "half" or FloatTypeName or DoubleTypeName or Fp128TypeName;
         bool targetUnsigned = IsUnsignedIntegerType(type: targetType);

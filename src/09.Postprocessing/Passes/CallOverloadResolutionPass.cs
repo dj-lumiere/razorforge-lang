@@ -338,72 +338,90 @@ internal sealed class CallOverloadResolutionPass
         switch (call.Callee)
         {
             case MemberExpression member:
-            {
-                TypeInfo? receiverType = member.Object.ResolvedType;
-                if (receiverType == null) return;
-
-                // Const-generic value types (e.g. ConstGenericValueTypeInfo("63") = N=63 in Array[T, 63])
-                // are not registered in _routinesByOwner.  Resolve to the underlying numeric type so
-                // memberRoutine lookup can find operators like sub!.
-                // Also, their arguments may lack ResolvedType (pre-SA stdlib bodies), so allow a
-                // type-less fallback lookup — there is typically only one overload for numeric operators.
-                bool isConstGenericReceiver = receiverType is ConstGenericValueTypeInfo;
-                if (isConstGenericReceiver)
-                {
-                    var constVal = (ConstGenericValueTypeInfo)receiverType;
-                    string underlyingName = constVal.ExplicitTypeName ?? "U64";
-                    TypeInfo? resolved = _registry.LookupType(underlyingName);
-                    if (resolved == null) return;
-                    receiverType = resolved;
-                }
-                else if (!allArgTypesKnown)
-                {
-                    return;
-                }
-
-                RoutineInfo? memberRoutine = allArgTypesKnown
-                    ? _registry.LookupMemberRoutineOverload(type: receiverType,
-                        memberRoutineName: member.MemberName, argTypes: argTypes)
-                    : null;
-                memberRoutine ??= _registry.LookupMemberRoutine(type: receiverType,
-                    memberRoutineName: member.MemberName);
-
-                // If the non-failable form isn't registered, try the failable form.
-                // E.g. U64.sub is not defined (underflow is undefined); only U64.sub! exists.
-                // MemberName is bare; failability is structural — retry with isFailable: true.
-                if (memberRoutine == null && !member.IsFailable)
-                {
-                    memberRoutine = allArgTypesKnown
-                        ? _registry.LookupMemberRoutineOverload(type: receiverType,
-                            memberRoutineName: member.MemberName, argTypes: argTypes)
-                        : null;
-                    memberRoutine ??= _registry.LookupMemberRoutine(type: receiverType,
-                        memberRoutineName: member.MemberName, isFailable: true);
-                }
-
-                if (memberRoutine == null) return;
-
-                call.ResolvedRoutine = memberRoutine;
-                call.LoweringKind = CallClassifier.ClassifyMemberRoutineCall(memberRoutine: memberRoutine);
+                ClassifyMemberCall(call: call, member: member, argTypes: argTypes,
+                    allArgTypesKnown: allArgTypesKnown);
                 break;
-            }
             case IdentifierExpression { Name: var name }:
-            {
-                // Overload-by-arg-types when all arg types are known; otherwise fall back to a
-                // unique by-name lookup. Stdlib bodies aren't fully type-annotated, so a free call
-                // like `decimalfixed_neg(a: you)` inside a variant body can reach here with an
-                // untyped argument — the by-name lookup still resolves it when the name is
-                // unambiguous. (A genuinely ambiguous name with unknown arg types stays unresolved.)
-                RoutineInfo? routine = allArgTypesKnown
-                    ? _registry.LookupRoutineOverload(baseName: name, argTypes: argTypes)
-                    : null;
-                routine ??= _registry.LookupRoutine(fullName: name);
-                if (routine == null) return;
-
-                call.ResolvedRoutine = routine;
-                call.LoweringKind = CallClassifier.ClassifyStandaloneRoutineCall(routine: routine);
+                ClassifyStandaloneCall(call: call, name: name, argTypes: argTypes,
+                    allArgTypesKnown: allArgTypesKnown);
                 break;
-            }
         }
+    }
+
+    /// <summary>
+    /// Resolves and classifies a member-routine call, applying the const-generic receiver
+    /// fallback and the failable-form retry.
+    /// </summary>
+    private void ClassifyMemberCall(CallExpression call, MemberExpression member,
+        List<TypeInfo> argTypes, bool allArgTypesKnown)
+    {
+        TypeInfo? receiverType = member.Object.ResolvedType;
+        if (receiverType == null) return;
+
+        // Const-generic value types (e.g. ConstGenericValueTypeInfo("63") = N=63 in Array[T, 63])
+        // are not registered in _routinesByOwner.  Resolve to the underlying numeric type so
+        // memberRoutine lookup can find operators like sub!.
+        // Also, their arguments may lack ResolvedType (pre-SA stdlib bodies), so allow a
+        // type-less fallback lookup — there is typically only one overload for numeric operators.
+        bool isConstGenericReceiver = receiverType is ConstGenericValueTypeInfo;
+        if (isConstGenericReceiver)
+        {
+            var constVal = (ConstGenericValueTypeInfo)receiverType;
+            string underlyingName = constVal.ExplicitTypeName ?? "U64";
+            TypeInfo? resolved = _registry.LookupType(underlyingName);
+            if (resolved == null) return;
+            receiverType = resolved;
+        }
+        else if (!allArgTypesKnown)
+        {
+            return;
+        }
+
+        RoutineInfo? memberRoutine = allArgTypesKnown
+            ? _registry.LookupMemberRoutineOverload(type: receiverType,
+                memberRoutineName: member.MemberName, argTypes: argTypes)
+            : null;
+        memberRoutine ??= _registry.LookupMemberRoutine(type: receiverType,
+            memberRoutineName: member.MemberName);
+
+        // If the non-failable form isn't registered, try the failable form.
+        // E.g. U64.sub is not defined (underflow is undefined); only U64.sub! exists.
+        // MemberName is bare; failability is structural — retry with isFailable: true.
+        if (memberRoutine == null && !member.IsFailable)
+        {
+            memberRoutine = allArgTypesKnown
+                ? _registry.LookupMemberRoutineOverload(type: receiverType,
+                    memberRoutineName: member.MemberName, argTypes: argTypes)
+                : null;
+            memberRoutine ??= _registry.LookupMemberRoutine(type: receiverType,
+                memberRoutineName: member.MemberName, isFailable: true);
+        }
+
+        if (memberRoutine == null) return;
+
+        call.ResolvedRoutine = memberRoutine;
+        call.LoweringKind = CallClassifier.ClassifyMemberRoutineCall(memberRoutine: memberRoutine);
+    }
+
+    /// <summary>
+    /// Resolves and classifies a standalone (free-routine) call by overload-by-arg-types,
+    /// falling back to a unique by-name lookup.
+    /// </summary>
+    private void ClassifyStandaloneCall(CallExpression call, string name,
+        List<TypeInfo> argTypes, bool allArgTypesKnown)
+    {
+        // Overload-by-arg-types when all arg types are known; otherwise fall back to a
+        // unique by-name lookup. Stdlib bodies aren't fully type-annotated, so a free call
+        // like `decimalfixed_neg(a: you)` inside a variant body can reach here with an
+        // untyped argument — the by-name lookup still resolves it when the name is
+        // unambiguous. (A genuinely ambiguous name with unknown arg types stays unresolved.)
+        RoutineInfo? routine = allArgTypesKnown
+            ? _registry.LookupRoutineOverload(baseName: name, argTypes: argTypes)
+            : null;
+        routine ??= _registry.LookupRoutine(fullName: name);
+        if (routine == null) return;
+
+        call.ResolvedRoutine = routine;
+        call.LoweringKind = CallClassifier.ClassifyStandaloneRoutineCall(routine: routine);
     }
 }

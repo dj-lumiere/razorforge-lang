@@ -95,11 +95,49 @@ public sealed partial class StdlibLoader
             .ToList();
 
         // Index RazorForge-realm member-routine declarations by MODULE-QUALIFIED owner (e.g. "Core.List" →
-        // List's own methods). Keying by module (not bare owner) is load-bearing: an EXTENSION method in
-        // another module — `Random.rf`'s `List[T].shuffle()` — has bare owner "List" too, but forwarding it
-        // onto the SF List produced a `me.inner.shuffle()` body that fails to resolve (shuffle is not a
-        // Core.List member) → RF-S458 in the SF stdlib validation. The wrapper's `inner: RF::Core.List` names
-        // module Core, so only Core-module List members are forwarded; `Random.List` is excluded.
+        // List's own methods).
+        Dictionary<string, List<RoutineDeclaration>> rfMembersByOwner = IndexRfMembersByOwner(allProgs: allProgs);
+        if (rfMembersByOwner.Count == 0)
+        {
+            return;
+        }
+
+        // The set of SF wrapper entity names (every SF-realm `entity X { secret inner: RF::… }`). A forwarded
+        // method whose return type names one of these (whether X itself — `copy` — or a SIBLING wrapper —
+        // `Dict.keys() -> List[K]`) returns a bare RF value that must be re-wrapped into the SF wrapper.
+        HashSet<string> sfWrapperNames = CollectSfWrapperNames(allProgs: allProgs);
+
+        foreach ((Program prog, string filePath, string _) in allProgs)
+        {
+            if (RealmOf(filePath: filePath) != "SF")
+            {
+                continue;
+            }
+
+            var generated = new List<RoutineDeclaration>();
+            foreach (EntityDeclaration entity in prog.Declarations.OfType<EntityDeclaration>())
+            {
+                GenerateForwardersForEntity(prog: prog, entity: entity, filePath: filePath,
+                    rfMembersByOwner: rfMembersByOwner, sfWrapperNames: sfWrapperNames,
+                    generated: generated);
+            }
+
+            prog.Declarations.AddRange(collection: generated);
+        }
+    }
+
+    /// <summary>
+    /// Indexes RazorForge-realm member-routine declarations by MODULE-QUALIFIED owner (e.g.
+    /// "Core.List" → List's own methods). Keying by module (not bare owner) is load-bearing: an
+    /// EXTENSION method in another module — `Random.rf`'s `List[T].shuffle()` — has bare owner "List"
+    /// too, but forwarding it onto the SF List produced a `me.inner.shuffle()` body that fails to
+    /// resolve (shuffle is not a Core.List member) → RF-S458 in the SF stdlib validation. The wrapper's
+    /// `inner: RF::Core.List` names module Core, so only Core-module List members are forwarded;
+    /// `Random.List` is excluded.
+    /// </summary>
+    private static Dictionary<string, List<RoutineDeclaration>> IndexRfMembersByOwner(
+        List<(Program Program, string FilePath, string Module)> allProgs)
+    {
         var rfMembersByOwner = new Dictionary<string, List<RoutineDeclaration>>(comparer: StringComparer.Ordinal);
         foreach ((Program prog, string filePath, string module) in allProgs)
         {
@@ -120,14 +158,18 @@ public sealed partial class StdlibLoader
                 }
             }
         }
-        if (rfMembersByOwner.Count == 0)
-        {
-            return;
-        }
 
-        // The set of SF wrapper entity names (every SF-realm `entity X { secret inner: RF::… }`). A forwarded
-        // method whose return type names one of these (whether X itself — `copy` — or a SIBLING wrapper —
-        // `Dict.keys() -> List[K]`) returns a bare RF value that must be re-wrapped into the SF wrapper.
+        return rfMembersByOwner;
+    }
+
+    /// <summary>
+    /// Collects the bare names of every SF wrapper entity (an SF-realm
+    /// <c>entity X { secret inner: RF::… }</c>). A forwarded method returning one of these yields a bare
+    /// RF value that must be re-wrapped into the SF wrapper.
+    /// </summary>
+    private static HashSet<string> CollectSfWrapperNames(
+        List<(Program Program, string FilePath, string Module)> allProgs)
+    {
         var sfWrapperNames = new HashSet<string>(comparer: StringComparer.Ordinal);
         foreach ((Program prog, string filePath, string _) in allProgs)
         {
@@ -145,99 +187,112 @@ public sealed partial class StdlibLoader
             }
         }
 
-        foreach ((Program prog, string filePath, string _) in allProgs)
+        return sfWrapperNames;
+    }
+
+    /// <summary>
+    /// Generates the inner-forwarders for one SF wrapper entity, appending them to
+    /// <paramref name="generated"/>. No-op for an entity that is not a `secret inner: RF::…` wrapper or
+    /// whose inner owner has no indexed RF members.
+    /// </summary>
+    private static void GenerateForwardersForEntity(Program prog, EntityDeclaration entity,
+        string filePath, Dictionary<string, List<RoutineDeclaration>> rfMembersByOwner,
+        HashSet<string> sfWrapperNames, List<RoutineDeclaration> generated)
+    {
+        // The wrapper's backing field: `secret inner: RF::Core.Y[..]`.
+        VariableDeclaration? innerField = entity.Members
+            .OfType<VariableDeclaration>()
+            .FirstOrDefault(predicate: v => v.Name == "inner" && v.Type is { Realm: "RF" });
+        if (innerField?.Type is not { } innerType)
         {
-            if (RealmOf(filePath: filePath) != "SF")
+            return;
+        }
+
+        // `inner.Type.Name` is the module-qualified owner ("Core.List", "Collections.Deque") — a
+        // TypeExpression keeps its args in GenericArguments, so Name has no `[..]` to strip. This is
+        // the exact key of the member index, so only that module's own members are forwarded.
+        string innerModuleOwner = innerType.Name;
+        if (!rfMembersByOwner.TryGetValue(key: innerModuleOwner,
+                value: out List<RoutineDeclaration>? innerMembers))
+        {
+            return;
+        }
+
+        // Signatures the wrapper already provides (its own hand-written member routines).
+        HashSet<string> defined = prog.Declarations
+            .OfType<RoutineDeclaration>()
+            .Where(predicate: r => string.Equals(a: r.OwnerName, b: entity.Name,
+                comparisonType: StringComparison.Ordinal))
+            .Select(selector: ForwarderSignatureKey)
+            .ToHashSet(comparer: StringComparer.Ordinal);
+
+        List<string> ownerParams = entity.GenericParameters ?? [];
+        foreach (RoutineDeclaration inner in innerMembers)
+        {
+            if (!ShouldForwardInnerMember(inner: inner, ownerParams: ownerParams))
             {
                 continue;
             }
 
-            var generated = new List<RoutineDeclaration>();
-            foreach (EntityDeclaration entity in prog.Declarations.OfType<EntityDeclaration>())
+            // A method whose return type IS the inner container type (`copy`/`sorted` → the same
+            // container; a value type's `trim`/`add` → itself) returns a bare `RF::Core.Y` that must
+            // be RE-WRAPPED into the SF `X` before it re-surfaces — else the SF caller would receive
+            // a raw RF value. `reWrap` drives the forwarder to build `return X[..](inner: <call>)`.
+            bool reWrap = inner.ReturnType is { } rt &&
+                sfWrapperNames.Contains(item: BareTypeName(name: rt.Name));
+            if (!defined.Add(item: ForwarderSignatureKey(r: inner)))
             {
-                // The wrapper's backing field: `secret inner: RF::Core.Y[..]`.
-                VariableDeclaration? innerField = entity.Members
-                    .OfType<VariableDeclaration>()
-                    .FirstOrDefault(predicate: v => v.Name == "inner" && v.Type is { Realm: "RF" });
-                if (innerField?.Type is not { } innerType)
-                {
-                    continue;
-                }
-
-                string innerBare = BareTypeName(name: innerType.Name);
-                // `inner.Type.Name` is the module-qualified owner ("Core.List", "Collections.Deque") — a
-                // TypeExpression keeps its args in GenericArguments, so Name has no `[..]` to strip. This is
-                // the exact key of the member index, so only that module's own members are forwarded.
-                string innerModuleOwner = innerType.Name;
-                if (!rfMembersByOwner.TryGetValue(key: innerModuleOwner,
-                        value: out List<RoutineDeclaration>? innerMembers))
-                {
-                    continue;
-                }
-
-                // Signatures the wrapper already provides (its own hand-written member routines).
-                HashSet<string> defined = prog.Declarations
-                    .OfType<RoutineDeclaration>()
-                    .Where(predicate: r => string.Equals(a: r.OwnerName, b: entity.Name,
-                        comparisonType: StringComparison.Ordinal))
-                    .Select(selector: ForwarderSignatureKey)
-                    .ToHashSet(comparer: StringComparer.Ordinal);
-
-                List<string> ownerParams = entity.GenericParameters ?? [];
-                foreach (RoutineDeclaration inner in innerMembers)
-                {
-                    string member = inner.MemberRoutineName!;
-                    // Lifecycle: constructor is hand-written; destroy is a synthesized field-walk.
-                    if (member is "create" or "destroy")
-                    {
-                        continue;
-                    }
-                    // SF hides unsafe surface: no @dangerous methods. (`iter`/`access`/`control` are
-                    // builder-internal — direct calls are banned so an iterator/borrow can't outlive its
-                    // source — but STDLIB bodies may chain them, and a forwarder carrying its wrapper file's
-                    // path IS stdlib, so `iter` forwards fine and the SF list stays `each`-iterable.)
-                    if (inner.IsDangerous)
-                    {
-                        continue;
-                    }
-                    if (inner.Visibility == VisibilityModifier.Secret)
-                    {
-                        continue;
-                    }
-                    // Internal borrow-token surface: a method taking a mutable/lifecycle access token
-                    // (`Controlling`/`Receiving`/`Watching`/`Enterable`) over an internal node type is an
-                    // implementation helper (`insert_non_full(node: Controlling[BTreeListNode[T]], ..)`), never
-                    // an approachable SF surface method — and forwarding it over-prunes at codegen. The
-                    // read-index token `Accessing` (used by `getitem`/`setitem` operator lowering) is KEPT.
-                    if (inner.Parameters.Any(predicate: p => TakesInternalBorrowToken(type: p.Type)))
-                    {
-                        continue;
-                    }
-                    // Only the PLAIN generic form `X[T,..].m` forwards cleanly (me.inner is `RF::Core.Y[T,..]`).
-                    // A SPECIALIZED-receiver method (`List[Agent[V]].gather`, `List[U16]…`) targets a different
-                    // instantiation than the wrapper's inner field — skip (its `me.inner` would mistype).
-                    if (!IsPlainGenericReceiver(receiver: inner.ReceiverType, ownerParams: ownerParams))
-                    {
-                        continue;
-                    }
-                    // A method whose return type IS the inner container type (`copy`/`sorted` → the same
-                    // container; a value type's `trim`/`add` → itself) returns a bare `RF::Core.Y` that must
-                    // be RE-WRAPPED into the SF `X` before it re-surfaces — else the SF caller would receive
-                    // a raw RF value. `reWrap` drives the forwarder to build `return X[..](inner: <call>)`.
-                    bool reWrap = inner.ReturnType is { } rt &&
-                        sfWrapperNames.Contains(item: BareTypeName(name: rt.Name));
-                    if (!defined.Add(item: ForwarderSignatureKey(r: inner)))
-                    {
-                        continue;
-                    }
-
-                    generated.Add(item: BuildForwarder(entity: entity, ownerParams: ownerParams,
-                        inner: inner, filePath: filePath, reWrap: reWrap));
-                }
+                continue;
             }
 
-            prog.Declarations.AddRange(collection: generated);
+            generated.Add(item: BuildForwarder(entity: entity, ownerParams: ownerParams,
+                inner: inner, filePath: filePath, reWrap: reWrap));
         }
+    }
+
+    /// <summary>
+    /// Whether an inner RF member routine should be forwarded onto the SF wrapper: excludes lifecycle
+    /// (create/destroy), @dangerous and secret surface, builder-internal borrow-token helpers, and
+    /// specialized-receiver methods (only the PLAIN generic form <c>X[T,..].m</c> forwards cleanly).
+    /// </summary>
+    private static bool ShouldForwardInnerMember(RoutineDeclaration inner, List<string> ownerParams)
+    {
+        string member = inner.MemberRoutineName!;
+        // Lifecycle: constructor is hand-written; destroy is a synthesized field-walk.
+        if (member is "create" or "destroy")
+        {
+            return false;
+        }
+        // SF hides unsafe surface: no @dangerous methods. (`iter`/`access`/`control` are
+        // builder-internal — direct calls are banned so an iterator/borrow can't outlive its
+        // source — but STDLIB bodies may chain them, and a forwarder carrying its wrapper file's
+        // path IS stdlib, so `iter` forwards fine and the SF list stays `each`-iterable.)
+        if (inner.IsDangerous)
+        {
+            return false;
+        }
+        if (inner.Visibility == VisibilityModifier.Secret)
+        {
+            return false;
+        }
+        // Internal borrow-token surface: a method taking a mutable/lifecycle access token
+        // (`Controlling`/`Receiving`/`Watching`/`Enterable`) over an internal node type is an
+        // implementation helper (`insert_non_full(node: Controlling[BTreeListNode[T]], ..)`), never
+        // an approachable SF surface method — and forwarding it over-prunes at codegen. The
+        // read-index token `Accessing` (used by `getitem`/`setitem` operator lowering) is KEPT.
+        if (inner.Parameters.Any(predicate: p => TakesInternalBorrowToken(type: p.Type)))
+        {
+            return false;
+        }
+        // Only the PLAIN generic form `X[T,..].m` forwards cleanly (me.inner is `RF::Core.Y[T,..]`).
+        // A SPECIALIZED-receiver method (`List[Agent[V]].gather`, `List[U16]…`) targets a different
+        // instantiation than the wrapper's inner field — skip (its `me.inner` would mistype).
+        if (!IsPlainGenericReceiver(receiver: inner.ReceiverType, ownerParams: ownerParams))
+        {
+            return false;
+        }
+
+        return true;
     }
 
     /// <summary>Builds one <c>routine X[..].m(args) -> ret: return me.inner.m(args)</c> forwarder.

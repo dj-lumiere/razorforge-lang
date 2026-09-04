@@ -22,6 +22,7 @@ record Lookup[T]
 ### Absent renders as `"none"`; present/crashable arms delegate to the payload's
 ### own `represent`.
 ### :returns: The resulting `Text` value.
+@override
 routine Lookup[T].represent() -> Text
   when me
     is None =>
@@ -37,6 +38,7 @@ routine Lookup[T].represent() -> Text
 ### Format: `f"{full_type_name}(type_id: {type_id}, {payload.diagnose()})"`,
 ### or `f"{full_type_name}(type_id: 0, none)"` for the absent state.
 ### :returns: The resulting `Text` value.
+@override
 routine Lookup[T].diagnose() -> Text
   when me
     is None =>
@@ -51,6 +53,7 @@ routine Lookup[T].diagnose() -> Text
 ### Frees the active payload. The absent arm is a no-op; the crashable arm delegates (a no-op for
 ### non-owning errors) and the success arm frees `T`. Defined explicitly (not auto-derived) so the
 ### per-instantiation body is monomorphized and emitted like `represent`/`diagnose`.
+@override
 dangerous routine Lookup[T].destroy()
   when me
     is None =>

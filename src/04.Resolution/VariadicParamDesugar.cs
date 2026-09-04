@@ -53,29 +53,41 @@ public static class VariadicParamDesugar
                 continue;
             }
 
-            string arityName = FreshArityName(existing: generics);
-            generics.Add(item: arityName);
-            constraints.Add(item: new GenericConstraintDeclaration(
-                ParameterName: arityName,
-                ConstraintType: ConstraintKind.ConstGeneric,
-                ConstraintTypes: [new TypeExpression(Name: "U64", GenericArguments: null,
-                    Location: param.Location)],
-                Location: param.Location));
-
-            // nums: T   ->   nums: Array[T, __VarargN]. Array is a `module Core` primitive (auto-imported),
-            // so a bare reference resolves via the import-gated Core prefix in every file.
-            var arrayType = new TypeExpression(Name: "Array",
-                GenericArguments: [param.Type, new TypeExpression(Name: arityName,
-                    GenericArguments: null, Location: param.Type.Location)],
-                Location: param.Type.Location);
-
-            // Keep IsVariadic = true as the marker that the call site must pack trailing args into
-            // the Array[T, K] literal; the param's TYPE is now the Array template.
-            routine.Parameters[index: i] = param with { Type = arrayType };
+            routine.Parameters[index: i] = DesugarVariadicParam(param: param,
+                generics: generics, constraints: constraints);
         }
 
         routine.GenericParameters = generics;
         routine.GenericConstraints = constraints;
+    }
+
+    /// <summary>
+    /// Rewrites a single variadic parameter <c>nums: T</c> into the const-generic form
+    /// <c>nums: Array[T, __VarargN]</c>, appending the fresh arity generic and its
+    /// <c>needs __VarargN is U64</c> constraint to the supplied lists. Returns the rewritten parameter.
+    /// </summary>
+    private static Parameter DesugarVariadicParam(Parameter param, List<string> generics,
+        List<GenericConstraintDeclaration> constraints)
+    {
+        string arityName = FreshArityName(existing: generics);
+        generics.Add(item: arityName);
+        constraints.Add(item: new GenericConstraintDeclaration(
+            ParameterName: arityName,
+            ConstraintType: ConstraintKind.ConstGeneric,
+            ConstraintTypes: [new TypeExpression(Name: "U64", GenericArguments: null,
+                Location: param.Location)],
+            Location: param.Location));
+
+        // nums: T   ->   nums: Array[T, __VarargN]. Array is a `module Core` primitive (auto-imported),
+        // so a bare reference resolves via the import-gated Core prefix in every file.
+        var arrayType = new TypeExpression(Name: "Array",
+            GenericArguments: [param.Type!, new TypeExpression(Name: arityName,
+                GenericArguments: null, Location: param.Type!.Location)],
+            Location: param.Type.Location);
+
+        // Keep IsVariadic = true as the marker that the call site must pack trailing args into
+        // the Array[T, K] literal; the param's TYPE is now the Array template.
+        return param with { Type = arrayType };
     }
 
     /// <summary>A variadic param is already desugared when its type is <c>Array[_, __Vararg…]</c>.</summary>

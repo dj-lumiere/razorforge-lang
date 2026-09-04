@@ -29,6 +29,12 @@ public class EntityTypeInfo : TypeInfo
     /// <summary>Protocols this entity implements (obeys).</summary>
     public List<TypeInfo> ImplementedProtocols { get; set; } = [];
 
+    /// <summary>Conditional-conformance conditions from an <c>obeys P onlyif (param obeys proto, …)</c>
+    /// clause, stored on the generic DEFINITION and keyed by the conditionally-obeyed protocol's bare name.
+    /// Each entry is the AND-list of <c>(paramName, protocolName)</c> conditions. A concrete instance obeys
+    /// that protocol only when every condition holds for its bound type args. Null/absent = unconditional.</summary>
+    public Dictionary<string, List<(string ParamName, string ProtocolName)>>? ConditionalObeys { get; set; }
+
     /// <summary>
     /// Associated-type bindings declared via <c>relates Concrete as Name</c> — maps a protocol
     /// slot name (e.g. <c>Iter</c>) to the concrete type that fills it (e.g. <c>ListEmitter[T]</c>).
@@ -114,20 +120,7 @@ public class EntityTypeInfo : TypeInfo
         string resolvedName = $"{Name}[{string.Join(separator: ", ",
             values: typeArguments.Select(selector: t => t.FullName))}]";
 
-        // The cycle-detection maps below are [ThreadStatic] and SHARED across every entity definition,
-        // so they must be keyed by the MODULE-QUALIFIED resolved name. Two same-Named defs from
-        // different modules/realms — RazorForge `Core.List` and the Suflae-realm overlay `Suflae.List`
-        // — both produce the bare `List[Core.S32]`; without the qualifier, a re-entrant instantiation
-        // of one (triggered while substituting a field of the other) hits the "already in progress"
-        // branch and returns the WRONG module's in-progress entity. The entity's own Name stays bare
-        // (it drives LLVM mangling and the resolution-cache short alias).
-        // …and REALM-qualified too: `Core.List` exists in BOTH the RazorForge realm (real list) and the
-        // Suflae realm (the `{ inner }` wrapper). They share module AND bare resolved name, so a realm-free
-        // cycleKey lets an in-progress SF `Core.List[S32]` be handed back for an RF `Core.List[S32]`
-        // CreateInstance (and vice versa) — the wrapper's `RF::Core.List[T]()` inner would then resolve to
-        // the SF entity and self-recurse. Prefix the non-ambient realm to keep the two world-lines distinct.
-        string moduleQualified = string.IsNullOrEmpty(value: Module) ? resolvedName : $"{Module}.{resolvedName}";
-        string cycleKey = Realm == "RF" ? moduleQualified : $"{Realm}::{moduleQualified}";
+        string cycleKey = BuildCycleKey(resolvedName: resolvedName);
 
         // Build the substitution map up front so it can be applied to ImplementedProtocols
         // as well as member-variable types. Without substituting protocols, an obeys-clause
@@ -163,35 +156,19 @@ public class EntityTypeInfo : TypeInfo
             // (the shell case should not normally occur since we always register below first).
             return _inProgressEntities.TryGetValue(key: cycleKey, value: out EntityTypeInfo? inProgress)
                 ? inProgress
-                : new EntityTypeInfo(name: resolvedName)
-                {
-                    MemberVariables = [],
-                    ImplementedProtocols = substitutedProtocols,
-                    AssociatedTypeBindings = substitutedBindings,
-                    TypeArguments = typeArguments,
-                    GenericDefinition = this,
-                    Visibility = Visibility,
-                    Location = Location,
-                    Module = Module,
-                    Realm = Realm
-                };
+                : BuildEntityShell(resolvedName: resolvedName,
+                    substitutedProtocols: substitutedProtocols,
+                    substitutedBindings: substitutedBindings,
+                    typeArguments: typeArguments);
         }
 
         // Create the entity shell BEFORE substituting member types so that any recursive
         // reference encountered during substitution (cycle detected above) returns this
         // same object — which will have its members populated by the time callers use it.
-        var entity = new EntityTypeInfo(name: resolvedName)
-        {
-            MemberVariables = [],
-            ImplementedProtocols = substitutedProtocols,
-            AssociatedTypeBindings = substitutedBindings,
-            TypeArguments = typeArguments,
-            GenericDefinition = this,
-            Visibility = Visibility,
-            Location = Location,
-            Module = Module,
-            Realm = Realm
-        };
+        var entity = BuildEntityShell(resolvedName: resolvedName,
+            substitutedProtocols: substitutedProtocols,
+            substitutedBindings: substitutedBindings,
+            typeArguments: typeArguments);
         _inProgressEntities[key: cycleKey] = entity;
 
         try
@@ -211,6 +188,45 @@ public class EntityTypeInfo : TypeInfo
             _creatingInstances.Remove(item: cycleKey);
             _inProgressEntities.Remove(key: cycleKey);
         }
+    }
+
+    // The cycle-detection maps are [ThreadStatic] and SHARED across every entity definition,
+    // so they must be keyed by the MODULE-QUALIFIED resolved name. Two same-Named defs from
+    // different modules/realms — RazorForge `Core.List` and the Suflae-realm overlay `Suflae.List`
+    // — both produce the bare `List[Core.S32]`; without the qualifier, a re-entrant instantiation
+    // of one (triggered while substituting a field of the other) hits the "already in progress"
+    // branch and returns the WRONG module's in-progress entity. The entity's own Name stays bare
+    // (it drives LLVM mangling and the resolution-cache short alias).
+    // …and REALM-qualified too: `Core.List` exists in BOTH the RazorForge realm (real list) and the
+    // Suflae realm (the `{ inner }` wrapper). They share module AND bare resolved name, so a realm-free
+    // cycleKey lets an in-progress SF `Core.List[S32]` be handed back for an RF `Core.List[S32]`
+    // CreateInstance (and vice versa) — the wrapper's `RF::Core.List[T]()` inner would then resolve to
+    // the SF entity and self-recurse. Prefix the non-ambient realm to keep the two world-lines distinct.
+    private string BuildCycleKey(string resolvedName)
+    {
+        string moduleQualified = string.IsNullOrEmpty(value: Module) ? resolvedName : $"{Module}.{resolvedName}";
+        return Realm == "RF" ? moduleQualified : $"{Realm}::{moduleQualified}";
+    }
+
+    // Builds an empty-membered entity shell carrying this definition's provenance. Used both for the
+    // cycle-detected fallback and for the pre-substitution shell (whose members are populated later).
+    private EntityTypeInfo BuildEntityShell(string resolvedName,
+        List<TypeInfo> substitutedProtocols,
+        Dictionary<string, TypeInfo> substitutedBindings,
+        List<TypeInfo> typeArguments)
+    {
+        return new EntityTypeInfo(name: resolvedName)
+        {
+            MemberVariables = [],
+            ImplementedProtocols = substitutedProtocols,
+            AssociatedTypeBindings = substitutedBindings,
+            TypeArguments = typeArguments,
+            GenericDefinition = this,
+            Visibility = Visibility,
+            Location = Location,
+            Module = Module,
+            Realm = Realm
+        };
     }
 
     /// <summary>
@@ -246,7 +262,14 @@ public class EntityTypeInfo : TypeInfo
             return type;
         }
 
-        var newArgs = type.TypeArguments
+        return SubstituteGenericResolution(type: type, substitution: substitution);
+    }
+
+    // Substitute a generic resolution's args and re-resolve through the ambient registry per kind.
+    private static TypeInfo SubstituteGenericResolution(TypeInfo type,
+        Dictionary<string, TypeInfo> substitution)
+    {
+        var newArgs = type.TypeArguments!
                           .Select(selector: arg =>
                                SubstituteType(type: arg, substitution: substitution))
                           .ToList();

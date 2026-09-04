@@ -148,6 +148,7 @@ dangerous routine BTreeDictNode[K, V].children_get(i: U64) -> Hijacked[BTreeDict
 ### Recursively frees this node's subtree (post-order): destroys each child node, tears down each
 ### stored key and value, then frees this node's own allocation. Visited inline (never bound to a
 ### `var`) so scope-exit teardown doesn't double-free.
+@override
 dangerous routine BTreeDictNode[K, V].destroy()
   if not me.is_leaf
     var ci = 0u64
@@ -163,6 +164,7 @@ dangerous routine BTreeDictNode[K, V].destroy()
   return
 
 ### Frees the entire backing B-tree — every node, key, and value — at scope exit.
+@override
 dangerous routine SortedDict[K, V].destroy()
   if me.root is None
     me.hijack().invalidate()

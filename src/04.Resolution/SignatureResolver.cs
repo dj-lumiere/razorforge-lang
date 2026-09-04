@@ -123,6 +123,21 @@ internal sealed class SignatureResolver
         // routine generic. Mutates the AST decl in place (shared with the monomorph index).
         VariadicParamDesugar.Apply(routine: routine);
 
+        // `needs T is TypeName` declares T as a generic type parameter (equivalent to `[T]`, a different
+        // surface form) — fold declared names into the AST decl's GenericParameters HERE (SA layer, not
+        // the parser) BEFORE they are read below, so `T` resolves in the signature/body and is inferable
+        // at call sites exactly like a bracket param. Mutates the shared decl; idempotent.
+        if (routine.GenericConstraints is { } typeNameDecls)
+        {
+            foreach (GenericConstraintDeclaration gc in typeNameDecls)
+            {
+                if (gc.ConstraintType != ConstraintKind.AnyType) continue;
+                routine.GenericParameters ??= [];
+                if (!routine.GenericParameters.Contains(item: gc.ParameterName))
+                    routine.GenericParameters.Add(item: gc.ParameterName);
+            }
+        }
+
         // Filter routine.GenericParameters to exclude names that resolve to real types in the
         // registry — but ONLY for RECEIVER-derived leaves. The parser collects leaf identifiers from a
         // member routine's receiver type (`List[DictEntry[K, V]]`, `Iterable[Text]`); these mix genuine
@@ -173,108 +188,17 @@ internal sealed class SignatureResolver
         foreach (Parameter param in routine.Parameters)
         {
             paramIndex++;
-            if (param.Type == null)
-            {
-                // Type inference required - handle later
-                parameters.Add(item: new ParameterInfo(name: param.Name,
-                    type: ErrorTypeInfo.Instance) { IsVariadicParam = param.IsVariadic });
-                continue;
-            }
-
-            RejectRvalueMarkInSlot(typeExpr: param.Type,
-                positionDescription: $"parameter '{param.Name}'", allowTopLevelRvalue: true);
-            // Suflae entity params resolve to `Roamed[E]` at the single ResolveType choke point
-            // (TypeResolver.RoamSuflaeEntitySlot) — no per-site substitution here. The callee receives
-            // the caller's Roamed handle directly (a BORROW; ScopeTeardownLoweringPass skips SF Roamed
-            // params). `me` has no type expression (inferred from OwnerType) so it is set via MeType below.
-            TypeSymbol paramType = _typeResolver.ResolveType(typeExpr: param.Type);
-
-            // Variadic params are desugared to `Array[T, __VarargN]` up front (VariadicParamDesugar),
-            // so param.Type already resolves to the Array template here — no List[T] wrapping.
-
-            // Variants ARE valid parameter types — pass-by-value transfers ownership of
-            // the payload (same rule as records containing entity fields).
-
-            // Validate that Result<T> and Lookup<T> are not used as parameter types
-            if (IsCarrierType(type: paramType) && !IsMaybeType(type: paramType))
-            {
-                string carrierName = GetCarrierBaseName(type: paramType)!;
-                _sa.ReportError(code: SemanticDiagnosticCode.ErrorHandlingTypeAsParameter,
-                    message:
-                    $"'{carrierName}[T]' cannot be used as a parameter type. " +
-                    "Error handling types are internal for error propagation and should not be passed as arguments.",
-                    location: param.Location);
-            }
-
-            // Protocol-as-type desugaring: routine foo(x: Displayable) -> routine foo[T obeys Displayable](x: T)
-            // Exception: marker protocols Accessing[T]/Controlling[T] use transparent dispatch
-            // (see TryGetTransparentProtocolTarget). Desugaring them into __TN strips the inner T,
-            // breaking member lookup like `scores.count()` / `for s in scores` on the parameter.
-            if (paramType is ProtocolTypeInfo paramProto &&
-                !IsTransparentMarkerProtocol(paramProto))
-            {
-                // Generate implicit generic parameter name
-                string implicitGenericName = $"__T{implicitGenericCounter++}";
-                implicitGenerics.Add(item: implicitGenericName);
-                astParamGenericNames.Add(item: (paramIndex, implicitGenericName));
-
-                // Create "obeys" constraint for the implicit generic
-                var constraint = new GenericConstraintDeclaration(
-                    ParameterName: implicitGenericName,
-                    ConstraintType: ConstraintKind.Obeys,
-                    ConstraintTypes: [param.Type],
-                    Location: param.Location);
-                implicitConstraints.Add(item: constraint);
-
-                // Use the implicit generic as the parameter type
-                var genericParamType = new GenericParameterTypeInfo(name: implicitGenericName)
-                {
-                    Location = param.Location
-                };
-
-                parameters.Add(item: new ParameterInfo(name: param.Name, type: genericParamType)
-                {
-                    DefaultValue = param.DefaultValue, IsVariadicParam = param.IsVariadic
-                });
-            }
-            else
-            {
-                parameters.Add(item: new ParameterInfo(name: param.Name, type: paramType)
-                {
-                    DefaultValue = param.DefaultValue, IsVariadicParam = param.IsVariadic
-                });
-            }
+            ResolveAndAppendParameter(param: param, paramIndex: paramIndex, parameters: parameters,
+                implicitGenerics: implicitGenerics, implicitConstraints: implicitConstraints,
+                astParamGenericNames: astParamGenericNames,
+                implicitGenericCounter: ref implicitGenericCounter);
         }
 
-        // S511: a user `create` may not occupy the all-fields memberwise signature — i.e. take
-        // exactly the type's fields by BOTH name AND type. That shape is the built-in memberwise
-        // constructor and cannot be overridden. The match is by TYPE, not just name: a
-        // parsing/validating constructor that reuses a field name with a DIFFERENT type
-        // (e.g. `create(tag: S32)` for field `tag: S64`) is allowed and routes normally.
-        // The synthesized memberwise creator is registered elsewhere (AutoWiredRegistrationPass),
-        // so it never reaches here.
+        // S511: a user `create` may not occupy the all-fields memberwise signature.
         if (pending.RoutineName is "create")
         {
-            List<MemberVariableInfo>? fields = refreshedOwnerType switch
-            {
-                EntityTypeInfo e => e.MemberVariables.ToList(),
-                RecordTypeInfo r => r.MemberVariables.ToList(),
-                _ => null
-            };
-            if (fields is { Count: > 0 }
-                && parameters.Count == fields.Count
-                && new HashSet<(string Name, string Type)>(
-                        collection: parameters.Select(selector: p => (p.Name, p.Type.FullName)))
-                    .SetEquals(other: fields.Select(selector: f => (f.Name, f.Type.FullName))))
-            {
-                _sa.ReportError(code: SemanticDiagnosticCode.AllMemberVariablesCreatorReserved,
-                    message:
-                    $"'create' cannot take exactly the fields ({string.Join(separator: ", ", values: fields.Select(selector: f => $"{f.Name}: {f.Type.Name}"))}) " +
-                    $"of '{refreshedOwnerType!.Name}' — that signature is the built-in memberwise constructor and " +
-                    "cannot be overridden. Use a distinct parameter shape (different names or types) or " +
-                    "`secret` fields with a named constructor.",
-                    location: routine.Location);
-            }
+            CheckMemberwiseCreatorReserved(refreshedOwnerType: refreshedOwnerType,
+                parameters: parameters, routine: routine);
         }
 
         // Resolve return type. Top-level `T` is legal (entity rvalue, return-position only);
@@ -297,16 +221,7 @@ internal sealed class SignatureResolver
 
         // Validate that Maybe<T>/Result<T>/Lookup<T> are not used as return types
         // These are builder-generated wrapper types for failable routines (!)
-        if (returnType != null && IsCarrierType(type: returnType) &&
-            !_sa.IsStdlibFile(filePath: _sa._currentFilePath))
-        {
-            string carrierName = GetCarrierBaseName(type: returnType)!;
-            _sa.ReportError(code: SemanticDiagnosticCode.ErrorHandlingTypeAsReturnType,
-                message: $"Routine cannot return '{carrierName}[T]'. " +
-                         "These types are builder-generated for failable routines. " +
-                         "Use a failable routine (!) with 'throw'/'absent' instead.",
-                location: routine.ReturnType?.Location ?? routine.Location);
-        }
+        ValidateReturnTypeNotCarrier(returnType: returnType, routine: routine);
 
         // Entity / generic-param returns are ALWAYS rvalue (in-flight) — INFERRED, not required
         // (RF-S803 relaxed 2026-07-13). A return produces a value, and single ownership means an
@@ -326,6 +241,7 @@ internal sealed class SignatureResolver
         List<GenericConstraintDeclaration> allConstraints =
             routine.GenericConstraints?.ToList() ?? [];
         allConstraints.AddRange(collection: implicitConstraints);
+
 
         // Desugar the protocol-as-generic rewrite onto the AST decl itself, so downstream passes
         // that read the AST (GenericMonomorphizationPass.FindInStdlib + GenericAstRewriter) see the
@@ -349,61 +265,15 @@ internal sealed class SignatureResolver
             routine.GenericConstraints = allConstraints;
         }
 
-        // Specialized-receiver member: if the receiver is a generic instantiation whose top-level
-        // type arguments are concrete types (not the owner's own bare generic params) — e.g.
-        // `List[Agent[V]]` — resolve it (the routine's generic params, incl. V, are in scope here)
-        // so `me` is typed as the specialized receiver and member access like `me[i]` yields the
-        // specialized element (`Agent[V]`) instead of the generic def's raw element. OwnerType stays
-        // the generic definition so registration and call-site lookup key on the base type.
-        TypeSymbol? meType = null;
-        if (pending.Kind == RoutineKind.MemberRoutine
-            && refreshedOwnerType is EntityTypeInfo or RecordTypeInfo
-            && pending.RoutineName is not "create"
-            && routine.RenderedReceiver is { } recvText)
+        // Specialized-receiver member `me` (e.g. `List[Agent[V]]`), else the SF-user-entity Roamed[E]
+        // handle. A specialized `meType` takes precedence over the SF wrap.
+        TypeSymbol? meType = ResolveSpecializedReceiverMeType(pending: pending,
+            refreshedOwnerType: refreshedOwnerType, routine: routine,
+            filteredGenericParams: filteredGenericParams);
+        if (meType == null)
         {
-            if (recvText.Contains(value: '['))
-            {
-                TypeExpression? recvExpr = SemanticVerifier.ParseTypeExpressionString(
-                    text: recvText, location: routine.Location);
-                bool isSpecialized = recvExpr?.GenericArguments is { Count: > 0 } args
-                    && args.Any(predicate: a => a.Name != null
-                        && !(filteredGenericParams?.Contains(item: a.Name) ?? false)
-                        && _sa._registry.LookupType(name: a.Name) is not null);
-                if (isSpecialized)
-                {
-                    TypeSymbol resolvedRecv = _typeResolver.ResolveType(typeExpr: recvExpr!);
-                    if (resolvedRecv is not ErrorTypeInfo) meType = resolvedRecv;
-                }
-            }
-        }
-
-        // SF slice 2: `me` of a USER entity member routine is the `Roamed[E]` handle (not bare `E`), so
-        // `me.field` routes through the Roamed access machinery and `return me` type-matches the now
-        // `Roamed[E]` return. Creators (`create`, incl. the failable ones) keep bare `me` — they build
-        // the raw entity before any controller exists. A specialized `meType` takes precedence.
-        if (sfUserEntity && meType == null
-            && pending.Kind == RoutineKind.MemberRoutine
-            && pending.RoutineName is not "create"
-            && refreshedOwnerType is EntityTypeInfo ownerEntity
-            && _sa._registry.LookupType(name: RuntimeContract.Roamed) is { } roamedOwnerDef)
-        {
-            // Wrap the entity APPLIED TO ITS OWN GENERIC PARAMS (`Box[T]`), not the bare definition —
-            // otherwise `me` becomes `Roamed[Box]` with no `T` inside, and owner-monomorphization
-            // (Box[S64].get) can't substitute `T` into the handle, so codegen falls back to a bare
-            // entity access that reads the RC controller's refcount instead of the field. Mirrors the
-            // `Me` handling in TypeResolver.
-            // Wrap the entity APPLIED TO ITS OWN GENERIC PARAMS (`Box[T]`), not the bare definition,
-            // so monomorphization has a `T` inside the handle to substitute (Roamed[Box[T]] →
-            // Roamed[Box[S64]]). Mirrors the `Me` handling in TypeResolver.
-            TypeInfo entityForMe =
-                ownerEntity is { IsGenericDefinition: true, GenericParameters: { } ownerParams }
-                    ? _sa._registry.GetOrCreateResolution(genericDef: ownerEntity,
-                        typeArguments: ownerParams
-                            .Select(selector: p => (TypeInfo)new GenericParameterTypeInfo(name: p))
-                            .ToList())
-                    : ownerEntity;
-            meType = _sa._registry.GetOrCreateResolution(
-                genericDef: roamedOwnerDef, typeArguments: [entityForMe]);
+            meType = ResolveSuflaeEntityMeType(sfUserEntity: sfUserEntity, pending: pending,
+                refreshedOwnerType: refreshedOwnerType);
         }
 
         _sa._currentRoutine = prevRoutine;
@@ -472,6 +342,215 @@ internal sealed class SignatureResolver
             location: routine.Location);
         ValidateProtocolMemberRoutineSignature(routineInfo: finalRoutine,
             location: routine.Location);
+    }
+
+    /// <summary>
+    /// S511: reports <c>AllMemberVariablesCreatorReserved</c> when a user <c>create</c> occupies the
+    /// all-fields memberwise signature — taking exactly the type's fields by BOTH name AND type. That
+    /// shape is the built-in memberwise constructor and cannot be overridden. The match is by TYPE, not
+    /// just name: a parsing/validating constructor that reuses a field name with a DIFFERENT type
+    /// (e.g. <c>create(tag: S32)</c> for field <c>tag: S64</c>) is allowed and routes normally. The
+    /// synthesized memberwise creator is registered elsewhere (AutoWiredRegistrationPass), so it never
+    /// reaches here.
+    /// </summary>
+    private void CheckMemberwiseCreatorReserved(TypeSymbol? refreshedOwnerType,
+        List<ParameterInfo> parameters, RoutineDeclaration routine)
+    {
+        List<MemberVariableInfo>? fields = refreshedOwnerType switch
+        {
+            EntityTypeInfo e => e.MemberVariables.ToList(),
+            RecordTypeInfo r => r.MemberVariables.ToList(),
+            _ => null
+        };
+        if (fields is { Count: > 0 }
+            && parameters.Count == fields.Count
+            && new HashSet<(string Name, string Type)>(
+                    collection: parameters.Select(selector: p => (p.Name, p.Type.FullName)))
+                .SetEquals(other: fields.Select(selector: f => (f.Name, f.Type.FullName))))
+        {
+            _sa.ReportError(code: SemanticDiagnosticCode.AllMemberVariablesCreatorReserved,
+                message:
+                $"'create' cannot take exactly the fields ({string.Join(separator: ", ", values: fields.Select(selector: f => $"{f.Name}: {f.Type.Name}"))}) " +
+                $"of '{refreshedOwnerType!.Name}' — that signature is the built-in memberwise constructor and " +
+                "cannot be overridden. Use a distinct parameter shape (different names or types) or " +
+                "`secret` fields with a named constructor.",
+                location: routine.Location);
+        }
+    }
+
+    /// <summary>
+    /// Reports <c>ErrorHandlingTypeAsReturnType</c> when a non-stdlib routine returns a carrier type
+    /// (Maybe/Result/Lookup — builder-generated wrappers for failable routines). Maybe is excluded via
+    /// <see cref="IsCarrierType"/>'s callers elsewhere; here the full carrier set is rejected.
+    /// </summary>
+    private void ValidateReturnTypeNotCarrier(TypeSymbol? returnType, RoutineDeclaration routine)
+    {
+        if (returnType != null && IsCarrierType(type: returnType) &&
+            !_sa.IsStdlibFile(filePath: _sa._currentFilePath))
+        {
+            string carrierName = GetCarrierBaseName(type: returnType)!;
+            _sa.ReportError(code: SemanticDiagnosticCode.ErrorHandlingTypeAsReturnType,
+                message: $"Routine cannot return '{carrierName}[T]'. " +
+                         "These types are builder-generated for failable routines. " +
+                         "Use a failable routine (!) with 'throw'/'absent' instead.",
+                location: routine.ReturnType?.Location ?? routine.Location);
+        }
+    }
+
+    /// <summary>
+    /// Resolves one routine parameter and appends its <see cref="ParameterInfo"/> to
+    /// <paramref name="parameters"/>. Rejects rvalue marks and carrier types, and performs
+    /// protocol-as-type desugaring (a protocol-typed param becomes an implicit generic with an
+    /// <c>obeys</c> constraint), recording the implicit generic name/constraint/AST-rewrite for the
+    /// caller to merge and apply after the loop. <paramref name="implicitGenericCounter"/> is threaded
+    /// by ref so implicit names stay globally sequential across params.
+    /// </summary>
+    private void ResolveAndAppendParameter(Parameter param, int paramIndex,
+        List<ParameterInfo> parameters, List<string> implicitGenerics,
+        List<GenericConstraintDeclaration> implicitConstraints,
+        List<(int Index, string GenericName)> astParamGenericNames, ref int implicitGenericCounter)
+    {
+        if (param.Type == null)
+        {
+            // Type inference required - handle later
+            parameters.Add(item: new ParameterInfo(name: param.Name,
+                type: ErrorTypeInfo.Instance) { IsVariadicParam = param.IsVariadic });
+            return;
+        }
+
+        RejectRvalueMarkInSlot(typeExpr: param.Type,
+            positionDescription: $"parameter '{param.Name}'", allowTopLevelRvalue: true);
+        // Suflae entity params resolve to `Roamed[E]` at the single ResolveType choke point
+        // (TypeResolver.RoamSuflaeEntitySlot) — no per-site substitution here. The callee receives
+        // the caller's Roamed handle directly (a BORROW; ScopeTeardownLoweringPass skips SF Roamed
+        // params). `me` has no type expression (inferred from OwnerType) so it is set via MeType below.
+        TypeSymbol paramType = _typeResolver.ResolveType(typeExpr: param.Type);
+
+        // Variadic params are desugared to `Array[T, __VarargN]` up front (VariadicParamDesugar),
+        // so param.Type already resolves to the Array template here — no List[T] wrapping.
+
+        // Variants ARE valid parameter types — pass-by-value transfers ownership of
+        // the payload (same rule as records containing entity fields).
+
+        // Validate that Result<T> and Lookup<T> are not used as parameter types
+        if (IsCarrierType(type: paramType) && !IsMaybeType(type: paramType))
+        {
+            string carrierName = GetCarrierBaseName(type: paramType)!;
+            _sa.ReportError(code: SemanticDiagnosticCode.ErrorHandlingTypeAsParameter,
+                message:
+                $"'{carrierName}[T]' cannot be used as a parameter type. " +
+                "Error handling types are internal for error propagation and should not be passed as arguments.",
+                location: param.Location);
+        }
+
+        // Protocol-as-type desugaring: routine foo(x: Displayable) -> routine foo[T obeys Displayable](x: T)
+        // Marker protocols Accessing[T]/Controlling[T] desugar the SAME way: `a: Accessing[S1]` becomes
+        // `[V obeys Accessing[S1]](a: V)`, so the caller's concrete conformer (a Viewing/Modifying token
+        // for an entity, or the value itself for a value type) binds V. Body uses that touch an ENTITY
+        // member get `.access()`/`.control()` auto-inserted at member-access analysis; a value conformer's
+        // `.access()`/`.control()` is identity. This replaces the old erase-to-inner-T model.
+        if (paramType is ProtocolTypeInfo paramProto)
+        {
+            // Generate implicit generic parameter name
+            string implicitGenericName = $"__T{implicitGenericCounter++}";
+            implicitGenerics.Add(item: implicitGenericName);
+            astParamGenericNames.Add(item: (paramIndex, implicitGenericName));
+
+            // Create "obeys" constraint for the implicit generic
+            var constraint = new GenericConstraintDeclaration(
+                ParameterName: implicitGenericName,
+                ConstraintType: ConstraintKind.Obeys,
+                ConstraintTypes: [param.Type],
+                Location: param.Location);
+            implicitConstraints.Add(item: constraint);
+
+            // Use the implicit generic as the parameter type
+            var genericParamType = new GenericParameterTypeInfo(name: implicitGenericName)
+            {
+                Location = param.Location
+            };
+
+            parameters.Add(item: new ParameterInfo(name: param.Name, type: genericParamType)
+            {
+                DefaultValue = param.DefaultValue, IsVariadicParam = param.IsVariadic
+            });
+        }
+        else
+        {
+            parameters.Add(item: new ParameterInfo(name: param.Name, type: paramType)
+            {
+                DefaultValue = param.DefaultValue, IsVariadicParam = param.IsVariadic
+            });
+        }
+    }
+
+    /// <summary>
+    /// Resolves the <c>me</c> type for a specialized-receiver member: if the receiver is a generic
+    /// instantiation whose top-level type arguments are concrete types (not the owner's own bare
+    /// generic params) — e.g. <c>List[Agent[V]]</c> — resolve it (the routine's generic params, incl.
+    /// V, are in scope here) so <c>me</c> is typed as the specialized receiver and member access like
+    /// <c>me[i]</c> yields the specialized element instead of the generic def's raw element. OwnerType
+    /// stays the generic definition so registration and call-site lookup key on the base type. Returns
+    /// <c>null</c> when the receiver is not a concrete specialization.
+    /// </summary>
+    private TypeSymbol? ResolveSpecializedReceiverMeType(SemanticVerifier.PendingRoutine pending,
+        TypeSymbol? refreshedOwnerType, RoutineDeclaration routine, List<string>? filteredGenericParams)
+    {
+        if (pending.Kind == RoutineKind.MemberRoutine
+            && refreshedOwnerType is EntityTypeInfo or RecordTypeInfo
+            && pending.RoutineName is not "create"
+            && routine.RenderedReceiver is { } recvText
+            && recvText.Contains(value: '['))
+        {
+            TypeExpression? recvExpr = SemanticVerifier.ParseTypeExpressionString(
+                text: recvText, location: routine.Location);
+            bool isSpecialized = recvExpr?.GenericArguments is { Count: > 0 } args
+                && args.Any(predicate: a => a.Name != null
+                    && !(filteredGenericParams?.Contains(item: a.Name) ?? false)
+                    && _sa._registry.LookupType(name: a.Name) is not null);
+            if (isSpecialized)
+            {
+                TypeSymbol resolvedRecv = _typeResolver.ResolveType(typeExpr: recvExpr!);
+                if (resolvedRecv is not ErrorTypeInfo) return resolvedRecv;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// SF slice 2: resolves the <c>me</c> type of a USER entity member routine to the <c>Roamed[E]</c>
+    /// handle (not bare <c>E</c>), so <c>me.field</c> routes through the Roamed access machinery and
+    /// <c>return me</c> type-matches the now <c>Roamed[E]</c> return. Creators (<c>create</c>, incl. the
+    /// failable ones) keep bare <c>me</c> — they build the raw entity before any controller exists.
+    /// Returns <c>null</c> when the conditions do not apply.
+    /// </summary>
+    private TypeSymbol? ResolveSuflaeEntityMeType(bool sfUserEntity,
+        SemanticVerifier.PendingRoutine pending, TypeSymbol? refreshedOwnerType)
+    {
+        if (sfUserEntity
+            && pending.Kind == RoutineKind.MemberRoutine
+            && pending.RoutineName is not "create"
+            && refreshedOwnerType is EntityTypeInfo ownerEntity
+            && _sa._registry.LookupType(name: RuntimeContract.Roamed) is { } roamedOwnerDef)
+        {
+            // Wrap the entity APPLIED TO ITS OWN GENERIC PARAMS (`Box[T]`), not the bare definition —
+            // otherwise `me` becomes `Roamed[Box]` with no `T` inside, and owner-monomorphization
+            // (Box[S64].get) can't substitute `T` into the handle, so codegen falls back to a bare
+            // entity access that reads the RC controller's refcount instead of the field. Mirrors the
+            // `Me` handling in TypeResolver.
+            TypeInfo entityForMe =
+                ownerEntity is { IsGenericDefinition: true, GenericParameters: { } ownerParams }
+                    ? _sa._registry.GetOrCreateResolution(genericDef: ownerEntity,
+                        typeArguments: ownerParams
+                            .Select(selector: p => (TypeInfo)new GenericParameterTypeInfo(name: p))
+                            .ToList())
+                    : ownerEntity;
+            return _sa._registry.GetOrCreateResolution(
+                genericDef: roamedOwnerDef, typeArguments: [entityForMe]);
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -763,83 +842,111 @@ internal sealed class SignatureResolver
         {
             TypeSymbol expectedType = protoMemberRoutine.ParameterTypes[index: i];
             TypeSymbol actualType = typeMemberRoutine.Parameters[index: startIndex + i].Type;
-
-            // Handle protocol self type (Me) - should match the owner type
-            if (expectedType is ProtocolSelfTypeInfo)
-            {
-                if (typeMemberRoutine.OwnerType != null &&
-                    !MeTypeMatches(actualType: actualType,
-                        ownerType: typeMemberRoutine.OwnerType))
-                {
-                    _sa.ReportError(code: SemanticDiagnosticCode.ProtocolMemberRoutineSignatureMismatch,
-                        message:
-                        $"Parameter '{protoMemberRoutine.ParameterNames[index: i]}' of '{typeMemberRoutine.Name}' has type '{actualType.Name}' but protocol '{protocol.Name}' expects '{typeMemberRoutine.OwnerType.Name}' (Me).",
-                        location: location ?? new SourceLocation("", 0, 0, 0));
-                }
-            }
-            else
-            {
-                string expectedName = substitution != null &&
-                                      substitution.TryGetValue(key: expectedType.Name,
-                                          value: out string? substName)
-                    ? substName
-                    : expectedType.Name;
-                if (inferableParams != null && inferableParams.Contains(item: expectedType.Name) &&
-                    !substitution!.ContainsKey(key: expectedType.Name))
-                {
-                    substitution[key: expectedType.Name] = actualType.Name;
-                    expectedName = actualType.Name;
-                }
-                if (actualType.Name != expectedName)
-                {
-                    _sa.ReportError(code: SemanticDiagnosticCode.ProtocolMemberRoutineSignatureMismatch,
-                        message:
-                        $"Parameter '{protoMemberRoutine.ParameterNames[index: i]}' of '{typeMemberRoutine.Name}' has type '{actualType.Name}' but protocol '{protocol.Name}' expects '{expectedName}'.",
-                        location: location ?? new SourceLocation("", 0, 0, 0));
-                }
-            }
+            CheckProtocolParameterType(typeMemberRoutine: typeMemberRoutine,
+                protoMemberRoutine: protoMemberRoutine, protocol: protocol,
+                substitution: substitution, inferableParams: inferableParams,
+                paramIndex: i, expectedType: expectedType, actualType: actualType,
+                location: location);
         }
 
         // Check return type
         if (protoMemberRoutine.ReturnType != null && typeMemberRoutine.ReturnType != null)
         {
-            TypeSymbol expectedReturn = protoMemberRoutine.ReturnType;
-            TypeSymbol actualReturn = typeMemberRoutine.ReturnType;
+            CheckProtocolReturnType(typeMemberRoutine: typeMemberRoutine, protocol: protocol,
+                substitution: substitution, inferableParams: inferableParams,
+                expectedReturn: protoMemberRoutine.ReturnType,
+                actualReturn: typeMemberRoutine.ReturnType, location: location);
+        }
+    }
 
-            // Handle protocol self type (Me)
-            if (expectedReturn is ProtocolSelfTypeInfo)
+    /// <summary>
+    /// Validates one parameter position of a type member routine against its protocol requirement,
+    /// handling the protocol-self (Me) case and inferable-param substitution binding, reporting a
+    /// mismatch when the types disagree.
+    /// </summary>
+    private void CheckProtocolParameterType(RoutineInfo typeMemberRoutine,
+        ProtocolMemberRoutineInfo protoMemberRoutine, ProtocolTypeInfo protocol,
+        Dictionary<string, string>? substitution, List<string>? inferableParams, int paramIndex,
+        TypeSymbol expectedType, TypeSymbol actualType, SourceLocation? location)
+    {
+        // Handle protocol self type (Me) - should match the owner type
+        if (expectedType is ProtocolSelfTypeInfo)
+        {
+            if (typeMemberRoutine.OwnerType != null &&
+                !MeTypeMatches(actualType: actualType,
+                    ownerType: typeMemberRoutine.OwnerType))
             {
-                if (typeMemberRoutine.OwnerType != null &&
-                    !MeTypeMatches(actualType: actualReturn,
-                        ownerType: typeMemberRoutine.OwnerType))
-                {
-                    _sa.ReportError(code: SemanticDiagnosticCode.ProtocolMemberRoutineSignatureMismatch,
-                        message:
-                        $"member routine '{typeMemberRoutine.Name}' returns '{actualReturn.Name}' but protocol '{protocol.Name}' expects '{typeMemberRoutine.OwnerType.Name}' (Me).",
-                        location: location ?? new SourceLocation("", 0, 0, 0));
-                }
+                _sa.ReportError(code: SemanticDiagnosticCode.ProtocolMemberRoutineSignatureMismatch,
+                    message:
+                    $"Parameter '{protoMemberRoutine.ParameterNames[index: paramIndex]}' of '{typeMemberRoutine.Name}' has type '{actualType.Name}' but protocol '{protocol.Name}' expects '{typeMemberRoutine.OwnerType.Name}' (Me).",
+                    location: location ?? new SourceLocation("", 0, 0, 0));
             }
-            else
+
+            return;
+        }
+
+        string expectedName = substitution != null &&
+                              substitution.TryGetValue(key: expectedType.Name,
+                                  value: out string? substName)
+            ? substName
+            : expectedType.Name;
+        if (inferableParams != null && inferableParams.Contains(item: expectedType.Name) &&
+            !substitution!.ContainsKey(key: expectedType.Name))
+        {
+            substitution[key: expectedType.Name] = actualType.Name;
+            expectedName = actualType.Name;
+        }
+        if (actualType.Name != expectedName)
+        {
+            _sa.ReportError(code: SemanticDiagnosticCode.ProtocolMemberRoutineSignatureMismatch,
+                message:
+                $"Parameter '{protoMemberRoutine.ParameterNames[index: paramIndex]}' of '{typeMemberRoutine.Name}' has type '{actualType.Name}' but protocol '{protocol.Name}' expects '{expectedName}'.",
+                location: location ?? new SourceLocation("", 0, 0, 0));
+        }
+    }
+
+    /// <summary>
+    /// Validates a type member routine's return type against its protocol requirement, handling the
+    /// protocol-self (Me) case and inferable-param substitution binding, reporting a mismatch when the
+    /// types disagree.
+    /// </summary>
+    private void CheckProtocolReturnType(RoutineInfo typeMemberRoutine, ProtocolTypeInfo protocol,
+        Dictionary<string, string>? substitution, List<string>? inferableParams,
+        TypeSymbol expectedReturn, TypeSymbol actualReturn, SourceLocation? location)
+    {
+        // Handle protocol self type (Me)
+        if (expectedReturn is ProtocolSelfTypeInfo)
+        {
+            if (typeMemberRoutine.OwnerType != null &&
+                !MeTypeMatches(actualType: actualReturn,
+                    ownerType: typeMemberRoutine.OwnerType))
             {
-                string expectedReturnName = substitution != null &&
-                                            substitution.TryGetValue(key: expectedReturn.Name,
-                                                value: out string? substRetName)
-                    ? substRetName
-                    : expectedReturn.Name;
-                if (inferableParams != null && inferableParams.Contains(item: expectedReturn.Name) &&
-                    !substitution!.ContainsKey(key: expectedReturn.Name))
-                {
-                    substitution[key: expectedReturn.Name] = actualReturn.Name;
-                    expectedReturnName = actualReturn.Name;
-                }
-                if (actualReturn.Name != expectedReturnName)
-                {
-                    _sa.ReportError(code: SemanticDiagnosticCode.ProtocolMemberRoutineSignatureMismatch,
-                        message:
-                        $"member routine '{typeMemberRoutine.Name}' returns '{actualReturn.Name}' but protocol '{protocol.Name}' expects '{expectedReturnName}'.",
-                        location: location ?? new SourceLocation("", 0, 0, 0));
-                }
+                _sa.ReportError(code: SemanticDiagnosticCode.ProtocolMemberRoutineSignatureMismatch,
+                    message:
+                    $"member routine '{typeMemberRoutine.Name}' returns '{actualReturn.Name}' but protocol '{protocol.Name}' expects '{typeMemberRoutine.OwnerType.Name}' (Me).",
+                    location: location ?? new SourceLocation("", 0, 0, 0));
             }
+
+            return;
+        }
+
+        string expectedReturnName = substitution != null &&
+                                    substitution.TryGetValue(key: expectedReturn.Name,
+                                        value: out string? substRetName)
+            ? substRetName
+            : expectedReturn.Name;
+        if (inferableParams != null && inferableParams.Contains(item: expectedReturn.Name) &&
+            !substitution!.ContainsKey(key: expectedReturn.Name))
+        {
+            substitution[key: expectedReturn.Name] = actualReturn.Name;
+            expectedReturnName = actualReturn.Name;
+        }
+        if (actualReturn.Name != expectedReturnName)
+        {
+            _sa.ReportError(code: SemanticDiagnosticCode.ProtocolMemberRoutineSignatureMismatch,
+                message:
+                $"member routine '{typeMemberRoutine.Name}' returns '{actualReturn.Name}' but protocol '{protocol.Name}' expects '{expectedReturnName}'.",
+                location: location ?? new SourceLocation("", 0, 0, 0));
         }
     }
 
@@ -1043,14 +1150,4 @@ internal sealed class SignatureResolver
     private static bool IsCarrierType(TypeSymbol type) => GetCarrierBaseName(type: type) != null;
 
     private static bool IsMaybeType(TypeSymbol type) => GetCarrierBaseName(type: type) == "Maybe";
-
-    private static bool IsTransparentMarkerProtocol(ProtocolTypeInfo proto)
-    {
-        if (proto.TypeArguments is not { Count: 1 })
-        {
-            return false;
-        }
-        string baseName = (proto.GenericDefinition ?? proto).BareName;
-        return baseName is RuntimeContract.Accessing or RuntimeContract.Controlling;
-    }
 }

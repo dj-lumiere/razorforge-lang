@@ -90,13 +90,13 @@ public partial class LlvmCodeGenerator
         // Ensure record type definitions exist for parameter and return types
         foreach (ParameterInfo param in routine.Parameters)
         {
-            if (param.Type is RecordTypeInfo { HasDirectBackendType: false, IsGenericDefinition: false } paramRecord)
+            if (param.Type is RecordTypeInfo { BackendType: null, IsGenericDefinition: false } paramRecord)
             {
                 GenerateRecordType(record: paramRecord);
             }
         }
 
-        if (routine.ReturnType is RecordTypeInfo { HasDirectBackendType: false, IsGenericDefinition: false } returnRecord)
+        if (routine.ReturnType is RecordTypeInfo { BackendType: null, IsGenericDefinition: false } returnRecord)
         {
             GenerateRecordType(record: returnRecord);
         }
@@ -568,8 +568,11 @@ public partial class LlvmCodeGenerator
         // Compiler-synthesized routines are only ever referenced within this whole-program module,
         // so give them `internal` linkage (GlobalDCE can strip uncalled ones) + `nounwind` (the
         // runtime never unwinds). main / start / user routines and extern `declare`s are untouched.
+        // Base mode (resident-JIT): a compiler-generated routine must be EXTERNAL so the per-run delta
+        // module can reference it across the base/delta boundary — `internal` is module-local and would be
+        // invisible to the delta. The base is non-pruned + disk-cached, so it needs no GlobalDCE.
         bool isCompilerGenerated = info.IsSynthesized || info.IsWiredMemberRoutine;
-        string linkagePrefix = isCompilerGenerated ? "internal " : "";
+        string linkagePrefix = isCompilerGenerated && !_baseMode ? "internal " : "";
         string funcAttrs = info.Annotations.Contains(value: "inline") ? " alwaysinline" : "";
         if (isCompilerGenerated)
         {
@@ -915,16 +918,20 @@ public partial class LlvmCodeGenerator
         // owner-case call sites below read uniformly.
         static string Bang(string name, bool failable) => name;
 
-        // Structured attribute prefix — the routine's PROPERTIES (kind, wired-ness, failability,
-        // async mode, storage) are obfuscated into a bracketed list so the name itself carries only
-        // the module-qualified raw identifier. E.g. `[member, wired] Core.Address.create(...)`,
-        // `[independent, crashable] Foo.parse(...)`. External("C") routines are EXEMPT (they keep the
+        // Structured attribute prefix — the routine's PROPERTIES (kind, failability, async mode,
+        // storage) are obfuscated into a bracketed list so the name itself carries only the
+        // module-qualified raw identifier. E.g. `[member] Core.Address.create(...)`,
+        // `[independent, crashable] Foo.parse(...)`. Wired-ness is deliberately NOT in the prefix
+        // (see below). External("C") routines are EXEMPT (they keep the
         // raw C symbol so the LLVM declare links against the native lib), so this is not called there.
         static string AttrPrefix(RoutineInfo r)
         {
             var attrs = new List<string> { r.OwnerType != null ? "member" : "independent" };
             if (r.IsCommon) attrs.Add(item: "common");
-            if (r.IsWiredMemberRoutine) attrs.Add(item: "wired");
+            // Wired-ness is a routine PROPERTY (IsWiredMemberRoutine), never part of the symbol name —
+            // it is not an overload/disambiguation axis, so two routines never differ only by it. Keeping
+            // it out of the mangled name also makes the symbol independent of paths that disagree on the
+            // flag (a fresh cold compile vs a .pbrf warm restore), so both produce identical defines.
             if (r.IsFailable) attrs.Add(item: "crashable");
             if (r.IsDangerous) attrs.Add(item: "dangerous");
             // Visibility is an attribute too. A member of a `secret` (module-private) type is itself
@@ -999,7 +1006,7 @@ public partial class LlvmCodeGenerator
             return Q(name: $"{AttrPrefix(r: routine)}{typeName}.{name}{LabeledParams(r: routine)}");
         }
 
-        // memberRoutine: `[member, wired?, crashable?, …] Module.OwnerType.name(label: Type, …)`
+        // memberRoutine: `[member, crashable?, …] Module.OwnerType.name(label: Type, …)`
         // (OwnerType.FullName includes module). The `$`/`!` are gone from the name — they are in the
         // attribute prefix.
         string ownerTypeName = RealmMangleBase(t: routine.OwnerType);
@@ -1007,6 +1014,26 @@ public partial class LlvmCodeGenerator
 
         // memberRoutine-level type arguments (e.g., Hijacked[U64].recast_as[BTreeListNode[S64]]).
         // Distinct from owner type args already in OwnerType.FullName.
+        baseName = AppendMemberRoutineTypeArgs(routine: routine, baseName: baseName);
+
+        // Labeled parameter list — `(label: Type, …)` — always appended (even empty `()`); the label
+        // is part of overload identity. Uses MangleParamTypeName for wrapper-forwarder inner-generic
+        // param mapping.
+        baseName += "(" + string.Join(separator: ", ",
+            values: routine.Parameters.Select(
+                selector: p => $"{p.Name}: {MangleParamTypeName(routine: routine, paramType: p.Type)}")) + ")";
+
+        return Q(name: baseName);
+    }
+
+    /// <summary>
+    /// Appends the memberRoutine-level type-argument bracket to a mangled member base name, dropping
+    /// entries already present in the owner's type args, bare <see cref="GenericParameterTypeInfo"/>
+    /// entries, and entries whose name matches an owner gen-def generic parameter. Returns the base
+    /// name unchanged when there are no distinct memberRoutine-only type args.
+    /// </summary>
+    private static string AppendMemberRoutineTypeArgs(RoutineInfo routine, string baseName)
+    {
         if (routine.TypeArguments is { Count: > 0 } memberRoutineTypeArgs)
         {
             // Only include type args that aren't already in the owner's type arg list to
@@ -1021,7 +1048,7 @@ public partial class LlvmCodeGenerator
             // or SubstituteMemberRoutineForOwner forwards a stale leftover TypeInfo named "T" that is
             // *not* a GenericParameterTypeInfo (some passes wrap the owner-leak in a non-GPTI),
             // the GPTI check above doesn't catch it. Matching by name closes that hole.
-            var ownerArgs = routine.OwnerType.TypeArguments ?? [];
+            var ownerArgs = routine.OwnerType!.TypeArguments ?? [];
             TypeInfo? ownerGenDef = routine.OwnerType switch
             {
                 RecordTypeInfo r => r.GenericDefinition ?? r,
@@ -1043,14 +1070,7 @@ public partial class LlvmCodeGenerator
             }
         }
 
-        // Labeled parameter list — `(label: Type, …)` — always appended (even empty `()`); the label
-        // is part of overload identity. Uses MangleParamTypeName for wrapper-forwarder inner-generic
-        // param mapping.
-        baseName += "(" + string.Join(separator: ", ",
-            values: routine.Parameters.Select(
-                selector: p => $"{p.Name}: {MangleParamTypeName(routine: routine, paramType: p.Type)}")) + ")";
-
-        return Q(name: baseName);
+        return baseName;
     }
 
     /// <summary>
@@ -1240,12 +1260,12 @@ public partial class LlvmCodeGenerator
     internal static bool IsByRefMeRecord(TypeInfo? ownerType) => ownerType switch
     {
         // Struct record: no @llvm backend -> storage-backed -> by-ref.
-        RecordTypeInfo { HasDirectBackendType: false } => true,
+        RecordTypeInfo { BackendType: null } => true,
         // @llvm record: by-ref iff the backend is an aggregate — an array `[N x T]` or a SIMD
         // vector `<N x E>`. Both are always accessed through a load/store (never fed to an
         // intrinsic as a bare SSA value like a scalar `i64`), and both need in-place `setitem!`
         // to reach the caller's storage. Scalar backends (`i64`, `i1`, `ptr`, ...) stay by-value.
-        RecordTypeInfo { HasDirectBackendType: true, BackendType: { } bt } => bt.StartsWith(value: '[') || bt.StartsWith(value: '<'),
+        RecordTypeInfo { BackendType: not null, BackendType: { } bt } => bt.StartsWith(value: '[') || bt.StartsWith(value: '<'),
         _ => false
     };
 
@@ -1289,7 +1309,7 @@ public partial class LlvmCodeGenerator
     {
         return type switch
         {
-            RecordTypeInfo { HasDirectBackendType: true } record => GetZeroValueForLlvmType(
+            RecordTypeInfo { BackendType: not null } record => GetZeroValueForLlvmType(
                 llvmType: record.BackendType!),
             EntityTypeInfo or WrapperTypeInfo => "null",
             _ => "zeroinitializer"

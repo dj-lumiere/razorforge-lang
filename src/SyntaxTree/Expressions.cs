@@ -284,6 +284,16 @@ public record IdentifierExpression(string Name, SourceLocation Location, string?
     public VariableInfo? ResolvedVariable { get; set; }
 
     /// <summary>
+    /// Set by <see cref="Compiler.Postprocessing.Passes.TemporaryTeardownPass"/> on the synthetic temp
+    /// identifier it introduces as the tail of a lowered managed-leaf reassignment
+    /// (<c>target = __rv</c>). It marks, STRUCTURALLY (not by parsing the <c>__rv_</c> name), that this
+    /// reassignment is already the pass's OWN output — so a second run over the same body (the
+    /// warm-restore re-lowering) recognizes it and skips re-injecting the teardown, which would emit a
+    /// second <c>target.destroy()</c> and double-free the heap buffer.
+    /// </summary>
+    public bool IsSynthesizedTeardownTemp { get; set; }
+
+    /// <summary>
     /// Set by semantic analysis when this reference reads a variable that is DEAD at this point — its
     /// ownership was moved out by an earlier <c>steal</c> (or send) and it has not been re-bound since.
     /// Mirrors the analyzer's flow-sensitive deadref set (with the same if/else merge + rebind revival),
@@ -944,6 +954,16 @@ public record TypeExpression(
     // from SpliceHandle, which is a TYPE splice; this is a comptime scalar. Null for ordinary type-args.
     Expression? ComptimeValue = null) : Expression(Location: Location)
 {
+    /// <summary>
+    /// Conditional-conformance conditions from an <c>obeys P onlyif (cond, …)</c> clause: this generic
+    /// type obeys THIS protocol ONLY when every listed condition holds (comma = AND). Set by the parser on
+    /// the protocol TypeExpression in a type header's obeys list; null = unconditional obeys. Each condition
+    /// is a <c>&lt;param&gt; obeys &lt;protocol&gt;</c> pair (a <see cref="GenericConstraintDeclaration"/>).
+    /// Consumed by the conformance layer, which confers the protocol only for concrete instances whose
+    /// substituted conditions resolve true — the visible, legible form of the structural cascade.
+    /// </summary>
+    public List<GenericConstraintDeclaration>? ConformanceConditions { get; set; }
+
     /// <summary>Accepts a visitor for AST traversal and transformation</summary>
     public override T Accept<T>(ISyntaxTreeVisitor<T> visitor)
     {

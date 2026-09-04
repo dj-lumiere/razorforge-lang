@@ -36,63 +36,15 @@ public partial class LlvmCodeGenerator
     {
         // For identifier expressions (and named-argument wrappers around them), prefer the
         // concrete local-variable type when it is more specific than a stale semantic annotation.
-        // This fixes two cases:
-        // 1. Monomorphization: ResolvedType may still carry unsubstituted generic params.
-        // 2. Synthesized variant bodies: copied AST nodes can retain an overload-context type
-        // that disagrees with the routine's actual parameter table (e.g., "from" marked S8
-        // inside try_create(from: S32)).
-            string? innerIdName = expr switch
-            {
-                IdentifierExpression idE => idE.Name,
-                NamedArgumentExpression { Value: IdentifierExpression namedId } => namedId.Name,
-                _ => null
-            };
-            if (innerIdName != null &&
-                _localVariables.TryGetValue(key: innerIdName, value: out TypeInfo? localVarType))
-            {
-                TypeInfo concreteLocal = ApplyTypeSubstitutions(type: localVarType);
-                // A Suflae entity `me` is bound to the `Roamed[E]` handle, but a monomorphized body's
-                // AST node can still carry the bare inner entity `E` as its ResolvedType. Prefer the
-                // Roamed handle so member access deref's through the RC controller instead of reading
-                // the controller's refcount off the bare entity pointer.
-                bool localRoamsResolved = expr.ResolvedType is { } rt
-                    && concreteLocal is RecordTypeInfo { GenericDefinition.Name: Resolution.RuntimeContract.Roamed, TypeArguments: [{ } roamInner] }
-                    && roamInner.FullName == rt.FullName;
-                if (concreteLocal is not GenericParameterTypeInfo && !concreteLocal.IsGenericDefinition && (expr.ResolvedType is null or ErrorTypeInfo or GenericParameterTypeInfo ||
-                        localRoamsResolved ||
-                        ShouldPreferLocalIdentifierType(localType: concreteLocal,
-                            resolvedType: expr.ResolvedType)))
-                {
-                    return concreteLocal;
-                }
-            }
+        if (TryPreferLocalIdentifierType(expr: expr, preferred: out TypeInfo? preferredLocal))
+        {
+            return preferredLocal;
+        }
+
         // First, check if the semantic analyzer has already resolved the type
         if (expr.ResolvedType is null or ErrorTypeInfo)
         {
-            return expr switch
-            {
-                LiteralExpression literal => GetLiteralType(literal: literal),
-                IdentifierExpression id => ResolveIdentifierType(id: id),
-                MemberExpression member => GetMemberType(member: member),
-                CreatorExpression ctor => ResolveCreatorType(creator: ctor),
-                BinaryExpression binary => GetBinaryExpressionType(binary: binary),
-                ChainedComparisonExpression => _registry.LookupType(
-                    name: "Bool"), // Comparisons return Bool
-                UnaryExpression unary => GetUnaryExpressionType(unary: unary),
-                CallExpression call => GetCallReturnType(call: call),
-                GenericMemberRoutineCallExpression gmc2 => throw new InvalidOperationException(
-                    $"GenericMemberRoutineCallExpression must be lowered by GenericCallLoweringPass before codegen. " +
-                    $"GMCE: {(gmc2.Object is IdentifierExpression eid ? eid.Name : gmc2.Object.GetType().Name)}.{gmc2.MemberRoutineName}" +
-                    $"[{string.Join(", ", gmc2.TypeArguments?.Select(t => t.Name) ?? [])}], " +
-                    $"in routine: {_currentEmittingRoutine?.Name ?? "<unknown>"} (owner: {_currentEmittingRoutine?.OwnerType?.Name ?? "none"})"),
-                StealExpression steal => GetExpressionType(expr: steal.Operand),
-                IndexExpression index => GetIndexReturnType(index: index),
-                NamedArgumentExpression named => GetExpressionType(expr: named.Value),
-                DictEntryLiteralExpression dictEntry => dictEntry.ResolvedType,
-                ConditionalExpression cond => GetExpressionType(expr: cond.TrueExpression),
-                GenericMemberExpression gme => GetGenericMemberExpressionType(gme: gme),
-                _ => null
-            };
+            return InferExpressionTypeFromStructure(expr: expr);
         }
 
         // Skip SA-resolved type for CallExpression through transparent protocols (e.g., Accessing[T]).
@@ -128,6 +80,58 @@ public partial class LlvmCodeGenerator
         }
 
         // Fall back to inferring from the expression structure
+        return InferExpressionTypeFromStructure(expr: expr);
+    }
+
+    /// <summary>
+    /// Prefers the concrete local-variable type for an identifier (or named-argument-wrapped identifier)
+    /// over a stale semantic annotation, and reports whether it did. Fixes two cases:
+    /// (1) monomorphization — ResolvedType may still carry unsubstituted generic params;
+    /// (2) synthesized variant bodies — copied AST nodes can retain an overload-context type that
+    /// disagrees with the routine's actual parameter table (e.g. "from" marked S8 inside
+    /// try_create(from: S32)).
+    /// </summary>
+    private bool TryPreferLocalIdentifierType(Expression expr, out TypeInfo? preferred)
+    {
+        preferred = null;
+        string? innerIdName = expr switch
+        {
+            IdentifierExpression idE => idE.Name,
+            NamedArgumentExpression { Value: IdentifierExpression namedId } => namedId.Name,
+            _ => null
+        };
+        if (innerIdName == null ||
+            !_localVariables.TryGetValue(key: innerIdName, value: out TypeInfo? localVarType))
+        {
+            return false;
+        }
+
+        TypeInfo concreteLocal = ApplyTypeSubstitutions(type: localVarType);
+        // A Suflae entity `me` is bound to the `Roamed[E]` handle, but a monomorphized body's
+        // AST node can still carry the bare inner entity `E` as its ResolvedType. Prefer the
+        // Roamed handle so member access deref's through the RC controller instead of reading
+        // the controller's refcount off the bare entity pointer.
+        bool localRoamsResolved = expr.ResolvedType is { } rt
+            && concreteLocal is RecordTypeInfo { GenericDefinition.Name: Resolution.RuntimeContract.Roamed, TypeArguments: [{ } roamInner] }
+            && roamInner.FullName == rt.FullName;
+        if (concreteLocal is not GenericParameterTypeInfo && !concreteLocal.IsGenericDefinition && (expr.ResolvedType is null or ErrorTypeInfo or GenericParameterTypeInfo ||
+                localRoamsResolved ||
+                ShouldPreferLocalIdentifierType(localType: concreteLocal,
+                    resolvedType: expr.ResolvedType)))
+        {
+            preferred = concreteLocal;
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Infers an expression's type purely from its structural node kind (the fallback used when the
+    /// semantic analyzer left no usable <c>ResolvedType</c>, and after a still-generic SA type).
+    /// </summary>
+    private TypeInfo? InferExpressionTypeFromStructure(Expression expr)
+    {
         return expr switch
         {
             LiteralExpression literal => GetLiteralType(literal: literal),
@@ -368,6 +372,22 @@ public partial class LlvmCodeGenerator
     }
 
     /// <summary>
+    /// The inner type X of a marker borrow protocol <c>Accessing[X]</c>/<c>Controlling[X]</c>, else null.
+    /// A marker is representation-transparent — a member access on it resolves against its inner X.
+    /// GenericMonomorphizationPass/GenericAstRewriter collapse markers to their inner during substitution,
+    /// so most are gone before codegen; this is the residual safety net for the paths they do not cover
+    /// (non-monomorphized bodies). It disappears once every marker-reaching-codegen path is closed upstream.
+    /// </summary>
+    private static TypeInfo? MarkerProtocolInner(TypeInfo? type)
+    {
+        if (type is ProtocolTypeInfo { TypeArguments: [{ } inner] } proto
+            && Compiler.Resolution.RuntimeContract.IsMarkerProtocol(
+                baseName: (proto.GenericDefinition ?? proto).BareName))
+            return inner;
+        return null;
+    }
+
+    /// <summary>
     /// Gets the type of a member access expression.
     /// </summary>
     private TypeInfo? GetMemberType(MemberExpression member)
@@ -378,11 +398,7 @@ public partial class LlvmCodeGenerator
             return null;
         }
 
-        TryGetTransparentProtocolTarget(type: targetType, targetType: out TypeInfo? lookupType);
-        if (lookupType == null)
-        {
-            return null;
-        }
+        TypeInfo? lookupType = MarkerProtocolInner(type: targetType) ?? targetType;
 
         // Refresh stale entity metadata for member variable lookup.
         if (lookupType is EntityTypeInfo entityType)
@@ -468,38 +484,8 @@ public partial class LlvmCodeGenerator
             var resolvedArgs = new List<TypeInfo>();
             foreach (TypeInfo ta in type.TypeArguments)
             {
-                if (substitutions.TryGetValue(key: ta.Name, value: out TypeInfo? argSub))
-                {
-                    resolvedArgs.Add(item: argSub);
-                    needsResolution = true;
-                }
-                else if (ta is { IsGenericResolution: true, TypeArguments: not null })
-                {
-                    TypeInfo innerResolved = SubstituteTypeParams(type: ta, substitutions: substitutions);
-                    resolvedArgs.Add(item: innerResolved);
-                    if (innerResolved != ta) needsResolution = true;
-                }
-                else if (ta is { IsGenericDefinition: true, GenericParameters: not null }
-                         and not EntityTypeInfo)
-                {
-                    bool canResolve = true;
-                    var innerArgs = new List<TypeInfo>();
-                    foreach (string param in ta.GenericParameters)
-                    {
-                        if (substitutions.TryGetValue(key: param, value: out TypeInfo? paramSub))
-                            innerArgs.Add(item: paramSub);
-                        else { canResolve = false; break; }
-                    }
-
-                    if (canResolve)
-                    {
-                        resolvedArgs.Add(item: _registry.GetOrCreateResolution(genericDef: ta,
-                            typeArguments: innerArgs));
-                        needsResolution = true;
-                    }
-                    else resolvedArgs.Add(item: ta);
-                }
-                else resolvedArgs.Add(item: ta);
+                resolvedArgs.Add(item: SubstituteTypeArgument(ta: ta,
+                    substitutions: substitutions, needsResolution: ref needsResolution));
             }
 
             if (needsResolution)
@@ -554,6 +540,49 @@ public partial class LlvmCodeGenerator
         }
 
         return type;
+    }
+
+    /// <summary>
+    /// Substitutes one type argument of a generic-resolution type: a direct param match, a recursive
+    /// sub-resolution, or an unresolved generic-definition argument whose own params are all bound.
+    /// Sets <paramref name="needsResolution"/> when the argument actually changed.
+    /// </summary>
+    private TypeInfo SubstituteTypeArgument(TypeInfo ta,
+        Dictionary<string, TypeInfo> substitutions, ref bool needsResolution)
+    {
+        if (substitutions.TryGetValue(key: ta.Name, value: out TypeInfo? argSub))
+        {
+            needsResolution = true;
+            return argSub;
+        }
+
+        if (ta is { IsGenericResolution: true, TypeArguments: not null })
+        {
+            TypeInfo innerResolved = SubstituteTypeParams(type: ta, substitutions: substitutions);
+            if (innerResolved != ta) needsResolution = true;
+            return innerResolved;
+        }
+
+        if (ta is { IsGenericDefinition: true, GenericParameters: not null }
+            and not EntityTypeInfo)
+        {
+            bool canResolve = true;
+            var innerArgs = new List<TypeInfo>();
+            foreach (string param in ta.GenericParameters)
+            {
+                if (substitutions.TryGetValue(key: param, value: out TypeInfo? paramSub))
+                    innerArgs.Add(item: paramSub);
+                else { canResolve = false; break; }
+            }
+
+            if (canResolve)
+            {
+                needsResolution = true;
+                return _registry.GetOrCreateResolution(genericDef: ta, typeArguments: innerArgs);
+            }
+        }
+
+        return ta;
     }
 
     /// <summary>
@@ -688,30 +717,6 @@ public partial class LlvmCodeGenerator
     // -----------------------------------------------------------------------------
 
     /// <summary>
-    /// Attempts to get transparent protocol target and reports whether it succeeded.
-    /// </summary>
-    private static void TryGetTransparentProtocolTarget(TypeInfo? type, out TypeInfo? targetType)
-    {
-        if (type is ProtocolTypeInfo { TypeArguments: { Count: > 0 } } proto
-            && HasOnlyMarkerCoercionMemberRoutines(proto))
-        {
-            targetType = proto.TypeArguments![index: 0]!;
-            return;
-        }
-
-        targetType = type;
-    }
-
-    private static bool HasOnlyMarkerCoercionMemberRoutines(ProtocolTypeInfo proto)
-    {
-        foreach (ProtocolMemberRoutineInfo m in proto.MemberRoutines)
-        {
-            if (m.Name != "access" && m.Name != "control") return false;
-        }
-        return true;
-    }
-
-    /// <summary>
     /// Resolves a <see cref="ConstGenericValueTypeInfo"/> to its underlying primitive type
     /// for memberRoutine dispatch. E.g., a const generic value "8" with constraint "N is U64"
     /// resolves to the U64 type so that memberRoutine calls like N.represent() work correctly.
@@ -733,11 +738,7 @@ public partial class LlvmCodeGenerator
             return null;
         }
 
-        TryGetTransparentProtocolTarget(type: targetType, targetType: out TypeInfo? lookupType);
-        if (lookupType == null)
-        {
-            return null;
-        }
+        TypeInfo? lookupType = MarkerProtocolInner(type: targetType) ?? targetType;
 
         RoutineInfo? getItem = _registry.LookupMemberRoutine(type: lookupType, memberRoutineName: "getitem");
         if (getItem?.ReturnType == null)

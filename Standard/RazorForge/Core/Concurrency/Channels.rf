@@ -83,6 +83,7 @@ routine Sender[T].is_closed() -> Bool
     return C::rf_channel_is_closed(chan: me.chan) != 0_u32
 
 ### Drops this producer reference; the last one closes the channel.
+@override
 dangerous routine Sender[T].destroy()
   C::rf_channel_drop_feeder(chan: me.chan)
   return
@@ -129,6 +130,7 @@ routine Receiver[T].capacity() -> U64
     return C::rf_channel_capacity(chan: me.chan)
 
 ### Drops this consumer reference; the channel frees once no producers and no consumers remain.
+@override
 dangerous routine Receiver[T].destroy()
   C::rf_channel_drop_consumer(chan: me.chan)
   return
@@ -175,6 +177,7 @@ routine SharedReceiver[T].capacity() -> U64
     return C::rf_channel_capacity(chan: me.chan)
 
 ### Drops this consumer reference; the channel frees once no producers and no consumers remain.
+@override
 dangerous routine SharedReceiver[T].destroy()
   C::rf_channel_drop_consumer(chan: me.chan)
   return

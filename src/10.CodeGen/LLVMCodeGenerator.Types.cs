@@ -117,17 +117,17 @@ public partial class LlvmCodeGenerator
             // Records with @llvm annotation -> use backend type directly (skip generic definitions with template holes)
             RecordTypeInfo
             {
-                HasDirectBackendType: true, IsGenericDefinition: false
+                BackendType: not null, IsGenericDefinition: false
             } record => record.LlvmType,
 
-            // Generic definition records (unresolved) -> pointer fallback
+            // Generic definition records (unresolved) -> pointer fallback (TODO: should not exist)
             RecordTypeInfo { IsGenericDefinition: true } => "ptr",
 
             // Records with no fields -> look up the registered definition (may have @llvm annotation)
             RecordTypeInfo { MemberVariables.Count: 0 } record when _registry.LookupType(
                 name: record.Name) is RecordTypeInfo
             {
-                HasDirectBackendType: true
+                BackendType: not null
             } llvmRecord => llvmRecord.LlvmType,
 
             // Variants -> struct { tag, payload }. Variant is a RecordTypeInfo subclass, so this
@@ -138,7 +138,7 @@ public partial class LlvmCodeGenerator
             RecordTypeInfo
             {
                 MemberVariables.Count: 0,
-                GenericDefinition: { HasDirectBackendType: true } baseRecord
+                GenericDefinition: { BackendType: not null } baseRecord
             } => baseRecord.LlvmType,
 
             // Multi-member-variable records -> LLVM struct type.
@@ -150,9 +150,22 @@ public partial class LlvmCodeGenerator
             EntityTypeInfo => "ptr",
 
             // Wrappers (Viewing, Modifying, Hijacked, etc.) -> all pointers at LLVM level
+            // TODO: This is redundant
             WrapperTypeInfo => "ptr",
 
-            // Protocols -> type-erased pointer (protocol-typed fields/params hold a handle to a concrete object)
+            // A marker borrow protocol (Accessing[X]/Controlling[X]) is representation-transparent to its
+            // inner X (an entity → ptr, a value → the value's own layout). Monomorphization collapses most
+            // markers to X before codegen, but the residual (non-monomorphized paths) still arrives here, so
+            // fold it to the inner's backend form rather than emitting a wrong `ptr` for a value inner.
+            ProtocolTypeInfo { TypeArguments: [{ } markerInner] } markerProto
+                when Compiler.Resolution.RuntimeContract.IsMarkerProtocol(
+                    baseName: (markerProto.GenericDefinition ?? markerProto).BareName)
+                => GetLlvmType(type: markerInner),
+
+            // Any OTHER protocol -> type-erased pointer. A non-marker protocol that monomorphization did not
+            // fully substitute (e.g. an iterator's `Emittable[T]` return, or a generic-def body) stays `ptr`
+            // (the established type-erased handle) until monomorphization is tightened to substitute every
+            // protocol-typed slot. TODO: promote to hard error once no ProtocolTypeInfo survives to codegen.
             ProtocolTypeInfo => "ptr",
 
             // Routine types -> fat value { ptr fn, ptr bound } (v0.4.1). `fn` is the callee's bare
@@ -161,8 +174,15 @@ public partial class LlvmCodeGenerator
             // C's (callback, userdata) convention. See [[cabi-callback-ffi]].
             RoutineTypeInfo => "{ ptr, ptr }",
 
-            // Const generic values -> map to the underlying integer type
-            ConstGenericValueTypeInfo => "i64",
+            // Const generic value -> the LLVM form of its DECLARED type (e.g. a `N: U32` const is `i32`,
+            // not a blanket `i64`). ResolveConstGenericUnderlyingType maps it to the underlying primitive
+            // (defaulting to U64 for an untyped literal); guard the degenerate case where that lookup fails
+            // and returns the const itself, which would otherwise recurse into this same arm.
+            ConstGenericValueTypeInfo constGen
+                => ResolveConstGenericUnderlyingType(constVal: constGen) is { } underlying
+                   && underlying is not ConstGenericValueTypeInfo
+                    ? GetLlvmType(type: underlying)
+                    : "i64",
 
             // Unresolved generic parameter -> illegal in codegen. All type parameters must be
             // substituted by GenericMonomorphizationPass before the backend is entered.

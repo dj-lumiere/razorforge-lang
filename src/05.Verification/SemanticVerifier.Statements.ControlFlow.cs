@@ -44,6 +44,54 @@ public sealed partial class SemanticVerifier
         var deadrefBefore = new HashSet<string>(collection: _deadrefVariables);
 
         // Analyze then branch (with narrowing if applicable)
+        AnalyzeIfThenBranch(ifStmt: ifStmt, narrowing: narrowing,
+            variantNarrowing: variantNarrowing);
+
+        bool thenExits = HasDefiniteExit(statement: ifStmt.ThenStatement);
+        var afterThen = new HashSet<string>(collection: _deadrefVariables);
+        // Re-analyze the else branch from the pre-if dead set — the branches are mutually
+        // exclusive, so the else must not see the then branch's steals.
+        _deadrefVariables.Clear();
+        _deadrefVariables.UnionWith(other: deadrefBefore);
+
+        // Analyze else branch if present (with inverse narrowing if applicable)
+        if (ifStmt.ElseStatement != null)
+        {
+            AnalyzeIfElseBranch(ifStmt: ifStmt, narrowing: narrowing,
+                variantNarrowing: variantNarrowing);
+        }
+
+        bool elseExits = ifStmt.ElseStatement != null &&
+                         HasDefiniteExit(statement: ifStmt.ElseStatement);
+        var afterElse = new HashSet<string>(collection: _deadrefVariables);
+        // Merge: a variable is dead after the `if` iff it is dead on some path that FALLS
+        // THROUGH. Steals confined to an exiting branch are dropped. (With no else branch,
+        // `afterElse` is the pre-if state, i.e. the condition-false fall-through.)
+        _deadrefVariables.Clear();
+        if (!thenExits)
+        {
+            _deadrefVariables.UnionWith(other: afterThen);
+        }
+        if (!elseExits)
+        {
+            _deadrefVariables.UnionWith(other: afterElse);
+        }
+
+        // Guard clause narrowing: if the then branch definitely exits,
+        // apply else narrowing to the remainder of the current scope
+        if (ifStmt.ElseStatement == null && HasDefiniteExit(statement: ifStmt.ThenStatement))
+        {
+            ApplyGuardClauseNarrowing(narrowing: narrowing, variantNarrowing: variantNarrowing);
+        }
+    }
+
+    /// <summary>
+    /// Analyzes the then-branch of an if statement, opening a narrowing scope when the condition
+    /// narrows a variable's type / non-null state / variant arm.
+    /// </summary>
+    private void AnalyzeIfThenBranch(IfStatement ifStmt, NarrowingInfo? narrowing,
+        VariantIsNarrowing? variantNarrowing)
+    {
         if (narrowing?.ThenBranchType != null || narrowing is { ThenNonNull: true } ||
             variantNarrowing != null)
         {
@@ -71,66 +119,19 @@ public sealed partial class SemanticVerifier
         {
             AnalyzeStatement(statement: ifStmt.ThenStatement);
         }
+    }
 
-        bool thenExits = HasDefiniteExit(statement: ifStmt.ThenStatement);
-        var afterThen = new HashSet<string>(collection: _deadrefVariables);
-        // Re-analyze the else branch from the pre-if dead set — the branches are mutually
-        // exclusive, so the else must not see the then branch's steals.
-        _deadrefVariables.Clear();
-        _deadrefVariables.UnionWith(other: deadrefBefore);
-
-        // Analyze else branch if present (with inverse narrowing if applicable)
-        if (ifStmt.ElseStatement != null)
+    /// <summary>
+    /// Analyzes the else-branch of an if statement, opening an inverse-narrowing scope when the
+    /// condition narrows a variable's type / non-null state / variant arm.
+    /// </summary>
+    private void AnalyzeIfElseBranch(IfStatement ifStmt, NarrowingInfo? narrowing,
+        VariantIsNarrowing? variantNarrowing)
+    {
+        if (narrowing?.ElseBranchType != null || narrowing is { ElseNonNull: true } ||
+            variantNarrowing != null)
         {
-            if (narrowing?.ElseBranchType != null || narrowing is { ElseNonNull: true } ||
-                variantNarrowing != null)
-            {
-                _registry.EnterScope(kind: ScopeKind.Block, name: "if_else");
-                if (narrowing?.ElseBranchType != null)
-                {
-                    _registry.NarrowVariable(name: narrowing.VariableName,
-                        narrowedType: narrowing.ElseBranchType);
-                }
-
-                if (narrowing is { ElseNonNull: true })
-                {
-                    _registry.MarkVariableNonNull(name: narrowing.VariableName);
-                }
-
-                if (variantNarrowing != null)
-                {
-                    ApplyVariantNarrowing(vn: variantNarrowing, conditionTrue: false);
-                }
-
-                AnalyzeStatement(statement: ifStmt.ElseStatement);
-                _registry.ExitScope();
-            }
-            else
-            {
-                AnalyzeStatement(statement: ifStmt.ElseStatement);
-            }
-        }
-
-        bool elseExits = ifStmt.ElseStatement != null &&
-                         HasDefiniteExit(statement: ifStmt.ElseStatement);
-        var afterElse = new HashSet<string>(collection: _deadrefVariables);
-        // Merge: a variable is dead after the `if` iff it is dead on some path that FALLS
-        // THROUGH. Steals confined to an exiting branch are dropped. (With no else branch,
-        // `afterElse` is the pre-if state, i.e. the condition-false fall-through.)
-        _deadrefVariables.Clear();
-        if (!thenExits)
-        {
-            _deadrefVariables.UnionWith(other: afterThen);
-        }
-        if (!elseExits)
-        {
-            _deadrefVariables.UnionWith(other: afterElse);
-        }
-
-        // Guard clause narrowing: if the then branch definitely exits,
-        // apply else narrowing to the remainder of the current scope
-        if (ifStmt.ElseStatement == null && HasDefiniteExit(statement: ifStmt.ThenStatement))
-        {
+            _registry.EnterScope(kind: ScopeKind.Block, name: "if_else");
             if (narrowing?.ElseBranchType != null)
             {
                 _registry.NarrowVariable(name: narrowing.VariableName,
@@ -146,6 +147,37 @@ public sealed partial class SemanticVerifier
             {
                 ApplyVariantNarrowing(vn: variantNarrowing, conditionTrue: false);
             }
+
+            AnalyzeStatement(statement: ifStmt.ElseStatement!);
+            _registry.ExitScope();
+        }
+        else
+        {
+            AnalyzeStatement(statement: ifStmt.ElseStatement!);
+        }
+    }
+
+    /// <summary>
+    /// Applies inverse (else) narrowing to the remainder of the current scope for a guard-clause
+    /// if (no else branch, then-branch definitely exits).
+    /// </summary>
+    private void ApplyGuardClauseNarrowing(NarrowingInfo? narrowing,
+        VariantIsNarrowing? variantNarrowing)
+    {
+        if (narrowing?.ElseBranchType != null)
+        {
+            _registry.NarrowVariable(name: narrowing.VariableName,
+                narrowedType: narrowing.ElseBranchType);
+        }
+
+        if (narrowing is { ElseNonNull: true })
+        {
+            _registry.MarkVariableNonNull(name: narrowing.VariableName);
+        }
+
+        if (variantNarrowing != null)
+        {
+            ApplyVariantNarrowing(vn: variantNarrowing, conditionTrue: false);
         }
     }
 
@@ -240,48 +272,7 @@ public sealed partial class SemanticVerifier
         else if (eachStmt.VariablePattern != null)
         {
             // Destructuring pattern: for (index, item) in items.enumerate()
-            if (elementType is TupleTypeInfo tupleType)
-            {
-                // Check arity match
-                int bindingCount = eachStmt.VariablePattern.Bindings.Count;
-                if (bindingCount != tupleType.Arity)
-                {
-                    ReportError(code: SemanticDiagnosticCode.DestructuringArityMismatch,
-                        message:
-                        $"Destructuring pattern has {bindingCount} bindings but tuple has {tupleType.Arity} elements.",
-                        location: eachStmt.VariablePattern.Location);
-                }
-
-                // Declare each binding with its corresponding tuple element type
-                for (int i = 0; i < eachStmt.VariablePattern.Bindings.Count; i++)
-                {
-                    DestructuringBinding binding = eachStmt.VariablePattern.Bindings[index: i];
-                    if (binding.BindingName != null)
-                    {
-                        TypeSymbol bindingType = i < tupleType.Arity
-                            ? tupleType.ElementTypes[index: i]
-                            : ErrorTypeInfo.Instance;
-                        _registry.DeclareVariable(name: binding.BindingName, type: bindingType);
-                    }
-                }
-            }
-            else
-            {
-                // Non-tuple type with destructuring pattern
-                ReportError(code: SemanticDiagnosticCode.DestructuringArityMismatch,
-                    message:
-                    $"Cannot destructure non-tuple type '{elementType.Name}' in for loop.",
-                    location: eachStmt.VariablePattern.Location);
-                // Still declare variables with error type so analysis can continue
-                foreach (DestructuringBinding binding in eachStmt.VariablePattern.Bindings)
-                {
-                    if (binding.BindingName != null)
-                    {
-                        _registry.DeclareVariable(name: binding.BindingName,
-                            type: ErrorTypeInfo.Instance);
-                    }
-                }
-            }
+            DeclareEachDestructuringBindings(eachStmt: eachStmt, elementType: elementType);
         }
 
         // #22: Track active iteration source for reshaping-during-iteration check
@@ -305,6 +296,56 @@ public sealed partial class SemanticVerifier
         _registry.ExitScope();
     }
 
+    /// <summary>
+    /// Declares the bindings of an each-loop destructuring pattern: matched positionally against a
+    /// tuple element type, or with error types (plus a diagnostic) for a non-tuple element type.
+    /// </summary>
+    private void DeclareEachDestructuringBindings(EachStatement eachStmt, TypeSymbol elementType)
+    {
+        if (elementType is TupleTypeInfo tupleType)
+        {
+            // Check arity match
+            int bindingCount = eachStmt.VariablePattern!.Bindings.Count;
+            if (bindingCount != tupleType.Arity)
+            {
+                ReportError(code: SemanticDiagnosticCode.DestructuringArityMismatch,
+                    message:
+                    $"Destructuring pattern has {bindingCount} bindings but tuple has {tupleType.Arity} elements.",
+                    location: eachStmt.VariablePattern.Location);
+            }
+
+            // Declare each binding with its corresponding tuple element type
+            for (int i = 0; i < eachStmt.VariablePattern.Bindings.Count; i++)
+            {
+                DestructuringBinding binding = eachStmt.VariablePattern.Bindings[index: i];
+                if (binding.BindingName != null)
+                {
+                    TypeSymbol bindingType = i < tupleType.Arity
+                        ? tupleType.ElementTypes[index: i]
+                        : ErrorTypeInfo.Instance;
+                    _registry.DeclareVariable(name: binding.BindingName, type: bindingType);
+                }
+            }
+        }
+        else
+        {
+            // Non-tuple type with destructuring pattern
+            ReportError(code: SemanticDiagnosticCode.DestructuringArityMismatch,
+                message:
+                $"Cannot destructure non-tuple type '{elementType.Name}' in for loop.",
+                location: eachStmt.VariablePattern!.Location);
+            // Still declare variables with error type so analysis can continue
+            foreach (DestructuringBinding binding in eachStmt.VariablePattern.Bindings)
+            {
+                if (binding.BindingName != null)
+                {
+                    _registry.DeclareVariable(name: binding.BindingName,
+                        type: ErrorTypeInfo.Instance);
+                }
+            }
+        }
+    }
+
     private void AnalyzeWhenStatement(WhenStatement whenStmt)
     {
         TypeSymbol matchedType = AnalyzeExpression(expression: whenStmt.Expression);
@@ -316,31 +357,7 @@ public sealed partial class SemanticVerifier
         // checks below, which don't apply until the arms are unrolled.
         if (whenStmt.ArmExpansion is { } armExp)
         {
-            // The subject type is the generic param (arms unknown pre-monomorph), so the explicit
-            // clauses' patterns (e.g. `is None`) can't be validated here — defer them. Declare any
-            // simple type-pattern binding leniently so its body still type-checks.
-            foreach (WhenClause clause in whenStmt.Clauses)
-            {
-                _registry.EnterScope(kind: ScopeKind.Block, name: "when-clause");
-                if (clause.Pattern is TypePattern { VariableName: { } explicitBind })
-                {
-                    _registry.DeclareVariable(name: explicitBind, type: ErrorTypeInfo.Instance);
-                }
-
-                AnalyzeStatement(statement: clause.Body);
-                _registry.ExitScope();
-            }
-
-            _registry.EnterScope(kind: ScopeKind.Block, name: "expand-arm");
-            _registry.DeclareVariable(name: armExp.HandleName,
-                type: ComptimeHandleTypeInfo.Instance);
-            if (armExp.Template.Pattern is SpliceTypePattern { VariableName: { } bindName })
-            {
-                _registry.DeclareVariable(name: bindName, type: ErrorTypeInfo.Instance);
-            }
-
-            AnalyzeStatement(statement: armExp.Template.Body);
-            _registry.ExitScope();
+            AnalyzeWhenArmExpansion(whenStmt: whenStmt, armExp: armExp);
             return;
         }
 
@@ -351,34 +368,10 @@ public sealed partial class SemanticVerifier
         }
 
         // #88: Pattern order enforcement — else/wildcard must be last, detect unreachable patterns
-        bool seenElse = false;
-        foreach (WhenClause clause in whenStmt.Clauses)
-        {
-            if (seenElse)
-            {
-                ReportError(code: SemanticDiagnosticCode.PatternOrderViolation,
-                    message: "Unreachable pattern after 'else' or wildcard.",
-                    location: clause.Pattern.Location);
-            }
-
-            if (clause.Pattern is ElsePattern or WildcardPattern)
-            {
-                seenElse = true;
-            }
-        }
+        CheckWhenPatternOrder(whenStmt: whenStmt);
 
         // #130/#148: Duplicate pattern detection
-        var seenPatterns = new HashSet<string>();
-        foreach (WhenClause clause in whenStmt.Clauses)
-        {
-            string? patternKey = GetPatternKey(pattern: clause.Pattern);
-            if (patternKey != null && !seenPatterns.Add(item: patternKey))
-            {
-                ReportError(code: SemanticDiagnosticCode.DuplicatePattern,
-                    message: $"Duplicate pattern: {patternKey}.",
-                    location: clause.Pattern.Location);
-            }
-        }
+        CheckWhenDuplicatePatterns(whenStmt: whenStmt);
 
         // Track handled patterns for narrowing the else clause
         bool handledNone = false;
@@ -508,47 +501,129 @@ public sealed partial class SemanticVerifier
         if (matchedType is ChoiceTypeInfo or VariantTypeInfo || IsCarrierType(type: matchedType) ||
             IsBoolType(type: matchedType))
         {
-            bool hasCatchAll = whenStmt.Clauses.Any(predicate: c =>
-                c.Pattern is WildcardPattern or ElsePattern or IdentifierPattern);
+            CheckWhenExhaustiveness(whenStmt: whenStmt, matchedType: matchedType);
+        }
+    }
 
-            if (hasCatchAll)
+    /// <summary>
+    /// Analyzes a comptime arm-expansion `when` (`when me` / `is ${m.type} x => …`): its explicit
+    /// clauses and the expansion template body are validated leniently (bindings deferred to
+    /// monomorphization) with the exhaustiveness/order checks skipped.
+    /// </summary>
+    private void AnalyzeWhenArmExpansion(WhenStatement whenStmt, WhenArmExpansion armExp)
+    {
+        // The subject type is the generic param (arms unknown pre-monomorph), so the explicit
+        // clauses' patterns (e.g. `is None`) can't be validated here — defer them. Declare any
+        // simple type-pattern binding leniently so its body still type-checks.
+        foreach (WhenClause clause in whenStmt.Clauses)
+        {
+            _registry.EnterScope(kind: ScopeKind.Block, name: "when-clause");
+            if (clause.Pattern is TypePattern { VariableName: { } explicitBind })
             {
-                _exhaustiveWhens.Add(item: whenStmt);
+                _registry.DeclareVariable(name: explicitBind, type: ErrorTypeInfo.Instance);
             }
-            else
+
+            AnalyzeStatement(statement: clause.Body);
+            _registry.ExitScope();
+        }
+
+        _registry.EnterScope(kind: ScopeKind.Block, name: "expand-arm");
+        _registry.DeclareVariable(name: armExp.HandleName,
+            type: ComptimeHandleTypeInfo.Instance);
+        if (armExp.Template.Pattern is SpliceTypePattern { VariableName: { } bindName })
+        {
+            _registry.DeclareVariable(name: bindName, type: ErrorTypeInfo.Instance);
+        }
+
+        AnalyzeStatement(statement: armExp.Template.Body);
+        _registry.ExitScope();
+    }
+
+    /// <summary>
+    /// #88: Enforces that an else/wildcard clause is last — any clause after one is unreachable.
+    /// </summary>
+    private void CheckWhenPatternOrder(WhenStatement whenStmt)
+    {
+        bool seenElse = false;
+        foreach (WhenClause clause in whenStmt.Clauses)
+        {
+            if (seenElse)
             {
-                ExhaustivenessResult exhaustiveness = CheckExhaustiveness(
-                    clauses: whenStmt.Clauses,
-                    matchedType: matchedType);
-
-                if (exhaustiveness.IsExhaustive)
-                {
-                    _exhaustiveWhens.Add(item: whenStmt);
-                }
-                else
-                {
-                    string missing = exhaustiveness.MissingCases.Count > 0
-                        ? $" Missing cases: {string.Join(separator: ", ", values: exhaustiveness.MissingCases)}."
-                        : "";
-
-                    // #89: Result/Lookup missing Crashable catch-all is an error, not a warning
-                    if (IsCarrierType(type: matchedType) && !IsMaybeType(type: matchedType) &&
-                        exhaustiveness.MissingCases.Contains(item: "Crashable"))
-                    {
-                        ReportError(code: SemanticDiagnosticCode.NonExhaustiveMatch,
-                            message:
-                            $"Pattern match on '{matchedType.Name}' requires a 'Crashable' catch-all arm.{missing}",
-                            location: whenStmt.Location);
-                    }
-                    else
-                    {
-                        ReportWarning(code: SemanticWarningCode.NonExhaustiveWhen,
-                            message:
-                            $"When statement may not cover all cases of '{matchedType.Name}'.{missing}",
-                            location: whenStmt.Location);
-                    }
-                }
+                ReportError(code: SemanticDiagnosticCode.PatternOrderViolation,
+                    message: "Unreachable pattern after 'else' or wildcard.",
+                    location: clause.Pattern.Location);
             }
+
+            if (clause.Pattern is ElsePattern or WildcardPattern)
+            {
+                seenElse = true;
+            }
+        }
+    }
+
+    /// <summary>
+    /// #130/#148: Reports clauses whose pattern key repeats an earlier clause's.
+    /// </summary>
+    private void CheckWhenDuplicatePatterns(WhenStatement whenStmt)
+    {
+        var seenPatterns = new HashSet<string>();
+        foreach (WhenClause clause in whenStmt.Clauses)
+        {
+            string? patternKey = GetPatternKey(pattern: clause.Pattern);
+            if (patternKey != null && !seenPatterns.Add(item: patternKey))
+            {
+                ReportError(code: SemanticDiagnosticCode.DuplicatePattern,
+                    message: $"Duplicate pattern: {patternKey}.",
+                    location: clause.Pattern.Location);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Checks exhaustiveness of a `when` over an enumerable type: a catch-all clause is always
+    /// exhaustive, otherwise a missing 'Crashable' arm on Result/Lookup is a hard error and any
+    /// other gap is a non-exhaustive warning.
+    /// </summary>
+    private void CheckWhenExhaustiveness(WhenStatement whenStmt, TypeSymbol matchedType)
+    {
+        bool hasCatchAll = whenStmt.Clauses.Any(predicate: c =>
+            c.Pattern is WildcardPattern or ElsePattern or IdentifierPattern);
+
+        if (hasCatchAll)
+        {
+            _exhaustiveWhens.Add(item: whenStmt);
+            return;
+        }
+
+        ExhaustivenessResult exhaustiveness = CheckExhaustiveness(
+            clauses: whenStmt.Clauses,
+            matchedType: matchedType);
+
+        if (exhaustiveness.IsExhaustive)
+        {
+            _exhaustiveWhens.Add(item: whenStmt);
+            return;
+        }
+
+        string missing = exhaustiveness.MissingCases.Count > 0
+            ? $" Missing cases: {string.Join(separator: ", ", values: exhaustiveness.MissingCases)}."
+            : "";
+
+        // #89: Result/Lookup missing Crashable catch-all is an error, not a warning
+        if (IsCarrierType(type: matchedType) && !IsMaybeType(type: matchedType) &&
+            exhaustiveness.MissingCases.Contains(item: "Crashable"))
+        {
+            ReportError(code: SemanticDiagnosticCode.NonExhaustiveMatch,
+                message:
+                $"Pattern match on '{matchedType.Name}' requires a 'Crashable' catch-all arm.{missing}",
+                location: whenStmt.Location);
+        }
+        else
+        {
+            ReportWarning(code: SemanticWarningCode.NonExhaustiveWhen,
+                message:
+                $"When statement may not cover all cases of '{matchedType.Name}'.{missing}",
+                location: whenStmt.Location);
         }
     }
 
@@ -788,36 +863,8 @@ public sealed partial class SemanticVerifier
             : null;
         if (accessHandle != null)
         {
-            bool isWriter = accessBase == Compiler.Resolution.RuntimeContract.Amending;
-            int accessIdentity = GetOrAssignHandleIdentity(path: accessHandle);
-            foreach ((string Handle, int Identity, bool IsWriter, SourceLocation Location) hold
-                     in _activeAccessHolds)
-            {
-                // Two holds touch the same memory when they resolve to the same controller identity
-                // (aliased handles — `s` and `s2 = s.share()`) OR when their syntactic paths overlap
-                // on a field boundary (a parent handle and one of its sub-handles).
-                bool sameMemory = hold.Identity == accessIdentity ||
-                                  PathsOverlap(a: hold.Handle, b: accessHandle);
-                if (!sameMemory || (!isWriter && !hold.IsWriter))
-                    continue;
-                string newKind = isWriter ? "amend()" : "consult()";
-                string heldKind = hold.IsWriter ? "amend()" : "consult()";
-                string overlapNote = hold.Handle == accessHandle
-                    ? "the same shared handle"
-                    : hold.Identity == accessIdentity
-                        ? $"the aliased handle '{hold.Handle}' (same shared data)"
-                        : $"the overlapping handle '{hold.Handle}'";
-                ReportError(code: SemanticDiagnosticCode.ReadersXorWriter,
-                    message:
-                    $"'{newKind}' on '{accessHandle}' conflicts with an active '{heldKind}' on " +
-                    $"{overlapNote} in an enclosing 'using' scope. A writer ('amend') excludes all other " +
-                    "access; readers ('consult') may coexist only with other readers.",
-                    location: usingStmt.Location);
-                break;
-            }
-
-            _activeAccessHolds.Add(
-                item: (accessHandle, accessIdentity, isWriter, usingStmt.Location));
+            CheckReadersXorWriter(usingStmt: usingStmt, accessBase: accessBase,
+                accessHandle: accessHandle);
         }
 
         // The bound variable type defaults to the resource type, but may be overridden
@@ -829,37 +876,8 @@ public sealed partial class SemanticVerifier
         // is the gate, so being `using`-able is an explicit, checked capability.
         if (_registry.Language == Language.RazorForge)
         {
-            if (!ImplementsProtocol(type: resourceType, protocolName: "Enterable"))
-            {
-                ReportError(code: SemanticDiagnosticCode.UsingTargetMissingEnterExit,
-                    message:
-                    $"Using target of type '{resourceType.Name}' must obey 'Enterable' (which provides " +
-                    "'enter'/'exit') for scope-managed resource access.",
-                    location: usingStmt.Location);
-            }
-            else
-            {
-                // The bound variable's type is `enter`'s return type when non-void (pass-through).
-                // LookupMemberRoutine handles generic fallback (Viewing[Point].enter -> Viewing.enter).
-                RoutineInfo? enterMemberRoutine =
-                    _registry.LookupMemberRoutine(type: resourceType, memberRoutineName: "enter");
-                if (enterMemberRoutine?.ReturnType is { IsNone: false } enterReturn)
-                    boundType = enterReturn;
-
-                // A `fallback` branch drives a non-blocking acquisition — the resource must
-                // provide `try_enter` (returns Bool: did the hold succeed?). Types whose entry
-                // can only block (no `try_enter`) cannot take a `fallback`.
-                if (usingStmt.FallbackBody != null &&
-                    _registry.LookupMemberRoutine(type: resourceType, memberRoutineName: "try_enter") == null)
-                {
-                    ReportError(code: SemanticDiagnosticCode.UsingFallbackRequiresTryEnter,
-                        message:
-                        $"'using ... fallback' requires the resource type '{resourceType.Name}' to " +
-                        "provide 'try_enter' (a non-blocking acquisition). This type only supports " +
-                        "blocking entry — drop the 'fallback' branch.",
-                        location: usingStmt.Location);
-                }
-            }
+            ValidateEnterableResource(usingStmt: usingStmt, resourceType: resourceType,
+                boundType: ref boundType);
         }
 
         // Create a new scope for the using block
@@ -889,6 +907,85 @@ public sealed partial class SemanticVerifier
             _registry.EnterScope(kind: ScopeKind.Block, name: "using-fallback");
             AnalyzeStatement(statement: usingStmt.FallbackBody);
             _registry.ExitScope();
+        }
+    }
+
+    /// <summary>
+    /// RF-S630 readers-XOR-writer: reports a conflict when the access token this `using` opens
+    /// overlaps an active hold in an enclosing scope (a writer excludes all; readers coexist), then
+    /// pushes this hold onto the active-holds stack for the duration of the body.
+    /// </summary>
+    private void CheckReadersXorWriter(UsingStatement usingStmt, string accessBase,
+        string accessHandle)
+    {
+        bool isWriter = accessBase == Compiler.Resolution.RuntimeContract.Amending;
+        int accessIdentity = GetOrAssignHandleIdentity(path: accessHandle);
+        foreach ((string Handle, int Identity, bool IsWriter, SourceLocation Location) hold
+                 in _activeAccessHolds)
+        {
+            // Two holds touch the same memory when they resolve to the same controller identity
+            // (aliased handles — `s` and `s2 = s.share()`) OR when their syntactic paths overlap
+            // on a field boundary (a parent handle and one of its sub-handles).
+            bool sameMemory = hold.Identity == accessIdentity ||
+                              PathsOverlap(a: hold.Handle, b: accessHandle);
+            if (!sameMemory || (!isWriter && !hold.IsWriter))
+                continue;
+            string newKind = isWriter ? "amend()" : "consult()";
+            string heldKind = hold.IsWriter ? "amend()" : "consult()";
+            string overlapNote = hold.Handle == accessHandle
+                ? "the same shared handle"
+                : hold.Identity == accessIdentity
+                    ? $"the aliased handle '{hold.Handle}' (same shared data)"
+                    : $"the overlapping handle '{hold.Handle}'";
+            ReportError(code: SemanticDiagnosticCode.ReadersXorWriter,
+                message:
+                $"'{newKind}' on '{accessHandle}' conflicts with an active '{heldKind}' on " +
+                $"{overlapNote} in an enclosing 'using' scope. A writer ('amend') excludes all other " +
+                "access; readers ('consult') may coexist only with other readers.",
+                location: usingStmt.Location);
+            break;
+        }
+
+        _activeAccessHolds.Add(
+            item: (accessHandle, accessIdentity, isWriter, usingStmt.Location));
+    }
+
+    /// <summary>
+    /// Validates a RazorForge `using` resource obeys `Enterable`; when it does, overrides the bound
+    /// variable type with `enter`'s non-void return and requires `try_enter` for a `fallback` branch.
+    /// </summary>
+    private void ValidateEnterableResource(UsingStatement usingStmt, TypeSymbol resourceType,
+        ref TypeSymbol boundType)
+    {
+        if (!ImplementsProtocol(type: resourceType, protocolName: "Enterable"))
+        {
+            ReportError(code: SemanticDiagnosticCode.UsingTargetMissingEnterExit,
+                message:
+                $"Using target of type '{resourceType.Name}' must obey 'Enterable' (which provides " +
+                "'enter'/'exit') for scope-managed resource access.",
+                location: usingStmt.Location);
+            return;
+        }
+
+        // The bound variable's type is `enter`'s return type when non-void (pass-through).
+        // LookupMemberRoutine handles generic fallback (Viewing[Point].enter -> Viewing.enter).
+        RoutineInfo? enterMemberRoutine =
+            _registry.LookupMemberRoutine(type: resourceType, memberRoutineName: "enter");
+        if (enterMemberRoutine?.ReturnType is { IsNone: false } enterReturn)
+            boundType = enterReturn;
+
+        // A `fallback` branch drives a non-blocking acquisition — the resource must
+        // provide `try_enter` (returns Bool: did the hold succeed?). Types whose entry
+        // can only block (no `try_enter`) cannot take a `fallback`.
+        if (usingStmt.FallbackBody != null &&
+            _registry.LookupMemberRoutine(type: resourceType, memberRoutineName: "try_enter") == null)
+        {
+            ReportError(code: SemanticDiagnosticCode.UsingFallbackRequiresTryEnter,
+                message:
+                $"'using ... fallback' requires the resource type '{resourceType.Name}' to " +
+                "provide 'try_enter' (a non-blocking acquisition). This type only supports " +
+                "blocking entry — drop the 'fallback' branch.",
+                location: usingStmt.Location);
         }
     }
 

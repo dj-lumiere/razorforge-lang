@@ -150,85 +150,19 @@ internal sealed class SuflaeEntityLoweringPass
         switch (stmt)
         {
             case BlockStatement block:
-            {
-                bool changed = false;
-                var list = new List<Statement>(capacity: block.Statements.Count);
-                foreach (Statement s in block.Statements)
-                {
-                    Statement ns = LowerStatement(s);
-                    list.Add(ns);
-                    if (!ReferenceEquals(ns, s)) changed = true;
-                }
-                return changed ? block with { Statements = list } : block;
-            }
+                return LowerBlockStatement(stmt: stmt, block: block);
 
             case DeclarationStatement { Declaration: VariableDeclaration { Initializer: not null } vd } ds:
-            {
-                Expression init = MaybeRoamCopy(LowerExpression(vd.Initializer));
-                // Track the local as Roamed[E] when its initializer resolved to a Roamed wrapper, so
-                // later references (aliasing / access) retype consistently. `var` locals infer their
-                // type from the initializer at codegen, so no declared-type rewrite is needed here.
-                if (init.ResolvedType is WrapperTypeInfo { Name: RuntimeContract.Roamed } w)
-                    _roamedLocals[vd.Name] = w;
-                return ReferenceEquals(init, vd.Initializer)
-                    ? stmt
-                    : ds with { Declaration = vd with { Initializer = init } };
-            }
+                return LowerDeclarationStatement(stmt: stmt, ds: ds, vd: vd);
 
             case AssignmentStatement assign:
-            {
-                Expression v = LowerExpression(assign.Value);
-                // SF implicit share: a borrowed Roamed RHS bound into a LOCAL slot retains so the slot owns
-                // its own count. FIELD-target writes (`o.inner = x`) are NOT handled here — SF entity field
-                // REASSIGNMENT has a separate pre-existing codegen crash (baseline AVs with or without the
-                // former RoamBump), so the share placement for that path is deferred until that bug is fixed.
-                // The former RcRetainLoweringPass.RoamBump auto-share for field targets is removed (it was the
-                // compiler hand-simulating the refcount; RF now spells the co-owner explicitly `x.share()`).
-                if (assign.Target is IdentifierExpression)
-                    v = MaybeRoamCopy(v);
-                return ReferenceEquals(v, assign.Value) ? stmt : assign with { Value = v };
-            }
+                return LowerAssignmentStatement(stmt: stmt, assign: assign);
 
             case ReturnStatement { Value: not null } ret:
-            {
-                Expression v = LowerExpression(ret.Value);
-                // A `create` constructor returns the BARE entity — the caller roams it (documented
-                // convention; stdlib's generic constructors already return bare). If lowering roamed the
-                // return construction, peel that top `Roamed(from: X)` back off so the value isn't roamed
-                // AGAIN at the call site (the double-roam bug: outer controller.data → inner controller).
-                if (_inCreateRoutine && TryUnwrapRoamConstruction(expr: v, inner: out Expression? bareInner))
-                    return ReferenceEquals(bareInner, ret.Value) ? stmt : ret with { Value = bareInner };
-                // Returning a BORROW (`me` / a Roamed param) or a Roamed FIELD read hands a fresh
-                // reference to the caller; retain so the caller owns its own count. The borrow itself is
-                // not released at scope exit (teardown skips `me` + SF Roamed params), so without the
-                // retain the caller's binding and the original owner both release one shared count →
-                // double free. An owned local returned by MOVE is not a borrow and is left as-is.
-                if ((v is IdentifierExpression rid && _borrowNames.Contains(item: rid.Name))
-                    || v is MemberExpression)
-                    v = MaybeRoamCopy(v);
-                return ReferenceEquals(v, ret.Value) ? stmt : ret with { Value = v };
-            }
+                return LowerReturnStatement(stmt: stmt, ret: ret);
 
-            // A statement-level assignment `target = value` parses as an ExpressionStatement wrapping a
-            // BinaryExpression{Assign} (NOT an AssignmentStatement — the parser only emits BinaryExpression
-            // for `=`). SF implicit share: a borrowed Roamed RHS bound into a persistent slot (local var OR a
-            // Roamed entity FIELD) must retain so the slot owns its own count. The former RcRetainLoweringPass
-            // .RoamBump only fired for RF BARE-entity field writes (its `IsRoamedEntityField` requires the
-            // object to be a bare EntityTypeInfo) — it NEVER fired for SF's `roamed_obj.field = x` (object is
-            // Roamed), so SF field reassignment had NO retain-new: the field aliased the RHS handle without a
-            // count → double-free at teardown. Inserting the share HERE (the SF lowering, the home of implicit
-            // sharing) fixes it. MaybeRoamCopy self-gates on a Roamed borrow value; a fresh rvalue / non-Roamed
-            // is untouched. The release-old on field overwrite stays in codegen (reassignment ≠ scope exit).
             case ExpressionStatement { Expression: BinaryExpression { Operator: BinaryOperator.Assign } bin } es:
-            {
-                Expression left = LowerExpression(bin.Left);
-                Expression right = LowerExpression(bin.Right);
-                if (bin.Left is IdentifierExpression or MemberExpression)
-                    right = MaybeRoamCopy(right);
-                return ReferenceEquals(left, bin.Left) && ReferenceEquals(right, bin.Right)
-                    ? stmt
-                    : es with { Expression = bin with { Left = left, Right = right } };
-            }
+                return LowerBinaryAssignStatement(stmt: stmt, es: es, bin: bin);
 
             case ExpressionStatement es:
             {
@@ -243,15 +177,7 @@ internal sealed class SuflaeEntityLoweringPass
             }
 
             case IfStatement ifs:
-            {
-                Expression c = LowerExpression(ifs.Condition);
-                Statement t = LowerStatement(ifs.ThenStatement);
-                Statement? el = ifs.ElseStatement != null ? LowerStatement(ifs.ElseStatement) : null;
-                return !ReferenceEquals(c, ifs.Condition) || !ReferenceEquals(t, ifs.ThenStatement)
-                       || !ReferenceEquals(el, ifs.ElseStatement)
-                    ? ifs with { Condition = c, ThenStatement = t, ElseStatement = el }
-                    : stmt;
-            }
+                return LowerIfStatement(stmt: stmt, ifs: ifs);
 
             case WhileStatement w:
             {
@@ -275,19 +201,7 @@ internal sealed class SuflaeEntityLoweringPass
             }
 
             case WhenStatement whenStmt:
-            {
-                bool changed = false;
-                Expression subj = LowerExpression(whenStmt.Expression);
-                if (!ReferenceEquals(subj, whenStmt.Expression)) changed = true;
-                var clauses = new List<WhenClause>(capacity: whenStmt.Clauses.Count);
-                foreach (WhenClause cl in whenStmt.Clauses)
-                {
-                    Statement nb = LowerStatement(cl.Body);
-                    clauses.Add(ReferenceEquals(nb, cl.Body) ? cl : cl with { Body = nb });
-                    if (!ReferenceEquals(nb, cl.Body)) changed = true;
-                }
-                return changed ? whenStmt with { Expression = subj, Clauses = clauses } : stmt;
-            }
+                return LowerWhenStatement(stmt: stmt, whenStmt: whenStmt);
 
             case UsingStatement u:
             {
@@ -307,6 +221,115 @@ internal sealed class SuflaeEntityLoweringPass
             default:
                 return stmt;
         }
+    }
+
+    private Statement LowerBlockStatement(Statement stmt, BlockStatement block)
+    {
+        bool changed = false;
+        var list = new List<Statement>(capacity: block.Statements.Count);
+        foreach (Statement s in block.Statements)
+        {
+            Statement ns = LowerStatement(s);
+            list.Add(ns);
+            if (!ReferenceEquals(ns, s)) changed = true;
+        }
+        return changed ? block with { Statements = list } : block;
+    }
+
+    private Statement LowerDeclarationStatement(Statement stmt, DeclarationStatement ds,
+        VariableDeclaration vd)
+    {
+        Expression init = MaybeRoamCopy(LowerExpression(vd.Initializer!));
+        // Track the local as Roamed[E] when its initializer resolved to a Roamed wrapper, so
+        // later references (aliasing / access) retype consistently. `var` locals infer their
+        // type from the initializer at codegen, so no declared-type rewrite is needed here.
+        if (init.ResolvedType is WrapperTypeInfo { Name: RuntimeContract.Roamed } w)
+            _roamedLocals[vd.Name] = w;
+        return ReferenceEquals(init, vd.Initializer)
+            ? stmt
+            : ds with { Declaration = vd with { Initializer = init } };
+    }
+
+    private Statement LowerAssignmentStatement(Statement stmt, AssignmentStatement assign)
+    {
+        Expression v = LowerExpression(assign.Value);
+        // SF implicit share: a borrowed Roamed RHS bound into a LOCAL slot retains so the slot owns
+        // its own count. FIELD-target writes (`o.inner = x`) are NOT handled here — SF entity field
+        // REASSIGNMENT has a separate pre-existing codegen crash (baseline AVs with or without the
+        // former RoamBump), so the share placement for that path is deferred until that bug is fixed.
+        // The former RcRetainLoweringPass.RoamBump auto-share for field targets is removed (it was the
+        // compiler hand-simulating the refcount; RF now spells the co-owner explicitly `x.share()`).
+        if (assign.Target is IdentifierExpression)
+            v = MaybeRoamCopy(v);
+        return ReferenceEquals(v, assign.Value) ? stmt : assign with { Value = v };
+    }
+
+    // A statement-level assignment `target = value` parses as an ExpressionStatement wrapping a
+    // BinaryExpression{Assign} (NOT an AssignmentStatement — the parser only emits BinaryExpression
+    // for `=`). SF implicit share: a borrowed Roamed RHS bound into a persistent slot (local var OR a
+    // Roamed entity FIELD) must retain so the slot owns its own count. The former RcRetainLoweringPass
+    // .RoamBump only fired for RF BARE-entity field writes (its `IsRoamedEntityField` requires the
+    // object to be a bare EntityTypeInfo) — it NEVER fired for SF's `roamed_obj.field = x` (object is
+    // Roamed), so SF field reassignment had NO retain-new: the field aliased the RHS handle without a
+    // count → double-free at teardown. Inserting the share HERE (the SF lowering, the home of implicit
+    // sharing) fixes it. MaybeRoamCopy self-gates on a Roamed borrow value; a fresh rvalue / non-Roamed
+    // is untouched. The release-old on field overwrite stays in codegen (reassignment ≠ scope exit).
+    private Statement LowerBinaryAssignStatement(Statement stmt, ExpressionStatement es,
+        BinaryExpression bin)
+    {
+        Expression left = LowerExpression(bin.Left);
+        Expression right = LowerExpression(bin.Right);
+        if (bin.Left is IdentifierExpression or MemberExpression)
+            right = MaybeRoamCopy(right);
+        return ReferenceEquals(left, bin.Left) && ReferenceEquals(right, bin.Right)
+            ? stmt
+            : es with { Expression = bin with { Left = left, Right = right } };
+    }
+
+    private Statement LowerIfStatement(Statement stmt, IfStatement ifs)
+    {
+        Expression c = LowerExpression(ifs.Condition);
+        Statement t = LowerStatement(ifs.ThenStatement);
+        Statement? el = ifs.ElseStatement != null ? LowerStatement(ifs.ElseStatement) : null;
+        return !ReferenceEquals(c, ifs.Condition) || !ReferenceEquals(t, ifs.ThenStatement)
+               || !ReferenceEquals(el, ifs.ElseStatement)
+            ? ifs with { Condition = c, ThenStatement = t, ElseStatement = el }
+            : stmt;
+    }
+
+    private Statement LowerWhenStatement(Statement stmt, WhenStatement whenStmt)
+    {
+        bool changed = false;
+        Expression subj = LowerExpression(whenStmt.Expression);
+        if (!ReferenceEquals(subj, whenStmt.Expression)) changed = true;
+        var clauses = new List<WhenClause>(capacity: whenStmt.Clauses.Count);
+        foreach (WhenClause cl in whenStmt.Clauses)
+        {
+            Statement nb = LowerStatement(cl.Body);
+            clauses.Add(ReferenceEquals(nb, cl.Body) ? cl : cl with { Body = nb });
+            if (!ReferenceEquals(nb, cl.Body)) changed = true;
+        }
+        return changed ? whenStmt with { Expression = subj, Clauses = clauses } : stmt;
+    }
+
+    private Statement LowerReturnStatement(Statement stmt, ReturnStatement ret)
+    {
+        Expression v = LowerExpression(ret.Value!);
+        // A `create` constructor returns the BARE entity — the caller roams it (documented
+        // convention; stdlib's generic constructors already return bare). If lowering roamed the
+        // return construction, peel that top `Roamed(from: X)` back off so the value isn't roamed
+        // AGAIN at the call site (the double-roam bug: outer controller.data → inner controller).
+        if (_inCreateRoutine && TryUnwrapRoamConstruction(expr: v, inner: out Expression? bareInner))
+            return ReferenceEquals(bareInner, ret.Value) ? stmt : ret with { Value = bareInner };
+        // Returning a BORROW (`me` / a Roamed param) or a Roamed FIELD read hands a fresh
+        // reference to the caller; retain so the caller owns its own count. The borrow itself is
+        // not released at scope exit (teardown skips `me` + SF Roamed params), so without the
+        // retain the caller's binding and the original owner both release one shared count →
+        // double free. An owned local returned by MOVE is not a borrow and is left as-is.
+        if ((v is IdentifierExpression rid && _borrowNames.Contains(item: rid.Name))
+            || v is MemberExpression)
+            v = MaybeRoamCopy(v);
+        return ReferenceEquals(v, ret.Value) ? stmt : ret with { Value = v };
     }
 
     // ---- Expressions ----------------------------------------------------------------------------
@@ -367,110 +390,13 @@ internal sealed class SuflaeEntityLoweringPass
             // no direct IsPattern lowering for a Roamed handle. The frontend already narrowed the flow.
             case IsPatternExpression ipe
                 when (ipe.Pattern is NonePattern or TypePattern { Type.Name: "None" }):
-            {
-                Expression inner = LowerExpression(ipe.Expression);
-                if (!IsRoamedType(inner.ResolvedType))
-                {
-                    // Not a Roamed operand — leave the IsPattern as-is (Maybe/variant handled downstream).
-                    return ReferenceEquals(inner, ipe.Expression) ? ipe : ipe with { Expression = inner };
-                }
-
-                TypeInfo? boolType = _registry.LookupType(name: "Bool");
-                var isNoneCall = new CallExpression(
-                    Callee: new MemberExpression(Object: inner, MemberName: "is_none",
-                        Location: ipe.Location) { ResolvedType = boolType },
-                    Arguments: new List<Expression>(),
-                    Location: ipe.Location) { ResolvedType = boolType };
-                if (!ipe.IsNegated)
-                    return isNoneCall;
-                return new UnaryExpression(Operator: UnaryOperator.Not, Operand: isNoneCall,
-                    Location: ipe.Location) { ResolvedType = boolType };
-            }
+                return LowerNoneIsPattern(ipe: ipe);
 
             // A call — INCLUDING a constructor call `E(...)`, which is a CallExpression (not a
             // CreatorExpression) at this phase — that produces a bare SF entity: recurse into its
             // parts, then `.roam()` the whole value.
             case CallExpression call:
-            {
-                Expression callee = LowerExpression(call.Callee);
-                bool changed = !ReferenceEquals(callee, call.Callee);
-
-                // Receiver projection: a Roamed handle flowing as the RECEIVER into a BARE-`me` memberRoutine
-                // must be projected through `.raw_inner()` to the real entity pointer. Stdlib entities
-                // (analyzed in RF mode — e.g. an iterator's `emit!`/`try_emit`) have a bare `me`
-                // (MeType is NOT Roamed), so passing the RoamController handle makes the callee read the
-                // controller as the entity and crash. USER SF entity memberRoutines have MeType=Roamed and
-                // correctly take the handle; memberRoutines declared on Roamed/RoamController itself
-                // (roam/raw_inner/is_none) own the handle too. Gate on the resolved routine owning a
-                // bare entity with a non-Roamed MeType. Mirrors the argument projection below.
-                if (callee is MemberExpression { Object: { } recv } calleeMember
-                    && call.ResolvedRoutine is { OwnerType: EntityTypeInfo } resolvedCallee
-                    && resolvedCallee.MeType is not RecordTypeInfo { GenericDefinition.Name: RuntimeContract.Roamed }
-                    && RoamedInnerEntity(recv.ResolvedType) is { } recvEntity)
-                {
-                    Expression rawRecv = ProjectRawInner(arg: recv, targetEntity: recvEntity);
-                    if (!ReferenceEquals(rawRecv, recv))
-                    {
-                        callee = calleeMember with { Object = rawRecv };
-                        changed = true;
-                    }
-                }
-
-                var args = new List<Expression>(capacity: call.Arguments.Count);
-                foreach (Expression a in call.Arguments)
-                {
-                    Expression na = LowerExpression(a);
-                    args.Add(na);
-                    if (!ReferenceEquals(na, a)) changed = true;
-                }
-                // A construction `E(...)` stores its args into fields; a borrowed Roamed arg going into a
-                // Roamed field must retain (else the field + the source local both release → double free).
-                if (call.ResolvedType is EntityTypeInfo)
-                {
-                    for (int k = 0; k < args.Count; k++) args[k] = RetainConstructionArg(args[k]);
-                    changed = true;
-                }
-
-                CallExpression lowered = changed ? call with { Callee = callee, Arguments = args } : call;
-
-                // Project each Roamed argument that flows into a BARE-entity parameter through
-                // `.raw_inner()`. SF routine/memberRoutine parameters are NOT Roamed-substituted, so their slot
-                // is a bare `E` and must receive the real entity pointer — passing the RoamController
-                // handle makes the callee read the controller as the entity (`x.field` → crash). Borrow
-                // semantics: no retain, the caller keeps ownership. Skips construction (call.ResolvedType
-                // is EntityTypeInfo), whose args are field stores needing a retained Roamed (handled
-                // above). Mirrors the memberRoutine-receiver `raw_inner` interim below.
-                if (call.ResolvedType is not EntityTypeInfo && lowered.ResolvedRoutine is { } argRoutine)
-                {
-                    lowered = ProjectRoamedArgsIntoBareParams(call: lowered, routine: argRoutine);
-                }
-
-                // (The interim receiver `.raw_inner()` projection was removed with representation
-                // unification: an SF entity memberRoutine's `me` now resolves as `Roamed[E]` — SignatureResolver
-                // sets MeType — so the call passes the Roamed handle directly and `me.field` routes through
-                // the Roamed access machinery. No projection needed.)
-
-                if (call.ResolvedType is EntityTypeInfo callEntity && !IsRfRealmRef(call.Callee))
-                    return WrapInRoam(inner: lowered, entity: callEntity);
-
-                // A PARAMETERIZED SF constructor call (`Pt(v: x)`) is a CallExpression typed `Roamed[E]`
-                // (SA roamed `create`'s declared return), but the `create` BODY returns the BARE entity
-                // (create-returns-bare convention — see ReturnStatement lowering). So it still must be
-                // wrapped once at the call site — otherwise a bare entity binds into a Roamed slot
-                // (under-roamed → later destroyed as a controller → AccessViolation). The no-arg form
-                // `Box()` is typed bare (handled above); this catches the arg-carrying form. Gated on
-                // `create` (returns bare) so an ordinary routine returning a `Roamed[E]` value is NOT
-                // re-wrapped, and on the SF realm (an RF entity stays bare).
-                if (lowered.ResolvedRoutine is { Name: "create" }
-                    && RoamedInnerEntity(call.ResolvedType) is { } createEntity
-                    && !IsRfRealmRef(call.Callee))
-                {
-                    lowered.ResolvedType = createEntity;
-                    return WrapInRoam(inner: lowered, entity: createEntity);
-                }
-
-                return lowered;
-            }
+                return LowerCallExpression(call: call);
 
             // A generic-instance construction like `List[Node]()` stays a GenericMemberRoutineCallExpression
             // through codegen (the explicit `[T]` args keep it out of CallExpression form), so it must
@@ -478,48 +404,13 @@ internal sealed class SuflaeEntityLoweringPass
             // collection reads its raw buffer as a controller and crashes. Mirror the CallExpression
             // construction path: recurse args, retain Roamed-field args, then `.roam()` (promote).
             case GenericMemberRoutineCallExpression gmce:
-            {
-                var gArgs = new List<Expression>(capacity: gmce.Arguments.Count);
-                bool gChanged = false;
-                foreach (Expression a in gmce.Arguments)
-                {
-                    Expression na = LowerExpression(a);
-                    gArgs.Add(na);
-                    if (!ReferenceEquals(na, a)) gChanged = true;
-                }
-
-                if (gmce.ResolvedType is EntityTypeInfo)
-                {
-                    for (int k = 0; k < gArgs.Count; k++) gArgs[k] = RetainConstructionArg(gArgs[k]);
-                    gChanged = true;
-                }
-
-                GenericMemberRoutineCallExpression loweredG =
-                    gChanged ? gmce with { Arguments = gArgs } : gmce;
-                return gmce.ResolvedType is EntityTypeInfo gEntity && !IsRfRealmRef(gmce.Object)
-                    ? WrapInRoam(inner: loweredG, entity: gEntity)
-                    : loweredG;
-            }
+                return LowerGenericMemberRoutineCall(gmce: gmce);
 
             // f-string: recurse into each embedded `{ expr }` so entity references inside it retype
             // (else e.g. `f"{b.size}"` reads `b` as a bare entity — actually the RoamController — and
             // returns the refcount instead of the field).
             case InsertedTextExpression fstr:
-            {
-                bool changed = false;
-                var parts = new List<InsertedTextPart>(capacity: fstr.Parts.Count);
-                foreach (InsertedTextPart part in fstr.Parts)
-                {
-                    if (part is ExpressionPart ep)
-                    {
-                        Expression ne = LowerExpression(ep.Expression);
-                        parts.Add(ReferenceEquals(ne, ep.Expression) ? ep : ep with { Expression = ne });
-                        if (!ReferenceEquals(ne, ep.Expression)) changed = true;
-                    }
-                    else { parts.Add(part); }
-                }
-                return changed ? fstr with { Parts = parts } : fstr;
-            }
+                return LowerInsertedText(fstr: fstr);
 
             case BinaryExpression bin:
             {
@@ -545,6 +436,179 @@ internal sealed class SuflaeEntityLoweringPass
             default:
                 return expr;
         }
+    }
+
+    // f-string: recurse into each embedded `{ expr }` so entity references inside it retype
+    // (else e.g. `f"{b.size}"` reads `b` as a bare entity — actually the RoamController — and
+    // returns the refcount instead of the field).
+    private Expression LowerInsertedText(InsertedTextExpression fstr)
+    {
+        bool changed = false;
+        var parts = new List<InsertedTextPart>(capacity: fstr.Parts.Count);
+        foreach (InsertedTextPart part in fstr.Parts)
+        {
+            if (part is ExpressionPart ep)
+            {
+                Expression ne = LowerExpression(ep.Expression);
+                parts.Add(ReferenceEquals(ne, ep.Expression) ? ep : ep with { Expression = ne });
+                if (!ReferenceEquals(ne, ep.Expression)) changed = true;
+            }
+            else { parts.Add(part); }
+        }
+        return changed ? fstr with { Parts = parts } : fstr;
+    }
+
+    // `x is None` / `x isnot None` on a nullable entity reference (`E?` = Roamed[E]): rewrite to
+    // `x.is_none()` (negated -> `not x.is_none()`). Done before reachability so the Roamed[E].is_none()
+    // instance gets seeded/instantiated for the concrete entity; codegen has no direct IsPattern
+    // lowering for a Roamed handle. The frontend already narrowed the flow.
+    private Expression LowerNoneIsPattern(IsPatternExpression ipe)
+    {
+        Expression inner = LowerExpression(ipe.Expression);
+        if (!IsRoamedType(inner.ResolvedType))
+        {
+            // Not a Roamed operand — leave the IsPattern as-is (Maybe/variant handled downstream).
+            return ReferenceEquals(inner, ipe.Expression) ? ipe : ipe with { Expression = inner };
+        }
+
+        TypeInfo? boolType = _registry.LookupType(name: "Bool");
+        var isNoneCall = new CallExpression(
+            Callee: new MemberExpression(Object: inner, MemberName: "is_none",
+                Location: ipe.Location) { ResolvedType = boolType },
+            Arguments: new List<Expression>(),
+            Location: ipe.Location) { ResolvedType = boolType };
+        if (!ipe.IsNegated)
+            return isNoneCall;
+        return new UnaryExpression(Operator: UnaryOperator.Not, Operand: isNoneCall,
+            Location: ipe.Location) { ResolvedType = boolType };
+    }
+
+    // A call — INCLUDING a constructor call `E(...)`, which is a CallExpression (not a
+    // CreatorExpression) at this phase — that produces a bare SF entity: recurse into its parts, then
+    // `.roam()` the whole value.
+    private Expression LowerCallExpression(CallExpression call)
+    {
+        Expression callee = LowerExpression(call.Callee);
+        bool changed = !ReferenceEquals(callee, call.Callee);
+
+        callee = ProjectRoamedReceiverIntoBareMe(call: call, callee: callee, changed: ref changed);
+
+        var args = new List<Expression>(capacity: call.Arguments.Count);
+        foreach (Expression a in call.Arguments)
+        {
+            Expression na = LowerExpression(a);
+            args.Add(na);
+            if (!ReferenceEquals(na, a)) changed = true;
+        }
+        // A construction `E(...)` stores its args into fields; a borrowed Roamed arg going into a
+        // Roamed field must retain (else the field + the source local both release → double free).
+        if (call.ResolvedType is EntityTypeInfo)
+        {
+            for (int k = 0; k < args.Count; k++) args[k] = RetainConstructionArg(args[k]);
+            changed = true;
+        }
+
+        CallExpression lowered = changed ? call with { Callee = callee, Arguments = args } : call;
+
+        // Project each Roamed argument that flows into a BARE-entity parameter through
+        // `.raw_inner()`. SF routine/memberRoutine parameters are NOT Roamed-substituted, so their slot
+        // is a bare `E` and must receive the real entity pointer — passing the RoamController
+        // handle makes the callee read the controller as the entity (`x.field` → crash). Borrow
+        // semantics: no retain, the caller keeps ownership. Skips construction (call.ResolvedType
+        // is EntityTypeInfo), whose args are field stores needing a retained Roamed (handled
+        // above). Mirrors the memberRoutine-receiver `raw_inner` interim below.
+        if (call.ResolvedType is not EntityTypeInfo && lowered.ResolvedRoutine is { } argRoutine)
+        {
+            lowered = ProjectRoamedArgsIntoBareParams(call: lowered, routine: argRoutine);
+        }
+
+        // (The interim receiver `.raw_inner()` projection was removed with representation
+        // unification: an SF entity memberRoutine's `me` now resolves as `Roamed[E]` — SignatureResolver
+        // sets MeType — so the call passes the Roamed handle directly and `me.field` routes through
+        // the Roamed access machinery. No projection needed.)
+
+        return WrapCallResultInRoam(call: call, lowered: lowered);
+    }
+
+    // Receiver projection: a Roamed handle flowing as the RECEIVER into a BARE-`me` memberRoutine
+    // must be projected through `.raw_inner()` to the real entity pointer. Stdlib entities
+    // (analyzed in RF mode — e.g. an iterator's `emit!`/`try_emit`) have a bare `me`
+    // (MeType is NOT Roamed), so passing the RoamController handle makes the callee read the
+    // controller as the entity and crash. USER SF entity memberRoutines have MeType=Roamed and
+    // correctly take the handle; memberRoutines declared on Roamed/RoamController itself
+    // (roam/raw_inner/is_none) own the handle too. Gate on the resolved routine owning a
+    // bare entity with a non-Roamed MeType. Mirrors the argument projection.
+    private Expression ProjectRoamedReceiverIntoBareMe(CallExpression call, Expression callee,
+        ref bool changed)
+    {
+        if (callee is MemberExpression { Object: { } recv } calleeMember
+            && call.ResolvedRoutine is { OwnerType: EntityTypeInfo } resolvedCallee
+            && resolvedCallee.MeType is not RecordTypeInfo { GenericDefinition.Name: RuntimeContract.Roamed }
+            && RoamedInnerEntity(recv.ResolvedType) is { } recvEntity)
+        {
+            Expression rawRecv = ProjectRawInner(arg: recv, targetEntity: recvEntity);
+            if (!ReferenceEquals(rawRecv, recv))
+            {
+                changed = true;
+                return calleeMember with { Object = rawRecv };
+            }
+        }
+        return callee;
+    }
+
+    // Wrap the lowered call's result in `.roam()` where the call produces a bare SF entity or a
+    // parameterized SF constructor whose `create` body returns the bare entity.
+    private Expression WrapCallResultInRoam(CallExpression call, CallExpression lowered)
+    {
+        if (call.ResolvedType is EntityTypeInfo callEntity && !IsRfRealmRef(call.Callee))
+            return WrapInRoam(inner: lowered, entity: callEntity);
+
+        // A PARAMETERIZED SF constructor call (`Pt(v: x)`) is a CallExpression typed `Roamed[E]`
+        // (SA roamed `create`'s declared return), but the `create` BODY returns the BARE entity
+        // (create-returns-bare convention — see ReturnStatement lowering). So it still must be
+        // wrapped once at the call site — otherwise a bare entity binds into a Roamed slot
+        // (under-roamed → later destroyed as a controller → AccessViolation). The no-arg form
+        // `Box()` is typed bare (handled above); this catches the arg-carrying form. Gated on
+        // `create` (returns bare) so an ordinary routine returning a `Roamed[E]` value is NOT
+        // re-wrapped, and on the SF realm (an RF entity stays bare).
+        if (lowered.ResolvedRoutine is { Name: "create" }
+            && RoamedInnerEntity(call.ResolvedType) is { } createEntity
+            && !IsRfRealmRef(call.Callee))
+        {
+            lowered.ResolvedType = createEntity;
+            return WrapInRoam(inner: lowered, entity: createEntity);
+        }
+
+        return lowered;
+    }
+
+    // A generic-instance construction like `List[Node]()` stays a GenericMemberRoutineCallExpression
+    // through codegen (the explicit `[T]` args keep it out of CallExpression form), so it must be
+    // promoted here too — else a bare SF container never gets a RoamController and cycle collection
+    // reads its raw buffer as a controller and crashes. Mirror the CallExpression construction path:
+    // recurse args, retain Roamed-field args, then `.roam()` (promote).
+    private Expression LowerGenericMemberRoutineCall(GenericMemberRoutineCallExpression gmce)
+    {
+        var gArgs = new List<Expression>(capacity: gmce.Arguments.Count);
+        bool gChanged = false;
+        foreach (Expression a in gmce.Arguments)
+        {
+            Expression na = LowerExpression(a);
+            gArgs.Add(na);
+            if (!ReferenceEquals(na, a)) gChanged = true;
+        }
+
+        if (gmce.ResolvedType is EntityTypeInfo)
+        {
+            for (int k = 0; k < gArgs.Count; k++) gArgs[k] = RetainConstructionArg(gArgs[k]);
+            gChanged = true;
+        }
+
+        GenericMemberRoutineCallExpression loweredG =
+            gChanged ? gmce with { Arguments = gArgs } : gmce;
+        return gmce.ResolvedType is EntityTypeInfo gEntity && !IsRfRealmRef(gmce.Object)
+            ? WrapInRoam(inner: loweredG, entity: gEntity)
+            : loweredG;
     }
 
     // Rewrite each argument that lands in a BARE-entity parameter of `routine` from a Roamed handle to

@@ -5,7 +5,6 @@ module Core
 ### values, exposing both read and write operations through the wrapper.
 ### :typeparam T: The referenced entity type.
 protocol Controlling[T] obeys Accessing[T]
-needs T is EntityType
   ### Yields the inner entity as an in-flight `T` reference for read/write access.
   ### Implicitly inserted by the compiler at call sites whose target parameter is
   ### `Controlling[T]` and whose argument is any obeyer of `Controlling[T]`.

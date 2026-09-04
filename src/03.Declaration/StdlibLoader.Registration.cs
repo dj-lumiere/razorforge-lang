@@ -11,38 +11,41 @@ namespace Compiler.Declaration;
 
 public sealed partial class StdlibLoader
 {
-    private static void ResolveProtocolParents(TypeRegistry registry, Program program) // NOSONAR S3776
+    private static void ResolveProtocolParents(TypeRegistry registry, Program program)
     {
         foreach (ISyntaxTreeNode node in program.Declarations)
         {
-            if (node is not ProtocolDeclaration { ParentProtocols.Count: > 0 } protocol)
+            if (node is ProtocolDeclaration { ParentProtocols.Count: > 0 } protocol)
             {
-                continue;
+                ResolveProtocolParentsFor(registry: registry, protocol: protocol);
             }
+        }
+    }
 
-            // Look up the registered protocol to get its FullName
-            TypeInfo? registeredProto = registry.LookupType(name: protocol.Name);
-            if (registeredProto is not ProtocolTypeInfo)
-            {
-                continue;
-            }
+    private static void ResolveProtocolParentsFor(TypeRegistry registry, ProtocolDeclaration protocol)
+    {
+        // Look up the registered protocol to get its FullName
+        TypeInfo? registeredProto = registry.LookupType(name: protocol.Name);
+        if (registeredProto is not ProtocolTypeInfo)
+        {
+            return;
+        }
 
-            var parentProtocols = new List<ProtocolTypeInfo>();
-            foreach (TypeExpression parentExpr in protocol.ParentProtocols)
+        var parentProtocols = new List<ProtocolTypeInfo>();
+        foreach (TypeExpression parentExpr in protocol.ParentProtocols)
+        {
+            TypeInfo? parentType =
+                ResolveSimpleType(registry: registry, typeExpr: parentExpr);
+            if (parentType is ProtocolTypeInfo parentProto)
             {
-                TypeInfo? parentType =
-                    ResolveSimpleType(registry: registry, typeExpr: parentExpr);
-                if (parentType is ProtocolTypeInfo parentProto)
-                {
-                    parentProtocols.Add(item: parentProto);
-                }
+                parentProtocols.Add(item: parentProto);
             }
+        }
 
-            if (parentProtocols.Count > 0)
-            {
-                registry.UpdateProtocolParents(protocolName: registeredProto.FullName,
-                    parentProtocols: parentProtocols);
-            }
+        if (parentProtocols.Count > 0)
+        {
+            registry.UpdateProtocolParents(protocolName: registeredProto.FullName,
+                parentProtocols: parentProtocols);
         }
     }
 
@@ -115,7 +118,7 @@ public sealed partial class StdlibLoader
     /// Re-resolves member variables for types that had unresolvable forward references
     /// during initial registration. Called after all type shells are registered.
     /// </summary>
-    private static void ResolveProgramMemberVariables(TypeRegistry registry, Program program) // NOSONAR S3776
+    private static void ResolveProgramMemberVariables(TypeRegistry registry, Program program)
     {
         // The deferred member-variable re-resolution must find THIS program's types by their
         // module-qualified name. A bare `LookupType(name)` depended on the cross-module short-name scan
@@ -132,94 +135,106 @@ public sealed partial class StdlibLoader
             switch (node)
             {
                 case EntityDeclaration entity:
-                {
-                    var existing = LookupOwn(entity.Name) as EntityTypeInfo;
-                    int expectedCount = entity.Members.Count(predicate: m =>
-                        m is VariableDeclaration { Type: not null });
-                    if (existing == null || existing.MemberVariables.Count >= expectedCount)
-                    {
-                        continue;
-                    }
-
-                    List<MemberVariableInfo> members = ResolveMemberVariables(registry: registry,
-                        members: entity.Members,
-                        genericParams: entity.GenericParameters,
-                        owner: existing,
-                        moduleName: existing.Module);
-                    if (members.Count > existing.MemberVariables.Count)
-                    {
-                        existing.MemberVariables = members;
-                        registry.RefreshEntityResolutions(genericDef: existing);
-                    }
-
+                    ReResolveEntityMemberVariables(registry: registry, entity: entity,
+                        existing: LookupOwn(entity.Name) as EntityTypeInfo);
                     break;
-                }
                 case RecordDeclaration record:
-                {
-                    var existing = LookupOwn(record.Name) as RecordTypeInfo;
-                    int expectedCount = record.Members.Count(predicate: m =>
-                        m is VariableDeclaration { Type: not null });
-                    if (existing == null || existing.MemberVariables.Count >= expectedCount)
-                    {
-                        continue;
-                    }
-
-                    List<MemberVariableInfo> members = ResolveMemberVariables(registry: registry,
-                        members: record.Members,
-                        genericParams: record.GenericParameters,
-                        owner: existing,
-                        moduleName: existing.Module);
-                    if (members.Count > existing.MemberVariables.Count)
-                    {
-                        existing.MemberVariables = members;
-                    }
-
+                    ReResolveRecordMemberVariables(registry: registry, record: record,
+                        existing: LookupOwn(record.Name) as RecordTypeInfo);
                     break;
-                }
                 case VariantDeclaration variant:
-                {
-                    var existing = LookupOwn(variant.Name) as VariantTypeInfo;
-                    // Total declared arms (incl. None). If fewer resolved, some arm was a forward or
-                    // self reference (e.g. List[SerialValue]) unresolvable on the first pass — retry now.
-                    int expectedCount = variant.Members.Count;
-                    if (existing == null || existing.Members.Count >= expectedCount)
-                    {
-                        continue;
-                    }
-
-                    List<VariantMemberInfo> reMembers = BuildVariantMembers(registry: registry,
-                        variant: variant, moduleName: existing.Module);
-                    if (reMembers.Count > existing.Members.Count)
-                    {
-                        existing.Members = reMembers;
-                    }
-
+                    ReResolveVariantMembers(registry: registry, variant: variant,
+                        existing: LookupOwn(variant.Name) as VariantTypeInfo);
                     break;
-                }
                 case CrashableDeclaration crashable:
-                {
-                    var existing = LookupOwn(crashable.Name) as CrashableTypeInfo;
-                    int expectedCount = crashable.Members.Count(predicate: m =>
-                        m is VariableDeclaration { Type: not null });
-                    if (existing == null || existing.MemberVariables.Count >= expectedCount)
-                    {
-                        continue;
-                    }
-
-                    List<MemberVariableInfo> members = ResolveMemberVariables(registry: registry,
-                        members: crashable.Members,
-                        genericParams: null,
-                        owner: existing,
-                        moduleName: existing.Module);
-                    if (members.Count > existing.MemberVariables.Count)
-                    {
-                        registry.UpdateCrashableMemberVariables(typeName: existing.FullName,
-                            memberVariables: members);
-                    }
-
+                    ReResolveCrashableMemberVariables(registry: registry, crashable: crashable,
+                        existing: LookupOwn(crashable.Name) as CrashableTypeInfo);
                     break;
-                }
             }
+        }
+    }
+
+    private static void ReResolveEntityMemberVariables(TypeRegistry registry,
+        EntityDeclaration entity, EntityTypeInfo? existing)
+    {
+        int expectedCount = entity.Members.Count(predicate: m =>
+            m is VariableDeclaration { Type: not null });
+        if (existing == null || existing.MemberVariables.Count >= expectedCount)
+        {
+            return;
+        }
+
+        List<MemberVariableInfo> members = ResolveMemberVariables(registry: registry,
+            members: entity.Members,
+            genericParams: entity.GenericParameters,
+            owner: existing,
+            moduleName: existing.Module);
+        if (members.Count > existing.MemberVariables.Count)
+        {
+            existing.MemberVariables = members;
+            registry.RefreshEntityResolutions(genericDef: existing);
+        }
+    }
+
+    private static void ReResolveRecordMemberVariables(TypeRegistry registry,
+        RecordDeclaration record, RecordTypeInfo? existing)
+    {
+        int expectedCount = record.Members.Count(predicate: m =>
+            m is VariableDeclaration { Type: not null });
+        if (existing == null || existing.MemberVariables.Count >= expectedCount)
+        {
+            return;
+        }
+
+        List<MemberVariableInfo> members = ResolveMemberVariables(registry: registry,
+            members: record.Members,
+            genericParams: record.GenericParameters,
+            owner: existing,
+            moduleName: existing.Module);
+        if (members.Count > existing.MemberVariables.Count)
+        {
+            existing.MemberVariables = members;
+        }
+    }
+
+    private static void ReResolveVariantMembers(TypeRegistry registry,
+        VariantDeclaration variant, VariantTypeInfo? existing)
+    {
+        // Total declared arms (incl. None). If fewer resolved, some arm was a forward or
+        // self reference (e.g. List[SerialValue]) unresolvable on the first pass — retry now.
+        int expectedCount = variant.Members.Count;
+        if (existing == null || existing.Members.Count >= expectedCount)
+        {
+            return;
+        }
+
+        List<VariantMemberInfo> reMembers = BuildVariantMembers(registry: registry,
+            variant: variant, moduleName: existing.Module);
+        if (reMembers.Count > existing.Members.Count)
+        {
+            existing.Members = reMembers;
+        }
+    }
+
+    private static void ReResolveCrashableMemberVariables(TypeRegistry registry,
+        CrashableDeclaration crashable, CrashableTypeInfo? existing)
+    {
+        int expectedCount = crashable.Members.Count(predicate: m =>
+            m is VariableDeclaration { Type: not null });
+        if (existing == null || existing.MemberVariables.Count >= expectedCount)
+        {
+            return;
+        }
+
+        List<MemberVariableInfo> members = ResolveMemberVariables(registry: registry,
+            members: crashable.Members,
+            genericParams: null,
+            owner: existing,
+            moduleName: existing.Module);
+        if (members.Count > existing.MemberVariables.Count)
+        {
+            registry.UpdateCrashableMemberVariables(typeName: existing.FullName,
+                memberVariables: members);
         }
     }
 
@@ -229,7 +244,7 @@ public sealed partial class StdlibLoader
     /// where S64 wasn't registered during initial entity registration).
     /// Called after all type shells are registered.
     /// </summary>
-    internal static void ResolveProgramProtocolConformances(TypeRegistry registry, Program program) // NOSONAR S3776
+    internal static void ResolveProgramProtocolConformances(TypeRegistry registry, Program program)
     {
         // Resolve type lookups MODULE-QUALIFIED. `LookupType(bareName)` resolves via the first-wins
         // short-name index, so with two modules each declaring `record Point` it would attach one
@@ -250,45 +265,53 @@ public sealed partial class StdlibLoader
             switch (node)
             {
                 case EntityDeclaration { Protocols.Count: > 0 } entity:
-                {
-                    var existing = LookupInModule(name: entity.Name) as EntityTypeInfo;
-                    if (existing == null ||
-                        existing.ImplementedProtocols.Count >= entity.Protocols.Count)
-                    {
-                        continue;
-                    }
-
-                    List<TypeInfo> protocols = ResolveProtocolList(registry: registry,
-                        protoExprs: entity.Protocols,
-                        genericParams: entity.GenericParameters);
-                    if (protocols.Count > existing.ImplementedProtocols.Count)
-                    {
-                        existing.ImplementedProtocols = protocols;
-                    }
-
+                    ReResolveEntityProtocolConformances(registry: registry, entity: entity,
+                        existing: LookupInModule(name: entity.Name) as EntityTypeInfo);
                     break;
-                }
                 case RecordDeclaration { Protocols.Count: > 0 } record:
-                {
-                    var existing = LookupInModule(name: record.Name) as RecordTypeInfo;
-                    if (existing == null ||
-                        existing.ImplementedProtocols.Count >= record.Protocols.Count)
-                    {
-                        continue;
-                    }
-
-                    List<TypeInfo> protocols = ResolveProtocolList(registry: registry,
-                        protoExprs: record.Protocols,
-                        genericParams: record.GenericParameters);
-                    if (protocols.Count > existing.ImplementedProtocols.Count)
-                    {
-                        existing.ImplementedProtocols = protocols;
-                    }
-
+                    ReResolveRecordProtocolConformances(registry: registry, record: record,
+                        existing: LookupInModule(name: record.Name) as RecordTypeInfo);
                     break;
-                }
             }
         }
+    }
+
+    private static void ReResolveEntityProtocolConformances(TypeRegistry registry,
+        EntityDeclaration entity, EntityTypeInfo? existing)
+    {
+        if (existing == null ||
+            existing.ImplementedProtocols.Count >= entity.Protocols.Count)
+        {
+            return;
+        }
+
+        List<TypeInfo> protocols = ResolveProtocolList(registry: registry,
+            protoExprs: entity.Protocols,
+            genericParams: entity.GenericParameters);
+        if (protocols.Count > existing.ImplementedProtocols.Count)
+        {
+            existing.ImplementedProtocols = protocols;
+        }
+        existing.ConditionalObeys ??= BuildConditionalObeys(protoExprs: entity.Protocols);
+    }
+
+    private static void ReResolveRecordProtocolConformances(TypeRegistry registry,
+        RecordDeclaration record, RecordTypeInfo? existing)
+    {
+        if (existing == null ||
+            existing.ImplementedProtocols.Count >= record.Protocols.Count)
+        {
+            return;
+        }
+
+        List<TypeInfo> protocols = ResolveProtocolList(registry: registry,
+            protoExprs: record.Protocols,
+            genericParams: record.GenericParameters);
+        if (protocols.Count > existing.ImplementedProtocols.Count)
+        {
+            existing.ImplementedProtocols = protocols;
+        }
+        existing.ConditionalObeys ??= BuildConditionalObeys(protoExprs: record.Protocols);
     }
 
     /// <summary>
@@ -395,19 +418,18 @@ public sealed partial class StdlibLoader
     }
 
     private static void RegisterProgramRoutines(TypeRegistry registry, Program program,
-        string moduleName) // NOSONAR S3776
+        string moduleName)
     {
         foreach (ISyntaxTreeNode node in program.Declarations)
         {
             switch (node)
             {
                 case RoutineDeclaration routine:
-                    if (ShouldSkipBuilderQueryRoutineDecl(routine: routine,
+                    if (!ShouldSkipBuilderQueryRoutineDecl(routine: routine,
                             moduleName: moduleName))
                     {
-                        break;
+                        RegisterRoutine(registry: registry, routine: routine, moduleName: moduleName);
                     }
-                    RegisterRoutine(registry: registry, routine: routine, moduleName: moduleName);
                     break;
                 case ExternalDeclaration external:
                     RegisterExternalDeclaration(registry: registry,
@@ -415,37 +437,55 @@ public sealed partial class StdlibLoader
                         moduleName: moduleName);
                     break;
                 case ExternalBlockDeclaration block:
-                    foreach (SyntaxTree.Declaration decl in block.Declarations)
-                    {
-                        if (decl is ExternalDeclaration ext)
-                        {
-                            RegisterExternalDeclaration(registry: registry,
-                                external: ext,
-                                moduleName: moduleName);
-                        }
-                    }
-
+                    RegisterExternalBlockDeclarations(registry: registry, block: block,
+                        moduleName: moduleName);
                     break;
-
                 case CrashableDeclaration crashable:
-                    // Register routine members (e.g., crash_message synthesized from message: directive)
-                    foreach (SyntaxTree.Declaration member in crashable.Members)
-                    {
-                        if (member is RoutineDeclaration memberRoutine)
-                        {
-                            // Prefix the memberRoutine name with the type name so RegisterRoutine
-                            // treats it as a member memberRoutine (e.g., "DivisionByZeroError.crash_message")
-                            var prefixed = memberRoutine with
-                            {
-                                Name = $"{crashable.Name}.{memberRoutine.Name}"
-                            };
-                            RegisterRoutine(registry: registry,
-                                routine: prefixed,
-                                moduleName: moduleName);
-                        }
-                    }
-
+                    RegisterCrashableRoutineMembers(registry: registry, crashable: crashable,
+                        moduleName: moduleName);
                     break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Registers every <c>external("C")</c> declaration contained in an external block.
+    /// </summary>
+    private static void RegisterExternalBlockDeclarations(TypeRegistry registry,
+        ExternalBlockDeclaration block, string moduleName)
+    {
+        foreach (SyntaxTree.Declaration decl in block.Declarations)
+        {
+            if (decl is ExternalDeclaration ext)
+            {
+                RegisterExternalDeclaration(registry: registry,
+                    external: ext,
+                    moduleName: moduleName);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Registers a crashable type's routine members (e.g., crash_message synthesized from the
+    /// message: directive), prefixing each with the type name so RegisterRoutine treats it as a
+    /// member routine (e.g., "DivisionByZeroError.crash_message").
+    /// </summary>
+    private static void RegisterCrashableRoutineMembers(TypeRegistry registry,
+        CrashableDeclaration crashable, string moduleName)
+    {
+        foreach (SyntaxTree.Declaration member in crashable.Members)
+        {
+            if (member is RoutineDeclaration memberRoutine)
+            {
+                // Prefix the memberRoutine name with the type name so RegisterRoutine
+                // treats it as a member memberRoutine (e.g., "DivisionByZeroError.crash_message")
+                var prefixed = memberRoutine with
+                {
+                    Name = $"{crashable.Name}.{memberRoutine.Name}"
+                };
+                RegisterRoutine(registry: registry,
+                    routine: prefixed,
+                    moduleName: moduleName);
             }
         }
     }
@@ -593,9 +633,149 @@ public sealed partial class StdlibLoader
 
         call.LoweringKind = presetType switch
         {
-            RecordTypeInfo { HasDirectBackendType: true } => CallLoweringKind.TypeConstructor,
+            RecordTypeInfo { BackendType: not null } => CallLoweringKind.TypeConstructor,
             _ => call.LoweringKind
         };
+    }
+
+    /// <summary>
+    /// Resolves the owner type for a stdlib routine from its rendered receiver. For a member routine
+    /// (<c>List[T].add_last</c>, <c>S32.add</c>) this is the receiver type; for a bare constructor
+    /// (<c>routine List(...)</c>) it is the constructed type and <paramref name="memberRoutineName"/>
+    /// is rewritten to "create". For a generic-specialized receiver (<c>List[Agent[V]]</c>) the owner
+    /// stays the generic def and <paramref name="meTypeName"/> carries the receiver text so `me` can be
+    /// typed as the specialization. Returns null when the receiver is a bare name matching no type and
+    /// no constructor (a plain free routine).
+    /// </summary>
+    private static TypeInfo? ResolveRoutineOwner(TypeRegistry registry, RoutineDeclaration routine,
+        string routineName, string moduleName, ref string memberRoutineName, out string? meTypeName)
+    {
+        meTypeName = null;
+
+        if (routine.RenderedReceiver is { } typeName)
+        {
+            int bracketIndex = typeName.IndexOf(value: '[');
+            return bracketIndex > 0
+                ? ResolveBracketedReceiverOwner(registry: registry, routine: routine,
+                    typeName: typeName, bracketIndex: bracketIndex, moduleName: moduleName,
+                    memberRoutineName: memberRoutineName, meTypeName: out meTypeName)
+                : ResolveBareReceiverOwner(registry: registry, typeName: typeName,
+                    moduleName: moduleName);
+        }
+
+        // No dot: a top-level free function, OR a CONSTRUCTOR `routine T(...)` /
+        // `routine T[params](...)` (renamed from `routine T.create(...)`). Detect the
+        // constructor by matching the bare name against a known type and route it to the
+        // reserved creator name "create" with that type as owner — mirroring the old
+        // `T.create` registration so call-site construction resolves the creator. The
+        // trailing `!` (failable) is carried structurally on routine.IsFailable.
+        string bareName = TypeInfo.StripTypeArgs(name: routineName);
+        // Own-module FIRST: a constructor `routine List(...)` in `module Suflae` owns `Suflae.List`,
+        // NOT the first-registered context-free `List` (Core.List, loaded earlier). Resolving bare
+        // first bound the Suflae overlay's `List()` creator to Core.List → same RegistryKey as
+        // Core's own `List()` → a spurious divergent-duplicate-constructor error (RF-S406). This
+        // mirrors LookupTypeWithImports's own-module-shadows rule for the stdlib registration path.
+        // Own-REALM-first: SF-realm `Core.List`'s `List()` constructor must own the SF-realm List, not
+        // the RazorForge-realm `Core.List` (same bare key, both `module Core`) — else both `List()`
+        // creators share one RegistryKey and trip the divergent-duplicate-constructor check (RF-S406).
+        TypeInfo? ctorOwner = registry.LookupType(name: $"{moduleName}.{bareName}", realm: _registeringRealm ?? "RF") ??
+                              registry.LookupType(name: $"{moduleName}.{bareName}") ??
+                              registry.LookupType(name: bareName);
+        if (ctorOwner != null)
+        {
+            memberRoutineName = "create";
+            return ctorOwner;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Resolves the owner for a bracketed receiver (<c>List[T]</c>, <c>List[Agent[V]]</c>,
+    /// <c>List[Byte]</c>): a generic definition when the bracket args are the base's own params, a
+    /// generic specialization (owner = def, receiver text captured in <paramref name="meTypeName"/>)
+    /// when the brackets reference a routine generic param, else a concrete resolution.
+    /// </summary>
+    private static TypeInfo? ResolveBracketedReceiverOwner(TypeRegistry registry,
+        RoutineDeclaration routine, string typeName, int bracketIndex, string moduleName,
+        string memberRoutineName, out string? meTypeName)
+    {
+        meTypeName = null;
+
+        // Check if the bracket content is concrete types (e.g., List[Byte])
+        // vs generic params (e.g., List[T], Dict[K, V])
+        string bracketContent = typeName[(bracketIndex + 1)..]
+           .TrimEnd(trimChar: ']');
+        string baseName = typeName[..bracketIndex];
+        // Own-module FIRST: `routine List[T].add_last` in `module Suflae` owns `Suflae.List`,
+        // not the earlier-registered context-free `Core.List`. Bare-first bound the Suflae
+        // overlay's List memberRoutines to Core.List, so dispatch on `Roamed[Suflae.List]` found no
+        // such memberRoutine (RF-S458). Falls back to bare for a Core type used from another module.
+        // Own-REALM-first (like the non-bracketed owner path): an SF-realm `Core.List[T]` member
+        // owns the SF-realm List, not the RazorForge-realm one that shares the bare key.
+        TypeInfo? baseDef = registry.LookupType(name: $"{moduleName}.{baseName}", realm: _registeringRealm ?? "RF") ??
+                            registry.LookupType(name: $"{moduleName}.{baseName}") ??
+                            registry.LookupType(name: baseName);
+
+        // If the base is a generic definition, check if bracket args are its own params
+        bool isGenericDef = false;
+        if (baseDef?.GenericParameters != null)
+        {
+            var args = bracketContent.Split(separator: ',')
+                                     .Select(selector: a => a.Trim())
+                                     .ToList();
+            isGenericDef =
+                args.All(predicate: a => baseDef.GenericParameters.Contains(value: a));
+        }
+
+        if (isGenericDef)
+        {
+            // Generic definition: List[T] -> owner is List
+            return baseDef;
+        }
+
+        // Specialized receiver. Distinguish a GENERIC specialization (List[Agent[V]] —
+        // brackets reference a routine generic param) from a fully-CONCRETE one (List[Byte]).
+        bool hasGenericParamInReceiver = routine.GenericParameters?.Any(predicate: gp =>
+            registry.LookupType(name: gp) is null &&
+            registry.LookupType(name: $"{moduleName}.{gp}") is null &&
+            System.Text.RegularExpressions.Regex.IsMatch(
+                input: bracketContent,
+                pattern: $@"\b{System.Text.RegularExpressions.Regex.Escape(str: gp)}\b")) ?? false;
+        if (hasGenericParamInReceiver)
+        {
+            // GENERIC specialization (e.g. List[Agent[V]]): register under the generic def
+            // (so call-site lookup on List[Agent[S64]] finds it), and remember the receiver
+            // text so `me` is typed as the specialized receiver (MeType) below — making
+            // member access like `me[i]` yield Agent[V] instead of List's raw element.
+            meTypeName = memberRoutineName is "create" ? null : typeName;
+            return baseDef;
+        }
+
+        // Concrete specialization (List[Byte]) -> owner is the concrete resolution.
+        return registry.LookupType(name: typeName) ?? baseDef;
+    }
+
+    /// <summary>
+    /// Resolves the owner for a bare (non-bracketed) receiver (<c>S32.add</c>, <c>T.view</c>):
+    /// own-module + own-realm first, then bare; a receiver naming no registered type is treated as a
+    /// generic type parameter.
+    /// </summary>
+    private static TypeInfo ResolveBareReceiverOwner(TypeRegistry registry, string typeName,
+        string moduleName)
+    {
+        // Own-module FIRST (mirrors the constructor path + LookupTypeWithImports): a member
+        // `routine List[T].add_last` in `module Suflae` owns `Suflae.List`, not the earlier-
+        // registered context-free `Core.List`. Falls back to the bare context-free type for a
+        // Core type referenced from another module (e.g. `Collections` memberRoutines on `Core.List`).
+        // Own-REALM-first too: SF-realm `Core.List`'s members must own the SF-realm List, not the
+        // RazorForge-realm `Core.List` that shares the bare key (both are `module Core`).
+        TypeInfo? ownerType = registry.LookupType(name: $"{moduleName}.{typeName}", realm: _registeringRealm ?? "RF") ??
+                    registry.LookupType(name: $"{moduleName}.{typeName}") ??
+                    registry.LookupType(name: typeName);
+
+        // If type not found, treat as a generic type parameter (e.g., T in "routine T.view()")
+        return ownerType ?? new GenericParameterTypeInfo(name: typeName);
     }
 
     /// <summary>
@@ -613,117 +793,27 @@ public sealed partial class StdlibLoader
         // `typeName` below is the RENDERED receiver ("S32", "List[Agent[V]]"), whose type-args are then
         // decoded for the generic-def-vs-specialization decision.
         string routineName = routine.Name;
-        TypeInfo? ownerType = null;
         string memberRoutineName = routine.MemberRoutineName ?? routineName;
-        // Receiver text for a GENERIC specialization (e.g. "List[Agent[V]]"); resolved into MeType
-        // once the generic context is built, so `me` is typed as the specialized receiver.
-        string? meTypeName = null;
+        // meTypeName carries the receiver text for a GENERIC specialization (e.g. "List[Agent[V]]");
+        // resolved into MeType once the generic context is built, so `me` is typed as the specialized
+        // receiver.
+        TypeInfo? ownerType = ResolveRoutineOwner(registry: registry, routine: routine,
+            routineName: routineName, moduleName: moduleName,
+            memberRoutineName: ref memberRoutineName, meTypeName: out string? meTypeName);
 
-        if (routine.RenderedReceiver is { } typeName)
+        // `needs T is TypeName` declares T as a generic type parameter (equivalent to `[T]`, just a
+        // different surface form), handled in the SA/registration layer — NOT a parser rewrite. Fold the
+        // declared names into the AST decl's GenericParameters, the single list every downstream reader
+        // (registration below, signature resolution, call-site inference, monomorphization) consults, so
+        // `T` behaves exactly like a bracket param. Mutates the shared decl; idempotent.
+        if (routine.GenericConstraints is { } typeNameDecls)
         {
-            int bracketIndex = typeName.IndexOf(value: '[');
-            if (bracketIndex > 0)
+            foreach (SyntaxTree.GenericConstraintDeclaration gc in typeNameDecls)
             {
-                // Check if the bracket content is concrete types (e.g., List[Byte])
-                // vs generic params (e.g., List[T], Dict[K, V])
-                string bracketContent = typeName[(bracketIndex + 1)..]
-                   .TrimEnd(trimChar: ']');
-                string baseName = typeName[..bracketIndex];
-                // Own-module FIRST: `routine List[T].add_last` in `module Suflae` owns `Suflae.List`,
-                // not the earlier-registered context-free `Core.List`. Bare-first bound the Suflae
-                // overlay's List memberRoutines to Core.List, so dispatch on `Roamed[Suflae.List]` found no
-                // such memberRoutine (RF-S458). Falls back to bare for a Core type used from another module.
-                // Own-REALM-first (like the non-bracketed owner path): an SF-realm `Core.List[T]` member
-                // owns the SF-realm List, not the RazorForge-realm one that shares the bare key.
-                TypeInfo? baseDef = registry.LookupType(name: $"{moduleName}.{baseName}", realm: _registeringRealm ?? "RF") ??
-                                    registry.LookupType(name: $"{moduleName}.{baseName}") ??
-                                    registry.LookupType(name: baseName);
-
-                // If the base is a generic definition, check if bracket args are its own params
-                bool isGenericDef = false;
-                if (baseDef?.GenericParameters != null)
-                {
-                    var args = bracketContent.Split(separator: ',')
-                                             .Select(selector: a => a.Trim())
-                                             .ToList();
-                    isGenericDef =
-                        args.All(predicate: a => baseDef.GenericParameters.Contains(value: a));
-                }
-
-                if (isGenericDef)
-                {
-                    // Generic definition: List[T] -> owner is List
-                    ownerType = baseDef;
-                }
-                else
-                {
-                    // Specialized receiver. Distinguish a GENERIC specialization (List[Agent[V]] —
-                    // brackets reference a routine generic param) from a fully-CONCRETE one (List[Byte]).
-                    bool hasGenericParamInReceiver = routine.GenericParameters?.Any(predicate: gp =>
-                        registry.LookupType(name: gp) is null &&
-                        registry.LookupType(name: $"{moduleName}.{gp}") is null &&
-                        System.Text.RegularExpressions.Regex.IsMatch(
-                            input: bracketContent,
-                            pattern: $@"\b{System.Text.RegularExpressions.Regex.Escape(str: gp)}\b")) ?? false;
-                    if (hasGenericParamInReceiver)
-                    {
-                        // GENERIC specialization (e.g. List[Agent[V]]): register under the generic def
-                        // (so call-site lookup on List[Agent[S64]] finds it), and remember the receiver
-                        // text so `me` is typed as the specialized receiver (MeType) below — making
-                        // member access like `me[i]` yield Agent[V] instead of List's raw element.
-                        ownerType = baseDef;
-                        meTypeName = memberRoutineName is "create" ? null : typeName;
-                    }
-                    else
-                    {
-                        // Concrete specialization (List[Byte]) -> owner is the concrete resolution.
-                        ownerType = registry.LookupType(name: typeName) ?? baseDef;
-                    }
-                }
-            }
-            else
-            {
-                // Own-module FIRST (mirrors the constructor path + LookupTypeWithImports): a member
-                // `routine List[T].add_last` in `module Suflae` owns `Suflae.List`, not the earlier-
-                // registered context-free `Core.List`. Falls back to the bare context-free type for a
-                // Core type referenced from another module (e.g. `Collections` memberRoutines on `Core.List`).
-                // Own-REALM-first too: SF-realm `Core.List`'s members must own the SF-realm List, not the
-                // RazorForge-realm `Core.List` that shares the bare key (both are `module Core`).
-                ownerType = registry.LookupType(name: $"{moduleName}.{typeName}", realm: _registeringRealm ?? "RF") ??
-                            registry.LookupType(name: $"{moduleName}.{typeName}") ??
-                            registry.LookupType(name: typeName);
-
-                // If type not found, treat as a generic type parameter (e.g., T in "routine T.view()")
-                if (ownerType == null)
-                {
-                    ownerType = new GenericParameterTypeInfo(name: typeName);
-                }
-            }
-        }
-        else
-        {
-            // No dot: a top-level free function, OR a CONSTRUCTOR `routine T(...)` /
-            // `routine T[params](...)` (renamed from `routine T.create(...)`). Detect the
-            // constructor by matching the bare name against a known type and route it to the
-            // reserved creator name "create" with that type as owner — mirroring the old
-            // `T.create` registration so call-site construction resolves the creator. The
-            // trailing `!` (failable) is carried structurally on routine.IsFailable.
-            string bareName = TypeInfo.StripTypeArgs(name: routineName);
-            // Own-module FIRST: a constructor `routine List(...)` in `module Suflae` owns `Suflae.List`,
-            // NOT the first-registered context-free `List` (Core.List, loaded earlier). Resolving bare
-            // first bound the Suflae overlay's `List()` creator to Core.List → same RegistryKey as
-            // Core's own `List()` → a spurious divergent-duplicate-constructor error (RF-S406). This
-            // mirrors LookupTypeWithImports's own-module-shadows rule for the stdlib registration path.
-            // Own-REALM-first: SF-realm `Core.List`'s `List()` constructor must own the SF-realm List, not
-            // the RazorForge-realm `Core.List` (same bare key, both `module Core`) — else both `List()`
-            // creators share one RegistryKey and trip the divergent-duplicate-constructor check (RF-S406).
-            TypeInfo? ctorOwner = registry.LookupType(name: $"{moduleName}.{bareName}", realm: _registeringRealm ?? "RF") ??
-                                  registry.LookupType(name: $"{moduleName}.{bareName}") ??
-                                  registry.LookupType(name: bareName);
-            if (ctorOwner != null)
-            {
-                ownerType = ctorOwner;
-                memberRoutineName = "create";
+                if (gc.ConstraintType != SyntaxTree.ConstraintKind.AnyType) continue;
+                routine.GenericParameters ??= [];
+                if (!routine.GenericParameters.Contains(item: gc.ParameterName))
+                    routine.GenericParameters.Add(item: gc.ParameterName);
             }
         }
 
@@ -815,27 +905,8 @@ public sealed partial class StdlibLoader
 
         // Resolve the specialized receiver (e.g. List[Agent[V]]) with the generic context now in
         // scope, so `me` is typed as the specialized receiver. OwnerType stays the generic def.
-        TypeInfo? meType = null;
-        if (meTypeName != null)
-        {
-            TypeExpression? recvExpr =
-                Verification.SemanticVerifier.ParseTypeExpressionString(
-                    text: meTypeName, location: routine.Location);
-            if (recvExpr != null)
-            {
-                TypeInfo? resolvedRecv = ResolveSimpleType(registry: registry,
-                    typeExpr: recvExpr, genericParams: ctx, moduleName: moduleName);
-                if (resolvedRecv != null && resolvedRecv is not ErrorTypeInfo)
-                {
-                    // `ResolveSimpleType` is realm-blind and yields the ambient-realm receiver; keep `me`
-                    // in the OWNER's realm so an SF-realm `Core.List` method's `me` isn't the RF-realm List
-                    // (which lacks the SF wrapper's `inner` field → spurious RF-S450).
-                    meType = ownerType != null && resolvedRecv.Realm != ownerType.Realm
-                        ? (registry.ReResolveInRealm(type: resolvedRecv, realm: ownerType.Realm) ?? resolvedRecv)
-                        : resolvedRecv;
-                }
-            }
-        }
+        TypeInfo? meType = ResolveSpecializedMeType(registry: registry, routine: routine,
+            meTypeName: meTypeName, ownerType: ownerType, ctx: ctx, moduleName: moduleName);
 
         // Use just the memberRoutine name (not "S32.add", just "add")
         var routineInfo = new RoutineInfo(name: memberRoutineName)
@@ -866,33 +937,12 @@ public sealed partial class StdlibLoader
             Storage = routine.Storage
         };
 
-        // A derive template's UNIVERSAL-vs-OPT-IN status is read straight off its stdlib constraints —
-        // NOT a C# name list. A derive is OPT-IN (must NOT become a live universal, else it is force-
-        // instantiated for a type whose fields lack the capability → "declared but never defined" codegen
-        // crash) IFF it carries a CAPABILITY gate: `needs T is P everywhere` (∀-structural conformance) or
-        // `needs T obeys P`. A derive with NO gate (represent/diagnose/serialize/destroy/copy/store), or
-        // only a KIND gate (`needs T is VariantType` — that just selects WHICH override body wins in
-        // GetDeriveTemplate, not eligibility), is UNIVERSAL: it applies to every type. The per-type body
-        // always comes from the derive-template store via WiredRoutinePass.CloneUniversalDeriveBody, so a
-        // universal registration only supplies the resolvable signature — the kind-specialized override
-        // (e.g. `is RoutineType`) still supplies the body.
-        bool isDeriveTemplate = ownerType is GenericParameterTypeInfo
-            && (routine.Annotations.Contains(item: "overridable")
-                || routine.Annotations.Contains(item: "override"));
-        bool hasCapabilityGate = (routine.GenericConstraints ?? []).Any(predicate: c =>
-            c.ConstraintType is ConstraintKind.Everywhere or ConstraintKind.Obeys);
-        if (isDeriveTemplate && hasCapabilityGate)
-            registry.MarkOptInDeriveMemberRoutine(memberRoutine: memberRoutineName);
-        // Opt-in status is per memberRoutine, not per template: once `copy`'s capability-gated base
-        // (`needs Copyable everywhere`) marks `copy` opt-in, its KIND-gated variant override
-        // (`needs T is VariantType`) must ALSO stay opt-in — else the override, being a bare-`T`-owner
-        // routine, lands in `_universalMemberRoutines` and makes `copy` resolve for EVERY type (leaking `-> Me`/
-        // ProtocolSelf, bypassing the Copyable gate). The `@overridable` base precedes its `@override`s in
-        // DeriveText, so the memberRoutine is already marked when the override is seen. A truly universal derive
-        // (represent/diagnose/serialize/destroy — never capability-gated) is never marked, so its kind
-        // overrides register normally.
-        if (isDeriveTemplate && (hasCapabilityGate || registry.IsOptInDeriveMemberRoutine(memberRoutine: memberRoutineName)))
+        // Opt-in derive templates (capability-gated) must not register as live universals — skip them.
+        if (IsOptInDeriveTemplateToSkip(registry: registry, routine: routine, ownerType: ownerType,
+                memberRoutineName: memberRoutineName))
+        {
             return;
+        }
 
         // Pin the decl → info binding (see RoutineDeclaration.ResolvedInfo) so codegen reads it
         // directly rather than re-deriving the routine by module-blind name lookup.
@@ -912,6 +962,77 @@ public sealed partial class StdlibLoader
         {
             // Ignore duplicate routine registration
         }
+    }
+
+    /// <summary>
+    /// Resolves the specialized receiver (e.g. <c>List[Agent[V]]</c>) into a MeType with the generic
+    /// context now in scope, so <c>me</c> is typed as the specialization while OwnerType stays the
+    /// generic def. Returns null when there is no specialized receiver text or it fails to resolve.
+    /// </summary>
+    private static TypeInfo? ResolveSpecializedMeType(TypeRegistry registry, RoutineDeclaration routine,
+        string? meTypeName, TypeInfo? ownerType, List<string>? ctx, string moduleName)
+    {
+        if (meTypeName == null)
+        {
+            return null;
+        }
+
+        TypeExpression? recvExpr =
+            Verification.SemanticVerifier.ParseTypeExpressionString(
+                text: meTypeName, location: routine.Location);
+        if (recvExpr == null)
+        {
+            return null;
+        }
+
+        TypeInfo? resolvedRecv = ResolveSimpleType(registry: registry,
+            typeExpr: recvExpr, genericParams: ctx, moduleName: moduleName);
+        if (resolvedRecv == null || resolvedRecv is ErrorTypeInfo)
+        {
+            return null;
+        }
+
+        // `ResolveSimpleType` is realm-blind and yields the ambient-realm receiver; keep `me`
+        // in the OWNER's realm so an SF-realm `Core.List` method's `me` isn't the RF-realm List
+        // (which lacks the SF wrapper's `inner` field → spurious RF-S450).
+        return ownerType != null && resolvedRecv.Realm != ownerType.Realm
+            ? (registry.ReResolveInRealm(type: resolvedRecv, realm: ownerType.Realm) ?? resolvedRecv)
+            : resolvedRecv;
+    }
+
+    /// <summary>
+    /// A derive template's UNIVERSAL-vs-OPT-IN status is read straight off its stdlib constraints —
+    /// NOT a C# name list. A derive is OPT-IN (must NOT become a live universal, else it is force-
+    /// instantiated for a type whose fields lack the capability → "declared but never defined" codegen
+    /// crash) IFF it carries a CAPABILITY gate: <c>needs T is P everywhere</c> (∀-structural conformance)
+    /// or <c>needs T obeys P</c>. A derive with NO gate (represent/diagnose/serialize/destroy/copy/store),
+    /// or only a KIND gate (<c>needs T is VariantType</c> — that just selects WHICH override body wins in
+    /// GetDeriveTemplate, not eligibility), is UNIVERSAL: it applies to every type. The per-type body
+    /// always comes from the derive-template store via WiredRoutinePass.CloneUniversalDeriveBody, so a
+    /// universal registration only supplies the resolvable signature — the kind-specialized override
+    /// (e.g. <c>is RoutineType</c>) still supplies the body.
+    /// Marks the memberRoutine opt-in as a side effect and returns true when this routine must be
+    /// skipped (not registered).
+    /// </summary>
+    private static bool IsOptInDeriveTemplateToSkip(TypeRegistry registry, RoutineDeclaration routine,
+        TypeInfo? ownerType, string memberRoutineName)
+    {
+        bool isDeriveTemplate = ownerType is GenericParameterTypeInfo
+            && (routine.Annotations.Contains(item: "overridable")
+                || routine.Annotations.Contains(item: "override"));
+        bool hasCapabilityGate = (routine.GenericConstraints ?? []).Any(predicate: c =>
+            c.ConstraintType is ConstraintKind.Everywhere or ConstraintKind.Obeys);
+        if (isDeriveTemplate && hasCapabilityGate)
+            registry.MarkOptInDeriveMemberRoutine(memberRoutine: memberRoutineName);
+        // Opt-in status is per memberRoutine, not per template: once `copy`'s capability-gated base
+        // (`needs Copyable everywhere`) marks `copy` opt-in, its KIND-gated variant override
+        // (`needs T is VariantType`) must ALSO stay opt-in — else the override, being a bare-`T`-owner
+        // routine, lands in `_universalMemberRoutines` and makes `copy` resolve for EVERY type (leaking `-> Me`/
+        // ProtocolSelf, bypassing the Copyable gate). The `@overridable` base precedes its `@override`s in
+        // DeriveText, so the memberRoutine is already marked when the override is seen. A truly universal derive
+        // (represent/diagnose/serialize/destroy — never capability-gated) is never marked, so its kind
+        // overrides register normally.
+        return isDeriveTemplate && (hasCapabilityGate || registry.IsOptInDeriveMemberRoutine(memberRoutine: memberRoutineName));
     }
 
     /// <summary>
@@ -952,13 +1073,13 @@ public sealed partial class StdlibLoader
     }
 
     /// <summary>
-    /// Registers a record type from stdlib.
+    /// Detects whether a stdlib record is an entity-type specialization of a constrained generic
+    /// (e.g. <c>record Maybe[T] needs T is EntityType</c>) — which needs separate layout registration —
+    /// versus a transparent pointer wrapper or an all-ptr-wrapper record that merely carries the
+    /// <c>needs T is EntityType</c> contract but has a single fixed LLVM layout for all type arguments.
     /// </summary>
-    private static void RegisterRecordType(TypeRegistry registry, RecordDeclaration record,
-        string moduleName)
+    private static bool IsEntityTypeSpecialization(RecordDeclaration record)
     {
-        // Detect entity-type specializations of constrained generics
-        // (e.g. `record Maybe[T] needs T is EntityType`).
         // In stdlib .rf files, `needs T is EntityType` is parsed as a ConstGeneric constraint
         // with ConstraintTypes[0].Name == "EntityType". These create a second layout specialization
         // (e.g. Maybe[Text] uses { Hijacked[T] } instead of { Bool, T }) and must be stored
@@ -1003,28 +1124,22 @@ public sealed partial class StdlibLoader
             }
         }
 
-        // Skip if already registered (non-entity-specialization types only;
-        // entity specializations need separate registration even if the base name exists).
-        // Module-QUALIFIED (mirrors RegisterEntityType): a bare-name check depended on the cross-module
-        // short-name scan to find the existing registration — with that scan gone a same-module reload
-        // would miss and re-register (RF-S "already registered"), and a cross-module same-name type
-        // would spuriously skip.
-        string qualifiedRecordName = string.IsNullOrEmpty(value: moduleName)
-            ? record.Name : $"{moduleName}.{record.Name}";
-        if (!isEntitySpecialization
-            && registry.LookupType(name: qualifiedRecordName, realm: _registeringRealm ?? "RF") != null)
-        {
-            return;
-        }
+        return isEntitySpecialization;
+    }
 
-        // Build member variables list upfront (TypeInfo uses init properties with IReadOnlyList)
+    /// <summary>
+    /// Resolves a stdlib type's member variables and (decl-position) <c>expand m in allmemvarof(T)</c>
+    /// column templates in one pass. The stdlib registration path does NOT run
+    /// TypeBodyResolver.ResolveRecordBody (user-program only), so expand templates are resolved here —
+    /// otherwise a stdlib SoA type (SplitList) never gets its ExpandTemplates and ExpandSoAColumns
+    /// materializes no columns. Resolved templates are appended to <paramref name="expandTemplates"/>.
+    /// </summary>
+    private static List<MemberVariableInfo> BuildStdlibMemberVariables(TypeRegistry registry,
+        List<SyntaxTree.Declaration> members, List<string>? genericParams, string moduleName,
+        List<MemberExpandTemplateInfo> expandTemplates)
+    {
         var memberVariables = new List<MemberVariableInfo>();
-        // Decl-position `expand m in allmemvarof(T)` column templates. The stdlib registration path does NOT
-        // run TypeBodyResolver.ResolveRecordBody (user-program only), so resolve them HERE — otherwise a
-        // stdlib SoA type (SplitList) never gets its ExpandTemplates and ExpandSoAColumns materializes
-        // no columns (`me.${m.name}` → "member 'x' not found" at codegen).
-        var expandTemplates = new List<MemberExpandTemplateInfo>();
-        foreach (SyntaxTree.Declaration member in record.Members)
+        foreach (SyntaxTree.Declaration member in members)
         {
             if (member is ExpandMemberDeclaration expandDecl)
             {
@@ -1032,7 +1147,7 @@ public sealed partial class StdlibLoader
                 {
                     TypeInfo? columnType = ResolveSimpleType(registry: registry,
                         typeExpr: template.Type,
-                        genericParams: record.GenericParameters,
+                        genericParams: genericParams,
                         moduleName: moduleName);
                     if (columnType != null)
                     {
@@ -1050,7 +1165,7 @@ public sealed partial class StdlibLoader
             {
                 TypeInfo? memberVariableType = ResolveSimpleType(registry: registry,
                     typeExpr: memberVariable.Type,
-                    genericParams: record.GenericParameters,
+                    genericParams: genericParams,
                     moduleName: moduleName);
                 if (memberVariableType != null)
                 {
@@ -1065,6 +1180,38 @@ public sealed partial class StdlibLoader
                 }
             }
         }
+
+        return memberVariables;
+    }
+
+    /// <summary>
+    /// Registers a record type from stdlib.
+    /// </summary>
+    private static void RegisterRecordType(TypeRegistry registry, RecordDeclaration record,
+        string moduleName)
+    {
+        bool isEntitySpecialization = IsEntityTypeSpecialization(record: record);
+
+        // Skip if already registered (non-entity-specialization types only;
+        // entity specializations need separate registration even if the base name exists).
+        // Module-QUALIFIED (mirrors RegisterEntityType): a bare-name check depended on the cross-module
+        // short-name scan to find the existing registration — with that scan gone a same-module reload
+        // would miss and re-register (RF-S "already registered"), and a cross-module same-name type
+        // would spuriously skip.
+        string qualifiedRecordName = string.IsNullOrEmpty(value: moduleName)
+            ? record.Name : $"{moduleName}.{record.Name}";
+        if (!isEntitySpecialization
+            && registry.LookupType(name: qualifiedRecordName, realm: _registeringRealm ?? "RF") != null)
+        {
+            return;
+        }
+
+        // Build member variables + expand-template list upfront (TypeInfo uses init properties with
+        // IReadOnlyList).
+        var expandTemplates = new List<MemberExpandTemplateInfo>();
+        List<MemberVariableInfo> memberVariables = BuildStdlibMemberVariables(registry: registry,
+            members: record.Members, genericParams: record.GenericParameters, moduleName: moduleName,
+            expandTemplates: expandTemplates);
 
         // Resolve implemented protocols (obeys clause)
         var protocols = new List<TypeInfo>();
@@ -1095,6 +1242,7 @@ public sealed partial class StdlibLoader
             Realm = _registeringRealm ?? "RF",
             Visibility = record.Visibility,
             ImplementedProtocols = protocols,
+            ConditionalObeys = BuildConditionalObeys(protoExprs: record.Protocols),
             GenericParameters = record.GenericParameters,
             GenericConstraints = record.GenericConstraints,
             Annotations = record.Annotations,
@@ -1233,52 +1381,13 @@ public sealed partial class StdlibLoader
             return;
         }
 
-        // Build member variables list upfront
-        var memberVariables = new List<MemberVariableInfo>();
-        // Decl-position `expand m in allmemvarof(T)` columns (SoA entity, e.g. a growable SplitList) —
-        // resolved here because the stdlib path does NOT run TypeBodyResolver (see RegisterRecordType).
+        // Build member variables + expand-template list upfront. Decl-position
+        // `expand m in allmemvarof(T)` columns (SoA entity, e.g. a growable SplitList) are resolved
+        // here because the stdlib path does NOT run TypeBodyResolver (see RegisterRecordType).
         var expandTemplates = new List<MemberExpandTemplateInfo>();
-        foreach (SyntaxTree.Declaration member in entity.Members)
-        {
-            if (member is ExpandMemberDeclaration expandDecl)
-            {
-                foreach (ExpandMemberTemplate template in expandDecl.Templates)
-                {
-                    TypeInfo? columnType = ResolveSimpleType(registry: registry,
-                        typeExpr: template.Type,
-                        genericParams: entity.GenericParameters,
-                        moduleName: moduleName);
-                    if (columnType != null)
-                    {
-                        expandTemplates.Add(item: new MemberExpandTemplateInfo(
-                            namePrefix: template.NamePrefix,
-                            sourceParamName: expandDecl.SourceType.Name,
-                            columnTypeTemplate: columnType,
-                            visibility: template.Visibility));
-                    }
-                }
-                continue;
-            }
-
-            if (member is VariableDeclaration { Type: not null } memberVariable)
-            {
-                TypeInfo? memberVariableType = ResolveSimpleType(registry: registry,
-                    typeExpr: memberVariable.Type,
-                    genericParams: entity.GenericParameters,
-                    moduleName: moduleName);
-                if (memberVariableType != null)
-                {
-                    memberVariables.Add(
-                        item: new MemberVariableInfo(name: memberVariable.Name,
-                            type: memberVariableType)
-                        {
-                            Visibility = memberVariable.Visibility,
-                            HasDefaultValue = memberVariable.Initializer != null,
-                            Location = memberVariable.Location
-                        });
-                }
-            }
-        }
+        List<MemberVariableInfo> memberVariables = BuildStdlibMemberVariables(registry: registry,
+            members: entity.Members, genericParams: entity.GenericParameters, moduleName: moduleName,
+            expandTemplates: expandTemplates);
 
         // Resolve implemented protocols (obeys clause)
         var protocols = new List<TypeInfo>();
@@ -1300,6 +1409,7 @@ public sealed partial class StdlibLoader
             Realm = _registeringRealm ?? "RF",
             Visibility = entity.Visibility,
             ImplementedProtocols = protocols,
+            ConditionalObeys = BuildConditionalObeys(protoExprs: entity.Protocols),
             GenericParameters = entity.GenericParameters,
             GenericConstraints = entity.GenericConstraints
         };
@@ -1328,6 +1438,31 @@ public sealed partial class StdlibLoader
             bindings: typeInfo.AssociatedTypeBindings);
 
         registry.RegisterType(type: typeInfo);
+    }
+
+    /// <summary>
+    /// Extracts the <c>obeys P onlyif (param obeys proto, …)</c> conditional-conformance conditions from a
+    /// type header's obeys list into the def-level map the conformance query reads (protocol bare name →
+    /// AND-list of <c>(paramName, protocolName)</c>). Returns null when no protocol carries an
+    /// <c>onlyif</c> clause, so an unconditional type stores nothing.
+    /// </summary>
+    internal static Dictionary<string, List<(string ParamName, string ProtocolName)>>? BuildConditionalObeys(
+        List<TypeExpression> protoExprs)
+    {
+        Dictionary<string, List<(string, string)>>? result = null;
+        foreach (TypeExpression pe in protoExprs)
+        {
+            if (pe.ConformanceConditions is not { Count: > 0 } conds)
+                continue;
+            var list = new List<(string, string)>();
+            foreach (GenericConstraintDeclaration c in conds)
+                if (c.ConstraintTypes is { Count: > 0 } cts)
+                    foreach (TypeExpression proto in cts)
+                        list.Add(item: (c.ParameterName, proto.Name));
+            (result ??= new Dictionary<string, List<(string, string)>>(comparer: System.StringComparer.Ordinal))
+                [key: pe.Name] = list;
+        }
+        return result;
     }
 
     /// <summary>
@@ -1625,7 +1760,7 @@ public sealed partial class StdlibLoader
     /// yet registered when protocols were first processed).
     /// Analogous to ResolveProgramMemberVariables for record/entity member variables.
     /// </summary>
-    private static void ResolveProtocolMemberRoutineReturnTypes(TypeRegistry registry, Program program) // NOSONAR S3776
+    private static void ResolveProtocolMemberRoutineReturnTypes(TypeRegistry registry, Program program)
     {
         foreach (ISyntaxTreeNode node in program.Declarations)
         {
@@ -1640,43 +1775,7 @@ public sealed partial class StdlibLoader
                 continue;
             }
 
-            // Check if any memberRoutine has a null return type where the declaration declares one
-            bool needsRefresh = false;
-            foreach (RoutineSignature memberRoutine in protocolDecl.MemberRoutines)
-            {
-                bool isFailable = memberRoutine.IsFailable;
-                string fullName = memberRoutine.Name;
-                bool isInstance = fullName.StartsWith(value: "Me.");
-                string memberRoutineName = isInstance ? fullName[3..] : fullName;
-
-                ProtocolMemberRoutineInfo? protoMemberRoutine = existing.MemberRoutines.FirstOrDefault(predicate: m =>
-                    m.Name == memberRoutineName && m.IsFailable == isFailable);
-
-                // A param whose type was a forward reference (e.g. a concrete `index: U64` before
-                // U64 was registered) is silently dropped by FillProtocolMemberRoutines, leaving the proto
-                // memberRoutine with fewer params than declared. Detect the count mismatch and re-fill now
-                // that all type shells exist, so conformance (S703) sees the real arity. This must
-                // run for void memberRoutines too (e.g. `setitem!`), so it precedes the return-type check.
-                int declParamCount = memberRoutine.Parameters.Count(predicate: p => p.Name != "me");
-                if (protoMemberRoutine != null && protoMemberRoutine.ParameterTypes.Count != declParamCount)
-                {
-                    needsRefresh = true;
-                    break;
-                }
-
-                if (memberRoutine.ReturnType == null)
-                {
-                    continue; // Intentionally void — nothing more to check for return type
-                }
-
-                if (protoMemberRoutine?.ReturnType == null)
-                {
-                    needsRefresh = true;
-                    break;
-                }
-            }
-
-            if (!needsRefresh)
+            if (!ProtocolMemberRoutinesNeedRefresh(protocolDecl: protocolDecl, existing: existing))
             {
                 continue;
             }
@@ -1690,6 +1789,49 @@ public sealed partial class StdlibLoader
             // user types obeying the protocol see the corrected arity instead of failing S703.
             registry.RefreshProtocolResolutions(genericDef: existing);
         }
+    }
+
+    /// <summary>
+    /// Whether a registered protocol's member routines must be reset and re-filled: true when any
+    /// declared member routine has a param-count mismatch (a param whose type was a forward reference
+    /// was silently dropped) or a null return type where the declaration declares one.
+    /// </summary>
+    private static bool ProtocolMemberRoutinesNeedRefresh(ProtocolDeclaration protocolDecl,
+        ProtocolTypeInfo existing)
+    {
+        foreach (RoutineSignature memberRoutine in protocolDecl.MemberRoutines)
+        {
+            bool isFailable = memberRoutine.IsFailable;
+            string fullName = memberRoutine.Name;
+            bool isInstance = fullName.StartsWith(value: "Me.");
+            string memberRoutineName = isInstance ? fullName[3..] : fullName;
+
+            ProtocolMemberRoutineInfo? protoMemberRoutine = existing.MemberRoutines.FirstOrDefault(predicate: m =>
+                m.Name == memberRoutineName && m.IsFailable == isFailable);
+
+            // A param whose type was a forward reference (e.g. a concrete `index: U64` before
+            // U64 was registered) is silently dropped by FillProtocolMemberRoutines, leaving the proto
+            // memberRoutine with fewer params than declared. Detect the count mismatch and re-fill now
+            // that all type shells exist, so conformance (S703) sees the real arity. This must
+            // run for void memberRoutines too (e.g. `setitem!`), so it precedes the return-type check.
+            int declParamCount = memberRoutine.Parameters.Count(predicate: p => p.Name != "me");
+            if (protoMemberRoutine != null && protoMemberRoutine.ParameterTypes.Count != declParamCount)
+            {
+                return true;
+            }
+
+            if (memberRoutine.ReturnType == null)
+            {
+                continue; // Intentionally void — nothing more to check for return type
+            }
+
+            if (protoMemberRoutine?.ReturnType == null)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -1822,7 +1964,7 @@ public sealed partial class StdlibLoader
     /// Fills in memberRoutine signatures for a previously registered protocol type.
     /// This is the second pass — all protocols are registered, so cross-references resolve.
     /// </summary>
-    private static void FillProtocolMemberRoutines(TypeRegistry registry, ProtocolDeclaration protocol) // NOSONAR S3776
+    private static void FillProtocolMemberRoutines(TypeRegistry registry, ProtocolDeclaration protocol)
     {
         var existing = registry.LookupType(name: protocol.Name) as ProtocolTypeInfo;
         if (existing == null || existing.MemberRoutines.Count > 0)
@@ -1833,88 +1975,100 @@ public sealed partial class StdlibLoader
         var memberRoutines = new List<ProtocolMemberRoutineInfo>();
         foreach (RoutineSignature memberRoutine in protocol.MemberRoutines)
         {
-            bool isFailable = memberRoutine.IsFailable;
-            string fullName = memberRoutine.Name;
-            bool isInstance = fullName.StartsWith(value: "Me.");
-            string memberRoutineName = isInstance
-                ? fullName[3..]
-                : fullName;
+            AppendProtocolMemberRoutine(registry: registry, protocol: protocol,
+                memberRoutine: memberRoutine, memberRoutines: memberRoutines);
+        }
 
-            TypeInfo? returnType = memberRoutine.ReturnType != null
-                ? ResolveSimpleType(registry: registry,
-                    typeExpr: memberRoutine.ReturnType,
-                    genericParams: protocol.GenericParameters)
-                : null;
+        existing.MemberRoutines = memberRoutines;
+    }
 
-            var parameterTypes = new List<TypeInfo>();
-            var parameterNames = new List<string>();
+    /// <summary>
+    /// Resolves one protocol memberRoutine signature into a <see cref="ProtocolMemberRoutineInfo"/>
+    /// (appended to <paramref name="memberRoutines"/>). For a failable memberRoutine also appends the
+    /// auto-derived <c>try_X</c> non-failable variant returning Maybe[T] (or Bool when T is None).
+    /// </summary>
+    private static void AppendProtocolMemberRoutine(TypeRegistry registry, ProtocolDeclaration protocol,
+        RoutineSignature memberRoutine, List<ProtocolMemberRoutineInfo> memberRoutines)
+    {
+        bool isFailable = memberRoutine.IsFailable;
+        string fullName = memberRoutine.Name;
+        bool isInstance = fullName.StartsWith(value: "Me.");
+        string memberRoutineName = isInstance
+            ? fullName[3..]
+            : fullName;
 
-            foreach (Parameter param in memberRoutine.Parameters)
+        TypeInfo? returnType = memberRoutine.ReturnType != null
+            ? ResolveSimpleType(registry: registry,
+                typeExpr: memberRoutine.ReturnType,
+                genericParams: protocol.GenericParameters)
+            : null;
+
+        var parameterTypes = new List<TypeInfo>();
+        var parameterNames = new List<string>();
+
+        foreach (Parameter param in memberRoutine.Parameters)
+        {
+            if (param.Name == "me")
             {
-                if (param.Name == "me")
-                {
-                    continue;
-                }
-
-                TypeInfo? paramType = param.Type?.Name == "Me"
-                    ? ProtocolSelfTypeInfo.Instance
-                    : ResolveSimpleType(registry: registry,
-                        typeExpr: param.Type,
-                        genericParams: protocol.GenericParameters);
-                if (paramType != null)
-                {
-                    parameterTypes.Add(item: paramType);
-                    parameterNames.Add(item: param.Name);
-                }
+                continue;
             }
 
-            TypeInfo? resolvedReturnType = memberRoutine.ReturnType?.Name == "Me"
+            TypeInfo? paramType = param.Type?.Name == "Me"
                 ? ProtocolSelfTypeInfo.Instance
-                : returnType;
+                : ResolveSimpleType(registry: registry,
+                    typeExpr: param.Type,
+                    genericParams: protocol.GenericParameters);
+            if (paramType != null)
+            {
+                parameterTypes.Add(item: paramType);
+                parameterNames.Add(item: param.Name);
+            }
+        }
 
-            memberRoutines.Add(item: new ProtocolMemberRoutineInfo(name: memberRoutineName)
+        TypeInfo? resolvedReturnType = memberRoutine.ReturnType?.Name == "Me"
+            ? ProtocolSelfTypeInfo.Instance
+            : returnType;
+
+        memberRoutines.Add(item: new ProtocolMemberRoutineInfo(name: memberRoutineName)
+        {
+            IsInstanceMemberRoutine = isInstance,
+            ParameterTypes = parameterTypes,
+            ParameterNames = parameterNames,
+            ReturnType = resolvedReturnType,
+            IsFailable = isFailable
+        });
+
+        // For failable memberRoutines, also expose a `try_X` non-failable variant returning
+        // Maybe[T] (or Bool when T is None), so call sites typed against the bare
+        // protocol (e.g. for-loop desugaring's `iter.try_emit()` where `iter: Iterator[T]`)
+        // can resolve. Mirrors ErrorHandlingGenerator.GenerateTryVariant's shape.
+        if (isFailable)
+        {
+            string tryName = "try_" + memberRoutineName;
+            TypeInfo? tryReturnType;
+            if (resolvedReturnType == null || resolvedReturnType.Name == "None")
+            {
+                tryReturnType = registry.LookupType(name: "Bool");
+            }
+            else
+            {
+                TypeInfo? maybeDef = registry.LookupType(name: "Maybe");
+                tryReturnType = maybeDef != null
+                    ? registry.GetOrCreateResolution(
+                        genericDef: maybeDef,
+                        typeArguments: [resolvedReturnType])
+                    : null;
+            }
+
+            memberRoutines.Add(item: new ProtocolMemberRoutineInfo(name: tryName)
             {
                 IsInstanceMemberRoutine = isInstance,
                 ParameterTypes = parameterTypes,
                 ParameterNames = parameterNames,
-                ReturnType = resolvedReturnType,
-                IsFailable = isFailable
+                ReturnType = tryReturnType,
+                IsFailable = false,
+                IsAutoDerivedVariant = true
             });
-
-            // For failable memberRoutines, also expose a `try_X` non-failable variant returning
-            // Maybe[T] (or Bool when T is None), so call sites typed against the bare
-            // protocol (e.g. for-loop desugaring's `iter.try_emit()` where `iter: Iterator[T]`)
-            // can resolve. Mirrors ErrorHandlingGenerator.GenerateTryVariant's shape.
-            if (isFailable)
-            {
-                string tryName = "try_" + memberRoutineName;
-                TypeInfo? tryReturnType;
-                if (resolvedReturnType == null || resolvedReturnType.Name == "None")
-                {
-                    tryReturnType = registry.LookupType(name: "Bool");
-                }
-                else
-                {
-                    TypeInfo? maybeDef = registry.LookupType(name: "Maybe");
-                    tryReturnType = maybeDef != null
-                        ? registry.GetOrCreateResolution(
-                            genericDef: maybeDef,
-                            typeArguments: [resolvedReturnType])
-                        : null;
-                }
-
-                memberRoutines.Add(item: new ProtocolMemberRoutineInfo(name: tryName)
-                {
-                    IsInstanceMemberRoutine = isInstance,
-                    ParameterTypes = parameterTypes,
-                    ParameterNames = parameterNames,
-                    ReturnType = tryReturnType,
-                    IsFailable = false,
-                    IsAutoDerivedVariant = true
-                });
-            }
         }
-
-        existing.MemberRoutines = memberRoutines;
     }
 }

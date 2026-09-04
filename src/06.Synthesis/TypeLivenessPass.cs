@@ -60,29 +60,36 @@ internal sealed class TypeLivenessPass(TypeRegistry registry)
         registry.SetLiveConcreteTypes(liveTypes: _live);
     }
 
-    private void DrainWorklist() // NOSONAR S3776
+    private void DrainWorklist()
     {
         while (_worklist.Count > 0)
         {
-            TypeInfo t = _worklist.Dequeue();
+            EnqueueReachableFrom(t: _worklist.Dequeue());
+        }
+    }
 
-            if (t.TypeArguments != null)
-            {
-                foreach (TypeInfo arg in t.TypeArguments) Enqueue(arg);
-            }
+    /// <summary>
+    /// Enqueues every type directly reachable from <paramref name="t"/>: its type arguments and,
+    /// per kind, its member-variable types (record/entity) or wrapper inner type.
+    /// </summary>
+    private void EnqueueReachableFrom(TypeInfo t)
+    {
+        if (t.TypeArguments != null)
+        {
+            foreach (TypeInfo arg in t.TypeArguments) Enqueue(arg);
+        }
 
-            switch (t)
-            {
-                case RecordTypeInfo record:
-                    foreach (MemberVariableInfo mv in record.MemberVariables) Enqueue(mv.Type);
-                    break;
-                case EntityTypeInfo entity:
-                    foreach (MemberVariableInfo mv in entity.MemberVariables) Enqueue(mv.Type);
-                    break;
-                case WrapperTypeInfo wrapper:
-                    if (wrapper.InnerType != null) Enqueue(wrapper.InnerType);
-                    break;
-            }
+        switch (t)
+        {
+            case RecordTypeInfo record:
+                foreach (MemberVariableInfo mv in record.MemberVariables) Enqueue(mv.Type);
+                break;
+            case EntityTypeInfo entity:
+                foreach (MemberVariableInfo mv in entity.MemberVariables) Enqueue(mv.Type);
+                break;
+            case WrapperTypeInfo wrapper:
+                if (wrapper.InnerType != null) Enqueue(wrapper.InnerType);
+                break;
         }
     }
 

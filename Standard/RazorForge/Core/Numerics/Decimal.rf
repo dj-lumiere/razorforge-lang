@@ -860,9 +860,11 @@ routine d256b_represent(p: DecimalParts) -> Text
   return if sign then "-" + out else out
 
 ### Returns the decimal text of this value (full 70-digit formatter).
+@override
 routine Decimal.represent() -> Text
   return d256b_represent(p: me.decode())
 
 ### Returns a debug rendering of this value, e.g. `Decimal(3.5)`. Mirrors the D32/D64/D128 surface.
+@override
 routine Decimal.diagnose() -> Text
   return "Decimal(" + me.represent() + ")"

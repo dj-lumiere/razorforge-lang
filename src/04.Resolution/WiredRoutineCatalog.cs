@@ -150,7 +150,7 @@ public static class WiredRoutineCatalog
         // concrete owner. Cap gates it on `Copyable`: only owners whose element/arm types are copyable
         // emit a body (e.g. Dict[Text, SerialValue].copy needs SerialValue copyable), so a
         // Dict[Text, NonCopyable] correctly carries no `copy` symbol.
-        new() { Name = "copy",      Kind = WiredKind.Copy, Views = Cap | Seed,
+        new() { Name = "duplicate",      Kind = WiredKind.Copy, Views = Cap | Seed,
                 Protocols = ["Copyable"], AlwaysLive = true },
 
         // ---- Display / hash ----
@@ -341,6 +341,19 @@ public static class WiredRoutineCatalog
     {
         AssertSetEquals(label: "Capability", expected: _legacyCapabilityMap.Keys,
             actual: BuildCapabilityMap().Keys);
+        AssertCapabilityValuesMatch();
+        AssertSetEquals(label: "KnownWired", expected: _legacyKnownWired, actual: BuildKnownWiredMemberRoutines());
+        AssertSetEquals(label: "WiredToProtocols-keys", expected: _legacyWiredToProtocols.Keys,
+            actual: BuildWiredToProtocols().Keys);
+        AssertWiredToProtocolsValuesMatch();
+        AssertSetEquals(label: "ReachabilitySeed", expected: _legacyReachabilitySeed,
+            actual: BuildReachabilitySeedNames());
+        return true;
+    }
+
+    // Verifies each capability entry's (Protocol, WiredName) pair matches the legacy oracle exactly.
+    private static void AssertCapabilityValuesMatch()
+    {
         foreach (var (k, v) in _legacyCapabilityMap)
         {
             var got = BuildCapabilityMap()[key: k];
@@ -351,9 +364,11 @@ public static class WiredRoutineCatalog
                 throw new InvalidOperationException(message: m);
             }
         }
-        AssertSetEquals(label: "KnownWired", expected: _legacyKnownWired, actual: BuildKnownWiredMemberRoutines());
-        AssertSetEquals(label: "WiredToProtocols-keys", expected: _legacyWiredToProtocols.Keys,
-            actual: BuildWiredToProtocols().Keys);
+    }
+
+    // Verifies each WiredToProtocols entry's protocol list matches the legacy oracle in order.
+    private static void AssertWiredToProtocolsValuesMatch()
+    {
         foreach (var (k, v) in _legacyWiredToProtocols)
         {
             List<string> got = BuildWiredToProtocols()[key: k];
@@ -364,9 +379,6 @@ public static class WiredRoutineCatalog
                 throw new InvalidOperationException(message: m);
             }
         }
-        AssertSetEquals(label: "ReachabilitySeed", expected: _legacyReachabilitySeed,
-            actual: BuildReachabilitySeedNames());
-        return true;
     }
 
     private static void AssertSetEquals(string label, IEnumerable<string> expected, IEnumerable<string> actual)
@@ -418,7 +430,7 @@ public static class WiredRoutineCatalog
             ["mul_unchecked"] = ("UncheckedMultiplicable", "mul_unchecked"), ["truediv_unchecked"] = ("UncheckedTrueDivisible", "truediv_unchecked"),
             ["floordiv_unchecked"] = ("UncheckedFloorDivisible", "floordiv_unchecked"), ["mod_unchecked"] = ("UncheckedFloorDivisible", "floordiv_unchecked"),
             ["pow_unchecked"] = ("UncheckedExponentiable", "pow_unchecked"), ["assign"] = ("Assignable", "assign"),
-            ["copy"] = ("Copyable", "copy"),
+            ["duplicate"] = ("Copyable", "duplicate"),
         };
 
     private static readonly string[] _legacyKnownWired =
@@ -461,7 +473,7 @@ public static class WiredRoutineCatalog
     private static readonly string[] _legacyReachabilitySeed =
     [
         "from_literal",
-        "represent", "diagnose", "cyclic_visit", "hash", "assign", "copy", "eq", "ne", "cmp", "lt", "le", "gt", "ge",
+        "represent", "diagnose", "cyclic_visit", "hash", "assign", "duplicate", "eq", "ne", "cmp", "lt", "le", "gt", "ge",
         "contains", "notcontains", "iter", "emit", "try_emit",
         "add", "sub", "mul", "truediv", "floordiv", "mod", "pow", "neg",
         "add_wrap", "sub_wrap", "mul_wrap", "pow_wrap",

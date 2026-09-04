@@ -22,7 +22,7 @@ namespace Compiler.Desugaring.Passes;
 /// the <see cref="TypeRegistry"/>, which happens during
 /// <c>CollectPresetDeclaration</c> in Phase 3.</para>
 /// </summary>
-internal sealed class PresetInliningPass(DesugaringContext ctx)
+internal sealed class PresetInliningPass(DesugaringContext ctx) : AstRewriter
 {
     // Presets are GLOBAL by default (public constants like `S64_MAX`/`DECIMAL_PI` are part of the Core
     // prelude and usable everywhere). A `secret preset` is FILE-PRIVATE: inlinable only inside the file
@@ -60,7 +60,7 @@ internal sealed class PresetInliningPass(DesugaringContext ctx)
             {
                 case RoutineDeclaration r:
                 {
-                    Statement newBody = LowerStatement(r.Body);
+                    Statement newBody = VisitStatement(r.Body);
                     if (!ReferenceEquals(newBody, r.Body))
                         program.Declarations[i] = r with { Body = newBody };
                     break;
@@ -94,7 +94,7 @@ internal sealed class PresetInliningPass(DesugaringContext ctx)
         foreach (string key in ctx.VariantBodies.Keys.ToList())
         {
             Statement body = ctx.VariantBodies[key];
-            Statement lowered = LowerStatement(body);
+            Statement lowered = VisitStatement(body);
             if (!ReferenceEquals(lowered, body))
                 ctx.VariantBodies[key] = lowered;
         }
@@ -108,7 +108,7 @@ internal sealed class PresetInliningPass(DesugaringContext ctx)
         for (int j = 0; j < members.Count; j++)
         {
             if (members[j] is not RoutineDeclaration m) continue;
-            Statement newBody = LowerStatement(m.Body);
+            Statement newBody = VisitStatement(m.Body);
             if (!ReferenceEquals(newBody, m.Body))
                 members[j] = m with { Body = newBody };
         }
@@ -117,452 +117,91 @@ internal sealed class PresetInliningPass(DesugaringContext ctx)
     // -----------------------------------------------------------------------------
 
     /// <summary>
-    /// Lower statement as part of this compiler phase.
+    /// Inlines an identifier that resolves to a preset constant with its literal value, honoring
+    /// secret-preset file scoping and aggregate-preset exclusion. Returns the identifier unchanged
+    /// when it is not an inlinable preset.
     /// </summary>
-    private Statement LowerStatement(Statement stmt)
+    private Expression LowerIdentifier(Expression expr, IdentifierExpression id)
     {
-        switch (stmt)
+        VariableInfo? v = ctx.Registry.LookupVariable(id.Name);
+
+        // A `secret preset` is MODULE-private: inline it inside any file of the module that declares
+        // it (same granularity as `secret record`/`secret entity`). A reference from ANOTHER module is
+        // left un-inlined — since it stays a bare identifier that resolves to a preset, the
+        // backend-entry validator flags it (RF-S958), so a secret constant cannot silently be used
+        // from another module. Public presets always inline. When there is no current module
+        // (`_currentModule == null` for synthesized variant bodies), a secret with a known module is
+        // treated as foreign and left un-inlined, preserving the prior variant-body behavior.
+        if (v is { IsPreset: true, IsSecret: true }
+            && _ownPresets is not null
+            && !_ownPresets.ContainsKey(key: id.Name))
         {
-            case BlockStatement b:
-            {
-                bool changed = false;
-                var list = new List<Statement>(b.Statements.Count);
-                foreach (Statement s in b.Statements)
-                {
-                    Statement ns = LowerStatement(s);
-                    list.Add(ns);
-                    if (!ReferenceEquals(ns, s)) changed = true;
-                }
-                return changed ? b with { Statements = list } : stmt;
-            }
-
-            case IfStatement ifs:
-            {
-                Expression cond = LowerExpression(ifs.Condition);
-                Statement then = LowerStatement(ifs.ThenStatement);
-                Statement? elseS = ifs.ElseStatement != null
-                    ? LowerStatement(ifs.ElseStatement)
-                    : null;
-                bool changed = !ReferenceEquals(cond, ifs.Condition)
-                               || !ReferenceEquals(then, ifs.ThenStatement)
-                               || !ReferenceEquals(elseS, ifs.ElseStatement);
-                return changed
-                    ? ifs with { Condition = cond, ThenStatement = then, ElseStatement = elseS }
-                    : stmt;
-            }
-
-            case WhileStatement w:
-            {
-                Expression cond = LowerExpression(w.Condition);
-                Statement body = LowerStatement(w.Body);
-                bool changed = !ReferenceEquals(cond, w.Condition)
-                               || !ReferenceEquals(body, w.Body);
-                return changed ? w with { Condition = cond, Body = body } : stmt;
-            }
-
-            case LoopStatement loop:
-            {
-                Statement body = LowerStatement(loop.Body);
-                return ReferenceEquals(body, loop.Body) ? stmt : loop with { Body = body };
-            }
-
-            case EachStatement f:
-            {
-                Expression iter = LowerExpression(f.Iterable);
-                Statement body = LowerStatement(f.Body);
-                bool changed = !ReferenceEquals(iter, f.Iterable)
-                               || !ReferenceEquals(body, f.Body);
-                return changed ? f with { Iterable = iter, Body = body } : stmt;
-            }
-
-            case WhenStatement ws:
-            {
-                Expression subject = LowerExpression(ws.Expression);
-                bool changed = !ReferenceEquals(subject, ws.Expression);
-                var clauses = new List<WhenClause>(ws.Clauses.Count);
-                foreach (WhenClause c in ws.Clauses)
-                {
-                    Statement cb = LowerStatement(c.Body);
-                    if (!ReferenceEquals(cb, c.Body)) changed = true;
-                    clauses.Add(!ReferenceEquals(cb, c.Body) ? c with { Body = cb } : c);
-                }
-                return changed ? ws with { Expression = subject, Clauses = clauses } : stmt;
-            }
-
-            case ReturnStatement { Value: not null } ret:
-            {
-                Expression v = LowerExpression(ret.Value);
-                return ReferenceEquals(v, ret.Value) ? stmt : ret with { Value = v };
-            }
-
-            case VariantReturnStatement { Value: not null } variantRet:
-            {
-                Expression v = LowerExpression(variantRet.Value);
-                return ReferenceEquals(v, variantRet.Value)
-                    ? stmt
-                    : variantRet with { Value = v };
-            }
-
-            case AssignmentStatement assign:
-            {
-                Expression val = LowerExpression(assign.Value);
-                return ReferenceEquals(val, assign.Value)
-                    ? stmt
-                    : assign with { Value = val };
-            }
-
-            case DeclarationStatement { Declaration: VariableDeclaration { Initializer: not null } vd } ds:
-            {
-                Expression init = LowerExpression(vd.Initializer);
-                if (ReferenceEquals(init, vd.Initializer)) return stmt;
-                return ds with { Declaration = vd with { Initializer = init } };
-            }
-
-            case ExpressionStatement es:
-            {
-                Expression e = LowerExpression(es.Expression);
-                return ReferenceEquals(e, es.Expression) ? stmt : es with { Expression = e };
-            }
-
-            case DiscardStatement ds:
-            {
-                Expression e = LowerExpression(ds.Expression);
-                return ReferenceEquals(e, ds.Expression) ? stmt : ds with { Expression = e };
-            }
-
-            case ThrowStatement ts:
-            {
-                Expression e = LowerExpression(ts.Error);
-                return ReferenceEquals(e, ts.Error) ? stmt : ts with { Error = e };
-            }
-
-            case BecomesStatement bs:
-            {
-                Expression v = LowerExpression(bs.Value);
-                return ReferenceEquals(v, bs.Value) ? stmt : bs with { Value = v };
-            }
-
-            case UsingStatement us:
-            {
-                Statement body = LowerStatement(us.Body);
-                Statement? fb = us.FallbackBody != null ? LowerStatement(us.FallbackBody) : null;
-                return ReferenceEquals(body, us.Body) && ReferenceEquals(fb, us.FallbackBody)
-                    ? stmt
-                    : us with { Body = body, FallbackBody = fb };
-            }
-
-            case DangerStatement danger:
-            {
-                Statement newBody = LowerStatement(danger.Body);
-                if (!ReferenceEquals(newBody, danger.Body) && newBody is BlockStatement bs2)
-                    return danger with { Body = bs2 };
-                return stmt;
-            }
-
-            default:
-                return stmt;
+            return expr;
         }
+
+        if (v is { IsPreset: true, PresetValue: not null })
+        {
+            // Aggregate (Array[T,N]) presets are NOT inlined: substituting the whole list
+            // literal at every use site rebuilds the array per reference (codegen lowered it to
+            // a heap List rebuilt element-by-element — the fun_bench OOM). Keep the identifier so
+            // codegen emits a single `@preset.*` constant global and indexes into it.
+            if (v.IsPresettableAggregate)
+                return expr;
+
+            // Carry the Phase-4 ResolvedType from the identifier onto the inlined value.
+            // This ensures operator-lowering and other subsequent passes see the correct type.
+            TypeInfo? resolvedType = id.ResolvedType ?? v.PresetValue.ResolvedType;
+            return v.PresetValue is LiteralExpression lit
+                ? lit with { ResolvedType = resolvedType }
+                : v.PresetValue;
+        }
+        return expr;
     }
 
-    // -----------------------------------------------------------------------------
-
     /// <summary>
-    /// Lower expression as part of this compiler phase.
+    /// Two node kinds this pass rewrites are NOT part of the shared <see cref="AstRewriter"/> spine, so
+    /// they are dispatched here on top of the base:
+    /// <list type="bullet">
+    ///   <item><see cref="IdentifierExpression"/> — a leaf to the base, but the whole POINT of this pass:
+    ///   inline a preset identifier to its literal value (via <see cref="LowerIdentifier"/>).</item>
+    ///   <item><see cref="WaitforExpression"/> — the base treats it as a leaf (no <c>VisitWaitfor</c> hook),
+    ///   but a preset may appear in its operand/timeout, so recurse into those parts explicitly.</item>
+    /// </list>
+    /// Every other node kind is left to the base's structural recursion.
     /// </summary>
-    private Expression LowerExpression(Expression expr)
+    public override Expression VisitExpression(Expression expr)
     {
-        // -----------------------------------------------------------------------------
         if (expr is IdentifierExpression id)
+            return LowerIdentifier(expr: expr, id: id);
+
+        if (expr is WaitforExpression wf)
         {
-            VariableInfo? v = ctx.Registry.LookupVariable(id.Name);
-
-            // A `secret preset` is MODULE-private: inline it inside any file of the module that declares
-            // it (same granularity as `secret record`/`secret entity`). A reference from ANOTHER module is
-            // left un-inlined — since it stays a bare identifier that resolves to a preset, the
-            // backend-entry validator flags it (RF-S958), so a secret constant cannot silently be used
-            // from another module. Public presets always inline. When there is no current module
-            // (`_currentModule == null` for synthesized variant bodies), a secret with a known module is
-            // treated as foreign and left un-inlined, preserving the prior variant-body behavior.
-            if (v is { IsPreset: true, IsSecret: true }
-                && _ownPresets is not null
-                && !_ownPresets.ContainsKey(key: id.Name))
-            {
-                return expr;
-            }
-
-            if (v is { IsPreset: true, PresetValue: not null })
-            {
-                // Aggregate (Array[T,N]) presets are NOT inlined: substituting the whole list
-                // literal at every use site rebuilds the array per reference (codegen lowered it to
-                // a heap List rebuilt element-by-element — the fun_bench OOM). Keep the identifier so
-                // codegen emits a single `@preset.*` constant global and indexes into it.
-                if (v.IsPresettableAggregate)
-                    return expr;
-
-                // Carry the Phase-4 ResolvedType from the identifier onto the inlined value.
-                // This ensures operator-lowering and other subsequent passes see the correct type.
-                TypeInfo? resolvedType = id.ResolvedType ?? v.PresetValue.ResolvedType;
-                return v.PresetValue is LiteralExpression lit
-                    ? lit with { ResolvedType = resolvedType }
-                    : v.PresetValue;
-            }
-            return expr;
+            Expression o = VisitExpression(wf.Operand);
+            Expression? timeout = wf.Timeout != null ? VisitExpression(wf.Timeout) : null;
+            bool changed = !ReferenceEquals(o, wf.Operand)
+                           || !ReferenceEquals(timeout, wf.Timeout);
+            return changed ? wf with { Operand = o, Timeout = timeout } : expr;
         }
 
-        // -----------------------------------------------------------------------------
-        if (expr is LiteralExpression or TypeExpression or TypeIdExpression)
-            return expr;
-
-        // -----------------------------------------------------------------------------
-        switch (expr)
-        {
-            case BinaryExpression bin:
-            {
-                Expression l = LowerExpression(bin.Left);
-                Expression r = LowerExpression(bin.Right);
-                return ReferenceEquals(l, bin.Left) && ReferenceEquals(r, bin.Right)
-                    ? expr : bin with { Left = l, Right = r };
-            }
-
-            case UnaryExpression un:
-            {
-                Expression o = LowerExpression(un.Operand);
-                return ReferenceEquals(o, un.Operand) ? expr : un with { Operand = o };
-            }
-
-            case CallExpression call:
-            {
-                // A bare-identifier callee is a TYPE constructor or a routine name — never a preset
-                // value (presets are scalars/aggregates, not callable). Inlining it would rewrite
-                // `Foo(a: 1)` into `<literal>(a: 1)` when a preset happens to share the name `Foo`
-                // (e.g. a user `record B` colliding with stdlib `preset B`). So skip the callee when it
-                // is a bare identifier; still lower a member/other callee (e.g. `SOME_PRESET.bit_count()`
-                // whose Object may be a preset) and the argument list.
-                Expression callee = call.Callee is IdentifierExpression
-                    ? call.Callee
-                    : LowerExpression(call.Callee);
-                List<Expression> args = LowerExpressionList(call.Arguments);
-                bool changed = !ReferenceEquals(callee, call.Callee)
-                               || !ReferenceEquals(args, call.Arguments);
-                return changed ? call with { Callee = callee, Arguments = args } : expr;
-            }
-
-            case NamedArgumentExpression named:
-            {
-                Expression v = LowerExpression(named.Value);
-                return ReferenceEquals(v, named.Value) ? expr : named with { Value = v };
-            }
-
-            case MemberExpression mem:
-            {
-                Expression o = LowerExpression(mem.Object);
-                return ReferenceEquals(o, mem.Object) ? expr : mem with { Object = o };
-            }
-
-            case OptionalMemberExpression omem:
-            {
-                Expression o = LowerExpression(omem.Object);
-                return ReferenceEquals(o, omem.Object) ? expr : omem with { Object = o };
-            }
-
-            case IndexExpression idx:
-            {
-                Expression o = LowerExpression(idx.Object);
-                Expression i = LowerExpression(idx.Index);
-                bool changed = !ReferenceEquals(o, idx.Object) || !ReferenceEquals(i, idx.Index);
-                return changed ? idx with { Object = o, Index = i } : expr;
-            }
-
-            case TypeConversionExpression conv:
-            {
-                Expression e = LowerExpression(conv.Expression);
-                return ReferenceEquals(e, conv.Expression) ? expr : conv with { Expression = e };
-            }
-
-            case StealExpression steal:
-            {
-                Expression o = LowerExpression(steal.Operand);
-                return ReferenceEquals(o, steal.Operand) ? expr : steal with { Operand = o };
-            }
-
-            case GenericMemberRoutineCallExpression gmc:
-            {
-                Expression obj = LowerExpression(gmc.Object);
-                List<Expression> args = LowerExpressionList(gmc.Arguments);
-                bool changed = !ReferenceEquals(obj, gmc.Object)
-                               || !ReferenceEquals(args, gmc.Arguments);
-                return changed ? gmc with { Object = obj, Arguments = args } : expr;
-            }
-
-            case GenericMemberExpression gmem:
-            {
-                Expression o = LowerExpression(gmem.Object);
-                return ReferenceEquals(o, gmem.Object) ? expr : gmem with { Object = o };
-            }
-
-            case IsPatternExpression ip:
-            {
-                Expression e = LowerExpression(ip.Expression);
-                return ReferenceEquals(e, ip.Expression) ? expr : ip with { Expression = e };
-            }
-
-            case FlagsTestExpression flags:
-            {
-                Expression s = LowerExpression(flags.Subject);
-                return ReferenceEquals(s, flags.Subject) ? expr : flags with { Subject = s };
-            }
-
-            case ChainedComparisonExpression chain:
-            {
-                List<Expression> operands = LowerExpressionList(chain.Operands);
-                return ReferenceEquals(operands, chain.Operands)
-                    ? expr : chain with { Operands = operands };
-            }
-
-            case CompoundAssignmentExpression comp:
-            {
-                Expression target = LowerExpression(comp.Target);
-                Expression value = LowerExpression(comp.Value);
-                bool changed = !ReferenceEquals(target, comp.Target)
-                               || !ReferenceEquals(value, comp.Value);
-                return changed ? comp with { Target = target, Value = value } : expr;
-            }
-
-            case RangeExpression range:
-            {
-                Expression start = LowerExpression(range.Start);
-                Expression end = LowerExpression(range.End);
-                Expression? step = range.Step != null ? LowerExpression(range.Step) : null;
-                bool changed = !ReferenceEquals(start, range.Start)
-                               || !ReferenceEquals(end, range.End)
-                               || !ReferenceEquals(step, range.Step);
-                return changed ? range with { Start = start, End = end, Step = step } : expr;
-            }
-
-            case ConditionalExpression cond:
-            {
-                Expression c = LowerExpression(cond.Condition);
-                Expression t = LowerExpression(cond.TrueExpression);
-                Expression f = LowerExpression(cond.FalseExpression);
-                bool changed = !ReferenceEquals(c, cond.Condition)
-                               || !ReferenceEquals(t, cond.TrueExpression)
-                               || !ReferenceEquals(f, cond.FalseExpression);
-                return changed
-                    ? cond with { Condition = c, TrueExpression = t, FalseExpression = f }
-                    : expr;
-            }
-
-            case TupleLiteralExpression tuple:
-            {
-                List<Expression> elems = LowerExpressionList(tuple.Elements);
-                return ReferenceEquals(elems, tuple.Elements)
-                    ? expr : tuple with { Elements = elems };
-            }
-
-            case ListLiteralExpression list:
-            {
-                List<Expression> elems = LowerExpressionList(list.Elements);
-                return ReferenceEquals(elems, list.Elements)
-                    ? expr : list with { Elements = elems };
-            }
-
-            case SetLiteralExpression set:
-            {
-                List<Expression> elems = LowerExpressionList(set.Elements);
-                return ReferenceEquals(elems, set.Elements)
-                    ? expr : set with { Elements = elems };
-            }
-
-            case DictLiteralExpression dict:
-            {
-                bool changed = false;
-                var pairs = new List<(Expression Key, Expression Value)>(dict.Pairs.Count);
-                foreach ((Expression k, Expression v) in dict.Pairs)
-                {
-                    Expression lk = LowerExpression(k);
-                    Expression lv = LowerExpression(v);
-                    pairs.Add((lk, lv));
-                    if (!ReferenceEquals(lk, k) || !ReferenceEquals(lv, v)) changed = true;
-                }
-                return changed ? dict with { Pairs = pairs } : expr;
-            }
-
-            case CreatorExpression creator:
-            {
-                bool changed = false;
-                var members = new List<(string Name, Expression Value)>(
-                    creator.MemberVariables.Count);
-                foreach ((string name, Expression value) in creator.MemberVariables)
-                {
-                    Expression v = LowerExpression(value);
-                    members.Add((name, v));
-                    if (!ReferenceEquals(v, value)) changed = true;
-                }
-                return changed ? creator with { MemberVariables = members } : expr;
-            }
-
-            case InsertedTextExpression fstr:
-            {
-                bool changed = false;
-                var parts = new List<InsertedTextPart>(fstr.Parts.Count);
-                foreach (InsertedTextPart part in fstr.Parts)
-                {
-                    if (part is ExpressionPart ep)
-                    {
-                        Expression e = LowerExpression(ep.Expression);
-                        if (!ReferenceEquals(e, ep.Expression))
-                        {
-                            parts.Add(ep with { Expression = e });
-                            changed = true;
-                            continue;
-                        }
-                    }
-                    parts.Add(part);
-                }
-                return changed ? fstr with { Parts = parts } : expr;
-            }
-
-            case BackIndexExpression back:
-            {
-                Expression o = LowerExpression(back.Operand);
-                return ReferenceEquals(o, back.Operand) ? expr : back with { Operand = o };
-            }
-
-            case BlockExpression block:
-            {
-                Expression v = LowerExpression(block.Value);
-                return ReferenceEquals(v, block.Value) ? expr : block with { Value = v };
-            }
-
-            case WaitforExpression wf:
-            {
-                Expression o = LowerExpression(wf.Operand);
-                Expression? timeout = wf.Timeout != null ? LowerExpression(wf.Timeout) : null;
-                bool changed = !ReferenceEquals(o, wf.Operand)
-                               || !ReferenceEquals(timeout, wf.Timeout);
-                return changed ? wf with { Operand = o, Timeout = timeout } : expr;
-            }
-
-            // LambdaExpression, WithExpression, WhenExpression, DependentWaitforExpression,
-            // CarrierPayloadExpression: presets are extremely unlikely in these positions.
-            default:
-                return expr;
-        }
+        return base.VisitExpression(expr);
     }
 
     /// <summary>
-    /// Lower expression list as part of this compiler phase.
+    /// A bare-identifier callee is a TYPE constructor or a routine name — never a preset value (presets
+    /// are scalars/aggregates, not callable). Inlining it would rewrite <c>Foo(a: 1)</c> into
+    /// <c>&lt;literal&gt;(a: 1)</c> when a preset happens to share the name <c>Foo</c> (e.g. a user
+    /// <c>record B</c> colliding with stdlib <c>preset B</c>). So skip the callee when it is a bare
+    /// identifier; still lower a member/other callee (e.g. <c>SOME_PRESET.bit_count()</c> whose Object
+    /// may be a preset) and the argument list.
     /// </summary>
-    private List<Expression> LowerExpressionList(List<Expression> list)
+    protected override Expression VisitCall(CallExpression e)
     {
-        bool changed = false;
-        var result = new List<Expression>(list.Count);
-        foreach (Expression e in list)
-        {
-            Expression le = LowerExpression(e);
-            result.Add(le);
-            if (!ReferenceEquals(le, e)) changed = true;
-        }
-        return changed ? result : list;
+        Expression callee = e.Callee is IdentifierExpression
+            ? e.Callee
+            : VisitExpression(e.Callee);
+        List<Expression> args = RewriteList(e.Arguments, VisitExpression);
+        bool changed = !ReferenceEquals(callee, e.Callee)
+                       || !ReferenceEquals(args, e.Arguments);
+        return changed ? e with { Callee = callee, Arguments = args } : e;
     }
 }

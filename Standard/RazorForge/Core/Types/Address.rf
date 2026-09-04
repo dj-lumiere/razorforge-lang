@@ -131,7 +131,7 @@ routine Address.sub(offset: ByteSize) -> Address
 ### Addresses are rendered in grouped hexadecimal form to make pointer values
 ### easier to scan in diagnostics.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine Address.represent() -> Text
   # Format as 0xXXXX_XXXX_XXXX_XXXX (64-bit hex with underscore groups)
   var digits = List[Character]()
@@ -152,7 +152,7 @@ routine Address.represent() -> Text
 
 ### Returns the diagnostic form of this address.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine Address.diagnose() -> Text
   return "Address(" + me.represent() + ")"
 
@@ -191,3 +191,4 @@ routine Address!(from_text: Text) -> Address
       throw InvalidValueError(input: from_text, target: "Address")
     i = i + 1u64
   return Address(result)
+

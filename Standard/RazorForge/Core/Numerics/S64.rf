@@ -3,7 +3,7 @@ module Core
 ### A 64-bit signed integer in the range −9,223,372,036,854,775,808 to 9,223,372,036,854,775,807.
 ### `S64` is the default word-sized signed integer type in RazorForge.
 @llvm("i64")
-record S64 obeys SignedIntegral, Ordered, ConstCompatible, AtomicType, Assignable, Copyable
+record S64 obeys SignedIntegral, Ordered, ConstCompatible, AtomicType, Assignable, Copyable, Splittable
   pass
 
 # Constants for S64 limits
@@ -645,6 +645,7 @@ routine S64.is_power_of_two() -> Bool
 
 ### Returns the human-readable text of this value.
 ### :returns: The value rendered as `Text`.
+@override
 routine S64.represent() -> Text
   if me == 0s64
     return "0"
@@ -657,6 +658,7 @@ routine S64.represent() -> Text
 
 ### Returns a type-tagged debug rendering of this value.
 ### :returns: A diagnostic `Text` rendering, e.g. `Type(value)`.
+@override
 routine S64.diagnose() -> Text
   return "S64(" + me.represent() + ")"
 

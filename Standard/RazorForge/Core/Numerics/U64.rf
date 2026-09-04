@@ -3,7 +3,7 @@ module Core
 ### A 64-bit unsigned integer in the range 0 to 18,446,744,073,709,551,615.
 ### `U64` is the default word-sized counter and index type in RazorForge.
 @llvm("i64")
-record U64 obeys UnsignedIntegral, Ordered, ConstCompatible, AtomicType, Assignable, Copyable
+record U64 obeys UnsignedIntegral, Ordered, ConstCompatible, AtomicType, Assignable, Copyable, Splittable
   pass
 
 # Constants for U64 limits
@@ -598,6 +598,7 @@ routine U64.is_odd() -> Bool
 
 ### Returns the human-readable text of this value.
 ### :returns: The value rendered as `Text`.
+@override
 routine U64.represent() -> Text
   if me == 0u64
     return "0"
@@ -611,6 +612,7 @@ routine U64.represent() -> Text
 
 ### Returns a type-tagged debug rendering of this value.
 ### :returns: A diagnostic `Text` rendering, e.g. `Type(value)`.
+@override
 routine U64.diagnose() -> Text
   return "U64(" + me.represent() + ")"
 
@@ -642,3 +644,4 @@ routine U64!(from_text: Text) -> U64
 ### :returns: The 64-bit keyed hash.
 routine U64.hash(k0: U64, k1: U64) -> U64
   return __secure_hash_u64(v: me, k0: k0, k1: k1)
+

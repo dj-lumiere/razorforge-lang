@@ -113,10 +113,17 @@ internal sealed class RecordCopyLoweringPass(PostprocessingContext ctx)
     private static bool IsRcWrapperType(TypeInfo? type) =>
         type is not null && Compiler.Resolution.TypeRegistry.GetRcWrapperBaseName(type: type) is not null;
 
-    private static bool NameIsCopyRoutine(string name)
+    // True when the routine (identified by name OR composite key) is one of the duplication verbs whose
+    // body must NOT have retain-injection applied to its `me`/identity references: `assign` (the identity
+    // shallow-copy primitive — `return me` there must stay bitwise, else `me.assign()` recurses) and
+    // `duplicate` (the deep-copy verb — its `me` field-walk / `return me` arms must not gain a spurious
+    // retain, which unbalances the refcount → heap corruption). Uses the STRUCTURED member-routine tail
+    // (strips Owner./params/typeargs) compared to the canonical contract constants — never a `.Contains`
+    // substring scan of the composite key.
+    private static bool IsCopyVerbRoutine(string nameOrKey)
     {
-        string tail = memberRoutineTail(nameOrKey: name);
-        return tail == "assign" || tail == "copy";
+        string tail = memberRoutineTail(nameOrKey: nameOrKey);
+        return tail == RuntimeContract.Duplication.Assign || tail == RuntimeContract.Duplication.Duplicate;
     }
 
     // Populates <see cref="_borrowParamNames"/> with the routine's MANAGED (retaining-store) record
@@ -136,64 +143,39 @@ internal sealed class RecordCopyLoweringPass(PostprocessingContext ctx)
         }
     }
 
-    private static bool KeyIsCopyRoutine(string key)
-    {
-        return key.Contains(value: "assign") || key.Contains(value: ".copy");
-    }
-
     /// <summary>
     /// Runs this compiler phase over its configured input.
     /// </summary>
     public void Run(Program program)
+        => BodyDispatch.RunOnProgram(program, lower: LowerCopyRoutineBody);
+
+    /// <summary>
+    /// Per-routine copy-lowering shared by the program and member-list sweeps: set the copy-verb /
+    /// RC-wrapper flags and borrow-param set off the routine before lowering its body.
+    /// </summary>
+    private Statement LowerCopyRoutineBody(RoutineDeclaration r)
     {
-        for (int i = 0; i < program.Declarations.Count; i++)
-        {
-            switch (program.Declarations[i])
-            {
-                case RoutineDeclaration r:
-                {
-                    _inCopyRoutine = NameIsCopyRoutine(name: r.QualifiedName); _inRcCopyVerb = OwnerBaseIsRcWrapper(ownerBase: r.OwnerName);
-                    SetBorrowParams(parameters: r.Parameters);
-                    Statement newBody = LowerStatement(stmt: r.Body);
-                    if (!ReferenceEquals(newBody, r.Body))
-                        program.Declarations[i] = r with { Body = newBody };
-                    break;
-                }
-
-                case EntityDeclaration e:
-                    LowerMemberList(members: e.Members);
-                    break;
-
-                case RecordDeclaration rec:
-                    LowerMemberList(members: rec.Members);
-                    break;
-
-                case CrashableDeclaration cr:
-                    LowerMemberList(members: cr.Members);
-                    break;
-            }
-        }
+        _inCopyRoutine = IsCopyVerbRoutine(nameOrKey: r.QualifiedName);
+        _inRcCopyVerb = OwnerBaseIsRcWrapper(ownerBase: r.OwnerName);
+        SetBorrowParams(parameters: r.Parameters);
+        return LowerStatement(stmt: r.Body);
     }
 
     /// <summary>
     /// Runs this compiler phase over its configured input.
     /// </summary>
     public void RunOnVariantBodies()
-    {
-        foreach (string key in ctx.VariantBodies.Keys.ToList())
+        => BodyDispatch.RunOnVariantBodies(ctx.VariantBodies, lower: (key, body) =>
         {
-            Statement body = ctx.VariantBodies[key];
             // A variant's deep `copy` body (BuildVariantCopyBody) has an `else => return me` arm for
             // its non-destructible (scalar/None) arms. Since a destructible-arm variant now carries a
             // GetLifecycle.Store, that bare `return me` would otherwise re-inject `me.copy()` → infinite
             // recursion. Treat the copy body like `store`: its `return me` is the identity primitive.
-            _inCopyRoutine = KeyIsCopyRoutine(key: key); _inRcCopyVerb = OwnerNameIsRcWrapper(nameOrKey: key);
+            _inCopyRoutine = IsCopyVerbRoutine(nameOrKey: key);
+            _inRcCopyVerb = OwnerNameIsRcWrapper(nameOrKey: key);
             SetBorrowParams(parameters: null); // variant/synthesized bodies carry no parameter list here
-            Statement lowered = LowerStatement(stmt: body);
-            if (!ReferenceEquals(lowered, body))
-                ctx.VariantBodies[key] = lowered;
-        }
-    }
+            return LowerStatement(stmt: body);
+        });
 
     /// <summary>
     /// Injects retaining <c>store</c> into instantiated generic routine bodies. Phase 7's
@@ -207,41 +189,80 @@ internal sealed class RecordCopyLoweringPass(PostprocessingContext ctx)
     /// </summary>
     public void RunOnInstantiatedGenericBodies(
         Dictionary<string, MonomorphizedBody> instantiatedGenericBodies)
-    {
-        foreach (string key in instantiatedGenericBodies.Keys.ToList())
+        => BodyDispatch.RunOnInstantiatedGenericBodies(instantiatedGenericBodies, lower: (key, entry) =>
         {
-            MonomorphizedBody entry = instantiatedGenericBodies[key];
-            if (entry.IsSynthesized) continue; // pure-synthesized: no AST to walk
-            _inCopyRoutine = KeyIsCopyRoutine(key: key); _inRcCopyVerb = OwnerTypeIsRcWrapper(owner: entry.Info.OwnerType);
+            _inCopyRoutine = IsCopyVerbRoutine(nameOrKey: key);
+            _inRcCopyVerb = OwnerTypeIsRcWrapper(owner: entry.Info.OwnerType);
             SetBorrowParams(parameters: entry.Ast.Parameters);
-            Statement lowered = LowerStatement(stmt: entry.Ast.Body);
-            if (!ReferenceEquals(lowered, entry.Ast.Body))
-                instantiatedGenericBodies[key] = entry with
-                {
-                    Ast = entry.Ast with { Body = lowered }
-                };
-        }
-    }
-
-    /// <summary>
-    /// Lower member list as part of this compiler phase.
-    /// </summary>
-    private void LowerMemberList(List<SyntaxTree.Declaration> members)
-    {
-        for (int i = 0; i < members.Count; i++)
-        {
-            if (members[i] is RoutineDeclaration mr)
-            {
-                _inCopyRoutine = NameIsCopyRoutine(name: mr.QualifiedName); _inRcCopyVerb = OwnerBaseIsRcWrapper(ownerBase: mr.OwnerName);
-                SetBorrowParams(parameters: mr.Parameters);
-                Statement newBody = LowerStatement(stmt: mr.Body);
-                if (!ReferenceEquals(newBody, mr.Body))
-                    members[i] = mr with { Body = newBody };
-            }
-        }
-    }
+            return LowerStatement(stmt: entry.Ast.Body);
+        });
 
     // Statement walker
+
+    private Statement LowerBlockStatement(BlockStatement block)
+    {
+        bool changed = false;
+        var newStmts = new List<Statement>(capacity: block.Statements.Count);
+        foreach (Statement s in block.Statements)
+        {
+            Statement ns = LowerStatement(stmt: s);
+            newStmts.Add(item: ns);
+            if (!ReferenceEquals(ns, s)) changed = true;
+        }
+        return changed ? block with { Statements = newStmts } : block;
+    }
+
+    private Statement LowerIfStatement(IfStatement ifStmt, Statement stmt)
+    {
+        // The condition holds copy positions: `when`/`is` desugar to an if whose condition
+        // is e.g. `(x.cmp(you: v)).eq(ME_SMALL)`, where `v` is a call argument needing a
+        // retaining `store`. Without lowering the condition, the callee `destroy`s the
+        // by-value param while the caller never copied it -> double-free of the reused source.
+        Expression newCond = StripStealFromExpr(expr: ifStmt.Condition);
+        Statement newThen = LowerStatement(stmt: ifStmt.ThenStatement);
+        Statement? newElse = ifStmt.ElseStatement != null
+            ? LowerStatement(stmt: ifStmt.ElseStatement)
+            : null;
+        bool changed = !ReferenceEquals(newCond, ifStmt.Condition) ||
+                       !ReferenceEquals(newThen, ifStmt.ThenStatement) ||
+                       !ReferenceEquals(newElse, ifStmt.ElseStatement);
+        return changed
+            ? ifStmt with
+            {
+                Condition = newCond,
+                ThenStatement = newThen,
+                ElseStatement = newElse
+            }
+            : stmt;
+    }
+
+    private Statement LowerWhenStatement(WhenStatement whenStmt, Statement stmt)
+    {
+        bool changed = false;
+        // The subject holds copy positions too (e.g. `when x.cmp(you: v) is ...` — `v` is a
+        // call argument that needs a retaining `store`). Mirrors the WhenExpression case.
+        Expression newSubject = StripStealFromExpr(expr: whenStmt.Expression);
+        if (!ReferenceEquals(newSubject, whenStmt.Expression))
+            changed = true;
+
+        var newClauses = new List<WhenClause>(capacity: whenStmt.Clauses.Count);
+        foreach (WhenClause clause in whenStmt.Clauses)
+        {
+            Statement newBody = LowerStatement(stmt: clause.Body);
+            if (!ReferenceEquals(newBody, clause.Body))
+            {
+                newClauses.Add(item: clause with { Body = newBody });
+                changed = true;
+            }
+            else
+            {
+                newClauses.Add(item: clause);
+            }
+        }
+        return changed
+            ? whenStmt with { Expression = newSubject, Clauses = newClauses }
+            : stmt;
+    }
 
     /// <summary>
     /// Lower statement as part of this compiler phase.
@@ -251,35 +272,10 @@ internal sealed class RecordCopyLoweringPass(PostprocessingContext ctx)
         switch (stmt)
         {
             case BlockStatement block:
-            {
-                bool changed = false;
-                var newStmts = new List<Statement>(capacity: block.Statements.Count);
-                foreach (Statement s in block.Statements)
-                {
-                    Statement ns = LowerStatement(stmt: s);
-                    newStmts.Add(item: ns);
-                    if (!ReferenceEquals(ns, s)) changed = true;
-                }
-                return changed ? block with { Statements = newStmts } : block;
-            }
+                return LowerBlockStatement(block: block);
 
             case DeclarationStatement { Declaration: VariableDeclaration { Initializer: not null } vd } ds:
-            {
-                // A carrier PAYLOAD EXTRACTION — `<Maybe/Result/Lookup>.value` (a MemberExpression on a
-                // carrier), or the `CarrierPayloadExpression` the Result/Lookup path lowers to — is a VIEW
-                // into a payload the carrier still owns, NOT an owning copy. It is the shape every `when`/
-                // `each` element binding takes (`else var v -> …` from `try_emit()`'s `Maybe`). Retaining it
-                // makes the loop element a co-owner (+1) that never escapes the each scope and is never
-                // released → a per-iteration leak + needless churn. The carrier owns the payload for as long
-                // as the binding is live (non-escaping), and any ESCAPING use retains at its own store site,
-                // so skip the retain here. (dj: iter can't leave the each scope → no escape machinery.)
-                if (IsCarrierPayloadExtraction(vd.Initializer))
-                    return stmt;
-                Expression lowered = LowerOwnership(expr: vd.Initializer, isReturn: false);
-                if (ReferenceEquals(lowered, vd.Initializer)) return stmt;
-                var newVd = vd with { Initializer = lowered };
-                return ds with { Declaration = newVd };
-            }
+                return LowerDeclarationStatement(ds: ds, vd: vd, stmt: stmt);
 
             case AssignmentStatement assign:
             {
@@ -306,40 +302,10 @@ internal sealed class RecordCopyLoweringPass(PostprocessingContext ctx)
             }
 
             case IfStatement ifStmt:
-            {
-                // The condition holds copy positions: `when`/`is` desugar to an if whose condition
-                // is e.g. `(x.cmp(you: v)).eq(ME_SMALL)`, where `v` is a call argument needing a
-                // retaining `store`. Without lowering the condition, the callee `destroy`s the
-                // by-value param while the caller never copied it -> double-free of the reused source.
-                Expression newCond = StripStealFromExpr(expr: ifStmt.Condition);
-                Statement newThen = LowerStatement(stmt: ifStmt.ThenStatement);
-                Statement? newElse = ifStmt.ElseStatement != null
-                    ? LowerStatement(stmt: ifStmt.ElseStatement)
-                    : null;
-                bool changed = !ReferenceEquals(newCond, ifStmt.Condition) ||
-                               !ReferenceEquals(newThen, ifStmt.ThenStatement) ||
-                               !ReferenceEquals(newElse, ifStmt.ElseStatement);
-                return changed
-                    ? ifStmt with
-                    {
-                        Condition = newCond,
-                        ThenStatement = newThen,
-                        ElseStatement = newElse
-                    }
-                    : stmt;
-            }
+                return LowerIfStatement(ifStmt: ifStmt, stmt: stmt);
 
             case WhileStatement whileStmt:
-            {
-                // Same as IfStatement: the loop condition can carry copy positions.
-                Expression newCond = StripStealFromExpr(expr: whileStmt.Condition);
-                Statement newBody = LowerStatement(stmt: whileStmt.Body);
-                bool changed = !ReferenceEquals(newCond, whileStmt.Condition) ||
-                               !ReferenceEquals(newBody, whileStmt.Body);
-                return changed
-                    ? whileStmt with { Condition = newCond, Body = newBody }
-                    : stmt;
-            }
+                return LowerWhileStatement(whileStmt: whileStmt, stmt: stmt);
 
             case LoopStatement loopStmt:
             {
@@ -358,56 +324,13 @@ internal sealed class RecordCopyLoweringPass(PostprocessingContext ctx)
             }
 
             case WhenStatement whenStmt:
-            {
-                bool changed = false;
-                // The subject holds copy positions too (e.g. `when x.cmp(you: v) is ...` — `v` is a
-                // call argument that needs a retaining `store`). Mirrors the WhenExpression case.
-                Expression newSubject = StripStealFromExpr(expr: whenStmt.Expression);
-                if (!ReferenceEquals(newSubject, whenStmt.Expression))
-                    changed = true;
-
-                var newClauses = new List<WhenClause>(capacity: whenStmt.Clauses.Count);
-                foreach (WhenClause clause in whenStmt.Clauses)
-                {
-                    Statement newBody = LowerStatement(stmt: clause.Body);
-                    if (!ReferenceEquals(newBody, clause.Body))
-                    {
-                        newClauses.Add(item: clause with { Body = newBody });
-                        changed = true;
-                    }
-                    else
-                    {
-                        newClauses.Add(item: clause);
-                    }
-                }
-                return changed
-                    ? whenStmt with { Expression = newSubject, Clauses = newClauses }
-                    : stmt;
-            }
+                return LowerWhenStatement(whenStmt: whenStmt, stmt: stmt);
 
             case UsingStatement usingStmt:
-            {
-                Statement newBody = LowerStatement(stmt: usingStmt.Body);
-                Statement? fb = usingStmt.FallbackBody != null
-                    ? LowerStatement(stmt: usingStmt.FallbackBody)
-                    : null;
-                return ReferenceEquals(newBody, usingStmt.Body)
-                       && ReferenceEquals(fb, usingStmt.FallbackBody)
-                    ? stmt
-                    : usingStmt with { Body = newBody, FallbackBody = fb };
-            }
+                return LowerUsingStatement(usingStmt: usingStmt, stmt: stmt);
 
             case DangerStatement danger:
-            {
-                // A `danger` block is just a scoped block whose failable calls crash on failure.
-                // Without recursing into its body, call arguments inside it never get their
-                // retaining `store` — so the callee's by-value param `destroy` frees the CALLER's
-                // value (e.g. `x.divmod!(other: b)` double-frees `b`). Recurse like any other block.
-                Statement newBody = LowerStatement(stmt: danger.Body);
-                return ReferenceEquals(newBody, danger.Body)
-                    ? stmt
-                    : danger with { Body = (BlockStatement)newBody };
-            }
+                return LowerDangerStatement(danger: danger, stmt: stmt);
 
             case ExpressionStatement es:
             {
@@ -428,6 +351,71 @@ internal sealed class RecordCopyLoweringPass(PostprocessingContext ctx)
             default:
                 return stmt;
         }
+    }
+
+    private Statement LowerDeclarationStatement(DeclarationStatement ds, VariableDeclaration vd, Statement stmt)
+    {
+        // A carrier PAYLOAD EXTRACTION — `<Maybe/Result/Lookup>.value` (a MemberExpression on a
+        // carrier), or the `CarrierPayloadExpression` the Result/Lookup path lowers to — is a VIEW
+        // into a payload the carrier still owns, NOT an owning copy. It is the shape every `when`/
+        // `each` element binding takes (`else var v -> …` from `try_emit()`'s `Maybe`). Retaining it
+        // makes the loop element a co-owner (+1) that never escapes the each scope and is never
+        // released → a per-iteration leak + needless churn. The carrier owns the payload for as long
+        // as the binding is live (non-escaping), and any ESCAPING use retains at its own store site,
+        // so skip the retain here. (dj: iter can't leave the each scope → no escape machinery.)
+        //
+        // A bare `<carrier>.value` extraction is a MOVE-OUT, not a copy, so it is not retained
+        // here. Two shapes reach this: the non-escaping loop-element binding above, and
+        // `strip_out`'s `return me.value` (spilled to `__td_ret_N` by ScopeTeardownLoweringPass) —
+        // which hands the payload's SINGLE reference to the caller and empties the carrier
+        // (`present = false`), the model a `Maybe[Entity]` requires (an entity cannot be co-owned).
+        // NOTE: `unwrap`/`!!` does NOT reach here — it returns `me.value.copy()` (an explicit
+        // co-owning duplicate in Maybe.rf; `copy` is the unified record/variant/managed-leaf
+        // duplication verb, so a Copyable variant like SerialValue resolves via its arm-walk copy),
+        // a CallExpression, so the carrier stays a co-owner and the caller gets an independent
+        // reference (correct for record/value/managed payloads).
+        if (IsCarrierPayloadExtraction(vd.Initializer))
+            return stmt;
+        Expression lowered = LowerOwnership(expr: vd.Initializer, isReturn: false);
+        if (ReferenceEquals(lowered, vd.Initializer)) return stmt;
+        var newVd = vd with { Initializer = lowered };
+        return ds with { Declaration = newVd };
+    }
+
+    private Statement LowerWhileStatement(WhileStatement whileStmt, Statement stmt)
+    {
+        // Same as IfStatement: the loop condition can carry copy positions.
+        Expression newCond = StripStealFromExpr(expr: whileStmt.Condition);
+        Statement newBody = LowerStatement(stmt: whileStmt.Body);
+        bool changed = !ReferenceEquals(newCond, whileStmt.Condition) ||
+                       !ReferenceEquals(newBody, whileStmt.Body);
+        return changed
+            ? whileStmt with { Condition = newCond, Body = newBody }
+            : stmt;
+    }
+
+    private Statement LowerUsingStatement(UsingStatement usingStmt, Statement stmt)
+    {
+        Statement newBody = LowerStatement(stmt: usingStmt.Body);
+        Statement? fb = usingStmt.FallbackBody != null
+            ? LowerStatement(stmt: usingStmt.FallbackBody)
+            : null;
+        return ReferenceEquals(newBody, usingStmt.Body)
+               && ReferenceEquals(fb, usingStmt.FallbackBody)
+            ? stmt
+            : usingStmt with { Body = newBody, FallbackBody = fb };
+    }
+
+    private Statement LowerDangerStatement(DangerStatement danger, Statement stmt)
+    {
+        // A `danger` block is just a scoped block whose failable calls crash on failure.
+        // Without recursing into its body, call arguments inside it never get their
+        // retaining `store` — so the callee's by-value param `destroy` frees the CALLER's
+        // value (e.g. `x.divmod!(other: b)` double-frees `b`). Recurse like any other block.
+        Statement newBody = LowerStatement(stmt: danger.Body);
+        return ReferenceEquals(newBody, danger.Body)
+            ? stmt
+            : danger with { Body = (BlockStatement)newBody };
     }
 
     // Core lowering
@@ -504,186 +492,189 @@ internal sealed class RecordCopyLoweringPass(PostprocessingContext ctx)
     /// argument is a copy position — the callee's parameter is an independent owner that gets
     /// torn down at the callee's scope exit).
     /// </summary>
-    private Expression StripStealFromExpr(Expression expr) // NOSONAR S3776
+    private Expression StripStealFromExpr(Expression expr)
     {
-        switch (expr)
+        return expr switch
         {
-            case StealExpression steal:
-                return steal;
-
-            case CallExpression call:
-            {
-                bool changed = false;
-                // A store primitive (poke / store / store_element_ref) MOVES its argument into raw
-                // storage — ScopeTeardownLoweringPass already marks that argument as moved (never torn
-                // down). Injecting a retaining copy here would double-count: the copy is written into
-                // memory while the un-released source keeps its own reference, leaking one ref per store
-                // (e.g. List.add_last's `poke(value)` chain roamed the element TWICE — once for poke's
-                // param, once for the inner `LLVM::store` arg — with neither released, so a cycle held
-                // through a container never reaches its cycle-internal refcount and cc_collect can't
-                // reap it). Pass store-primitive args through untouched to keep copy==teardown.
-                bool isStorePrimitive = CalleeName(call.Callee) is { } cn
-                    && Resolution.RuntimeContract.StorePrimitives.Contains(item: cn);
-                // A CONSTRUCTOR/conversion call (ConstructedType != null) persists its args into the new
-                // value's fields — a DESTINATION, exactly like a CreatorExpression member-init — so its
-                // borrowed-ref args must be retained (a bare struct copy would alias the source and
-                // double-free at teardown). A store primitive is likewise a destination (writes raw
-                // storage). Only a plain routine/memberRoutine call borrows its args.
-                bool isDestination = isStorePrimitive || call.ConstructedType is not null;
-                var args = new List<Expression>(capacity: call.Arguments.Count);
-                foreach (Expression arg in call.Arguments)
-                {
-                    // Three-rules model: a REGULAR (borrow) call arg passes AS-IS — the caller keeps
-                    // ownership, retain lives at the DESTINATION, and a fresh rvalue arg is torn down at
-                    // the caller by TemporaryTeardownPass. A DESTINATION call (constructor/conversion/
-                    // store primitive) retains its managed value args here.
-                    Expression s = isDestination ? LowerArgument(arg: arg) : LowerBorrowArgument(arg: arg);
-                    args.Add(item: s);
-                    if (!ReferenceEquals(s, arg)) changed = true;
-                }
-
-                // Recurse into the receiver chain so nested-call arguments get their
-                // retain copies even when the inner call sits in *receiver* position.
-                // e.g. f-string lowering turns `f"{c1 == c2}"` into
-                // `(c1.eq(c2)).represent()`: the `eq` whose argument `c2` must be
-                // copied lives in `Callee.Object`, not in any argument list. We recurse
-                // via StripStealFromExpr (not LowerOwnership) so the receiver itself
-                // stays borrowed — only nested argument positions get a `store`.
-                Expression callee = call.Callee;
-                if (callee is MemberExpression cm)
-                {
-                    Expression newObj = StripStealFromExpr(expr: cm.Object);
-                    if (!ReferenceEquals(newObj, cm.Object))
-                    {
-                        callee = cm with { Object = newObj };
-                        changed = true;
-                    }
-                }
-
-                return changed ? call with { Arguments = args, Callee = callee } : call;
-            }
-
-            case CreatorExpression creator:
-            {
-                // A constructor's member-variable initializers are copy positions, exactly like call
-                // arguments: each becomes an independent field of the new aggregate, so a borrowed
-                // reference must be retained. Without this, `DictEntry(key: someText)` aliased the
-                // source's controller and double-freed when the entry was later torn down.
-                bool changed = false;
-                var members = new List<(string Name, Expression Value)>(capacity: creator.MemberVariables.Count);
-                foreach ((string Name, Expression Value) mv in creator.MemberVariables)
-                {
-                    Expression s = LowerOwnership(expr: mv.Value, isReturn: false);
-                    members.Add(item: (mv.Name, s));
-                    if (!ReferenceEquals(s, mv.Value)) changed = true;
-                }
-
-                return changed ? creator with { MemberVariables = members } : creator;
-            }
-
-            case GenericMemberRoutineCallExpression gmc:
-            {
-                bool changed = false;
-                // Store-primitive move semantics (see the CallExpression case) — e.g. poke lowers to
-                // `LLVM::store[T](me, value)`, a generic memberRoutine call whose `value` arg is moved into
-                // memory and must NOT be retain-copied here.
-                bool isStorePrimitiveG = CalleeName(gmc.Object) is { } gcn
-                    && Resolution.RuntimeContract.StorePrimitives.Contains(item: gcn);
-                bool isDestinationG = isStorePrimitiveG || gmc.ConstructedType is not null;
-                var args = new List<Expression>(capacity: gmc.Arguments.Count);
-                foreach (Expression arg in gmc.Arguments)
-                {
-                    // See the CallExpression case: regular arg = borrow (as-is); destination (constructor/
-                    // conversion/store-primitive) arg = retain.
-                    Expression s = isDestinationG ? LowerArgument(arg: arg) : LowerBorrowArgument(arg: arg);
-                    args.Add(item: s);
-                    if (!ReferenceEquals(s, arg)) changed = true;
-                }
-
-                // Same receiver-chain recursion as CallExpression (see note above).
-                Expression newReceiver = StripStealFromExpr(expr: gmc.Object);
-                if (!ReferenceEquals(newReceiver, gmc.Object)) changed = true;
-
-                return changed ? gmc with { Arguments = args, Object = newReceiver } : gmc;
-            }
-
-            // User assignment `target = value` reaches here as a BinaryExpression(Assign) wrapped
-            // in an ExpressionStatement (the AssignmentStatement node is only for synthesized
-            // bodies). The RHS is a copy position exactly like a var-init or call argument: a
-            // borrowed-reference value (e.g. a `Text` local) must be retained, otherwise
-            // scope-teardown's `destroy` of the source frees the buffer the target now aliases
-            // (use-after-free). Mirrors the AssignmentStatement / DeclarationStatement handling.
-            case BinaryExpression { Operator: BinaryOperator.Assign } bin:
-            {
-                // Field-write to an RC-wrapper / Roamed field: codegen owns the release-old + retain-new RC
-                // (isRoamedField), so retaining the RHS here too DOUBLE-counts — an SF self-cycle
-                // (`a.next = a`) then never reaches refcount 0 and cc_collect reclaims nothing. Recurse for
-                // nested copies but do NOT retain the top-level RHS. Local / non-RC-field targets keep the
-                // normal retain (managed leaves like Text ARE pass-owned).
-                if (bin.Left is MemberExpression lhsm && IsRcWrapperType(type: lhsm.ResolvedType))
-                    return bin with { Right = StripStealFromExpr(expr: bin.Right) };
-                Expression newRight = LowerOwnership(expr: bin.Right, isReturn: false);
-                return ReferenceEquals(newRight, bin.Right) ? bin : bin with { Right = newRight };
-            }
-
-            // A `when` used as an EXPRESSION (e.g. `acc +% when x.cmp(you: v) is ... => ...`).
-            // The subject and the arm bodies hold copy positions (call arguments, RHS values) that
-            // must be lowered — without this, an argument like `v` inside the subject call never
-            // gets its retaining `store`, yet the callee (e.g. `Integer.cmp`) still `destroy`s the
-            // by-value parameter, double-freeing the reused source on the next iteration.
-            case WhenExpression whenExpr:
-            {
-                bool changed = false;
-                Expression? newSubject = whenExpr.Expression is { } subj
-                    ? StripStealFromExpr(expr: subj)
-                    : null;
-                if (newSubject is not null && !ReferenceEquals(newSubject, whenExpr.Expression))
-                    changed = true;
-
-                var newClauses = new List<WhenClause>(capacity: whenExpr.Clauses.Count);
-                foreach (WhenClause clause in whenExpr.Clauses)
-                {
-                    Statement nb = LowerStatement(stmt: clause.Body);
-                    if (!ReferenceEquals(nb, clause.Body))
-                    {
-                        newClauses.Add(item: clause with { Body = nb });
-                        changed = true;
-                    }
-                    else
-                    {
-                        newClauses.Add(item: clause);
-                    }
-                }
-
-                return changed
-                    ? whenExpr with { Expression = newSubject, Clauses = newClauses }
-                    : expr;
-            }
-
-            // Top-level conditional expression (`if c then a else b`). The branches are copy
-            // positions (each can be the result value); the condition is recursed for nested args.
-            case ConditionalExpression cond:
-            {
-                Expression newCond = StripStealFromExpr(expr: cond.Condition);
-                Expression newTrue = LowerOwnership(expr: cond.TrueExpression, isReturn: false);
-                Expression newFalse = LowerOwnership(expr: cond.FalseExpression, isReturn: false);
-                return ReferenceEquals(newCond, cond.Condition)
-                    && ReferenceEquals(newTrue, cond.TrueExpression)
-                    && ReferenceEquals(newFalse, cond.FalseExpression)
-                    ? expr
-                    : cond with
-                    {
-                        Condition = newCond,
-                        TrueExpression = newTrue,
-                        FalseExpression = newFalse
-                    };
-            }
-
+            StealExpression steal => steal,
+            CallExpression call => StripStealFromCall(call: call),
+            CreatorExpression creator => StripStealFromCreator(creator: creator),
+            GenericMemberRoutineCallExpression gmc => StripStealFromGenericMemberRoutineCall(gmc: gmc),
+            BinaryExpression { Operator: BinaryOperator.Assign } bin => StripStealFromAssign(bin: bin),
+            WhenExpression whenExpr => StripStealFromWhen(whenExpr: whenExpr),
+            ConditionalExpression cond => StripStealFromConditional(cond: cond),
             // All other expression types: steal cannot appear as a direct child in practice
             // (steal only wraps identifier or member expressions).
-            default:
-                return expr;
+            _ => expr
+        };
+    }
+
+    private Expression StripStealFromCall(CallExpression call)
+    {
+        bool changed = false;
+        // A store primitive (poke / store / store_element_ref) MOVES its argument into raw
+        // storage — ScopeTeardownLoweringPass already marks that argument as moved (never torn
+        // down). Injecting a retaining copy here would double-count: the copy is written into
+        // memory while the un-released source keeps its own reference, leaking one ref per store
+        // (e.g. List.add_last's `poke(value)` chain roamed the element TWICE — once for poke's
+        // param, once for the inner `LLVM::store` arg — with neither released, so a cycle held
+        // through a container never reaches its cycle-internal refcount and cc_collect can't
+        // reap it). Pass store-primitive args through untouched to keep copy==teardown.
+        bool isStorePrimitive = CalleeName(call.Callee) is { } cn
+            && Resolution.RuntimeContract.StorePrimitives.Contains(item: cn);
+        // A CONSTRUCTOR/conversion call (ConstructedType != null) persists its args into the new
+        // value's fields — a DESTINATION, exactly like a CreatorExpression member-init — so its
+        // borrowed-ref args must be retained (a bare struct copy would alias the source and
+        // double-free at teardown). A store primitive is likewise a destination (writes raw
+        // storage). Only a plain routine/memberRoutine call borrows its args.
+        bool isDestination = isStorePrimitive || call.ConstructedType is not null;
+        var args = new List<Expression>(capacity: call.Arguments.Count);
+        foreach (Expression arg in call.Arguments)
+        {
+            // Three-rules model: a REGULAR (borrow) call arg passes AS-IS — the caller keeps
+            // ownership, retain lives at the DESTINATION, and a fresh rvalue arg is torn down at
+            // the caller by TemporaryTeardownPass. A DESTINATION call (constructor/conversion/
+            // store primitive) retains its managed value args here.
+            Expression s = isDestination ? LowerArgument(arg: arg) : LowerBorrowArgument(arg: arg);
+            args.Add(item: s);
+            if (!ReferenceEquals(s, arg)) changed = true;
         }
+
+        // Recurse into the receiver chain so nested-call arguments get their
+        // retain copies even when the inner call sits in *receiver* position.
+        // e.g. f-string lowering turns `f"{c1 == c2}"` into
+        // `(c1.eq(c2)).represent()`: the `eq` whose argument `c2` must be
+        // copied lives in `Callee.Object`, not in any argument list. We recurse
+        // via StripStealFromExpr (not LowerOwnership) so the receiver itself
+        // stays borrowed — only nested argument positions get a `store`.
+        Expression callee = call.Callee;
+        if (callee is MemberExpression cm)
+        {
+            Expression newObj = StripStealFromExpr(expr: cm.Object);
+            if (!ReferenceEquals(newObj, cm.Object))
+            {
+                callee = cm with { Object = newObj };
+                changed = true;
+            }
+        }
+
+        return changed ? call with { Arguments = args, Callee = callee } : call;
+    }
+
+    private Expression StripStealFromCreator(CreatorExpression creator)
+    {
+        // A constructor's member-variable initializers are copy positions, exactly like call
+        // arguments: each becomes an independent field of the new aggregate, so a borrowed
+        // reference must be retained. Without this, `DictEntry(key: someText)` aliased the
+        // source's controller and double-freed when the entry was later torn down.
+        bool changed = false;
+        var members = new List<(string Name, Expression Value)>(capacity: creator.MemberVariables.Count);
+        foreach ((string Name, Expression Value) mv in creator.MemberVariables)
+        {
+            Expression s = LowerOwnership(expr: mv.Value, isReturn: false);
+            members.Add(item: (mv.Name, s));
+            if (!ReferenceEquals(s, mv.Value)) changed = true;
+        }
+
+        return changed ? creator with { MemberVariables = members } : creator;
+    }
+
+    private Expression StripStealFromGenericMemberRoutineCall(GenericMemberRoutineCallExpression gmc)
+    {
+        bool changed = false;
+        // Store-primitive move semantics (see the CallExpression case) — e.g. poke lowers to
+        // `LLVM::store[T](me, value)`, a generic memberRoutine call whose `value` arg is moved into
+        // memory and must NOT be retain-copied here.
+        bool isStorePrimitiveG = CalleeName(gmc.Object) is { } gcn
+            && Resolution.RuntimeContract.StorePrimitives.Contains(item: gcn);
+        bool isDestinationG = isStorePrimitiveG || gmc.ConstructedType is not null;
+        var args = new List<Expression>(capacity: gmc.Arguments.Count);
+        foreach (Expression arg in gmc.Arguments)
+        {
+            // See the CallExpression case: regular arg = borrow (as-is); destination (constructor/
+            // conversion/store-primitive) arg = retain.
+            Expression s = isDestinationG ? LowerArgument(arg: arg) : LowerBorrowArgument(arg: arg);
+            args.Add(item: s);
+            if (!ReferenceEquals(s, arg)) changed = true;
+        }
+
+        // Same receiver-chain recursion as CallExpression (see note above).
+        Expression newReceiver = StripStealFromExpr(expr: gmc.Object);
+        if (!ReferenceEquals(newReceiver, gmc.Object)) changed = true;
+
+        return changed ? gmc with { Arguments = args, Object = newReceiver } : gmc;
+    }
+
+    // User assignment `target = value` reaches here as a BinaryExpression(Assign) wrapped
+    // in an ExpressionStatement (the AssignmentStatement node is only for synthesized
+    // bodies). The RHS is a copy position exactly like a var-init or call argument: a
+    // borrowed-reference value (e.g. a `Text` local) must be retained, otherwise
+    // scope-teardown's `destroy` of the source frees the buffer the target now aliases
+    // (use-after-free). Mirrors the AssignmentStatement / DeclarationStatement handling.
+    private Expression StripStealFromAssign(BinaryExpression bin)
+    {
+        // Field-write to an RC-wrapper / Roamed field: codegen owns the release-old + retain-new RC
+        // (isRoamedField), so retaining the RHS here too DOUBLE-counts — an SF self-cycle
+        // (`a.next = a`) then never reaches refcount 0 and cc_collect reclaims nothing. Recurse for
+        // nested copies but do NOT retain the top-level RHS. Local / non-RC-field targets keep the
+        // normal retain (managed leaves like Text ARE pass-owned).
+        if (bin.Left is MemberExpression lhsm && IsRcWrapperType(type: lhsm.ResolvedType))
+            return bin with { Right = StripStealFromExpr(expr: bin.Right) };
+        Expression newRight = LowerOwnership(expr: bin.Right, isReturn: false);
+        return ReferenceEquals(newRight, bin.Right) ? bin : bin with { Right = newRight };
+    }
+
+    // A `when` used as an EXPRESSION (e.g. `acc +% when x.cmp(you: v) is ... => ...`).
+    // The subject and the arm bodies hold copy positions (call arguments, RHS values) that
+    // must be lowered — without this, an argument like `v` inside the subject call never
+    // gets its retaining `store`, yet the callee (e.g. `Integer.cmp`) still `destroy`s the
+    // by-value parameter, double-freeing the reused source on the next iteration.
+    private Expression StripStealFromWhen(WhenExpression whenExpr)
+    {
+        bool changed = false;
+        Expression? newSubject = whenExpr.Expression is { } subj
+            ? StripStealFromExpr(expr: subj)
+            : null;
+        if (newSubject is not null && !ReferenceEquals(newSubject, whenExpr.Expression))
+            changed = true;
+
+        var newClauses = new List<WhenClause>(capacity: whenExpr.Clauses.Count);
+        foreach (WhenClause clause in whenExpr.Clauses)
+        {
+            Statement nb = LowerStatement(stmt: clause.Body);
+            if (!ReferenceEquals(nb, clause.Body))
+            {
+                newClauses.Add(item: clause with { Body = nb });
+                changed = true;
+            }
+            else
+            {
+                newClauses.Add(item: clause);
+            }
+        }
+
+        return changed
+            ? whenExpr with { Expression = newSubject, Clauses = newClauses }
+            : whenExpr;
+    }
+
+    // Top-level conditional expression (`if c then a else b`). The branches are copy
+    // positions (each can be the result value); the condition is recursed for nested args.
+    private Expression StripStealFromConditional(ConditionalExpression cond)
+    {
+        Expression newCond = StripStealFromExpr(expr: cond.Condition);
+        Expression newTrue = LowerOwnership(expr: cond.TrueExpression, isReturn: false);
+        Expression newFalse = LowerOwnership(expr: cond.FalseExpression, isReturn: false);
+        return ReferenceEquals(newCond, cond.Condition)
+            && ReferenceEquals(newTrue, cond.TrueExpression)
+            && ReferenceEquals(newFalse, cond.FalseExpression)
+            ? cond
+            : cond with
+            {
+                Condition = newCond,
+                TrueExpression = newTrue,
+                FalseExpression = newFalse
+            };
     }
 
     /// <summary>

@@ -14,7 +14,7 @@
 # Memory ownership:
 # - CStr(from_ptr: Hijacked[Byte]) - wraps existing memory, does NOT take ownership
 # - CStr(from_text: Bytes) - allocates NEW memory, caller owns it
-# - CStr.copy() - allocates NEW memory, caller owns it
+# - CStr.duplicate() - allocates NEW memory, caller owns it
 
 module Core
 
@@ -152,7 +152,7 @@ routine CStr.cmp(you: CStr) -> ComparisonSign
 ### Returns an owning copy of this C string.
 ### The copied string receives a newly allocated null-terminated buffer.
 ### :returns: The resulting `CStr` value.
-routine CStr.copy() -> CStr
+routine CStr.duplicate() -> CStr
   var len = me.count()
   danger
     var buffer = Hijacked[Byte](C::rf_allocate_dynamic(len + 1u64))
@@ -171,3 +171,4 @@ dangerous routine CStr.offset(n: U64) -> CStr
 ### :returns: The resulting `CStr` value.
 dangerous routine CStr.from_index(start: U64) -> CStr
   return LLVM::reinterpret_bits[Hijacked[Byte], CStr](me.ptr().offset(ByteSize(bytes: start)))
+

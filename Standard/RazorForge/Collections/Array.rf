@@ -82,13 +82,14 @@ needs T obeys Copyable
   var result = List[T]()
   each i in range
     if i < N
-      result.add_last(value: me[i].copy())
+      result.add_last(value: me[i].duplicate())
   return steal result
 
 ### Tears down each stored element. No-op for value-type elements; releases/frees owned record or
 ### entity elements. Invoked through an owning entity's generated `destroy` field-recursion when
 ### the array is an entity field — all `N` inline slots are live, so the full range is visited.
 ### (`Array` is a value record, so it has no separate allocation of its own to free.)
+@override
 dangerous routine Array[T, N].destroy()
   var i = 0u64
   while i < N
@@ -116,12 +117,12 @@ needs T obeys Assignable
 ### Returns a deep, independent copy — each element deep-copied via its own `copy`. Copyability
 ### cascades: `Array[T, N]` is copyable iff `T` is.
 @readonly
-routine Array[T, N].copy() -> Array[T, N]
+routine Array[T, N].duplicate() -> Array[T, N]
 needs T obeys Copyable
   var result = Array[T, N]()
   var i = 0u64
   while i < N
-    result[i] = me[i].copy()
+    result[i] = me[i].duplicate()
     i = i + 1u64
   return result
 

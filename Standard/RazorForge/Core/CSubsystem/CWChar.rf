@@ -26,13 +26,13 @@ routine CWChar.cmp(you: CWChar) -> ComparisonSign
 
 ### Returns the display form of this C `wchar_t`, rendered as its decimal code-unit value.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine CWChar.represent() -> Text
   return U32(from: me).represent()
 
 ### Returns the diagnostic form of this C `wchar_t`.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine CWChar.diagnose() -> Text
   return "CWChar(" + U32(from: me).represent() + ")"
 

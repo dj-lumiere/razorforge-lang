@@ -171,59 +171,71 @@ public sealed partial class SemanticVerifier
 
         foreach (ParameterInfo param in routine.Parameters)
         {
-            TypeSymbol type = param.Type;
-            if (type is ErrorTypeInfo || IsThreadShareable(type: type))
-            {
-                continue;
-            }
-
-            // A `Roamed` handle crosses the boundary by being PROMOTED, not rejected: passing it across
-            // a concurrency boundary IS the escape event, and codegen inserts `promote()` on the arg
-            // before the spawn (LOCAL -> ESCAPED: atomic refcount + armed reentrant lock). So the same
-            // object is thread-safe by the time the callee touches it — accepted here, no RF-S632.
-            if (type.BareName == Compiler.Resolution.RuntimeContract.Roamed)
-            {
-                continue;
-            }
-
-            // A bare entity is a heap handle; passing it by copy copies the pointer, so the same
-            // object would be aliased across parallel coroutines/threads. A record/tuple that
-            // transitively owns a single-threaded RC wrapper (Retained/Tracked) or a scoped token
-            // would alias its interior the same way. Pure value data has neither and is copied
-            // safely. (Structural walk — does NOT depend on `Assignable` protocol population, which
-            // is not attached to the resolved parameter-type instances reached here.)
-            bool isEntity = type is EntityTypeInfo;
-
-            // `steal` credits ONLY a bare entity: it is single-owner, so a move leaves exactly one
-            // live handle (provably exclusive — the caller loses access). It does NOT credit a type
-            // that (transitively) owns a single-threaded RC wrapper: moving one `Retained`/`Tracked`
-            // handle does not prove no siblings exist, and a bare `Retained`/`Tracked` cannot be
-            // `steal`-moved at all (RF-S617). Such a value must cross via `Guarded`/`Witnessed` (atomic).
-            if (isEntity && stolenParams.Contains(item: param.Name))
-            {
-                continue;
-            }
-
-            (string Wrapper, string Path)? offender =
-                isEntity ? null : FindNonTriviallyAssignableWrapper(type: type);
-            if (!isEntity && offender == null)
-            {
-                continue;
-            }
-
-            string reason = isEntity
-                ? "a bare entity aliases the same object across parallel coroutines"
-                : $"it transitively owns `{offender!.Value.Wrapper}` at `{offender.Value.Path}`";
-            string fix = isEntity
-                ? "`steal`-move it, share it with `Guarded`/`Witnessed`/`Atomic`/`Consulting`/`Claiming`, " +
-                  "or pass a copyable value"
-                : "share it with `Guarded`/`Witnessed`/`Atomic`/`Consulting`/`Claiming`, or pass a copyable value";
-            ReportError(code: SemanticDiagnosticCode.ThreadArgNotShareable,
-                message:
-                $"Parameter `{param.Name}: {type.Name}` of a {boundaryKind} routine cannot cross the " +
-                $"spawn boundary safely — {reason}. {fix}.",
-                location: location);
+            ValidateAsyncRoutineParameter(param: param, stolenParams: stolenParams,
+                boundaryKind: boundaryKind, location: location);
         }
+    }
+
+    /// <summary>
+    /// Validates a single parameter of an async-spawn routine against the M:N crossing rule, reporting
+    /// RF-S632 when the parameter can neither be trivially copied, steal-moved, nor carries its own
+    /// synchronization. Extracted from <see cref="ValidateAsyncRoutineArguments"/>.
+    /// </summary>
+    private void ValidateAsyncRoutineParameter(ParameterInfo param, HashSet<string> stolenParams,
+        string boundaryKind, SourceLocation location)
+    {
+        TypeSymbol type = param.Type;
+        if (type is ErrorTypeInfo || IsThreadShareable(type: type))
+        {
+            return;
+        }
+
+        // A `Roamed` handle crosses the boundary by being PROMOTED, not rejected: passing it across
+        // a concurrency boundary IS the escape event, and codegen inserts `promote()` on the arg
+        // before the spawn (LOCAL -> ESCAPED: atomic refcount + armed reentrant lock). So the same
+        // object is thread-safe by the time the callee touches it — accepted here, no RF-S632.
+        if (type.BareName == Compiler.Resolution.RuntimeContract.Roamed)
+        {
+            return;
+        }
+
+        // A bare entity is a heap handle; passing it by copy copies the pointer, so the same
+        // object would be aliased across parallel coroutines/threads. A record/tuple that
+        // transitively owns a single-threaded RC wrapper (Retained/Tracked) or a scoped token
+        // would alias its interior the same way. Pure value data has neither and is copied
+        // safely. (Structural walk — does NOT depend on `Assignable` protocol population, which
+        // is not attached to the resolved parameter-type instances reached here.)
+        bool isEntity = type is EntityTypeInfo;
+
+        // `steal` credits ONLY a bare entity: it is single-owner, so a move leaves exactly one
+        // live handle (provably exclusive — the caller loses access). It does NOT credit a type
+        // that (transitively) owns a single-threaded RC wrapper: moving one `Retained`/`Tracked`
+        // handle does not prove no siblings exist, and a bare `Retained`/`Tracked` cannot be
+        // `steal`-moved at all (RF-S617). Such a value must cross via `Guarded`/`Witnessed` (atomic).
+        if (isEntity && stolenParams.Contains(item: param.Name))
+        {
+            return;
+        }
+
+        (string Wrapper, string Path)? offender =
+            isEntity ? null : FindNonTriviallyAssignableWrapper(type: type);
+        if (!isEntity && offender == null)
+        {
+            return;
+        }
+
+        string reason = isEntity
+            ? "a bare entity aliases the same object across parallel coroutines"
+            : $"it transitively owns `{offender!.Value.Wrapper}` at `{offender.Value.Path}`";
+        string fix = isEntity
+            ? "`steal`-move it, share it with `Guarded`/`Witnessed`/`Atomic`/`Consulting`/`Claiming`, " +
+              "or pass a copyable value"
+            : "share it with `Guarded`/`Witnessed`/`Atomic`/`Consulting`/`Claiming`, or pass a copyable value";
+        ReportError(code: SemanticDiagnosticCode.ThreadArgNotShareable,
+            message:
+            $"Parameter `{param.Name}: {type.Name}` of a {boundaryKind} routine cannot cross the " +
+            $"spawn boundary safely — {reason}. {fix}.",
+            location: location);
     }
 
     /// <summary>
@@ -456,9 +468,10 @@ public sealed partial class SemanticVerifier
     private void ValidateMemberVariableWriteAccess(TypeSymbol objectType,
         string memberVariableName, SourceLocation location)
     {
-        if (TryGetTransparentProtocolTarget(type: objectType, targetType: out TypeSymbol targetType))
+        if (TryUnwrapMarkerReceiver(type: objectType, innerType: out TypeSymbol targetType))
         {
-            if (IsReadOnlyTransparentProtocol(type: objectType))
+            if (IsReadOnlyTransparentProtocol(type: objectType) ||
+                IsReadOnlyMarkerBoundParam(type: objectType))
             {
                 ReportError(code: SemanticDiagnosticCode.WriteThroughReadOnlyWrapper,
                     message:

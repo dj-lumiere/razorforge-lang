@@ -149,6 +149,7 @@ routine Integer.assign() -> Integer
 
 ### Releases this value's reference. Frees the handle + controller when this
 ### was the last live ref. No-op when `ctrl` is null.
+@override
 dangerous routine Integer.destroy()
   if me.ctrl.is_none()
     return
@@ -497,7 +498,7 @@ routine U64!(from: Integer) -> U64
 ### Formats this value as base-10 text. Standard `represent` shape (no args)
 ### so the f-string machinery can dispatch without supplying a radix.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine Integer.represent() -> Text
   return me.represent_radix(radix: 10_s32)
 

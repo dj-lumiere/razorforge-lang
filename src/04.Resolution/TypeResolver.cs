@@ -339,7 +339,7 @@ internal sealed class TypeResolver
         type is RecordTypeInfo { GenericDefinition.Name: RuntimeContract.Roamed }
              or WrapperTypeInfo { Name: RuntimeContract.Roamed };
 
-    private TypeSymbol ResolveTypeCore(TypeExpression typeExpr) // NOSONAR S3776
+    private TypeSymbol ResolveTypeCore(TypeExpression typeExpr)
     {
         // Comptime type-position splice `${m.type}` in a decl-position expand column template: resolve
         // to the synthetic per-field placeholder. The registry substitutes it with each concrete
@@ -367,67 +367,19 @@ internal sealed class TypeResolver
         if (typeExpr is { Name: "Me", GenericArguments: not { Count: > 0 } } &&
             _sa._currentRoutine?.OwnerType is { } meOwner and not GenericParameterTypeInfo)
         {
-            // Protocol owner (protocol-extension routine like `Iterable[T].enumerate`): `Me` is the
-            // abstract self, resolved per-implementer later. Use ProtocolSelf so a body construction
-            // `EnumerateIterator[T, Me]` matches the signature's `Me` (both ProtocolSelf) — otherwise
-            // self-applying to `Iterable[T]` mismatches the return type (S301).
-            if (meOwner is ProtocolTypeInfo)
-            {
-                return ProtocolSelfTypeInfo.Instance;
-            }
-
-            // When the owner is a generic definition (e.g. `Box[T]`), `Me` must resolve to the
-            // owner applied to its OWN generic parameters (`Box[T]`), not the bare definition.
-            // Otherwise `Me` used as a type argument (`Wrapper[T, Me]`) drops the params, and
-            // monomorphization can't substitute them — yielding a malformed `Wrapper[S64, Box]`
-            // whose memberRoutines never get instantiated. For a non-generic owner this is a no-op.
-            if (meOwner is { IsGenericDefinition: true, GenericParameters: { } ownerParams })
-            {
-                var selfArgs = ownerParams
-                    .Select(selector: p => (TypeInfo)new GenericParameterTypeInfo(name: p))
-                    .ToList();
-                return _sa._registry.GetOrCreateResolution(genericDef: meOwner,
-                    typeArguments: selfArgs);
-            }
-            return meOwner;
+            return ResolveMeType(meOwner: meOwner);
         }
 
         // Handle tuple types from parser: Tuple(T, U, ...)
         if (typeExpr is { Name: "Tuple", GenericArguments.Count: > 0 })
         {
-            var elementTypes = new List<TypeInfo>();
-            foreach (TypeExpression argExpr in typeExpr.GenericArguments)
-            {
-                TypeSymbol argType = ResolveType(typeExpr: argExpr);
-                elementTypes.Add(item: argType);
-            }
-
-            return _sa._registry.GetOrCreateTupleType(elementTypes: elementTypes);
+            return ResolveTupleType(typeExpr: typeExpr);
         }
 
         // Handle Routine type: Routine[(T, T), Bool] -> RoutineTypeInfo
         if (typeExpr is { Name: "Routine", GenericArguments.Count: 2 })
         {
-            TypeExpression paramTupleExpr = typeExpr.GenericArguments[index: 0];
-            TypeExpression returnTypeExpr = typeExpr.GenericArguments[index: 1];
-
-            var paramTypes = new List<TypeInfo>();
-            if (paramTupleExpr is { Name: "Tuple", GenericArguments: not null })
-            {
-                foreach (TypeExpression paramTypeExpr in paramTupleExpr.GenericArguments)
-                {
-                    paramTypes.Add(item: ResolveType(typeExpr: paramTypeExpr));
-                }
-            }
-            else
-            {
-                paramTypes.Add(item: ResolveType(typeExpr: paramTupleExpr));
-            }
-
-            TypeInfo? returnType = ResolveType(typeExpr: returnTypeExpr);
-            return _sa._registry.GetOrCreateRoutineType(parameterTypes: paramTypes,
-                returnType: returnType,
-                isFailable: false);
+            return ResolveRoutineType(typeExpr: typeExpr);
         }
 
         // Handle generic types (List<T>, Dict<K, V>, Maybe<T>)
@@ -523,6 +475,82 @@ internal sealed class TypeResolver
             message: $"Unknown type '{typeExpr.Name}'.{_sa.UnknownTypeSuggestion(typeName: typeExpr.Name)}",
             location: typeExpr.Location);
         return ErrorTypeInfo.Instance;
+    }
+
+    /// <summary>
+    /// Resolves a bare <c>Me</c> in a member-routine signature to its concrete owner type. A protocol
+    /// owner yields <see cref="ProtocolSelfTypeInfo"/>; a generic-definition owner yields the owner
+    /// applied to its own parameters (<c>Box</c> → <c>Box[T]</c>); a plain owner returns itself.
+    /// </summary>
+    private TypeSymbol ResolveMeType(TypeSymbol meOwner)
+    {
+        // Protocol owner (protocol-extension routine like `Iterable[T].enumerate`): `Me` is the
+        // abstract self, resolved per-implementer later. Use ProtocolSelf so a body construction
+        // `EnumerateIterator[T, Me]` matches the signature's `Me` (both ProtocolSelf) — otherwise
+        // self-applying to `Iterable[T]` mismatches the return type (S301).
+        if (meOwner is ProtocolTypeInfo)
+        {
+            return ProtocolSelfTypeInfo.Instance;
+        }
+
+        // When the owner is a generic definition (e.g. `Box[T]`), `Me` must resolve to the
+        // owner applied to its OWN generic parameters (`Box[T]`), not the bare definition.
+        // Otherwise `Me` used as a type argument (`Wrapper[T, Me]`) drops the params, and
+        // monomorphization can't substitute them — yielding a malformed `Wrapper[S64, Box]`
+        // whose memberRoutines never get instantiated. For a non-generic owner this is a no-op.
+        if (meOwner is { IsGenericDefinition: true, GenericParameters: { } ownerParams })
+        {
+            var selfArgs = ownerParams
+                .Select(selector: p => (TypeInfo)new GenericParameterTypeInfo(name: p))
+                .ToList();
+            return _sa._registry.GetOrCreateResolution(genericDef: meOwner,
+                typeArguments: selfArgs);
+        }
+        return meOwner;
+    }
+
+    /// <summary>
+    /// Resolves a parser <c>Tuple(T, U, ...)</c> type expression to a tuple type by resolving each
+    /// element type in order.
+    /// </summary>
+    private TypeSymbol ResolveTupleType(TypeExpression typeExpr)
+    {
+        var elementTypes = new List<TypeInfo>();
+        foreach (TypeExpression argExpr in typeExpr.GenericArguments!)
+        {
+            TypeSymbol argType = ResolveType(typeExpr: argExpr);
+            elementTypes.Add(item: argType);
+        }
+
+        return _sa._registry.GetOrCreateTupleType(elementTypes: elementTypes);
+    }
+
+    /// <summary>
+    /// Resolves a <c>Routine[(T, T), Bool]</c> type expression to a <see cref="RoutineTypeInfo"/>,
+    /// unpacking the parameter tuple and resolving the return type.
+    /// </summary>
+    private TypeSymbol ResolveRoutineType(TypeExpression typeExpr)
+    {
+        TypeExpression paramTupleExpr = typeExpr.GenericArguments![index: 0];
+        TypeExpression returnTypeExpr = typeExpr.GenericArguments[index: 1];
+
+        var paramTypes = new List<TypeInfo>();
+        if (paramTupleExpr is { Name: "Tuple", GenericArguments: not null })
+        {
+            foreach (TypeExpression paramTypeExpr in paramTupleExpr.GenericArguments)
+            {
+                paramTypes.Add(item: ResolveType(typeExpr: paramTypeExpr));
+            }
+        }
+        else
+        {
+            paramTypes.Add(item: ResolveType(typeExpr: paramTupleExpr));
+        }
+
+        TypeInfo? returnType = ResolveType(typeExpr: returnTypeExpr);
+        return _sa._registry.GetOrCreateRoutineType(parameterTypes: paramTypes,
+            returnType: returnType,
+            isFailable: false);
     }
 
     /// <summary>
@@ -712,94 +740,72 @@ internal sealed class TypeResolver
                 continue;
             }
 
-            switch (constraint.ConstraintType)
-            {
-                case ConstraintKind.Obeys:
-                    ValidateFollowsConstraint(typeArg: typeArg,
-                        constraint: constraint,
-                        location: location);
-                    break;
-
-                case ConstraintKind.ValueType:
-                    ValidateValueTypeConstraint(typeArg: typeArg,
-                        constraint: constraint,
-                        location: location);
-                    break;
-
-                case ConstraintKind.ReferenceType:
-                    ValidateReferenceTypeConstraint(typeArg: typeArg,
-                        constraint: constraint,
-                        location: location);
-                    break;
-
-                case ConstraintKind.RoutineType:
-                    ValidateRoutineTypeConstraint(typeArg: typeArg,
-                        constraint: constraint,
-                        location: location);
-                    break;
-
-                case ConstraintKind.ChoiceType:
-                    ValidateChoiceTypeConstraint(typeArg: typeArg,
-                        constraint: constraint,
-                        location: location);
-                    break;
-
-                case ConstraintKind.VariantType:
-                    ValidateVariantTypeConstraint(typeArg: typeArg,
-                        constraint: constraint,
-                        location: location);
-                    break;
-
-                case ConstraintKind.Crashable:
-                    ValidateCrashableTypeConstraint(typeArg: typeArg,
-                        constraint: constraint,
-                        location: location);
-                    break;
-
-                case ConstraintKind.ConstGeneric:
-                    ValidateConstGenericConstraint(typeArg: typeArg,
-                        constraint: constraint,
-                        location: location);
-                    break;
-
-                case ConstraintKind.TypeEquality:
-                    ValidateTypeEqualityConstraint(typeArg: typeArg,
-                        constraint: constraint,
-                        location: location);
-                    break;
-
-                case ConstraintKind.Splittable:
-                    ValidateSplittableConstraint(typeArg: typeArg,
-                        constraint: constraint,
-                        location: location);
-                    break;
-            }
+            DispatchConstraintValidation(typeArg: typeArg, constraint: constraint, location: location);
         }
     }
 
     /// <summary>
-    /// Validates that a type argument satisfies a <c>is SplittableType</c> constraint — the element
-    /// type must tear down trivially (only <c>@llvm</c> primitives + raw pointers, no custom
-    /// store/destroy) so its member-variable columns are memcpy-movable. This is the eligibility
-    /// gate for the SoA collections <c>SplitArray[T, N]</c> / <c>SplitList[T]</c>.
+    /// Routes a single generic constraint to its category-specific validator based on
+    /// <see cref="GenericConstraintDeclaration.ConstraintType"/>.
     /// </summary>
-    private void ValidateSplittableConstraint(TypeSymbol typeArg,
+    private void DispatchConstraintValidation(TypeSymbol typeArg,
         GenericConstraintDeclaration constraint, SourceLocation location)
     {
-        // A yet-unbound generic parameter can't be checked here — the check re-runs on the concrete
-        // instantiation (SplitList[NonTrivial] fails there, SplitList[T] where T is SplittableType
-        // is provably fine because the outer constraint already gates T).
-        if (typeArg is GenericParameterTypeInfo)
+        switch (constraint.ConstraintType)
         {
-            return;
-        }
+            case ConstraintKind.Obeys:
+                ValidateFollowsConstraint(typeArg: typeArg,
+                    constraint: constraint,
+                    location: location);
+                break;
 
-        if (!_sa._registry.IsTriviallyDestructible(type: typeArg))
-        {
-            _sa.ReportError(code: SemanticDiagnosticCode.SplittableConstraintViolation,
-                message:
-                $"Type '{typeArg.Name}' is not Splittable (it has a non-trivial store/destroy) as required by constraint on '{constraint.ParameterName}'. SoA storage needs a trivially-destructible element.",
-                location: location);
+            case ConstraintKind.RecordType:
+                ValidateValueTypeConstraint(typeArg: typeArg,
+                    constraint: constraint,
+                    location: location);
+                break;
+
+            case ConstraintKind.EntityType:
+                ValidateReferenceTypeConstraint(typeArg: typeArg,
+                    constraint: constraint,
+                    location: location);
+                break;
+
+            case ConstraintKind.RoutineType:
+                ValidateRoutineTypeConstraint(typeArg: typeArg,
+                    constraint: constraint,
+                    location: location);
+                break;
+
+            case ConstraintKind.ChoiceType:
+                ValidateChoiceTypeConstraint(typeArg: typeArg,
+                    constraint: constraint,
+                    location: location);
+                break;
+
+            case ConstraintKind.VariantType:
+                ValidateVariantTypeConstraint(typeArg: typeArg,
+                    constraint: constraint,
+                    location: location);
+                break;
+
+            case ConstraintKind.Crashable:
+                ValidateCrashableTypeConstraint(typeArg: typeArg,
+                    constraint: constraint,
+                    location: location);
+                break;
+
+            case ConstraintKind.ConstGeneric:
+                ValidateConstGenericConstraint(typeArg: typeArg,
+                    constraint: constraint,
+                    location: location);
+                break;
+
+            case ConstraintKind.TypeEquality:
+                ValidateTypeEqualityConstraint(typeArg: typeArg,
+                    constraint: constraint,
+                    location: location);
+                break;
         }
     }
 
@@ -1017,26 +1023,40 @@ internal sealed class TypeResolver
         if (!string.IsNullOrEmpty(value: ownerName) &&
             ownerName.Contains(value: '['))
         {
-            int open = ownerName.IndexOf(value: '[');
-            int close = ownerName.LastIndexOf(value: ']');
-            if (close > open)
+            return OwnerNameBracketBindsParameter(ownerName: ownerName, name: name);
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Parses the bracketed segment of an owner type name (e.g. <c>Hijacked[T]</c>) and reports whether
+    /// any top-level comma-separated argument equals <paramref name="name"/>. Nested brackets are
+    /// tracked so a comma inside an inner <c>[...]</c> does not split an argument.
+    /// </summary>
+    private static bool OwnerNameBracketBindsParameter(string ownerName, string name)
+    {
+        int open = ownerName.IndexOf(value: '[');
+        int close = ownerName.LastIndexOf(value: ']');
+        if (close <= open)
+        {
+            return false;
+        }
+
+        string inner = ownerName[(open + 1)..close];
+        int depth = 0;
+        int start = 0;
+        for (int i = 0; i <= inner.Length; i++)
+        {
+            if (i == inner.Length ||
+                (inner[index: i] == ',' && depth == 0))
             {
-                string inner = ownerName[(open + 1)..close];
-                int depth = 0;
-                int start = 0;
-                for (int i = 0; i <= inner.Length; i++)
-                {
-                    if (i == inner.Length ||
-                        (inner[index: i] == ',' && depth == 0))
-                    {
-                        string arg = inner[start..i].Trim();
-                        if (arg == name) return true;
-                        start = i + 1;
-                    }
-                    else if (inner[index: i] == '[') depth++;
-                    else if (inner[index: i] == ']') depth--;
-                }
+                string arg = inner[start..i].Trim();
+                if (arg == name) return true;
+                start = i + 1;
             }
+            else if (inner[index: i] == '[') depth++;
+            else if (inner[index: i] == ']') depth--;
         }
 
         return false;
@@ -1201,32 +1221,10 @@ internal sealed class TypeResolver
         // Type-kind marker names (e.g. `needs T is EntityType`) are stored as ConstGeneric
         // constraints by the parser, but they assert a category, not const-compatibility.
         // Validate the corresponding category and return.
-        switch (requiredTypeName)
+        if (TryValidateTypeKindMarker(requiredTypeName: requiredTypeName, typeArg: typeArg,
+                constraint: constraint, location: location))
         {
-            case "EntityType":
-                ValidateReferenceTypeConstraint(typeArg: typeArg,
-                    constraint: constraint, location: location);
-                return;
-            case "RecordType":
-                ValidateValueTypeConstraint(typeArg: typeArg,
-                    constraint: constraint, location: location);
-                return;
-            case "RoutineType":
-                ValidateRoutineTypeConstraint(typeArg: typeArg,
-                    constraint: constraint, location: location);
-                return;
-            case "ChoiceType":
-                ValidateChoiceTypeConstraint(typeArg: typeArg,
-                    constraint: constraint, location: location);
-                return;
-            case "VariantType":
-                ValidateVariantTypeConstraint(typeArg: typeArg,
-                    constraint: constraint, location: location);
-                return;
-            case "Crashable":
-                ValidateCrashableTypeConstraint(typeArg: typeArg,
-                    constraint: constraint, location: location);
-                return;
+            return;
         }
 
         // Resolve the required type and check ConstCompatible conformance
@@ -1288,6 +1286,46 @@ internal sealed class TypeResolver
                 $"Choice const generic '{constraint.ParameterName}' requires fully-qualified case name " +
                 $"(e.g., '{requiredTypeName}.{typeArg.Name}'), not bare '{typeArg.Name}'.",
                 location: location);
+        }
+    }
+
+    /// <summary>
+    /// Handles a type-kind marker name (<c>EntityType</c>/<c>RecordType</c>/<c>RoutineType</c>/
+    /// <c>ChoiceType</c>/<c>VariantType</c>/<c>Crashable</c>) that the parser stored as a ConstGeneric
+    /// constraint: dispatches to the matching category validator and returns true when handled. Returns
+    /// false for a genuine const-compatibility required type, which the caller validates instead.
+    /// </summary>
+    private bool TryValidateTypeKindMarker(string requiredTypeName, TypeSymbol typeArg,
+        GenericConstraintDeclaration constraint, SourceLocation location)
+    {
+        switch (requiredTypeName)
+        {
+            case "EntityType":
+                ValidateReferenceTypeConstraint(typeArg: typeArg,
+                    constraint: constraint, location: location);
+                return true;
+            case "RecordType":
+                ValidateValueTypeConstraint(typeArg: typeArg,
+                    constraint: constraint, location: location);
+                return true;
+            case "RoutineType":
+                ValidateRoutineTypeConstraint(typeArg: typeArg,
+                    constraint: constraint, location: location);
+                return true;
+            case "ChoiceType":
+                ValidateChoiceTypeConstraint(typeArg: typeArg,
+                    constraint: constraint, location: location);
+                return true;
+            case "VariantType":
+                ValidateVariantTypeConstraint(typeArg: typeArg,
+                    constraint: constraint, location: location);
+                return true;
+            case "Crashable":
+                ValidateCrashableTypeConstraint(typeArg: typeArg,
+                    constraint: constraint, location: location);
+                return true;
+            default:
+                return false;
         }
     }
 

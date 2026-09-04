@@ -181,7 +181,7 @@ routine Character.to_byte() -> Byte
 ### Returns the display form of this character.
 ### The display form emits the character itself rather than its numeric code.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine Character.represent() -> Text
   var list = List[Character]()
   list.add_last(me)
@@ -191,7 +191,7 @@ routine Character.represent() -> Text
 ### The diagnostic form includes both the printable character and its numeric
 ### code point.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine Character.diagnose() -> Text
   return "Character(" + me.represent() + ", " + U32(me).represent() + ")"
 

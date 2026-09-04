@@ -38,9 +38,11 @@ routine U1024.mod(you: U1024) -> U1024
     return LLVM::reinterpret_bits[Hijacked[Array[U64, 16]], Hijacked[U1024]](rem.hijack()).peek()
 
 ### Diagnostic name (raw wide intermediate; not decimal-formatted).
+@override
 routine U1024.represent() -> Text
   return wide_dec[U1024](me)
 
 ### Diagnostic representation tagged with the type name.
+@override
 routine U1024.diagnose() -> Text
   return "U1024"

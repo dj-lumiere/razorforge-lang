@@ -317,42 +317,7 @@ public static class LspServer
         string? documentation = null;
         if (IsIdentifierText(text: hit.Text))
         {
-            RoutineInfo? routine = RoutineReferencedByToken(doc: doc, hit: hit);
-            if (routine != null)
-            {
-                label = $"routine {routine.Name}{RoutineDetail(r: routine)}";
-                documentation = routine.Documentation;
-            }
-            else
-            {
-                VariableInfo? bound = VariableBoundAtToken(doc: doc, hit: hit);
-                if (bound != null)
-                {
-                    string kindNote = bound.IsPreset ? "preset " : "";
-                    label = $"{kindNote}{bound.Name}: {bound.Type.Name}";
-
-                    // Ownership state: is this exact occurrence dead (moved out by an earlier steal)?
-                    bool deadHere = AllNodes(program: doc.Program).OfType<IdentifierExpression>()
-                        .Any(predicate: e => e.IsDeadUse && e.Name == hit.Text &&
-                            e.Location.Line == hit.Line && e.Location.Column == hit.Column);
-                    var notes = new List<string>();
-                    if (deadHere)
-                    {
-                        notes.Add(item: "⚠️ **moved out** — this value's ownership was transferred by an " +
-                            "earlier `steal`; it is dead here (use-after-steal) until re-assigned.");
-                    }
-
-                    if (OwnershipNote(type: bound.Type) is { } own)
-                    {
-                        notes.Add(item: own);
-                    }
-
-                    if (notes.Count > 0)
-                    {
-                        documentation = string.Join(separator: "\n\n", values: notes);
-                    }
-                }
-            }
+            (label, documentation) = SymbolHoverLabel(doc: doc, hit: hit);
         }
 
         if (label == null)
@@ -396,6 +361,46 @@ public static class LspServer
                 ["end"] = new Dictionary<string, object?> { ["line"] = line0, ["character"] = endCol0 }
             }
         });
+    }
+
+    /// <summary>The richer hover label + documentation for an identifier token: a routine's signature, or a
+    /// bound variable/parameter's <c>name: Type</c> plus ownership notes. Both are null when the token names
+    /// neither (the caller then falls back to the resolved expression type).</summary>
+    private static (string? Label, string? Documentation) SymbolHoverLabel(DocState doc, Token hit)
+    {
+        RoutineInfo? routine = RoutineReferencedByToken(doc: doc, hit: hit);
+        if (routine != null)
+        {
+            return ($"routine {routine.Name}{RoutineDetail(r: routine)}", routine.Documentation);
+        }
+
+        VariableInfo? bound = VariableBoundAtToken(doc: doc, hit: hit);
+        if (bound == null)
+        {
+            return (null, null);
+        }
+
+        string kindNote = bound.IsPreset ? "preset " : "";
+        string label = $"{kindNote}{bound.Name}: {bound.Type.Name}";
+
+        // Ownership state: is this exact occurrence dead (moved out by an earlier steal)?
+        bool deadHere = AllNodes(program: doc.Program).OfType<IdentifierExpression>()
+            .Any(predicate: e => e.IsDeadUse && e.Name == hit.Text &&
+                e.Location.Line == hit.Line && e.Location.Column == hit.Column);
+        var notes = new List<string>();
+        if (deadHere)
+        {
+            notes.Add(item: "⚠️ **moved out** — this value's ownership was transferred by an " +
+                "earlier `steal`; it is dead here (use-after-steal) until re-assigned.");
+        }
+
+        if (OwnershipNote(type: bound.Type) is { } own)
+        {
+            notes.Add(item: own);
+        }
+
+        string? documentation = notes.Count > 0 ? string.Join(separator: "\n\n", values: notes) : null;
+        return (label, documentation);
     }
 
     /// <summary>
@@ -786,26 +791,7 @@ public static class LspServer
         string? realm = RealmQualifierBefore(doc: doc, line0: line0, char0: char0);
         if (realm != null)
         {
-            TypeModel.Enums.RoutineRealm? want = realm switch
-            {
-                "C" => TypeModel.Enums.RoutineRealm.C,
-                "LLVM" => TypeModel.Enums.RoutineRealm.LLVM,
-                "RF" => TypeModel.Enums.RoutineRealm.RF,
-                "SF" => TypeModel.Enums.RoutineRealm.SF,
-                _ => null
-            };
-            if (want is { } wr)
-            {
-                foreach (RoutineInfo r in doc.Registry.GetAllRoutines())
-                {
-                    if (r.Realm == wr && r.OwnerType == null && !r.Name.StartsWith(value: '$'))
-                    {
-                        AddItem(items: items, seen: seen, label: r.Name, kind: 3,
-                            detail: RoutineDetail(r: r), documentation: r.Documentation);
-                    }
-                }
-            }
-
+            AddRealmCompletions(doc: doc, items: items, seen: seen, realm: realm);
             WriteResult(stdout: stdout, id: id, result: new Dictionary<string, object?>
             {
                 ["isIncomplete"] = false,
@@ -824,94 +810,13 @@ public static class LspServer
             TypeInfo? receiverType = ReceiverType(doc: doc, receiver: receiver);
             if (receiverType != null)
             {
-                // `secret` members are file-private — hide them from an outside `x.` completion, but show
-                // them for `me.` (inside the type's own body they are accessible).
-                bool includeSecret = receiver.Text == "me";
-
-                foreach ((string name, string type) in
-                         MemberVariableSignatures(type: receiverType, includeSecret: includeSecret))
-                {
-                    AddItem(items: items, seen: seen, label: name, kind: 5, detail: $": {type}"); // Field
-                }
-
-                // Resolved own member routines — GetOwnMemberRoutinesResolved substitutes the generic
-                // definition's methods for a concrete instantiation (so `List[FaceDraw].` shows `add_last`,
-                // which the raw GetMemberRoutinesForType misses because methods register under `List[T]`).
-                List<RoutineInfo> ownMethods =
-                    doc.Registry.GetOwnMemberRoutinesResolved(type: receiverType).ToList();
-
-                // Methods whose SPECIALIZED receiver doesn't accept this instantiation (e.g.
-                // `List[Agent[V]].gather` on a `List[FaceDraw]`). The compiler-generated failable variants
-                // (`try_`/`check_`/`lookup_gather`) carry no MeType, so key the rejection on the BASE name
-                // and let a variant inherit its base's (in)applicability.
-                var rejected = new HashSet<string>(comparer: StringComparer.Ordinal);
-                foreach (RoutineInfo mr in ownMethods)
-                {
-                    if (!ReceiverAcceptsMethod(mr: mr, receiverType: receiverType))
-                    {
-                        rejected.Add(item: mr.Name);
-                    }
-                }
-
-                bool IsRejected(string name)
-                {
-                    if (rejected.Contains(item: name))
-                    {
-                        return true;
-                    }
-
-                    foreach (string pfx in new[] { "try_", "check_", "lookup_" })
-                    {
-                        if (name.StartsWith(value: pfx, comparisonType: StringComparison.Ordinal) &&
-                            rejected.Contains(item: name[pfx.Length..]))
-                        {
-                            return true;
-                        }
-                    }
-
-                    return false;
-                }
-
-                foreach (RoutineInfo mr in ownMethods)
-                {
-                    if (mr.Name.StartsWith(value: '$') ||
-                        (!includeSecret && mr.Visibility == VisibilityModifier.Secret) ||
-                        IsRejected(name: mr.Name))
-                    {
-                        continue; // wired internals / file-private / specialized-receiver mismatch
-                    }
-
-                    AddItem(items: items, seen: seen, label: mr.Name, kind: 2, // Method
-                        detail: RoutineDetail(r: mr), documentation: mr.Documentation);
-                }
+                AddMemberCompletions(doc: doc, items: items, seen: seen,
+                    receiver: receiver, receiverType: receiverType);
             }
         }
         else
         {
-            foreach (string kw in Keywords)
-            {
-                AddItem(items: items, seen: seen, label: kw, kind: 14); // Keyword
-            }
-
-            foreach (RoutineInfo r in doc.Registry.GetAllRoutines())
-            {
-                if (r.OwnerType == null && !r.Name.StartsWith(value: '$'))
-                {
-                    AddItem(items: items, seen: seen, label: r.Name, kind: 3, // Function
-                        detail: RoutineDetail(r: r), documentation: r.Documentation);
-                }
-            }
-
-            foreach (ISyntaxTreeNode node in AllNodes(program: doc.Program))
-            {
-                string tn = node.GetType().Name;
-                if (tn.EndsWith(value: "Declaration", comparisonType: StringComparison.Ordinal) &&
-                    GetNameProp(node: node) is { } dn)
-                {
-                    int kind = tn == "VariableDeclaration" ? 6 : tn == "RoutineDeclaration" ? 3 : 7; // Var/Func/Class
-                    AddItem(items: items, seen: seen, label: dn, kind: kind);
-                }
-            }
+            AddGlobalCompletions(doc: doc, items: items, seen: seen);
         }
 
         WriteResult(stdout: stdout, id: id, result: new Dictionary<string, object?>
@@ -919,6 +824,131 @@ public static class LspServer
             ["isIncomplete"] = false,
             ["items"] = items
         });
+    }
+
+    /// <summary>Completions after a <c>Realm::</c> qualifier: only that realm's free routines.</summary>
+    private static void AddRealmCompletions(DocState doc, List<Dictionary<string, object?>> items,
+        HashSet<string> seen, string realm)
+    {
+        TypeModel.Enums.RoutineRealm? want = realm switch
+        {
+            "C" => TypeModel.Enums.RoutineRealm.C,
+            "LLVM" => TypeModel.Enums.RoutineRealm.LLVM,
+            "RF" => TypeModel.Enums.RoutineRealm.RF,
+            "SF" => TypeModel.Enums.RoutineRealm.SF,
+            _ => null
+        };
+        if (want is not { } wr)
+        {
+            return;
+        }
+
+        foreach (RoutineInfo r in doc.Registry.GetAllRoutines())
+        {
+            if (r.Realm == wr && r.OwnerType == null && !r.Name.StartsWith(value: '$'))
+            {
+                AddItem(items: items, seen: seen, label: r.Name, kind: 3,
+                    detail: RoutineDetail(r: r), documentation: r.Documentation);
+            }
+        }
+    }
+
+    /// <summary>Completions after a <c>receiver.</c>: the receiver type's member variables and applicable
+    /// member routines (wired internals, file-private secrets, and specialized-receiver mismatches filtered).</summary>
+    private static void AddMemberCompletions(DocState doc, List<Dictionary<string, object?>> items,
+        HashSet<string> seen, Token receiver, TypeInfo receiverType)
+    {
+        // `secret` members are file-private — hide them from an outside `x.` completion, but show
+        // them for `me.` (inside the type's own body they are accessible).
+        bool includeSecret = receiver.Text == "me";
+
+        foreach ((string name, string type) in
+                 MemberVariableSignatures(type: receiverType, includeSecret: includeSecret))
+        {
+            AddItem(items: items, seen: seen, label: name, kind: 5, detail: $": {type}"); // Field
+        }
+
+        // Resolved own member routines — GetOwnMemberRoutinesResolved substitutes the generic
+        // definition's methods for a concrete instantiation (so `List[FaceDraw].` shows `add_last`,
+        // which the raw GetMemberRoutinesForType misses because methods register under `List[T]`).
+        List<RoutineInfo> ownMethods =
+            doc.Registry.GetOwnMemberRoutinesResolved(type: receiverType).ToList();
+
+        // Methods whose SPECIALIZED receiver doesn't accept this instantiation (e.g.
+        // `List[Agent[V]].gather` on a `List[FaceDraw]`). The compiler-generated failable variants
+        // (`try_`/`check_`/`lookup_gather`) carry no MeType, so key the rejection on the BASE name
+        // and let a variant inherit its base's (in)applicability.
+        var rejected = new HashSet<string>(comparer: StringComparer.Ordinal);
+        foreach (RoutineInfo mr in ownMethods)
+        {
+            if (!ReceiverAcceptsMethod(mr: mr, receiverType: receiverType))
+            {
+                rejected.Add(item: mr.Name);
+            }
+        }
+
+        bool IsRejected(string name)
+        {
+            if (rejected.Contains(item: name))
+            {
+                return true;
+            }
+
+            foreach (string pfx in new[] { "try_", "check_", "lookup_" })
+            {
+                if (name.StartsWith(value: pfx, comparisonType: StringComparison.Ordinal) &&
+                    rejected.Contains(item: name[pfx.Length..]))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        foreach (RoutineInfo mr in ownMethods)
+        {
+            if (mr.Name.StartsWith(value: '$') ||
+                (!includeSecret && mr.Visibility == VisibilityModifier.Secret) ||
+                IsRejected(name: mr.Name))
+            {
+                continue; // wired internals / file-private / specialized-receiver mismatch
+            }
+
+            AddItem(items: items, seen: seen, label: mr.Name, kind: 2, // Method
+                detail: RoutineDetail(r: mr), documentation: mr.Documentation);
+        }
+    }
+
+    /// <summary>Global (non-member) completions: keywords, visible free routines, and this file's
+    /// top-level declarations.</summary>
+    private static void AddGlobalCompletions(DocState doc, List<Dictionary<string, object?>> items,
+        HashSet<string> seen)
+    {
+        foreach (string kw in Keywords)
+        {
+            AddItem(items: items, seen: seen, label: kw, kind: 14); // Keyword
+        }
+
+        foreach (RoutineInfo r in doc.Registry.GetAllRoutines())
+        {
+            if (r.OwnerType == null && !r.Name.StartsWith(value: '$'))
+            {
+                AddItem(items: items, seen: seen, label: r.Name, kind: 3, // Function
+                    detail: RoutineDetail(r: r), documentation: r.Documentation);
+            }
+        }
+
+        foreach (ISyntaxTreeNode node in AllNodes(program: doc.Program))
+        {
+            string tn = node.GetType().Name;
+            if (tn.EndsWith(value: "Declaration", comparisonType: StringComparison.Ordinal) &&
+                GetNameProp(node: node) is { } dn)
+            {
+                int kind = tn == "VariableDeclaration" ? 6 : tn == "RoutineDeclaration" ? 3 : 7; // Var/Func/Class
+                AddItem(items: items, seen: seen, label: dn, kind: kind);
+            }
+        }
     }
 
     /// <summary>
@@ -991,15 +1021,11 @@ public static class LspServer
     /// index are found from the token stream (balanced parens + comma count), then the callee name is
     /// resolved to a routine through the analyzed AST (falling back to a same-name free routine).
     /// </summary>
-    private static void HandleSignatureHelp(Stream stdout, JsonElement id, JsonElement root)
+    /// <summary>Scans the tokens before the cursor (balanced parens + comma count) to find the call whose
+    /// argument list the cursor is inside: its callee name, the callee's line, and the active-argument
+    /// index. Returns null when the cursor is not inside any call's argument list.</summary>
+    private static (string? Callee, int Line, int Commas)? EnclosingCall(DocState doc, int line0, int char0)
     {
-        if (!TryReadPosition(root: root, uri: out string uri, line0: out int line0, char0: out int char0) ||
-            !Docs.TryGetValue(key: uri, value: out DocState? doc))
-        {
-            WriteResult(stdout: stdout, id: id, result: null);
-            return;
-        }
-
         int line1 = line0 + 1;
         int col1 = char0 + 1;
         List<Token> pre = doc.Tokens
@@ -1030,13 +1056,26 @@ public static class LspServer
             prev = t;
         }
 
-        if (stack.Count == 0 || stack.Peek().Callee == null)
+        return stack.Count > 0 ? stack.Peek() : null;
+    }
+
+    private static void HandleSignatureHelp(Stream stdout, JsonElement id, JsonElement root)
+    {
+        if (!TryReadPosition(root: root, uri: out string uri, line0: out int line0, char0: out int char0) ||
+            !Docs.TryGetValue(key: uri, value: out DocState? doc))
         {
             WriteResult(stdout: stdout, id: id, result: null);
             return;
         }
 
-        (string? calleeName, int calleeLine, int activeParam) = stack.Peek();
+        if (EnclosingCall(doc: doc, line0: line0, char0: char0) is not
+                { Callee: not null } enclosing)
+        {
+            WriteResult(stdout: stdout, id: id, result: null);
+            return;
+        }
+
+        (string? calleeName, int calleeLine, int activeParam) = enclosing;
 
         RoutineInfo? routine = null;
         foreach (CallExpression call in AllNodes(program: doc.Program).OfType<CallExpression>())

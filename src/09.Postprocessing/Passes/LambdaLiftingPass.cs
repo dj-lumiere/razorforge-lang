@@ -832,35 +832,48 @@ internal sealed class LambdaLiftingPass(PostprocessingContext ctx)
                 }, backIndex);
 
             case WhenExpression whenExpr:
-                return CopyResolvedType(whenExpr with
-                {
-                    Expression = whenExpr.Expression != null
-                        ? RewriteExpression(whenExpr.Expression,
-                            scope: scope,
-                            inheritedGenericParameters: inheritedGenericParameters,
-                            inheritedGenericConstraints: inheritedGenericConstraints,
-                            includeMe: includeMe)
-                        : null,
-                    Clauses = whenExpr.Clauses
-                        .Select(clause => clause with
-                        {
-                            Pattern = RewritePatternExpressions(clause.Pattern,
-                                scope: scope,
-                                inheritedGenericParameters: inheritedGenericParameters,
-                                inheritedGenericConstraints: inheritedGenericConstraints,
-                                includeMe: includeMe),
-                            Body = RewriteStatement(clause.Body,
-                                scope: [..scope, ..GetPatternBindings(clause.Pattern)],
-                                inheritedGenericParameters: inheritedGenericParameters,
-                                inheritedGenericConstraints: inheritedGenericConstraints,
-                                includeMe: includeMe)
-                        })
-                        .ToList()
-                }, whenExpr);
+                return RewriteWhenExpression(whenExpr,
+                    scope: scope,
+                    inheritedGenericParameters: inheritedGenericParameters,
+                    inheritedGenericConstraints: inheritedGenericConstraints,
+                    includeMe: includeMe);
 
             default:
                 return expression;
         }
+    }
+
+    private Expression RewriteWhenExpression(WhenExpression whenExpr,
+        HashSet<string> scope,
+        List<string>? inheritedGenericParameters,
+        List<GenericConstraintDeclaration>? inheritedGenericConstraints,
+        bool includeMe)
+    {
+        return CopyResolvedType(whenExpr with
+        {
+            Expression = whenExpr.Expression != null
+                ? RewriteExpression(whenExpr.Expression,
+                    scope: scope,
+                    inheritedGenericParameters: inheritedGenericParameters,
+                    inheritedGenericConstraints: inheritedGenericConstraints,
+                    includeMe: includeMe)
+                : null,
+            Clauses = whenExpr.Clauses
+                .Select(clause => clause with
+                {
+                    Pattern = RewritePatternExpressions(clause.Pattern,
+                        scope: scope,
+                        inheritedGenericParameters: inheritedGenericParameters,
+                        inheritedGenericConstraints: inheritedGenericConstraints,
+                        includeMe: includeMe),
+                    Body = RewriteStatement(clause.Body,
+                        scope: [..scope, ..GetPatternBindings(clause.Pattern)],
+                        inheritedGenericParameters: inheritedGenericParameters,
+                        inheritedGenericConstraints: inheritedGenericConstraints,
+                        includeMe: includeMe)
+                })
+                .ToList()
+        }, whenExpr);
     }
 
     private IdentifierExpression LiftLambda(LambdaExpression lambda,

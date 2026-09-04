@@ -5,7 +5,6 @@ module Core
 ### safe access to an entity without transferring ownership.
 ### :typeparam T: The referenced entity type.
 protocol Accessing[T]
-needs T is EntityType
   ### Yields the inner entity as an in-flight `T` reference for read-only access.
   ### Implicitly inserted by the compiler at call sites whose target parameter is
   ### `Accessing[T]` and whose argument is any obeyer of `Accessing[T]`.

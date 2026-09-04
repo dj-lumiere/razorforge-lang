@@ -125,43 +125,13 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
                 return ExpandWhen(when: w, crashableTypes: crashableTypes);
 
             case BlockStatement b:
-            {
-                bool changed = false;
-                var stmts = new List<Statement>(capacity: b.Statements.Count);
-                foreach (Statement s in b.Statements)
-                {
-                    Statement n = ExpandStatement(stmt: s, crashableTypes: crashableTypes);
-                    stmts.Add(item: n);
-                    if (!ReferenceEquals(n, s)) changed = true;
-                }
-
-                return changed ? b with { Statements = stmts } : b;
-            }
+                return ExpandBlock(b: b, crashableTypes: crashableTypes);
 
             case IfStatement ifs:
-            {
-                Statement then = ExpandStatement(stmt: ifs.ThenStatement,
-                    crashableTypes: crashableTypes);
-                Statement? elseS = ifs.ElseStatement != null
-                    ? ExpandStatement(stmt: ifs.ElseStatement, crashableTypes: crashableTypes)
-                    : null;
-                bool changed = !ReferenceEquals(then, ifs.ThenStatement)
-                               || !ReferenceEquals(elseS, ifs.ElseStatement);
-                return changed
-                    ? ifs with { ThenStatement = then, ElseStatement = elseS }
-                    : ifs;
-            }
+                return ExpandIf(ifs: ifs, crashableTypes: crashableTypes);
 
             case WhileStatement w:
-            {
-                Statement body = ExpandStatement(stmt: w.Body, crashableTypes: crashableTypes);
-                Statement? elseB = w.ElseBranch != null
-                    ? ExpandStatement(stmt: w.ElseBranch, crashableTypes: crashableTypes)
-                    : null;
-                bool changed = !ReferenceEquals(body, w.Body)
-                               || !ReferenceEquals(elseB, w.ElseBranch);
-                return changed ? w with { Body = body, ElseBranch = elseB } : w;
-            }
+                return ExpandWhile(w: w, crashableTypes: crashableTypes);
 
             case LoopStatement loop:
             {
@@ -170,26 +140,10 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
             }
 
             case EachStatement f:
-            {
-                Statement body = ExpandStatement(stmt: f.Body, crashableTypes: crashableTypes);
-                Statement? elseB = f.ElseBranch != null
-                    ? ExpandStatement(stmt: f.ElseBranch, crashableTypes: crashableTypes)
-                    : null;
-                bool changed = !ReferenceEquals(body, f.Body)
-                               || !ReferenceEquals(elseB, f.ElseBranch);
-                return changed ? f with { Body = body, ElseBranch = elseB } : f;
-            }
+                return ExpandEach(f: f, crashableTypes: crashableTypes);
 
             case UsingStatement u:
-            {
-                Statement body = ExpandStatement(stmt: u.Body, crashableTypes: crashableTypes);
-                Statement? fb = u.FallbackBody != null
-                    ? ExpandStatement(stmt: u.FallbackBody, crashableTypes: crashableTypes)
-                    : null;
-                return !ReferenceEquals(body, u.Body) || !ReferenceEquals(fb, u.FallbackBody)
-                    ? u with { Body = body, FallbackBody = fb }
-                    : u;
-            }
+                return ExpandUsing(u: u, crashableTypes: crashableTypes);
 
             case DangerStatement d:
             {
@@ -202,6 +156,67 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
             default:
                 return stmt;
         }
+    }
+
+    private Statement ExpandBlock(BlockStatement b, List<CrashableTypeInfo> crashableTypes)
+    {
+        bool changed = false;
+        var stmts = new List<Statement>(capacity: b.Statements.Count);
+        foreach (Statement s in b.Statements)
+        {
+            Statement n = ExpandStatement(stmt: s, crashableTypes: crashableTypes);
+            stmts.Add(item: n);
+            if (!ReferenceEquals(n, s)) changed = true;
+        }
+
+        return changed ? b with { Statements = stmts } : b;
+    }
+
+    private Statement ExpandIf(IfStatement ifs, List<CrashableTypeInfo> crashableTypes)
+    {
+        Statement then = ExpandStatement(stmt: ifs.ThenStatement,
+            crashableTypes: crashableTypes);
+        Statement? elseS = ifs.ElseStatement != null
+            ? ExpandStatement(stmt: ifs.ElseStatement, crashableTypes: crashableTypes)
+            : null;
+        bool changed = !ReferenceEquals(then, ifs.ThenStatement)
+                       || !ReferenceEquals(elseS, ifs.ElseStatement);
+        return changed
+            ? ifs with { ThenStatement = then, ElseStatement = elseS }
+            : ifs;
+    }
+
+    private Statement ExpandWhile(WhileStatement w, List<CrashableTypeInfo> crashableTypes)
+    {
+        Statement body = ExpandStatement(stmt: w.Body, crashableTypes: crashableTypes);
+        Statement? elseB = w.ElseBranch != null
+            ? ExpandStatement(stmt: w.ElseBranch, crashableTypes: crashableTypes)
+            : null;
+        bool changed = !ReferenceEquals(body, w.Body)
+                       || !ReferenceEquals(elseB, w.ElseBranch);
+        return changed ? w with { Body = body, ElseBranch = elseB } : w;
+    }
+
+    private Statement ExpandEach(EachStatement f, List<CrashableTypeInfo> crashableTypes)
+    {
+        Statement body = ExpandStatement(stmt: f.Body, crashableTypes: crashableTypes);
+        Statement? elseB = f.ElseBranch != null
+            ? ExpandStatement(stmt: f.ElseBranch, crashableTypes: crashableTypes)
+            : null;
+        bool changed = !ReferenceEquals(body, f.Body)
+                       || !ReferenceEquals(elseB, f.ElseBranch);
+        return changed ? f with { Body = body, ElseBranch = elseB } : f;
+    }
+
+    private Statement ExpandUsing(UsingStatement u, List<CrashableTypeInfo> crashableTypes)
+    {
+        Statement body = ExpandStatement(stmt: u.Body, crashableTypes: crashableTypes);
+        Statement? fb = u.FallbackBody != null
+            ? ExpandStatement(stmt: u.FallbackBody, crashableTypes: crashableTypes)
+            : null;
+        return !ReferenceEquals(body, u.Body) || !ReferenceEquals(fb, u.FallbackBody)
+            ? u with { Body = body, FallbackBody = fb }
+            : u;
     }
 
     // === WhenStatement expansion ==================================================
@@ -222,60 +237,12 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
 
         foreach (WhenClause clause in when.Clauses)
         {
-            // The parser emits `is Crashable err` as TypePattern with Type.Name == "Crashable"
-            // (it's a protocol-style match, not a special pattern node). Older AST paths still
-            // produce CrashablePattern — handle both shapes uniformly here.
-            string? bangBindName = null;
-            SourceLocation? bangLoc = null;
-            bool isCrashableShape = false;
-            switch (clause.Pattern)
-            {
-                case CrashablePattern cp:
-                    bangBindName = cp.VariableName;
-                    bangLoc = cp.Location;
-                    isCrashableShape = true;
-                    break;
-                case TypePattern { Type.Name: "Crashable" } tp:
-                    bangBindName = tp.VariableName;
-                    bangLoc = tp.Location;
-                    isCrashableShape = true;
-                    break;
-            }
-
-            if (isCrashableShape)
+            if (TryGetCrashableBinding(pattern: clause.Pattern, bindName: out string? bangBindName,
+                    loc: out SourceLocation? bangLoc))
             {
                 changed = true;
-                // Replace one Crashable-shaped clause with N TypePattern clauses, one per
-                // registered CrashableTypeInfo. Each arm gets its own deep-clone of the
-                // body where the bound name `err` is rewired to the concrete crashable
-                // type, so `err.crash_message()` etc. dispatches against a real memberRoutine
-                // instead of the bodyless protocol stub.
-                var emptySubs = new Dictionary<string, string>();
-                foreach (CrashableTypeInfo crashable in crashableTypes)
-                {
-                    var typeExpr = new TypeExpression(
-                        Name: crashable.Name,
-                        GenericArguments: null,
-                        Location: bangLoc!)
-                    {
-                        ResolvedType = crashable
-                    };
-                    var newPattern = new TypePattern(
-                        Type: typeExpr,
-                        VariableName: bangBindName,
-                        Bindings: null,
-                        Location: bangLoc!);
-
-                    Statement clonedBody = GenericAstRewriter.RewriteStatement(
-                        stmt: clause.Body, subs: emptySubs);
-                    if (!string.IsNullOrEmpty(value: bangBindName))
-                    {
-                        BindingTypeRewriter.Apply(body: clonedBody,
-                            bindingName: bangBindName!, concreteType: crashable,
-                            registry: ctx.Registry);
-                    }
-                    expanded.Add(item: clause with { Pattern = newPattern, Body = clonedBody });
-                }
+                ExpandCrashableClause(clause: clause, bangBindName: bangBindName, bangLoc: bangLoc!,
+                    crashableTypes: crashableTypes, expanded: expanded);
             }
             else
             {
@@ -295,6 +262,69 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
         }
 
         return changed ? when with { Clauses = expanded } : when;
+    }
+
+    /// <summary>
+    /// Detects a Crashable-shaped clause pattern, yielding its bound variable name and location.
+    /// The parser emits <c>is Crashable err</c> as a <see cref="TypePattern"/> with
+    /// <c>Type.Name == "Crashable"</c> (a protocol-style match, not a special pattern node); older
+    /// AST paths still produce <see cref="CrashablePattern"/> — both shapes are handled uniformly.
+    /// </summary>
+    private static bool TryGetCrashableBinding(Pattern pattern, out string? bindName,
+        out SourceLocation? loc)
+    {
+        switch (pattern)
+        {
+            case CrashablePattern cp:
+                bindName = cp.VariableName;
+                loc = cp.Location;
+                return true;
+            case TypePattern { Type.Name: "Crashable" } tp:
+                bindName = tp.VariableName;
+                loc = tp.Location;
+                return true;
+            default:
+                bindName = null;
+                loc = null;
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// Replaces one Crashable-shaped clause with N <see cref="TypePattern"/> clauses, one per
+    /// registered <see cref="CrashableTypeInfo"/>. Each arm gets its own deep-clone of the body where
+    /// the bound name <c>err</c> is rewired to the concrete crashable type, so <c>err.crash_message()</c>
+    /// etc. dispatches against a real memberRoutine instead of the bodyless protocol stub.
+    /// </summary>
+    private void ExpandCrashableClause(WhenClause clause, string? bangBindName, SourceLocation bangLoc,
+        List<CrashableTypeInfo> crashableTypes, List<WhenClause> expanded)
+    {
+        var emptySubs = new Dictionary<string, string>();
+        foreach (CrashableTypeInfo crashable in crashableTypes)
+        {
+            var typeExpr = new TypeExpression(
+                Name: crashable.Name,
+                GenericArguments: null,
+                Location: bangLoc)
+            {
+                ResolvedType = crashable
+            };
+            var newPattern = new TypePattern(
+                Type: typeExpr,
+                VariableName: bangBindName,
+                Bindings: null,
+                Location: bangLoc);
+
+            Statement clonedBody = GenericAstRewriter.RewriteStatement(
+                stmt: clause.Body, subs: emptySubs);
+            if (!string.IsNullOrEmpty(value: bangBindName))
+            {
+                BindingTypeRewriter.Apply(body: clonedBody,
+                    bindingName: bangBindName!, concreteType: crashable,
+                    registry: ctx.Registry);
+            }
+            expanded.Add(item: clause with { Pattern = newPattern, Body = clonedBody });
+        }
     }
 
     /// <summary>Recurses into clause bodies without changing the clauses themselves.</summary>

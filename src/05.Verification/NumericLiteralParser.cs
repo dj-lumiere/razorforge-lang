@@ -162,25 +162,7 @@ public static class NumericLiteralParser
     /// </summary>
     private static DecimalLiteralParts ParseDecimalLiteral(string str)
     {
-        string cleaned = str.Trim();
-        // The semantic-analyzer path passes the literal with its type suffix (e.g. "6.0_d128" or
-        // the underscore-less "6.0d128"); codegen passes the cleaned digits. Strip a trailing
-        // decimal/float type suffix — WITH or WITHOUT the optional leading underscore — so all
-        // spellings (`3.14f128`, `3.14_f128`) work. Longest-first avoids a short suffix matching
-        // prematurely. (Digit-group separators "_" between digits are handled below.)
-        foreach (string suf in new[] { "decimal", "f128", "d128", "d64", "d32", "dec", "dn" })
-        {
-            if (cleaned.EndsWith("_" + suf, StringComparison.OrdinalIgnoreCase))
-            {
-                cleaned = cleaned[..^(suf.Length + 1)];
-                break;
-            }
-            if (cleaned.EndsWith(suf, StringComparison.OrdinalIgnoreCase))
-            {
-                cleaned = cleaned[..^suf.Length];
-                break;
-            }
-        }
+        string cleaned = StripTypeSuffix(cleaned: str.Trim());
 
         ReadOnlySpan<char> s = cleaned.AsSpan();
         bool sign = false;
@@ -217,6 +199,30 @@ public static class NumericLiteralParser
         return new DecimalLiteralParts(Sign: sign, Coeff: coeff, Exp10: exp10);
     }
 
+    /// <summary>
+    /// Strips a trailing decimal/float type suffix — WITH or WITHOUT the optional leading
+    /// underscore — so all spellings (`3.14f128`, `3.14_f128`) work. The semantic-analyzer path
+    /// passes the literal with its type suffix (e.g. "6.0_d128" or the underscore-less "6.0d128");
+    /// codegen passes the cleaned digits. Longest-first avoids a short suffix matching prematurely.
+    /// (Digit-group separators "_" between digits are handled by the caller.)
+    /// </summary>
+    private static string StripTypeSuffix(string cleaned)
+    {
+        foreach (string suf in new[] { "decimal", "f128", "d128", "d64", "d32", "dec", "dn" })
+        {
+            if (cleaned.EndsWith("_" + suf, StringComparison.OrdinalIgnoreCase))
+            {
+                return cleaned[..^(suf.Length + 1)];
+            }
+            if (cleaned.EndsWith(suf, StringComparison.OrdinalIgnoreCase))
+            {
+                return cleaned[..^suf.Length];
+            }
+        }
+
+        return cleaned;
+    }
+
     /// <summary>Number of decimal digits in a non-negative BigInteger (0 has 1 digit).</summary>
     private static int DecimalDigitCount(BigInteger v)
     {
@@ -251,6 +257,37 @@ public static class NumericLiteralParser
         BigInteger coeff, int exp10, int pmax, int bias, int qMin, int qMax)
     {
         // Round the coefficient down to at most pmax digits.
+        (coeff, exp10) = RoundToPmaxDigits(coeff: coeff, exp10: exp10, pmax: pmax);
+
+        if (coeff.IsZero)
+            return (false, BigInteger.Zero, ClampZeroExp(exp10, bias, qMin, qMax));
+
+        // Exponent too large: try to absorb it by appending zeros to the coefficient.
+        if (exp10 > qMax)
+        {
+            (bool overflow, coeff, exp10) =
+                AbsorbLargeExponent(coeff: coeff, exp10: exp10, pmax: pmax, qMax: qMax);
+            if (overflow)
+                return (true, BigInteger.Zero, 0); // overflow -> Inf
+        }
+
+        // Exponent too small: drop low digits (RNE), losing precision toward zero/subnormal.
+        if (exp10 < qMin)
+        {
+            int drop = qMin - exp10;
+            coeff = drop >= pmax + 2 ? BigInteger.Zero : RneDivPow10(coeff, drop);
+            exp10 = qMin;
+        }
+
+        return (false, coeff, exp10 + bias);
+    }
+
+    /// <summary>
+    /// Rounds <paramref name="coeff"/> down to at most <paramref name="pmax"/> significant digits
+    /// (RNE), adjusting <paramref name="exp10"/> to compensate and renormalizing a rounding carry.
+    /// </summary>
+    private static (BigInteger Coeff, int Exp10) RoundToPmaxDigits(BigInteger coeff, int exp10, int pmax)
+    {
         int nd = DecimalDigitCount(coeff);
         if (nd > pmax)
         {
@@ -265,33 +302,25 @@ public static class NumericLiteralParser
             }
         }
 
-        if (coeff.IsZero)
-            return (false, BigInteger.Zero, ClampZeroExp(exp10, bias, qMin, qMax));
+        return (coeff, exp10);
+    }
 
-        // Exponent too large: try to absorb it by appending zeros to the coefficient.
-        if (exp10 > qMax)
+    /// <summary>
+    /// Absorbs an exponent above <paramref name="qMax"/> by appending zeros to the coefficient when
+    /// it still fits <paramref name="pmax"/> digits; otherwise signals overflow (→ Inf).
+    /// </summary>
+    private static (bool Overflow, BigInteger Coeff, int Exp10) AbsorbLargeExponent(
+        BigInteger coeff, int exp10, int pmax, int qMax)
+    {
+        int shift = exp10 - qMax;
+        if (DecimalDigitCount(coeff) + shift <= pmax)
         {
-            int shift = exp10 - qMax;
-            if (DecimalDigitCount(coeff) + shift <= pmax)
-            {
-                coeff *= BigInteger.Pow(10, shift);
-                exp10 = qMax;
-            }
-            else
-            {
-                return (true, BigInteger.Zero, 0); // overflow -> Inf
-            }
+            coeff *= BigInteger.Pow(10, shift);
+            exp10 = qMax;
+            return (false, coeff, exp10);
         }
 
-        // Exponent too small: drop low digits (RNE), losing precision toward zero/subnormal.
-        if (exp10 < qMin)
-        {
-            int drop = qMin - exp10;
-            coeff = drop >= pmax + 2 ? BigInteger.Zero : RneDivPow10(coeff, drop);
-            exp10 = qMin;
-        }
-
-        return (false, coeff, exp10 + bias);
+        return (true, BigInteger.Zero, 0); // overflow -> Inf
     }
 
     private static int ClampZeroExp(int exp10, int bias, int qMin, int qMax)
@@ -416,19 +445,25 @@ public static class NumericLiteralParser
             throw new OverflowException($"float literal '{str}' is out of range for F128 (overflows to infinity)");
 
         if (biased <= 0)
-        {
-            // subnormal/underflow: round the significand at the minimum exponent (biased 0).
-            const int eMin = 1 - bias; // -16382
-            BigInteger qs = RoundedScale(num, den, mantBits - eMin);
-            if (qs.IsZero)
-                return PackF128(sign: p.Sign, biasedExp: 0, mant: 0);                 // -> +/-0
-            if (qs >= (BigInteger.One << mantBits))
-                return PackF128(sign: p.Sign, biasedExp: 1, mant: (UInt128)(qs - (BigInteger.One << mantBits))); // smallest normal
-            return PackF128(sign: p.Sign, biasedExp: 0, mant: (UInt128)qs);           // subnormal
-        }
+            return EncodeF128Subnormal(sign: p.Sign, num: num, den: den, mantBits: mantBits, bias: bias);
 
         UInt128 mant = (UInt128)(q - (BigInteger.One << mantBits));
         return PackF128(sign: p.Sign, biasedExp: biased, mant: mant);
+    }
+
+    /// <summary>
+    /// Rounds the significand at the minimum exponent (biased 0) to produce a subnormal, the
+    /// smallest normal, or a signed zero for a binary128 value that underflows the normal range.
+    /// </summary>
+    private static F128 EncodeF128Subnormal(bool sign, BigInteger num, BigInteger den, int mantBits, int bias)
+    {
+        int eMin = 1 - bias; // -16382
+        BigInteger qs = RoundedScale(num, den, mantBits - eMin);
+        if (qs.IsZero)
+            return PackF128(sign: sign, biasedExp: 0, mant: 0);                 // -> +/-0
+        if (qs >= (BigInteger.One << mantBits))
+            return PackF128(sign: sign, biasedExp: 1, mant: (UInt128)(qs - (BigInteger.One << mantBits))); // smallest normal
+        return PackF128(sign: sign, biasedExp: 0, mant: (UInt128)qs);           // subnormal
     }
 
     /// <summary>Exact sign of <c>(num/den) - 2^k</c>, i.e. compares the value to a power of two
@@ -479,6 +514,27 @@ public static class NumericLiteralParser
     /// values). Pmax 70, stored exponent q in [-1572932, 1572795]. Throws on overflow (compile-time
     /// literal range error); explicit inf/nan are handled before this is reached.
     /// </summary>
+    /// <summary>
+    /// Canonicalizes a <c>Core.Decimal</c> (decimal256) coefficient/exponent pair — stripping
+    /// fractional trailing zeros so equal values share bits (2.50 and 2.5 → 25*10^-1), while
+    /// leaving integers (exp &gt;= 0) as-is (100 stays 100*10^0). Mirrors the runtime
+    /// <c>decimal_normalize_parts</c> so a literal and the arithmetic result of the same value are
+    /// bit-identical. (Kept out of <c>RoundAndClamp</c>, which the IEEE encoders share and must NOT
+    /// normalize.)
+    /// </summary>
+    private static (BigInteger Coeff, int Biased) CanonicalizeDecimal(BigInteger coeff, int biased)
+    {
+        const int decBias = 1572932;
+        if (coeff.IsZero)
+        {
+            return (coeff, decBias); // canonical zero: exponent 0
+        }
+
+        int exp = biased - decBias;
+        while (exp < 0 && (coeff % 10).IsZero) { coeff /= 10; exp++; }
+        return (coeff, exp + decBias);
+    }
+
     public static Decimal256 EncodeDecimal(string str)
     {
         DecimalLiteralParts p = ParseDecimalLiteral(str);
@@ -488,24 +544,8 @@ public static class NumericLiteralParser
         if (overflow)
             throw new OverflowException($"decimal literal '{str}' is out of range for Decimal (overflows to infinity)");
 
-        // Canonicalize. `Decimal` is RazorForge's own canonical decimal — unlike the IEEE-cohort
-        // D32/D64/D128, fractional trailing zeros are not preserved, so equal values share bits:
-        // 2.50 and 2.5 both encode to 25*10^-1, 3.0 to 3*10^0. Integers (exp >= 0) are left as-is
-        // so 100 stays 100*10^0 (not 1*10^2 -> "1E+2") and 6.02e23 keeps its scientific form. This
-        // mirrors the runtime `decimal_normalize_parts`, so a literal and the arithmetic result of
-        // the same value are bit-identical. (RoundAndClamp is shared with the IEEE encoders, which
-        // must NOT normalize — hence this lives here, not in RoundAndClamp.)
-        const int decBias = 1572932;
-        if (coeff.IsZero)
-        {
-            biased = decBias; // canonical zero: exponent 0
-        }
-        else
-        {
-            int exp = biased - decBias;
-            while (exp < 0 && (coeff % 10).IsZero) { coeff /= 10; exp++; }
-            biased = exp + decBias;
-        }
+        // Canonicalize (strip fractional trailing zeros so equal values share bits).
+        (coeff, biased) = CanonicalizeDecimal(coeff: coeff, biased: biased);
 
         BigInteger bits = ((BigInteger)biased << 233) | coeff;
         if (p.Sign)

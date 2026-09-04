@@ -22,6 +22,7 @@ record Result[T]
 ### (`T`) and crashable arms. `is T` matches the success state (type-id of the concrete `T`); the
 ### `else` is an unreachable fallback (a `Result` is always `Crashable` or `T`).
 ### :returns: The resulting `Text` value.
+@override
 routine Result[T].represent() -> Text
   when me
     is Crashable v =>
@@ -34,6 +35,7 @@ routine Result[T].represent() -> Text
 ### Returns the diagnostic form of this result.
 ### Format: `f"{full_type_name}(type_id: {type_id}, {payload.diagnose()})"` for both arms.
 ### :returns: The resulting `Text` value.
+@override
 routine Result[T].diagnose() -> Text
   when me
     is Crashable v =>
@@ -47,6 +49,7 @@ routine Result[T].diagnose() -> Text
 ### arm is a no-op for non-owning errors, the success arm frees `T`. Defined explicitly (not
 ### auto-derived) so the per-instantiation body is monomorphized and emitted like
 ### `represent`/`diagnose`, and so only the active arm's payload is touched.
+@override
 dangerous routine Result[T].destroy()
   when me
     is T v =>

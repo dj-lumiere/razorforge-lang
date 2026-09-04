@@ -8,7 +8,7 @@ module Core
 ### implement `AtomicType` because hardware atomic operations on 256-bit values
 ### are not available.
 @llvm("i256")
-record S256 obeys SignedIntegral, Ordered, ConstCompatible, Assignable, Copyable
+record S256 obeys SignedIntegral, Ordered, ConstCompatible, Assignable, Copyable, Splittable
   pass
 
 # Constants for S256 limits
@@ -684,6 +684,7 @@ routine S256.signum() -> S256
 
 ### Returns the human-readable text of this value.
 ### :returns: The value rendered as `Text`.
+@override
 routine S256.represent() -> Text
   if me == 0s256
     return "0"
@@ -696,6 +697,7 @@ routine S256.represent() -> Text
 
 ### Returns a type-tagged debug rendering of this value.
 ### :returns: A diagnostic `Text` rendering, e.g. `Type(value)`.
+@override
 routine S256.diagnose() -> Text
   return "S256(" + me.represent() + ")"
 

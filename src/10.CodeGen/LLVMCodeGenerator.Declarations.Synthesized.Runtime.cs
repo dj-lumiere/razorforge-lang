@@ -15,23 +15,17 @@ public partial class LlvmCodeGenerator
 {
     private void EmitSynthesizedBodyFromAst(RoutineInfo routine, string funcName, Statement body)
     {
-        var paramList = new List<string>();
-        if (routine.OwnerType != null && !IsCreatorRoutine(routine: routine) && !routine.IsCommon)
+        // Base mode (resident-JIT incremental, §2A.5): a synthesized body whose signature still carries an
+        // unresolved generic parameter — e.g. List[Character].from_literal(elements: Array[Character,
+        // __Vararg0]), a const-generic arity template that reaches here via Phase B's IsSynthesized branch —
+        // would emit malformed IR. Such templates instantiate on demand, never in the non-pruned base. This
+        // is the bypass path that skips GenerateRoutineDefinition's ShouldSkipRoutineDefinition gate.
+        if (_baseMode && SignatureHasUnresolvedGeneric(r: routine))
         {
-            string meType =
-                GetImplicitMeParameterDeclaration(routine: routine, includeName: true);
-            if (!meType.StartsWith(value: "void", comparisonType: StringComparison.Ordinal))
-                paramList.Add(item: meType);
+            return;
         }
-        paramList.AddRange(collection:
-            from param in routine.Parameters
-            let byval = ParameterPassedByval(routine: routine, paramType: param.Type)
-            let coerce = byval ? null : ParameterCoerceType(routine: routine, paramType: param.Type)
-            let paramType = byval ? $"ptr byval({GetLlvmType(type: param.Type)})"
-                : coerce ?? GetParameterLlvmType(type: param.Type)
-            let emittedName = byval ? $"{param.Name}.addr"
-                : param.Name == "entry" ? "entry_" : param.Name
-            select $"{paramType} %{emittedName}");
+
+        List<string> paramList = BuildSynthesizedParameterList(routine: routine);
 
         string returnType = routine.ReturnType != null ? GetLlvmType(type: routine.ReturnType) : "void";
 
@@ -57,8 +51,10 @@ public partial class LlvmCodeGenerator
         // compiler-synthesized bodies (auto-derived destroy/store/copy, wrapper forwarding, …),
         // referenced only within this module, so `internal` linkage lets GlobalDCE strip the uncalled
         // ones and `nounwind` reflects that the runtime never unwinds.
+        // Base mode: EXTERNAL so the delta module can reference it (internal is module-local, invisible
+        // across the base/delta split). Base is non-pruned + cached ⇒ no GlobalDCE needed.
         bool isCompilerGenerated = routine.IsSynthesized || routine.IsWiredMemberRoutine;
-        string linkagePrefix = isCompilerGenerated ? "internal " : "";
+        string linkagePrefix = isCompilerGenerated && !_baseMode ? "internal " : "";
         string synthAttrs = isCompilerGenerated ? " nounwind" : "";
         string defineHeader =
             $"define {linkagePrefix}{headerReturnType} @{funcName}({parameters}){synthAttrs} {{";
@@ -84,6 +80,33 @@ public partial class LlvmCodeGenerator
         EmitLine(sb: _functionDefinitions, line: "");
         _currentReturnViaSret = prevReturnViaSret;
         _currentReturnCoerceType = prevReturnCoerce;
+    }
+
+    /// <summary>
+    /// Builds the LLVM parameter list (with names) for a synthesized routine body: the implicit
+    /// <c>me</c> receiver for memberRoutines (skipping create factories, common routines, and void
+    /// <c>me</c>), then each explicit parameter in its ABI passing form (byval / coerce / plain value).
+    /// </summary>
+    private List<string> BuildSynthesizedParameterList(RoutineInfo routine)
+    {
+        var paramList = new List<string>();
+        if (routine.OwnerType != null && !IsCreatorRoutine(routine: routine) && !routine.IsCommon)
+        {
+            string meType =
+                GetImplicitMeParameterDeclaration(routine: routine, includeName: true);
+            if (!meType.StartsWith(value: "void", comparisonType: StringComparison.Ordinal))
+                paramList.Add(item: meType);
+        }
+        paramList.AddRange(collection:
+            from param in routine.Parameters
+            let byval = ParameterPassedByval(routine: routine, paramType: param.Type)
+            let coerce = byval ? null : ParameterCoerceType(routine: routine, paramType: param.Type)
+            let paramType = byval ? $"ptr byval({GetLlvmType(type: param.Type)})"
+                : coerce ?? GetParameterLlvmType(type: param.Type)
+            let emittedName = byval ? $"{param.Name}.addr"
+                : param.Name == "entry" ? "entry_" : param.Name
+            select $"{paramType} %{emittedName}");
+        return paramList;
     }
 
 }

@@ -127,7 +127,7 @@ public sealed partial class SemanticVerifier
         return false;
     }
 
-    private TypeSymbol AnalyzeIdentifierExpression(IdentifierExpression id) // NOSONAR S3776
+    private TypeSymbol AnalyzeIdentifierExpression(IdentifierExpression id)
     {
         switch (id.Name)
         {
@@ -143,31 +143,9 @@ public sealed partial class SemanticVerifier
             // For extension memberRoutines (routine Type.MemberRoutine), check the routine's owner type
             case "me":
             {
-                // Specialized-receiver member (e.g. `routine List[Agent[V]].gather!()`): `me` is the
-                // resolved specialized receiver so member access like `me[i]` yields Agent[V], not the
-                // generic def's raw element. (OwnerType stays the generic def for registration.)
-                if (_currentRoutine.MeType != null)
+                if (ResolveMeIdentifier() is { } meType)
                 {
-                    return _currentRoutine.MeType;
-                }
-
-                // Generic type parameter owners (e.g., T in "routine T.view()") —
-                // return the GenericParameterTypeInfo directly, no registry lookup needed
-                if (_currentRoutine.OwnerType is GenericParameterTypeInfo)
-                {
-                    return _currentRoutine.OwnerType;
-                }
-
-                // Re-lookup to get the updated type with resolved protocols/member variables.
-                // Use the module-qualified FullName, not the bare Name: two modules can each declare
-                // a `Point`, and a bare `LookupType("Point")` collapses to a first-wins short-name
-                // match — binding `me` to the WRONG module's type (cross-module contamination).
-                TypeSymbol? ownerType =
-                    _registry.LookupType(name: _currentRoutine.OwnerType.FullName)
-                    ?? _registry.LookupType(name: _currentRoutine.OwnerType.Name);
-                if (ownerType != null)
-                {
-                    return ownerType;
+                    return meType;
                 }
 
                 break;
@@ -206,40 +184,7 @@ public sealed partial class SemanticVerifier
 
         if (varInfo != null)
         {
-            // Suflae `global`: stamp the reference so GlobalEntityRewritePass can retarget it to the
-            // hidden __ModuleGlobals singleton field (thread-safe storage). LookupVariable checked local
-            // scopes first, so a local shadowing a global returns the local (IsGlobal=false) and is NOT
-            // stamped — the flag is shadowing-exact.
-            id.IsModuleGlobal = varInfo.IsGlobal;
-
-            // Record the exact binding for the language server (scope-precise references / rename /
-            // go-to-definition). Reference identity distinguishes shadowed same-name bindings.
-            id.ResolvedVariable = varInfo;
-
-            // #11: Deadref tracking — report error if steal invalidated variable. Stamp the per-occurrence
-            // dead state first (for the language server's grey-out) regardless of whether we error.
-            id.IsDeadUse = _deadrefVariables.Contains(item: id.Name);
-            if (id.IsDeadUse)
-            {
-                ReportError(code: SemanticDiagnosticCode.UseAfterSteal,
-                    message:
-                    $"Variable '{id.Name}' is a deadref — it was invalidated by a previous 'steal' or ownership transfer. " +
-                    "The variable can no longer be used.",
-                    location: id.Location);
-                return ErrorTypeInfo.Instance;
-            }
-
-            // Check for type narrowing (e.g., after "unless x is None", or `if x is A` on a variant).
-            TypeSymbol? narrowed = _registry.GetNarrowedType(name: id.Name);
-            if (narrowed != null && narrowed.Name != varInfo.Type.Name &&
-                (IsCarrierType(type: varInfo.Type) || varInfo.Type is VariantTypeInfo))
-            {
-                // Flow-narrowed to a single arm/payload of a carrier or variant — mark this read so a
-                // postprocessing pass rewrites it into a payload extraction from the underlying value.
-                id.NarrowedFrom = varInfo.Type;
-            }
-
-            return narrowed ?? varInfo.Type;
+            return ResolveVariableReference(id: id, varInfo: varInfo);
         }
 
         // Try to look up as choice case (SCREAMING_SNAKE_CASE identifiers like ME_SMALL, SAME)
@@ -319,6 +264,79 @@ public sealed partial class SemanticVerifier
             $"Unknown identifier '{id.Name}'.{DidYouMean(target: id.Name, candidates: IdentifierSuggestionCandidates())}",
             location: id.Location);
         return ErrorTypeInfo.Instance;
+    }
+
+    /// <summary>
+    /// Resolves the type of the <c>me</c> receiver inside an extension/member routine: the specialized
+    /// receiver (MeType), a generic-parameter owner, or a fresh module-qualified lookup of the owner type.
+    /// Returns null when the owner type cannot be re-looked-up (caller falls through).
+    /// </summary>
+    private TypeSymbol? ResolveMeIdentifier()
+    {
+        // Specialized-receiver member (e.g. `routine List[Agent[V]].gather!()`): `me` is the
+        // resolved specialized receiver so member access like `me[i]` yields Agent[V], not the
+        // generic def's raw element. (OwnerType stays the generic def for registration.)
+        if (_currentRoutine!.MeType != null)
+        {
+            return _currentRoutine.MeType;
+        }
+
+        // Generic type parameter owners (e.g., T in "routine T.view()") —
+        // return the GenericParameterTypeInfo directly, no registry lookup needed
+        if (_currentRoutine.OwnerType is GenericParameterTypeInfo)
+        {
+            return _currentRoutine.OwnerType;
+        }
+
+        // Re-lookup to get the updated type with resolved protocols/member variables.
+        // Use the module-qualified FullName, not the bare Name: two modules can each declare
+        // a `Point`, and a bare `LookupType("Point")` collapses to a first-wins short-name
+        // match — binding `me` to the WRONG module's type (cross-module contamination).
+        return _registry.LookupType(name: _currentRoutine.OwnerType!.FullName)
+               ?? _registry.LookupType(name: _currentRoutine.OwnerType.Name);
+    }
+
+    /// <summary>
+    /// Resolves an identifier that bound to a variable: stamps the module-global flag, records the
+    /// binding for the language server, reports use-after-steal, and applies flow-narrowing. Returns the
+    /// (possibly narrowed) variable type.
+    /// </summary>
+    private TypeSymbol ResolveVariableReference(IdentifierExpression id, VariableInfo varInfo)
+    {
+        // Suflae `global`: stamp the reference so GlobalEntityRewritePass can retarget it to the
+        // hidden __ModuleGlobals singleton field (thread-safe storage). LookupVariable checked local
+        // scopes first, so a local shadowing a global returns the local (IsGlobal=false) and is NOT
+        // stamped — the flag is shadowing-exact.
+        id.IsModuleGlobal = varInfo.IsGlobal;
+
+        // Record the exact binding for the language server (scope-precise references / rename /
+        // go-to-definition). Reference identity distinguishes shadowed same-name bindings.
+        id.ResolvedVariable = varInfo;
+
+        // #11: Deadref tracking — report error if steal invalidated variable. Stamp the per-occurrence
+        // dead state first (for the language server's grey-out) regardless of whether we error.
+        id.IsDeadUse = _deadrefVariables.Contains(item: id.Name);
+        if (id.IsDeadUse)
+        {
+            ReportError(code: SemanticDiagnosticCode.UseAfterSteal,
+                message:
+                $"Variable '{id.Name}' is a deadref — it was invalidated by a previous 'steal' or ownership transfer. " +
+                "The variable can no longer be used.",
+                location: id.Location);
+            return ErrorTypeInfo.Instance;
+        }
+
+        // Check for type narrowing (e.g., after "unless x is None", or `if x is A` on a variant).
+        TypeSymbol? narrowed = _registry.GetNarrowedType(name: id.Name);
+        if (narrowed != null && narrowed.Name != varInfo.Type.Name &&
+            (IsCarrierType(type: varInfo.Type) || varInfo.Type is VariantTypeInfo))
+        {
+            // Flow-narrowed to a single arm/payload of a carrier or variant — mark this read so a
+            // postprocessing pass rewrites it into a payload extraction from the underlying value.
+            id.NarrowedFrom = varInfo.Type;
+        }
+
+        return narrowed ?? varInfo.Type;
     }
 
     /// <summary>
@@ -404,36 +422,8 @@ public sealed partial class SemanticVerifier
             ? AnalyzeExpression(expression: binary.Right, expectedType: leftType)
             : AnalyzeExpression(expression: binary.Right);
 
-        // Re-infer unsuffixed integer literals against the typed peer so
-        // comparisons like 'me.strong_count == 0' don't default the literal to S64.
-        if (binary.Right is LiteralExpression { LiteralType: TokenType.IntegerLiteral or TokenType.S64Literal or TokenType.UndecidedInteger } &&
-            IsFixedWidthIntegerType(type: leftType) && leftType.Name != rightType.Name)
-        {
-            rightType = AnalyzeExpression(expression: binary.Right, expectedType: leftType);
-        }
-        else if (binary.Left is LiteralExpression { LiteralType: TokenType.IntegerLiteral or TokenType.S64Literal or TokenType.UndecidedInteger } &&
-                 IsFixedWidthIntegerType(type: rightType) && leftType.Name != rightType.Name)
-        {
-            leftType = AnalyzeExpression(expression: binary.Left, expectedType: rightType);
-        }
-
-        // Membership (`x in coll` / `x notin coll`) reverses to `coll.contains(x)`: the LEFT operand
-        // must conform to the collection's ELEMENT type, not stay at the bare-literal default. Without
-        // this a Suflae `20 in list_of_s64` keeps `20` at the `Integer` default → the element type
-        // never matches → `contains` is silently always false. (RF only escapes this by luck: its
-        // default already IS S64.) Inferring the operand type through the container is the compiler's
-        // job — unwrap SF's `Roamed`/RC wrappers to reach the collection, then take its first type
-        // argument (List/Set/Array element, Dict key).
-        if (binary.Operator is BinaryOperator.In or BinaryOperator.NotIn &&
-            binary.Left is LiteralExpression { LiteralType: TokenType.UndecidedInteger })
-        {
-            TypeSymbol container = UnwrapCollectionLiteralExpectedType(type: rightType);
-            if (container.TypeArguments is { Count: >= 1 } contArgs &&
-                IsFixedWidthIntegerType(type: contArgs[index: 0]))
-            {
-                leftType = AnalyzeExpression(expression: binary.Left, expectedType: contArgs[index: 0]);
-            }
-        }
+        (leftType, rightType) = ReinferBinaryLiteralOperands(binary: binary,
+            leftType: leftType, rightType: rightType);
 
         switch (binary.Operator)
         {
@@ -476,69 +466,13 @@ public sealed partial class SemanticVerifier
                 return leftType;
         }
 
-        // Check for operator prohibitions on choice and flags types
-        // Choices do not support ANY overloadable operators — use 'is' for case matching
-        // Flags do not support arithmetic/comparison/bitwise operators — use 'is'/'isnot'/'but'
+        // Check for operator prohibitions on choice and flags types, and operator-protocol conformance.
         string? operatorMemberRoutine = binary.Operator.GetMemberRoutineName();
-        if (operatorMemberRoutine != null)
+        if (operatorMemberRoutine != null &&
+            TryReportOperatorTypeViolation(binary: binary, leftType: leftType, rightType: rightType,
+                operatorMemberRoutine: operatorMemberRoutine))
         {
-            switch (leftType)
-            {
-                case ChoiceTypeInfo:
-                    ReportError(code: SemanticDiagnosticCode.ArithmeticOnChoiceType,
-                        message:
-                        $"Operator '{binary.Operator.ToStringRepresentation()}' cannot be used with choice type '{leftType.Name}'. Use 'is' for case matching.",
-                        location: binary.Location);
-                    return ErrorTypeInfo.Instance;
-                case FlagsTypeInfo
-                    when binary.Operator is not (BinaryOperator.Equal or BinaryOperator.NotEqual):
-                    ReportError(code: SemanticDiagnosticCode.ArithmeticOnFlagsType,
-                        message:
-                        $"Operator '{binary.Operator.ToStringRepresentation()}' cannot be used " +
-                        $"with flags type '{leftType.Name}'. Use 'is'/'isnot'/'but' for " +
-                        $"" +
-                        $"flag" +
-                        $" operations.",
-                        location: binary.Location);
-                    return ErrorTypeInfo.Instance;
-            }
-
-            // An overloadable operator binds ONLY to a type that satisfies the operator's protocol —
-            // it must not bind to a memberRoutine merely NAMED the same on a non-conforming type (e.g.
-            // `Set.add(value:)->Bool` inserts an element; its signature does not match
-            // `Addable.add(other:Self)->Self`, so `set + x` must be an error, not a silent insert).
-            // Conformance here is STRUCTURAL (ImplementsProtocol checks the required memberRoutine signatures),
-            // so a type need not spell `obeys` just to use `==`/`in`/`<` — but a coincidental name with
-            // the wrong signature is correctly rejected. Only Record/Entity types are checked (that is
-            // where ImplementsProtocol resolves structurally); tuples/numerically-intrinsic and generic
-            // parameters (conformance via `needs` constraints, checked at instantiation) are deferred.
-            // An overloadable operator binds ONLY to a type that satisfies the operator's protocol —
-            // never to a coincidental same-named memberRoutine with the wrong shape (`set + x` must NOT lower
-            // to `Set.add`). Conformance is STRUCTURAL (ImplementsProtocol checks the required memberRoutine
-            // signatures), so a type need not spell `obeys` to use `==`/`in`/`+`, but a wrong-signature
-            // name is rejected. Only Record/Entity types are checked (where ImplementsProtocol resolves
-            // structurally); built-in structural types (tuples) and generic parameters (conformance via
-            // `needs` constraints, checked at instantiation) are deferred. Membership operators
-            // (`in`/`notin`) reverse to `rhs.contains(lhs)`, so the RIGHT operand is the receiver.
-            bool operatorIsReversed = binary.Operator is BinaryOperator.In or BinaryOperator.NotIn;
-            TypeSymbol operatorReceiverType = operatorIsReversed ? rightType : leftType;
-            if (!_isReducedStdlibValidation
-                && operatorReceiverType is RecordTypeInfo or EntityTypeInfo
-                && GetRequiredProtocols(wiredName: operatorMemberRoutine) is { Count: > 0 } requiredProtocols
-                && !requiredProtocols.Any(predicate: p =>
-                    ImplementsProtocol(type: operatorReceiverType, protocolName: p)))
-            {
-                string protoText = requiredProtocols.Count == 1
-                    ? $"'{requiredProtocols[0]}'"
-                    : string.Join(separator: " or ",
-                        values: requiredProtocols.Select(selector: p => $"'{p}'"));
-                ReportError(code: SemanticDiagnosticCode.BinaryOperatorNotFound,
-                    message:
-                    $"Operator '{binary.Operator.ToStringRepresentation()}' is not defined for " +
-                    $"'{operatorReceiverType.Name}': the type must obey {protoText}.",
-                    location: binary.Location);
-                return ErrorTypeInfo.Instance;
-            }
+            return ErrorTypeInfo.Instance;
         }
 
         // #117: Fixed-width numeric types must match exactly (S32 + S64 = error)
@@ -652,7 +586,7 @@ public sealed partial class SemanticVerifier
         // bypassing the checked dispatch path.
         bool isIntegerCheckedOp = memberRoutine is { IsFailable: true } && leftType is RecordTypeInfo
                                   {
-                                      HasDirectBackendType: true, LlvmType: { } ltIr
+                                      BackendType: not null, LlvmType: { } ltIr
                                   } &&
                                   ltIr.StartsWith('i') && ltIr != "i1";
         if (isIntegerCheckedOp && _currentRoutine != null)
@@ -715,6 +649,114 @@ public sealed partial class SemanticVerifier
 
         // Default: return left type
         // This handles any edge cases that might slip through
+    }
+
+    /// <summary>
+    /// Re-infers unsuffixed integer-literal operands of a binary expression against their typed peer
+    /// (so <c>me.strong_count == 0</c> types <c>0</c> to the field width, and <c>20 in list_of_s64</c>
+    /// types <c>20</c> to the element type). Returns the (possibly re-inferred) operand types.
+    /// </summary>
+    private (TypeSymbol leftType, TypeSymbol rightType) ReinferBinaryLiteralOperands(
+        BinaryExpression binary, TypeSymbol leftType, TypeSymbol rightType)
+    {
+        // Re-infer unsuffixed integer literals against the typed peer so
+        // comparisons like 'me.strong_count == 0' don't default the literal to S64.
+        if (binary.Right is LiteralExpression { LiteralType: TokenType.IntegerLiteral or TokenType.S64Literal or TokenType.UndecidedInteger } &&
+            IsFixedWidthIntegerType(type: leftType) && leftType.Name != rightType.Name)
+        {
+            rightType = AnalyzeExpression(expression: binary.Right, expectedType: leftType);
+        }
+        else if (binary.Left is LiteralExpression { LiteralType: TokenType.IntegerLiteral or TokenType.S64Literal or TokenType.UndecidedInteger } &&
+                 IsFixedWidthIntegerType(type: rightType) && leftType.Name != rightType.Name)
+        {
+            leftType = AnalyzeExpression(expression: binary.Left, expectedType: rightType);
+        }
+
+        // Membership (`x in coll` / `x notin coll`) reverses to `coll.contains(x)`: the LEFT operand
+        // must conform to the collection's ELEMENT type, not stay at the bare-literal default. Without
+        // this a Suflae `20 in list_of_s64` keeps `20` at the `Integer` default → the element type
+        // never matches → `contains` is silently always false. (RF only escapes this by luck: its
+        // default already IS S64.) Inferring the operand type through the container is the compiler's
+        // job — unwrap SF's `Roamed`/RC wrappers to reach the collection, then take its first type
+        // argument (List/Set/Array element, Dict key).
+        if (binary.Operator is BinaryOperator.In or BinaryOperator.NotIn &&
+            binary.Left is LiteralExpression { LiteralType: TokenType.UndecidedInteger })
+        {
+            TypeSymbol container = UnwrapCollectionLiteralExpectedType(type: rightType);
+            if (container.TypeArguments is { Count: >= 1 } contArgs &&
+                IsFixedWidthIntegerType(type: contArgs[index: 0]))
+            {
+                leftType = AnalyzeExpression(expression: binary.Left, expectedType: contArgs[index: 0]);
+            }
+        }
+
+        return (leftType, rightType);
+    }
+
+    /// <summary>
+    /// Reports operator misuse on a choice/flags type, or an operator applied to a Record/Entity type
+    /// that does not structurally obey the operator's required protocol. Returns true when a violation
+    /// was reported (the caller returns <see cref="ErrorTypeInfo"/>); false when the operator is allowed.
+    /// </summary>
+    private bool TryReportOperatorTypeViolation(BinaryExpression binary, TypeSymbol leftType,
+        TypeSymbol rightType, string operatorMemberRoutine)
+    {
+        // Check for operator prohibitions on choice and flags types
+        // Choices do not support ANY overloadable operators — use 'is' for case matching
+        // Flags do not support arithmetic/comparison/bitwise operators — use 'is'/'isnot'/'but'
+        switch (leftType)
+        {
+            case ChoiceTypeInfo:
+                ReportError(code: SemanticDiagnosticCode.ArithmeticOnChoiceType,
+                    message:
+                    $"Operator '{binary.Operator.ToStringRepresentation()}' cannot be used with choice type '{leftType.Name}'. Use 'is' for case matching.",
+                    location: binary.Location);
+                return true;
+            case FlagsTypeInfo
+                when binary.Operator is not (BinaryOperator.Equal or BinaryOperator.NotEqual):
+                ReportError(code: SemanticDiagnosticCode.ArithmeticOnFlagsType,
+                    message:
+                    $"Operator '{binary.Operator.ToStringRepresentation()}' cannot be used " +
+                    $"with flags type '{leftType.Name}'. Use 'is'/'isnot'/'but' for " +
+                    $"" +
+                    $"flag" +
+                    $" operations.",
+                    location: binary.Location);
+                return true;
+        }
+
+        // An overloadable operator binds ONLY to a type that satisfies the operator's protocol —
+        // it must not bind to a memberRoutine merely NAMED the same on a non-conforming type (e.g.
+        // `Set.add(value:)->Bool` inserts an element; its signature does not match
+        // `Addable.add(other:Self)->Self`, so `set + x` must be an error, not a silent insert).
+        // Conformance here is STRUCTURAL (ImplementsProtocol checks the required memberRoutine signatures),
+        // so a type need not spell `obeys` just to use `==`/`in`/`<` — but a coincidental name with
+        // the wrong signature is correctly rejected. Only Record/Entity types are checked (that is
+        // where ImplementsProtocol resolves structurally); tuples/numerically-intrinsic and generic
+        // parameters (conformance via `needs` constraints, checked at instantiation) are deferred.
+        // Membership operators (`in`/`notin`) reverse to `rhs.contains(lhs)`, so the RIGHT operand is
+        // the receiver.
+        bool operatorIsReversed = binary.Operator is BinaryOperator.In or BinaryOperator.NotIn;
+        TypeSymbol operatorReceiverType = operatorIsReversed ? rightType : leftType;
+        if (!_isReducedStdlibValidation
+            && operatorReceiverType is RecordTypeInfo or EntityTypeInfo
+            && GetRequiredProtocols(wiredName: operatorMemberRoutine) is { Count: > 0 } requiredProtocols
+            && !requiredProtocols.Any(predicate: p =>
+                ImplementsProtocol(type: operatorReceiverType, protocolName: p)))
+        {
+            string protoText = requiredProtocols.Count == 1
+                ? $"'{requiredProtocols[0]}'"
+                : string.Join(separator: " or ",
+                    values: requiredProtocols.Select(selector: p => $"'{p}'"));
+            ReportError(code: SemanticDiagnosticCode.BinaryOperatorNotFound,
+                message:
+                $"Operator '{binary.Operator.ToStringRepresentation()}' is not defined for " +
+                $"'{operatorReceiverType.Name}': the type must obey {protoText}.",
+                location: binary.Location);
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -977,7 +1019,7 @@ public sealed partial class SemanticVerifier
     /// Dispatch order: (0) verify target is var, (1) try in-place wired (iadd) -> None,
     /// (2) fallback to create-and-assign (add), (3) error if neither exists.
     /// </summary>
-    private TypeSymbol AnalyzeCompoundAssignment(CompoundAssignmentExpression compound) // NOSONAR S3776
+    private TypeSymbol AnalyzeCompoundAssignment(CompoundAssignmentExpression compound)
     {
         TypeSymbol targetType = AnalyzeExpression(expression: compound.Target);
         // Analyze the RHS too — without this, constructor calls like `n += S64(5)`
@@ -1006,67 +1048,7 @@ public sealed partial class SemanticVerifier
             return targetType;
         }
 
-        switch (compound.Target)
-        {
-            case IdentifierExpression id:
-            {
-                VariableInfo? varInfo = _registry.LookupVariable(name: id.Name);
-                if (varInfo is { IsModifiable: false })
-                {
-                    ReportError(code: SemanticDiagnosticCode.AssignmentToImmutable,
-                        message: $"Cannot assign to preset variable '{id.Name}'.",
-                        location: compound.Location);
-                }
-
-                break;
-            }
-            case MemberExpression member:
-            {
-                TypeSymbol objectType = AnalyzeExpression(expression: member.Object);
-                ValidateMemberVariableWriteAccess(objectType: objectType,
-                    memberVariableName: member.MemberName,
-                    location: compound.Location);
-
-                if (_registry.CompilationLanguage != Language.Suflae &&
-                    _currentRoutine is { IsReadOnly: true } &&
-                    member.Object is IdentifierExpression { Name: "me" })
-                {
-                    ReportError(code: SemanticDiagnosticCode.MutationInReadonlyMemberRoutine,
-                        message:
-                        $"Cannot mutate member variable '{member.MemberName}' in a @readonly member routine. " +
-                        "Use @reshaping to allow mutations.",
-                        location: compound.Location);
-                }
-
-                break;
-            }
-            case IndexExpression index:
-            {
-                TypeSymbol indexedObjectType = AnalyzeExpression(expression: index.Object);
-                if (IsReadOnlyTransparentProtocol(type: indexedObjectType))
-                {
-                    ReportError(code: SemanticDiagnosticCode.WriteThroughReadOnlyWrapper,
-                        message:
-                        $"Cannot write through index access on read-only protocol '{indexedObjectType.Name}'. " +
-                        "Use Controlling[T] or a writable token instead.",
-                        location: compound.Location);
-                }
-
-                if (index.Object is IdentifierExpression indexedVar)
-                {
-                    VariableInfo? varInfo = _registry.LookupVariable(name: indexedVar.Name);
-                    if (varInfo is { IsModifiable: false })
-                    {
-                        ReportError(code: SemanticDiagnosticCode.AssignmentToImmutable,
-                            message:
-                            $"Cannot assign to index of preset variable '{indexedVar.Name}'.",
-                            location: compound.Location);
-                    }
-                }
-
-                break;
-            }
-        }
+        ValidateCompoundAssignmentTarget(compound: compound);
 
         // #67: Cannot use compound assignment on read-only token (Viewing or Consulting)
         if (targetType is WrapperTypeInfo { IsReadOnly: true } readOnlyWrapper)
@@ -1170,7 +1152,77 @@ public sealed partial class SemanticVerifier
         return ErrorTypeInfo.Instance;
     }
 
-    private TypeSymbol AnalyzeUnaryExpression(UnaryExpression unary) // NOSONAR S3776
+    /// <summary>
+    /// Validates the modifiability / write-access of a compound-assignment target — the same rules as a
+    /// plain assignment target: preset (immutable) variable, @readonly member-routine mutation of <c>me</c>,
+    /// and read-only-protocol index writes.
+    /// </summary>
+    private void ValidateCompoundAssignmentTarget(CompoundAssignmentExpression compound)
+    {
+        switch (compound.Target)
+        {
+            case IdentifierExpression id:
+            {
+                VariableInfo? varInfo = _registry.LookupVariable(name: id.Name);
+                if (varInfo is { IsModifiable: false })
+                {
+                    ReportError(code: SemanticDiagnosticCode.AssignmentToImmutable,
+                        message: $"Cannot assign to preset variable '{id.Name}'.",
+                        location: compound.Location);
+                }
+
+                break;
+            }
+            case MemberExpression member:
+            {
+                TypeSymbol objectType = AnalyzeExpression(expression: member.Object);
+                ValidateMemberVariableWriteAccess(objectType: objectType,
+                    memberVariableName: member.MemberName,
+                    location: compound.Location);
+
+                if (_registry.CompilationLanguage != Language.Suflae &&
+                    _currentRoutine is { IsReadOnly: true } &&
+                    member.Object is IdentifierExpression { Name: "me" })
+                {
+                    ReportError(code: SemanticDiagnosticCode.MutationInReadonlyMemberRoutine,
+                        message:
+                        $"Cannot mutate member variable '{member.MemberName}' in a @readonly member routine. " +
+                        "Use @reshaping to allow mutations.",
+                        location: compound.Location);
+                }
+
+                break;
+            }
+            case IndexExpression index:
+            {
+                TypeSymbol indexedObjectType = AnalyzeExpression(expression: index.Object);
+                if (IsReadOnlyTransparentProtocol(type: indexedObjectType))
+                {
+                    ReportError(code: SemanticDiagnosticCode.WriteThroughReadOnlyWrapper,
+                        message:
+                        $"Cannot write through index access on read-only protocol '{indexedObjectType.Name}'. " +
+                        "Use Controlling[T] or a writable token instead.",
+                        location: compound.Location);
+                }
+
+                if (index.Object is IdentifierExpression indexedVar)
+                {
+                    VariableInfo? varInfo = _registry.LookupVariable(name: indexedVar.Name);
+                    if (varInfo is { IsModifiable: false })
+                    {
+                        ReportError(code: SemanticDiagnosticCode.AssignmentToImmutable,
+                            message:
+                            $"Cannot assign to index of preset variable '{indexedVar.Name}'.",
+                            location: compound.Location);
+                    }
+                }
+
+                break;
+            }
+        }
+    }
+
+    private TypeSymbol AnalyzeUnaryExpression(UnaryExpression unary)
     {
         TypeSymbol operandType = AnalyzeExpression(expression: unary.Operand);
 
@@ -1213,44 +1265,52 @@ public sealed partial class SemanticVerifier
                 return operandType;
 
             case UnaryOperator.ForceUnwrap:
-                if (IsCarrierType(type: operandType) &&
-                    operandType.TypeArguments is { Count: > 0 })
-                {
-                    TypeSymbol inner = operandType.TypeArguments[index: 0];
-                    // `Maybe[T]!!` yields `Modifying[T]` — the unwrap
-                    // is an exclusive scope-bound borrow, not a copy. Same LLVM repr (ptr), but
-                    // typed as Modifying so the destructor scheduler skips it.
-                    if (IsMaybeType(type: operandType) &&
-                        IsOwnedOf(type: inner, out TypeSymbol ownedInner))
-                    {
-                        return _registry.GetOrCreateWrapperType(
-                            wrapperName: Compiler.Resolution.RuntimeContract.Modifying,
-                            innerType: ownedInner,
-                            isReadOnly: false);
-                    }
-                    return inner;
-                }
-
-                // User type — look up unwrap memberRoutine
-            {
-                RoutineInfo? unwrapMemberRoutine =
-                    _registry.LookupMemberRoutine(type: operandType, memberRoutineName: "unwrap");
-                if (unwrapMemberRoutine != null)
-                {
-                    return unwrapMemberRoutine.ReturnType ?? ErrorTypeInfo.Instance;
-                }
-
-                ReportError(code: SemanticDiagnosticCode.TypeDoesNotSupportOperator,
-                    message: $"Type '{operandType.Name}' does not support the '!!' operator. " +
-                             "Implement 'unwrap() -> T' to enable force unwrap.",
-                    location: unary.Location);
-                return ErrorTypeInfo.Instance;
-            }
+                return AnalyzeForceUnwrap(unary: unary, operandType: operandType);
 
             case UnaryOperator.Steal:
             default:
                 return operandType;
         }
+    }
+
+    /// <summary>
+    /// Analyzes the force-unwrap operator (<c>!!</c>): a carrier's payload type (with the
+    /// <c>Maybe[Owned[T]]!!</c> → <c>Modifying[T]</c> special case), else the type's <c>unwrap</c>
+    /// member routine return, else RF-S (unsupported operator).
+    /// </summary>
+    private TypeSymbol AnalyzeForceUnwrap(UnaryExpression unary, TypeSymbol operandType)
+    {
+        if (IsCarrierType(type: operandType) &&
+            operandType.TypeArguments is { Count: > 0 })
+        {
+            TypeSymbol inner = operandType.TypeArguments[index: 0];
+            // `Maybe[T]!!` yields `Modifying[T]` — the unwrap
+            // is an exclusive scope-bound borrow, not a copy. Same LLVM repr (ptr), but
+            // typed as Modifying so the destructor scheduler skips it.
+            if (IsMaybeType(type: operandType) &&
+                IsOwnedOf(type: inner, out TypeSymbol ownedInner))
+            {
+                return _registry.GetOrCreateWrapperType(
+                    wrapperName: Compiler.Resolution.RuntimeContract.Modifying,
+                    innerType: ownedInner,
+                    isReadOnly: false);
+            }
+            return inner;
+        }
+
+        // User type — look up unwrap memberRoutine
+        RoutineInfo? unwrapMemberRoutine =
+            _registry.LookupMemberRoutine(type: operandType, memberRoutineName: "unwrap");
+        if (unwrapMemberRoutine != null)
+        {
+            return unwrapMemberRoutine.ReturnType ?? ErrorTypeInfo.Instance;
+        }
+
+        ReportError(code: SemanticDiagnosticCode.TypeDoesNotSupportOperator,
+            message: $"Type '{operandType.Name}' does not support the '!!' operator. " +
+                     "Implement 'unwrap() -> T' to enable force unwrap.",
+            location: unary.Location);
+        return ErrorTypeInfo.Instance;
     }
 
     #endregion

@@ -216,51 +216,8 @@ public partial class LlvmCodeGenerator
             : null;
         if (resolvedCrash != null)
         {
-            GenerateRoutineDeclaration(routine: resolvedCrash.Routine);
-            string mangledCrash = resolvedCrash.MangledName;
-            string llvmReceiverType = GetLlvmType(type: errorType!);
-
-            // crash_message() returns a Text by value. Derive the Text record type AND the buffer/count
-            // field indices from the registered Text type — never assume the physical field order.
-            var textRecord = _registry.LookupType(name: "Text") as RecordTypeInfo
-                ?? _registry.LookupType(name: "Core.Text") as RecordTypeInfo;
-            string textLlvm = textRecord != null
-                ? GetRecordTypeName(record: textRecord)
-                : "%Record.Core.Text";
-            int dataIdx = textRecord != null
-                ? ResolveRecordFieldIndex(record: textRecord, memberVariableName: "data")
-                : 0;
-            int countIdx = textRecord != null
-                ? ResolveRecordFieldIndex(record: textRecord, memberVariableName: "count")
-                : 1;
-
-            // crash_message() returns a Text (24 bytes) — ABI-Indirect on every target, so it comes
-            // back through a hidden sret pointer (definition, declaration, and this call must all agree,
-            // see ReturnsViaSret). Calling it with the by-value return ABI binds the receiver as the sret
-            // result pointer and reads `me` from an uninitialized slot, producing a Text with a garbage
-            // count — rf_crash then walks a wild UTF-32 range and the crash REPORT itself garbles or
-            // AccessViolation-crashes. Mirror the sret call form the normal call path uses.
-            string textVal = NextTemp();
-            if (ReturnsViaSret(routine: resolvedCrash.Routine))
-            {
-                string sretPtr = NextTemp();
-                EmitEntryAlloca(llvmName: sretPtr, llvmType: textLlvm);
-                EmitLine(sb: sb,
-                    line:
-                    $"  call void @{mangledCrash}(ptr sret({textLlvm}) {sretPtr}, {llvmReceiverType} {errorVal})");
-                EmitLine(sb: sb, line: $"  {textVal} = load {textLlvm}, ptr {sretPtr}");
-            }
-            else
-            {
-                EmitLine(sb: sb,
-                    line: $"  {textVal} = call {textLlvm} @{mangledCrash}({llvmReceiverType} {errorVal})");
-            }
-            dataPtr = NextTemp();
-            EmitLine(sb: sb,
-                line: $"  {dataPtr} = extractvalue {textLlvm} {textVal}, {dataIdx}");
-            msgLen = NextTemp();
-            EmitLine(sb: sb,
-                line: $"  {msgLen} = extractvalue {textLlvm} {textVal}, {countIdx}");
+            EmitCrashMessageText(sb: sb, resolvedCrash: resolvedCrash, errorType: errorType!,
+                errorVal: errorVal, dataPtr: out dataPtr, msgLen: out msgLen);
         }
 
         string typeCStr = EmitCStringConstant(value: typeName);
@@ -287,6 +244,60 @@ public partial class LlvmCodeGenerator
             line:
             $"  call void @rf_crash(i64 {typeNameAsInt}, i64 {typeName.Length}, i64 {fileAsInt}, i64 {throwStmt.Location.FileName.Length}, i32 {throwStmt.Location.Line}, i32 {throwStmt.Location.Column}, i64 {msgDataAsInt}, i64 {msgLen})");
         EmitLine(sb: sb, line: "  unreachable");
+    }
+
+    /// <summary>
+    /// Calls the error's <c>crash_message()</c> (sret- or by-value-returning a Text) and extracts the
+    /// codepoint-buffer pointer and count into <paramref name="dataPtr"/> / <paramref name="msgLen"/>.
+    /// </summary>
+    private void EmitCrashMessageText(StringBuilder sb, ResolvedMemberRoutine resolvedCrash,
+        TypeInfo errorType, string errorVal, out string dataPtr, out string msgLen)
+    {
+        GenerateRoutineDeclaration(routine: resolvedCrash.Routine);
+        string mangledCrash = resolvedCrash.MangledName;
+        string llvmReceiverType = GetLlvmType(type: errorType);
+
+        // crash_message() returns a Text by value. Derive the Text record type AND the buffer/count
+        // field indices from the registered Text type — never assume the physical field order.
+        var textRecord = _registry.LookupType(name: "Text") as RecordTypeInfo
+            ?? _registry.LookupType(name: "Core.Text") as RecordTypeInfo;
+        string textLlvm = textRecord != null
+            ? GetRecordTypeName(record: textRecord)
+            : "%Record.Core.Text";
+        int dataIdx = textRecord != null
+            ? ResolveRecordFieldIndex(record: textRecord, memberVariableName: "data")
+            : 0;
+        int countIdx = textRecord != null
+            ? ResolveRecordFieldIndex(record: textRecord, memberVariableName: "count")
+            : 1;
+
+        // crash_message() returns a Text (24 bytes) — ABI-Indirect on every target, so it comes
+        // back through a hidden sret pointer (definition, declaration, and this call must all agree,
+        // see ReturnsViaSret). Calling it with the by-value return ABI binds the receiver as the sret
+        // result pointer and reads `me` from an uninitialized slot, producing a Text with a garbage
+        // count — rf_crash then walks a wild UTF-32 range and the crash REPORT itself garbles or
+        // AccessViolation-crashes. Mirror the sret call form the normal call path uses.
+        string textVal = NextTemp();
+        if (ReturnsViaSret(routine: resolvedCrash.Routine))
+        {
+            string sretPtr = NextTemp();
+            EmitEntryAlloca(llvmName: sretPtr, llvmType: textLlvm);
+            EmitLine(sb: sb,
+                line:
+                $"  call void @{mangledCrash}(ptr sret({textLlvm}) {sretPtr}, {llvmReceiverType} {errorVal})");
+            EmitLine(sb: sb, line: $"  {textVal} = load {textLlvm}, ptr {sretPtr}");
+        }
+        else
+        {
+            EmitLine(sb: sb,
+                line: $"  {textVal} = call {textLlvm} @{mangledCrash}({llvmReceiverType} {errorVal})");
+        }
+        dataPtr = NextTemp();
+        EmitLine(sb: sb,
+            line: $"  {dataPtr} = extractvalue {textLlvm} {textVal}, {dataIdx}");
+        msgLen = NextTemp();
+        EmitLine(sb: sb,
+            line: $"  {msgLen} = extractvalue {textLlvm} {textVal}, {countIdx}");
     }
 
     private void EmitAbsent(StringBuilder sb, AbsentStatement absentStmt)

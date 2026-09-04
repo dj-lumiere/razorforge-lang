@@ -95,121 +95,151 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
         {
             AstWalker.WalkExpressions(root: body, visit: expr =>
             {
-                // Handle both the lowered call form and the still-generic memberRoutine-call form: explicit
-                // memberRoutine type args (e.g. `select_many[S64](…)`) reach PDIL as a
-                // GenericMemberRoutineCallExpression because GenericCallLoweringPass runs AFTER PDIL. Without
-                // this its per-implementer body (List[S64].select_many) is never synthesized.
-                if (!TryGetProtocolDefaultCallParts(expr: expr,
-                        resolvedRoutine: out RoutineInfo? rr0, receiverType: out TypeInfo? recvType0,
-                        rebind: out _))
-                    return;
-                if (!TryResolveProtocolDefaultImpl(resolvedRoutine: rr0, receiverResolvedType: recvType0,
-                        protoRoutine: out RoutineInfo? pr,
-                        implementer: out TypeInfo? implOrNull) || pr == null || implOrNull == null)
-                    return;
-                TypeInfo impl = implOrNull;
-
-                // memberRoutine-generic resolution (e.g. `List[Text].zip[S64, List[S64]]`): the call already
-                // resolved to a fully-concrete resolution `rr` whose memberRoutine type-arguments bind the
-                // protocol body's memberRoutine generics. SynthesizePerImplementer drops memberRoutine generics, so
-                // instead generate the body FOR `rr` directly — substituting the protocol's own params
-                // (T→Text) AND the memberRoutine generics (U→S64, S2→List[S64]) — keyed by rr's own
-                // RegistryKey (which is exactly the symbol the call site emits).
-                RoutineInfo rr = rr0!;
-                // pr.GenericParameters lists the protocol owner's params first (e.g. T) then the
-                // memberRoutine-level params (U, S2); rr.TypeArguments holds only the memberRoutine args. Align them
-                // from the END so the trailing memberRoutine generics bind, while the owner param (T) is
-                // supplied separately by BuildProtocolGenericSubs (T→Text from the conformance).
-                if (rr.TypeArguments is { Count: > 0 } memberRoutineArgs &&
-                    pr.GenericParameters is { Count: > 0 } allParams &&
-                    memberRoutineArgs.Count <= allParams.Count)
-                {
-                    Dictionary<string, TypeInfo> fullSubs = BuildProtocolGenericSubs(
-                        protocolRoutine: pr, implementer: impl);
-                    int offset = allParams.Count - memberRoutineArgs.Count;
-                    for (int i = 0; i < memberRoutineArgs.Count; i++)
-                        fullSubs[key: allParams[index: offset + i]] = memberRoutineArgs[index: i];
-
-                    // Build the per-implementer routine with Me + the memberRoutine generics substituted in
-                    // its signature (rr's own ReturnType still carries ProtocolSelf `Me`, which would
-                    // trip codegen's ContainsGenericParameter guard and silently skip emission). Carry
-                    // rr.TypeArguments so it mangles to the same symbol the call site emits.
-                    RoutineInfo mgInfo = SynthesizePerImplementer(protocolRoutine: pr, implementer: impl,
-                        protoSubs: fullSubs, typeArguments: memberRoutineArgs);
-
-                    // Guard on the key we actually store under (mgInfo's), or the fixed-point loop
-                    // never converges (re-adding every iteration).
-                    if (ctx.InstantiatedGenericBodies.ContainsKey(key: mgInfo.RegistryKey)) return;
-
-                    Statement? mgBody = CloneProtocolRoutineBody(protocolRoutine: pr, implementer: impl,
-                        synthesized: mgInfo, protoSubs: fullSubs);
-                    if (mgBody == null) return;
-
-                    ctx.LiveRoutineKeys.Add(item: mgInfo.RegistryKey);
-                    var mgSubs = new Dictionary<string, TypeInfo>(fullSubs)
-                    {
-                        ["me"] = impl,
-                        ["Me"] = impl
-                    };
-                    ctx.InstantiatedGenericBodies[key: mgInfo.RegistryKey] = new MonomorphizedBody(
-                        Ast: WrapInShellDecl(name: mgInfo.Name, body: mgBody, info: mgInfo),
-                        Info: mgInfo,
-                        TypeSubs: mgSubs,
-                        VariantStatus: null,
-                        VariantInnerType: null,
-                        IsSynthesized: false);
-                    SeedConstructorCallees(body: mgBody);
+                if (SynthesizeForCallExpression(expr: expr))
                     added = true;
-                    return;
-                }
-
-                var key = (pr.RegistryKey, impl.FullName);
-                if (_synthesized.ContainsKey(key: key)) return;
-
-                // Bind the protocol's own generic params (e.g. Iterable[T].enumerate's `T`) from the
-                // implementer's conformance (`List[Text] obeys Iterable[Text]` ⇒ T=Text), so the
-                // synthesized body and signature don't leak the protocol element param.
-                Dictionary<string, TypeInfo> protoSubs =
-                    BuildProtocolGenericSubs(protocolRoutine: pr, implementer: impl);
-
-                RoutineInfo synthesized = SynthesizePerImplementer(protocolRoutine: pr, implementer: impl,
-                    protoSubs: protoSubs);
-
-                Statement? clonedBody = CloneProtocolRoutineBody(protocolRoutine: pr, implementer: impl,
-                    synthesized: synthesized, protoSubs: protoSubs);
-                if (clonedBody == null) return;
-
-                _synthesized[key: key] = synthesized;
-                ctx.Registry.RegisterRoutine(routine: synthesized);
-                ctx.LiveRoutineKeys.Add(item: synthesized.RegistryKey);
-
-                // Stash the cloned AST as a monomorphized body so codegen's normal
-                // InstantiatedGenericBodies sweep picks it up under the implementer-owned key.
-                // IsSynthesized=false: this body has a real AST cloned from the stdlib
-                // protocol-default-impl body and must flow through every lowering pass
-                // (ControlFlow, FString, Pattern, Expression, Operator, ...). Several
-                // RunOnInstantiatedGenericBodies memberRoutines skip IsSynthesized=true entries
-                // assuming there is no AST to walk, which is not the case here.
-                // "me" is the receiver value binding; "Me" maps ProtocolSelf (Name "Me") to the
-                // implementer so codegen's type substitution resolves `Me`-typed constructions
-                // (e.g. `EnumerateIterator[T, Me]`) instead of leaking ProtocolSelf.
-                var bodySubs = new Dictionary<string, TypeInfo>(protoSubs)
-                {
-                    ["me"] = impl,
-                    ["Me"] = impl
-                };
-                ctx.InstantiatedGenericBodies[key: synthesized.RegistryKey] = new MonomorphizedBody(
-                    Ast: WrapInShellDecl(name: synthesized.Name, body: clonedBody, info: synthesized),
-                    Info: synthesized,
-                    TypeSubs: bodySubs,
-                    VariantStatus: null,
-                    VariantInnerType: null,
-                    IsSynthesized: false);
-                SeedConstructorCallees(body: clonedBody);
-                added = true;
             });
         }
         return added;
+    }
+
+    /// <summary>
+    /// Inspects one expression for a protocol-default-impl call and, if found, synthesizes the
+    /// per-implementer body (member-generic path or the standard path). Returns true if a new body
+    /// was synthesized.
+    /// </summary>
+    private bool SynthesizeForCallExpression(Expression expr)
+    {
+        // Handle both the lowered call form and the still-generic memberRoutine-call form: explicit
+        // memberRoutine type args (e.g. `select_many[S64](…)`) reach PDIL as a
+        // GenericMemberRoutineCallExpression because GenericCallLoweringPass runs AFTER PDIL. Without
+        // this its per-implementer body (List[S64].select_many) is never synthesized.
+        if (!TryGetProtocolDefaultCallParts(expr: expr,
+                resolvedRoutine: out RoutineInfo? rr0, receiverType: out TypeInfo? recvType0,
+                rebind: out _))
+            return false;
+        if (!TryResolveProtocolDefaultImpl(resolvedRoutine: rr0, receiverResolvedType: recvType0,
+                protoRoutine: out RoutineInfo? pr,
+                implementer: out TypeInfo? implOrNull) || pr == null || implOrNull == null)
+            return false;
+        TypeInfo impl = implOrNull;
+
+        // memberRoutine-generic resolution (e.g. `List[Text].zip[S64, List[S64]]`): the call already
+        // resolved to a fully-concrete resolution `rr` whose memberRoutine type-arguments bind the
+        // protocol body's memberRoutine generics. SynthesizePerImplementer drops memberRoutine generics, so
+        // instead generate the body FOR `rr` directly — substituting the protocol's own params
+        // (T→Text) AND the memberRoutine generics (U→S64, S2→List[S64]) — keyed by rr's own
+        // RegistryKey (which is exactly the symbol the call site emits).
+        RoutineInfo rr = rr0!;
+        // pr.GenericParameters lists the protocol owner's params first (e.g. T) then the
+        // memberRoutine-level params (U, S2); rr.TypeArguments holds only the memberRoutine args. Align them
+        // from the END so the trailing memberRoutine generics bind, while the owner param (T) is
+        // supplied separately by BuildProtocolGenericSubs (T→Text from the conformance).
+        if (rr.TypeArguments is { Count: > 0 } memberRoutineArgs &&
+            pr.GenericParameters is { Count: > 0 } allParams &&
+            memberRoutineArgs.Count <= allParams.Count)
+        {
+            return SynthesizeMemberGenericBody(pr: pr, impl: impl, memberRoutineArgs: memberRoutineArgs,
+                allParams: allParams);
+        }
+
+        return SynthesizeStandardBody(pr: pr, impl: impl);
+    }
+
+    /// <summary>
+    /// Synthesizes the per-implementer body for a memberRoutine-generic resolution, keyed by the
+    /// resolution's own RegistryKey. Returns true if a new body was added.
+    /// </summary>
+    private bool SynthesizeMemberGenericBody(RoutineInfo pr, TypeInfo impl,
+        List<TypeInfo> memberRoutineArgs, List<string> allParams)
+    {
+        Dictionary<string, TypeInfo> fullSubs = BuildProtocolGenericSubs(
+            protocolRoutine: pr, implementer: impl);
+        int offset = allParams.Count - memberRoutineArgs.Count;
+        for (int i = 0; i < memberRoutineArgs.Count; i++)
+            fullSubs[key: allParams[index: offset + i]] = memberRoutineArgs[index: i];
+
+        // Build the per-implementer routine with Me + the memberRoutine generics substituted in
+        // its signature (rr's own ReturnType still carries ProtocolSelf `Me`, which would
+        // trip codegen's ContainsGenericParameter guard and silently skip emission). Carry
+        // rr.TypeArguments so it mangles to the same symbol the call site emits.
+        RoutineInfo mgInfo = SynthesizePerImplementer(protocolRoutine: pr, implementer: impl,
+            protoSubs: fullSubs, typeArguments: memberRoutineArgs);
+
+        // Guard on the key we actually store under (mgInfo's), or the fixed-point loop
+        // never converges (re-adding every iteration).
+        if (ctx.InstantiatedGenericBodies.ContainsKey(key: mgInfo.RegistryKey)) return false;
+
+        Statement? mgBody = CloneProtocolRoutineBody(protocolRoutine: pr, implementer: impl,
+            synthesized: mgInfo, protoSubs: fullSubs);
+        if (mgBody == null) return false;
+
+        ctx.LiveRoutineKeys.Add(item: mgInfo.RegistryKey);
+        var mgSubs = new Dictionary<string, TypeInfo>(fullSubs)
+        {
+            ["me"] = impl,
+            ["Me"] = impl
+        };
+        ctx.InstantiatedGenericBodies[key: mgInfo.RegistryKey] = new MonomorphizedBody(
+            Ast: WrapInShellDecl(name: mgInfo.Name, body: mgBody, info: mgInfo),
+            Info: mgInfo,
+            TypeSubs: mgSubs,
+            VariantStatus: null,
+            VariantInnerType: null,
+            IsSynthesized: false);
+        SeedConstructorCallees(body: mgBody);
+        return true;
+    }
+
+    /// <summary>
+    /// Synthesizes the per-(protocolRoutine, implementer) body for the standard (non-member-generic)
+    /// case. Returns true if a new body was added.
+    /// </summary>
+    private bool SynthesizeStandardBody(RoutineInfo pr, TypeInfo impl)
+    {
+        var key = (pr.RegistryKey, impl.FullName);
+        if (_synthesized.ContainsKey(key: key)) return false;
+
+        // Bind the protocol's own generic params (e.g. Iterable[T].enumerate's `T`) from the
+        // implementer's conformance (`List[Text] obeys Iterable[Text]` ⇒ T=Text), so the
+        // synthesized body and signature don't leak the protocol element param.
+        Dictionary<string, TypeInfo> protoSubs =
+            BuildProtocolGenericSubs(protocolRoutine: pr, implementer: impl);
+
+        RoutineInfo synthesized = SynthesizePerImplementer(protocolRoutine: pr, implementer: impl,
+            protoSubs: protoSubs);
+
+        Statement? clonedBody = CloneProtocolRoutineBody(protocolRoutine: pr, implementer: impl,
+            synthesized: synthesized, protoSubs: protoSubs);
+        if (clonedBody == null) return false;
+
+        _synthesized[key: key] = synthesized;
+        ctx.Registry.RegisterRoutine(routine: synthesized);
+        ctx.LiveRoutineKeys.Add(item: synthesized.RegistryKey);
+
+        // Stash the cloned AST as a monomorphized body so codegen's normal
+        // InstantiatedGenericBodies sweep picks it up under the implementer-owned key.
+        // IsSynthesized=false: this body has a real AST cloned from the stdlib
+        // protocol-default-impl body and must flow through every lowering pass
+        // (ControlFlow, FString, Pattern, Expression, Operator, ...). Several
+        // RunOnInstantiatedGenericBodies memberRoutines skip IsSynthesized=true entries
+        // assuming there is no AST to walk, which is not the case here.
+        // "me" is the receiver value binding; "Me" maps ProtocolSelf (Name "Me") to the
+        // implementer so codegen's type substitution resolves `Me`-typed constructions
+        // (e.g. `EnumerateIterator[T, Me]`) instead of leaking ProtocolSelf.
+        var bodySubs = new Dictionary<string, TypeInfo>(protoSubs)
+        {
+            ["me"] = impl,
+            ["Me"] = impl
+        };
+        ctx.InstantiatedGenericBodies[key: synthesized.RegistryKey] = new MonomorphizedBody(
+            Ast: WrapInShellDecl(name: synthesized.Name, body: clonedBody, info: synthesized),
+            Info: synthesized,
+            TypeSubs: bodySubs,
+            VariantStatus: null,
+            VariantInnerType: null,
+            IsSynthesized: false);
+        SeedConstructorCallees(body: clonedBody);
+        return true;
     }
 
     /// <summary>
@@ -443,21 +473,26 @@ internal sealed class ProtocolDefaultImplLoweringPass(InstantiationContext ctx)
     }
 
     /// <summary>
-    /// True when this protocol routine is a default-impl (real body) rather than an
-    /// abstract protocol stub. Body presence is detected via <see cref="InstantiationContext.RoutineBodies"/>.
+    /// True when this protocol routine is a default-impl (real body) rather than an abstract protocol
+    /// stub. Checks <see cref="InstantiationContext.RoutineBodies"/> then the warm-only
+    /// <see cref="InstantiationContext.StdlibTemplateBodies"/> (on a warm compile the stdlib extension
+    /// templates live only in the latter — see its doc).
     /// </summary>
     private bool RoutineHasDefaultImplBody(RoutineInfo routine)
-        => ctx.RoutineBodies.ContainsKey(key: routine.RegistryKey)
-           || (routine.GenericDefinition != null &&
-               ctx.RoutineBodies.ContainsKey(key: routine.GenericDefinition.RegistryKey));
+        => HasTemplateBody(key: routine.RegistryKey)
+           || (routine.GenericDefinition != null && HasTemplateBody(key: routine.GenericDefinition.RegistryKey));
+
+    private bool HasTemplateBody(string key)
+        => ctx.RoutineBodies.ContainsKey(key: key) || ctx.StdlibTemplateBodies.ContainsKey(key: key);
 
     private Statement? GetDefaultImplBody(RoutineInfo routine)
+        => GetTemplateBody(key: routine.RegistryKey)
+           ?? (routine.GenericDefinition != null ? GetTemplateBody(key: routine.GenericDefinition.RegistryKey) : null);
+
+    private Statement? GetTemplateBody(string key)
     {
-        if (ctx.RoutineBodies.TryGetValue(key: routine.RegistryKey, value: out Statement? b))
-            return b;
-        if (routine.GenericDefinition != null &&
-            ctx.RoutineBodies.TryGetValue(key: routine.GenericDefinition.RegistryKey, value: out b))
-            return b;
+        if (ctx.RoutineBodies.TryGetValue(key: key, value: out Statement? b)) return b;
+        if (ctx.StdlibTemplateBodies.TryGetValue(key: key, value: out b)) return b;
         return null;
     }
 

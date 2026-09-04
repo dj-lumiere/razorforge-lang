@@ -72,74 +72,81 @@ internal sealed class NoneReturnNormalizationPass(DesugaringContext _)
         return r with { ReturnType = returnType, Body = body };
     }
 
-    private Statement NormalizeStatement(Statement stmt) // NOSONAR S3776
+    private Statement NormalizeStatement(Statement stmt)
     {
-        switch (stmt)
+        return stmt switch
         {
-            case ReturnStatement { Value: null } ret:
-                return ret with
-                {
-                    Value = new IdentifierExpression(Name: "None", Location: ret.Location)
-                };
+            ReturnStatement { Value: null } ret => NormalizeBareReturn(ret: ret),
+            BlockStatement b => NormalizeBlock(b: b),
+            IfStatement ifs => NormalizeIf(ifs: ifs),
+            LoopStatement loop => NormalizeLoop(loop: loop),
+            WhenStatement ws => NormalizeWhen(ws: ws),
+            DeclarationStatement { Declaration: RoutineDeclaration r } ds => NormalizeRoutineDecl(ds: ds, r: r),
+            _ => stmt
+        };
+    }
 
-            case BlockStatement b:
+    private static Statement NormalizeBareReturn(ReturnStatement ret)
+    {
+        return ret with
+        {
+            Value = new IdentifierExpression(Name: "None", Location: ret.Location)
+        };
+    }
+
+    private Statement NormalizeBlock(BlockStatement b)
+    {
+        var stmts = b.Statements;
+        List<Statement>? replaced = null;
+        for (int i = 0; i < stmts.Count; i++)
+        {
+            Statement lowered = NormalizeStatement(stmt: stmts[i]);
+            if (ReferenceEquals(lowered, stmts[i]))
             {
-                var stmts = b.Statements;
-                List<Statement>? replaced = null;
-                for (int i = 0; i < stmts.Count; i++)
-                {
-                    Statement lowered = NormalizeStatement(stmt: stmts[i]);
-                    if (ReferenceEquals(lowered, stmts[i]))
-                    {
-                        continue;
-                    }
-
-                    replaced ??= [..stmts];
-                    replaced[i] = lowered;
-                }
-                return replaced != null ? b with { Statements = replaced } : b;
+                continue;
             }
 
-            case IfStatement ifs:
-            {
-                Statement thenN = NormalizeStatement(stmt: ifs.ThenStatement);
-                Statement? elseN = ifs.ElseStatement != null
-                    ? NormalizeStatement(stmt: ifs.ElseStatement)
-                    : null;
-                if (ReferenceEquals(thenN, ifs.ThenStatement) && ReferenceEquals(elseN, ifs.ElseStatement))
-                    return ifs;
-                return ifs with { ThenStatement = thenN, ElseStatement = elseN };
-            }
-
-            case LoopStatement loop:
-            {
-                Statement bodyN = NormalizeStatement(stmt: loop.Body);
-                if (ReferenceEquals(bodyN, loop.Body)) return loop;
-                return loop with { Body = bodyN };
-            }
-
-            case WhenStatement ws:
-            {
-                bool changed = false;
-                var clauses = new List<WhenClause>(capacity: ws.Clauses.Count);
-                foreach (WhenClause c in ws.Clauses)
-                {
-                    Statement bodyN = NormalizeStatement(stmt: c.Body);
-                    changed |= !ReferenceEquals(bodyN, c.Body);
-                    clauses.Add(item: c with { Body = bodyN });
-                }
-                return changed ? ws with { Clauses = clauses } : ws;
-            }
-
-            case DeclarationStatement { Declaration: RoutineDeclaration r } ds:
-            {
-                RoutineDeclaration rN = NormalizeRoutine(r: r);
-                if (ReferenceEquals(rN, r)) return ds;
-                return ds with { Declaration = rN };
-            }
-
-            default:
-                return stmt;
+            replaced ??= [..stmts];
+            replaced[i] = lowered;
         }
+        return replaced != null ? b with { Statements = replaced } : b;
+    }
+
+    private Statement NormalizeIf(IfStatement ifs)
+    {
+        Statement thenN = NormalizeStatement(stmt: ifs.ThenStatement);
+        Statement? elseN = ifs.ElseStatement != null
+            ? NormalizeStatement(stmt: ifs.ElseStatement)
+            : null;
+        if (ReferenceEquals(thenN, ifs.ThenStatement) && ReferenceEquals(elseN, ifs.ElseStatement))
+            return ifs;
+        return ifs with { ThenStatement = thenN, ElseStatement = elseN };
+    }
+
+    private Statement NormalizeLoop(LoopStatement loop)
+    {
+        Statement bodyN = NormalizeStatement(stmt: loop.Body);
+        if (ReferenceEquals(bodyN, loop.Body)) return loop;
+        return loop with { Body = bodyN };
+    }
+
+    private Statement NormalizeWhen(WhenStatement ws)
+    {
+        bool changed = false;
+        var clauses = new List<WhenClause>(capacity: ws.Clauses.Count);
+        foreach (WhenClause c in ws.Clauses)
+        {
+            Statement bodyN = NormalizeStatement(stmt: c.Body);
+            changed |= !ReferenceEquals(bodyN, c.Body);
+            clauses.Add(item: c with { Body = bodyN });
+        }
+        return changed ? ws with { Clauses = clauses } : ws;
+    }
+
+    private Statement NormalizeRoutineDecl(DeclarationStatement ds, RoutineDeclaration r)
+    {
+        RoutineDeclaration rN = NormalizeRoutine(r: r);
+        if (ReferenceEquals(rN, r)) return ds;
+        return ds with { Declaration = rN };
     }
 }

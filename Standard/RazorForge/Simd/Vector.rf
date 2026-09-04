@@ -176,7 +176,7 @@ needs T obeys Equatable
 
 ### Formats this vector as `<lane₀, lane₁, …>`.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine Vector[T, N].represent() -> Text
   var result = "<"
   each i in 0u64 til N

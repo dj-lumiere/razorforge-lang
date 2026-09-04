@@ -15,6 +15,7 @@ record Maybe[T] obeys Assignable
 ### Returns the display form of this optional value.
 ### Present values are rendered using the wrapped value's text form.
 ### :returns: The resulting `Text` value.
+@override
 routine Maybe[T].represent() -> Text
   if not me.is_present()
     return "none"
@@ -23,6 +24,7 @@ routine Maybe[T].represent() -> Text
 ### Returns the diagnostic form of this optional value.
 ### This form keeps the `Maybe` wrapper visible for debugging and logs.
 ### :returns: The resulting `Text` value.
+@override
 routine Maybe[T].diagnose() -> Text
   if not me.is_present()
     return f"{me.full_type_name()}(none)"
@@ -31,27 +33,51 @@ routine Maybe[T].diagnose() -> Text
 ### Frees the wrapped value when present; a no-op when absent. Defined explicitly (rather than
 ### auto-derived) so the per-instantiation body is monomorphized and emitted like the other carrier
 ### routines, and so the `value` field is only touched when actually present.
+@override
 dangerous routine Maybe[T].destroy()
   if me.is_present()
     me.value.destroy()
   return
 
-### Returns the wrapped value.
-### Use this when absence is a logic error rather than an expected branch.
-### :returns: The contained `T` value.
+### Returns the wrapped value, leaving this optional intact (NON-consuming).
+### Use this when absence is a logic error rather than an expected branch. The payload is DUPLICATED: for
+### a managed leaf (Text/…) `duplicate` is the cheap refcount share (`= assign`); for an aggregate it is a
+### deep, independent copy — the ONLY way to co-own something that cannot be shallow-shared (e.g. a variant
+### with a `Dict`/`List` arm is `Copyable` but not `Assignable`). Either way the optional stays intact and
+### the caller gets an independent value. A single-owner ENTITY that did not opt into `Copyable` cannot be
+### duplicated; use `strip_out` to MOVE it out instead.
+### :returns: The contained `T` value (an independent duplicate).
 ### :throws: {AbsentValueError} if this `Maybe` is absent.
 routine Maybe[T].unwrap!() -> T
+needs T obeys Copyable
   if not me.is_present()
     throw AbsentValueError()
-  return me.value
+  return me.value.duplicate()
 
-### Returns the wrapped value or `fallback` when absent.
-### This avoids branching at the call site when a fixed fallback is acceptable.
+### Returns the wrapped value or `fallback` when absent, leaving this optional intact (NON-consuming).
+### This avoids branching at the call site when a fixed fallback is acceptable. As with `unwrap`, the
+### present-case result is a retaining copy (co-owned); `fallback` goes unused and is torn down at scope
+### exit like any other unconsumed local.
 ### :param fallback: The fallback value to return when absent.
-### :returns: The contained `T` value, or `fallback` if this `Maybe` is absent.
+### :returns: The contained `T` value (a co-owning copy), or `fallback` if this `Maybe` is absent.
 routine Maybe[T].unwrap_or(fallback: T) -> T
+needs T obeys Copyable
   if not me.is_present()
     return fallback
+  return me.value.duplicate()
+
+### MOVES the wrapped value out, CONSUMING this optional (marks it absent). Unlike `unwrap` (which
+### co-owns via a retaining copy and leaves the optional intact), this hands the payload's SINGLE
+### reference to the caller and empties the carrier — the model a `Maybe[Entity]` requires (an entity is
+### single-owner: it cannot be co-owned/retained, only moved). The carrier's own `destroy` then no-ops on
+### `value` (guarded by `is_present()`), so the moved-out payload is freed exactly once by its new owner.
+### A re-`strip_out` of the now-absent optional fails LOUDLY (AbsentValueError), never silently corrupts.
+### :returns: The contained `T` value, moved out.
+### :throws: {AbsentValueError} if this `Maybe` is absent.
+routine Maybe[T].strip_out!() -> T
+  if not me.is_present()
+    throw AbsentValueError()
+  me.present = false
   return me.value
 
 routine Maybe[T].is_present() -> Bool

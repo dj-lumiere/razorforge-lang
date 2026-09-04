@@ -141,6 +141,7 @@ routine Roamed[T].watch() -> Watching[T]
 ### `roam_trace_impl` calls this for each `Roamed` field of an entity, so the collector sees the
 ### object graph's strong edges. A none handle owns no edge and is skipped. Runs inside the (dangerous)
 ### synthesized trace, so no `danger` here.
+@override
 dangerous routine Roamed[T].cyclic_visit()
   if me.controller_address() != 0_addr
     C::rf_cyclic_visit_child(child_ctrl: me.controller_address())
@@ -199,6 +200,7 @@ routine Roamed[T].control() -> T
 ### Decrements the biased count, tearing down the entity at zero. A no-op on the absent handle. This IS
 ### the decrement — no separate `release` verb; `destroy` is the teardown (calls the RoamController's
 ### own `release` count primitive, a different type — no recursion).
+@override
 dangerous routine Roamed[T].destroy()
   if me.controller_address() == 0_addr
     return

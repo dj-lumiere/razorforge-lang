@@ -104,7 +104,7 @@ public partial class Parser
     ///
     /// The key discriminator is the '=>' or 'given' after the ')'.
     /// </remarks>
-    private bool IsArrowLambdaParameters() // NOSONAR S3776
+    private bool IsArrowLambdaParameters()
     {
         int savedPosition = _position;
 
@@ -124,75 +124,95 @@ public partial class Parser
             // ═══════════════════════════════════════════════════════════════════════════
             // CASE 2: Scan parameter list - identifier [: type]? [, ...]* ) [given] =>
             // ═══════════════════════════════════════════════════════════════════════════
-            while (true)
-            {
-                // ─────────────────────────────────────────────────────────────────────
-                // Each parameter must start with identifier
-                // ─────────────────────────────────────────────────────────────────────
-                if (!Check(type: TokenType.Identifier))
-                {
-                    _position = savedPosition;
-                    return false;
-                }
-
-                Advance(); // consume identifier
-
-                // ─────────────────────────────────────────────────────────────────────
-                // Optional type annotation - skip over it
-                // ─────────────────────────────────────────────────────────────────────
-                // We need to handle nested generics like List<Dict<Text, S32>>
-                if (Check(type: TokenType.Colon))
-                {
-                    Advance(); // consume :
-                    // Skip the type (track [ ] depth for generics)
-                    int depth = 0;
-                    while (!IsAtEnd)
-                    {
-                        if (Check(type: TokenType.LeftBracket))
-                        {
-                            depth++;
-                        }
-                        else if (Check(type: TokenType.RightBracket))
-                        {
-                            depth--;
-                        }
-                        else if (depth == 0 && (Check(type: TokenType.Comma) ||
-                                                Check(type: TokenType.RightParen)))
-                        {
-                            break;
-                        }
-
-                        Advance();
-                    }
-                }
-
-                // ─────────────────────────────────────────────────────────────────────
-                // Check for comma (more params) or closing paren (end of list)
-                // ─────────────────────────────────────────────────────────────────────
-                if (Check(type: TokenType.Comma))
-                {
-                    Advance(); // consume comma, continue loop
-                }
-                else if (Check(type: TokenType.RightParen))
-                {
-                    Advance(); // consume )
-                    // Accept either direct => or given ... =>
-                    bool result = Check(type: TokenType.FatArrow) || Check(type: TokenType.Given);
-                    _position = savedPosition;
-                    return result;
-                }
-                else
-                {
-                    // Not a valid lambda parameter list (e.g., expression like (x + y))
-                    _position = savedPosition;
-                    return false;
-                }
-            }
+            return ScanArrowLambdaParameterList(savedPosition: savedPosition);
         }
         catch
         {
             _position = savedPosition;
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Lookahead scan (CASE 2) of a parenthesized parameter list — <c>identifier [: type]? [, ...]* )
+    /// [given] =></c> — starting after the opening <c>(</c> and the empty-list check. Always restores
+    /// <paramref name="savedPosition"/> before returning; true only when the closing <c>)</c> is
+    /// followed by <c>=></c> or <c>given</c>.
+    /// </summary>
+    private bool ScanArrowLambdaParameterList(int savedPosition)
+    {
+        while (true)
+        {
+            // ─────────────────────────────────────────────────────────────────────
+            // Each parameter must start with identifier
+            // ─────────────────────────────────────────────────────────────────────
+            if (!Check(type: TokenType.Identifier))
+            {
+                _position = savedPosition;
+                return false;
+            }
+
+            Advance(); // consume identifier
+
+            // ─────────────────────────────────────────────────────────────────────
+            // Optional type annotation - skip over it
+            // ─────────────────────────────────────────────────────────────────────
+            if (Check(type: TokenType.Colon))
+            {
+                SkipLambdaParameterTypeAnnotation();
+            }
+
+            // ─────────────────────────────────────────────────────────────────────
+            // Check for comma (more params) or closing paren (end of list)
+            // ─────────────────────────────────────────────────────────────────────
+            if (Check(type: TokenType.Comma))
+            {
+                Advance(); // consume comma, continue loop
+            }
+            else if (Check(type: TokenType.RightParen))
+            {
+                Advance(); // consume )
+                // Accept either direct => or given ... =>
+                bool result = Check(type: TokenType.FatArrow) || Check(type: TokenType.Given);
+                _position = savedPosition;
+                return result;
+            }
+            else
+            {
+                // Not a valid lambda parameter list (e.g., expression like (x + y))
+                _position = savedPosition;
+                return false;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Skips over a lambda parameter's type annotation during lookahead, starting at the <c>:</c>. Tracks
+    /// <c>[ ]</c> nesting depth so nested generics (e.g. <c>List[Dict[Text, S32]]</c>) are skipped whole,
+    /// stopping at the top-level <c>,</c> or <c>)</c>.
+    /// </summary>
+    private void SkipLambdaParameterTypeAnnotation()
+    {
+        Advance(); // consume :
+        // Skip the type (track [ ] depth for generics)
+        int depth = 0;
+        while (!IsAtEnd)
+        {
+            if (Check(type: TokenType.LeftBracket))
+            {
+                depth++;
+            }
+            else if (Check(type: TokenType.RightBracket))
+            {
+                depth--;
+            }
+            else if (depth == 0 && (Check(type: TokenType.Comma) ||
+                                    Check(type: TokenType.RightParen)))
+            {
+                break;
+            }
+
+            Advance();
         }
     }
 

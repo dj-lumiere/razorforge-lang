@@ -91,45 +91,17 @@ public partial class Tokenizer
     /// <summary>
     /// Scans a star-based operator (*, **, *%, *^, **%, **^, *=, **=, *%=, **%=, *^=, **^=).
     /// </summary>
-    private void ScanStarOperator() // NOSONAR S3776
+    private void ScanStarOperator()
     {
         bool isPow = Match(expected: '*'); // Check for **
 
         switch (Peek())
         {
             case '%':
-                Advance();
-                // *%= or **%=
-                if (Match(expected: '='))
-                {
-                    AddToken(type: isPow
-                        ? TokenType.PowerWrapAssign
-                        : TokenType.MultiplyWrapAssign);
-                }
-                else
-                {
-                    AddToken(type: isPow
-                        ? TokenType.PowerWrap
-                        : TokenType.MultiplyWrap);
-                }
-
+                ScanStarWrapOperator(isPow: isPow);
                 break;
             case '^':
-                Advance();
-                // *^= or **^=
-                if (Match(expected: '='))
-                {
-                    AddToken(type: isPow
-                        ? TokenType.PowerClampAssign
-                        : TokenType.MultiplyClampAssign);
-                }
-                else
-                {
-                    AddToken(type: isPow
-                        ? TokenType.PowerClamp
-                        : TokenType.MultiplyClamp);
-                }
-
+                ScanStarClampOperator(isPow: isPow);
                 break;
             case '=':
                 Advance();
@@ -150,6 +122,48 @@ public partial class Tokenizer
                     ? TokenType.Power
                     : TokenType.Star);
                 break;
+        }
+    }
+
+    /// <summary>
+    /// Scans the wrapping star/power variants (*%, **%, *%=, **%=) after the leading '%'.
+    /// </summary>
+    private void ScanStarWrapOperator(bool isPow)
+    {
+        Advance();
+        // *%= or **%=
+        if (Match(expected: '='))
+        {
+            AddToken(type: isPow
+                ? TokenType.PowerWrapAssign
+                : TokenType.MultiplyWrapAssign);
+        }
+        else
+        {
+            AddToken(type: isPow
+                ? TokenType.PowerWrap
+                : TokenType.MultiplyWrap);
+        }
+    }
+
+    /// <summary>
+    /// Scans the clamping star/power variants (*^, **^, *^=, **^=) after the leading '^'.
+    /// </summary>
+    private void ScanStarClampOperator(bool isPow)
+    {
+        Advance();
+        // *^= or **^=
+        if (Match(expected: '='))
+        {
+            AddToken(type: isPow
+                ? TokenType.PowerClampAssign
+                : TokenType.MultiplyClampAssign);
+        }
+        else
+        {
+            AddToken(type: isPow
+                ? TokenType.PowerClamp
+                : TokenType.MultiplyClamp);
         }
     }
 

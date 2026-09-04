@@ -350,8 +350,8 @@ public partial class LlvmCodeGenerator
         }
 
         string initLlvm = GetLlvmType(type: initType);
-        bool initIsScalar = initType is RecordTypeInfo { HasDirectBackendType: true };
-        bool varIsScalar = varType is RecordTypeInfo { HasDirectBackendType: true };
+        bool initIsScalar = initType is RecordTypeInfo { BackendType: not null };
+        bool varIsScalar = varType is RecordTypeInfo { BackendType: not null };
         return initLlvm != llvmType && initIsScalar && varIsScalar
             ? EmitPrimitiveCast(sb: sb, value: value, fromLlvm: initLlvm, toLlvm: llvmType)
             : value;
@@ -408,6 +408,13 @@ public partial class LlvmCodeGenerator
             return varType;
         }
 
+        return ResolveVarTypeByConstructorCalleeName(callInit: callInit);
+    }
+
+    /// <summary>Last-resort variable-type resolution for a constructor-style call: derives the type
+    /// name from the callee and looks it up (bare, Core-qualified, or by full-name suffix).</summary>
+    private TypeInfo? ResolveVarTypeByConstructorCalleeName(CallExpression callInit)
+    {
         string? typeName = callInit.Callee switch
         {
             IdentifierExpression idc => idc.Name,
@@ -415,16 +422,16 @@ public partial class LlvmCodeGenerator
             MemberExpression mc => mc.MemberName,
             _ => null
         };
-        if (typeName != null)
+        if (typeName == null)
         {
-            varType = _registry.LookupType(name: typeName) ??
-                      _registry.LookupType(name: $"Core.{typeName}") ?? _registry.GetAllTypes()
-                         .FirstOrDefault(predicate: t =>
-                              t.Name == typeName || t.FullName == typeName ||
-                              t.FullName.EndsWith(value: "." + typeName));
+            return null;
         }
 
-        return varType;
+        return _registry.LookupType(name: typeName) ??
+               _registry.LookupType(name: $"Core.{typeName}") ?? _registry.GetAllTypes()
+                  .FirstOrDefault(predicate: t =>
+                       t.Name == typeName || t.FullName == typeName ||
+                       t.FullName.EndsWith(value: "." + typeName));
     }
 
     /// <summary>
@@ -788,8 +795,7 @@ public partial class LlvmCodeGenerator
         string value, TypeInfo? valueType = null)
     {
         TypeInfo? targetType = GetExpressionType(expr: member.Object);
-        TryGetTransparentProtocolTarget(type: targetType, targetType: out TypeInfo? lookupType);
-        targetType = lookupType ?? targetType;
+        targetType = MarkerProtocolInner(type: targetType) ?? targetType;
 
         // Struct-record field write (no @llvm backend type): address-based. EmitLvalueAddress
         // computes the record's storage address and recurses through arbitrary lvalue chains
@@ -797,37 +803,12 @@ public partial class LlvmCodeGenerator
         // field assignment — not just bare-local identifiers. GEP to the field index and store.
         // Wrapper records (`@llvm("ptr")`) and entities have backend types / pointer identity and
         // are handled by the value-based branches below.
-        if (targetType is RecordTypeInfo { HasDirectBackendType: false } structRecord &&
+        if (targetType is RecordTypeInfo { BackendType: null } structRecord &&
             !(GetGenericBaseName(type: structRecord) is { } srBase &&
               WrapperTypeNames.Contains(item: srBase)))
         {
-            int sfIndex = -1;
-            MemberVariableInfo? sfInfo = null;
-            for (int i = 0; i < structRecord.MemberVariables.Count; i++)
-            {
-                if (structRecord.MemberVariables[index: i].Name == member.MemberName)
-                {
-                    sfIndex = i;
-                    sfInfo = structRecord.MemberVariables[index: i];
-                    break;
-                }
-            }
-
-            if (sfIndex < 0 || sfInfo == null)
-            {
-                throw new InvalidOperationException(
-                    message:
-                    $"Member variable '{member.MemberName}' not found on record '{structRecord.Name}'");
-            }
-
-            string structAddr = EmitLvalueAddress(sb: sb, expr: member.Object);
-            string structTypeName = GetRecordTypeName(record: structRecord);
-            string sFieldPtr = NextTemp();
-            EmitLine(sb: sb,
-                line:
-                $"  {sFieldPtr} = getelementptr {structTypeName}, ptr {structAddr}, i32 0, i32 {sfIndex}");
-            EmitLine(sb: sb,
-                line: $"  store {GetLlvmType(type: sfInfo.Type)} {value}, ptr {sFieldPtr}");
+            EmitStructRecordMemberVariableWrite(sb: sb, member: member, value: value,
+                structRecord: structRecord);
             return;
         }
 
@@ -850,35 +831,12 @@ public partial class LlvmCodeGenerator
         else if (targetType is RecordTypeInfo wrapperRecOfRec &&
                  GetGenericBaseName(type: wrapperRecOfRec) is { } wrapRecBaseName &&
                  WrapperTypeNames.Contains(item: wrapRecBaseName) &&
-                 wrapperRecOfRec is { HasDirectBackendType: true, TypeArguments.Count: > 0 } &&
+                 wrapperRecOfRec is { BackendType: not null, TypeArguments.Count: > 0 } &&
                  wrapperRecOfRec.TypeArguments[index: 0] is RecordTypeInfo innerRecord &&
                  !wrapperRecOfRec.MemberVariables.Any(predicate: mv => mv.Name == member.MemberName))
         {
-            int fieldIndex = -1;
-            MemberVariableInfo? fieldInfo = null;
-            for (int i = 0; i < innerRecord.MemberVariables.Count; i++)
-            {
-                if (innerRecord.MemberVariables[index: i].Name == member.MemberName)
-                {
-                    fieldIndex = i;
-                    fieldInfo = innerRecord.MemberVariables[index: i];
-                    break;
-                }
-            }
-
-            if (fieldIndex < 0 || fieldInfo == null)
-            {
-                throw new InvalidOperationException(
-                    message:
-                    $"Member '{member.MemberName}' not found on inner record '{innerRecord.Name}'");
-            }
-
-            string innerRecordTypeName = GetRecordTypeName(record: innerRecord);
-            string fieldPtr = NextTemp();
-            EmitLine(sb: sb,
-                line: $"  {fieldPtr} = getelementptr {innerRecordTypeName}, ptr {target}, i32 0, i32 {fieldIndex}");
-            EmitLine(sb: sb,
-                line: $"  store {GetLlvmType(type: fieldInfo.Type)} {value}, ptr {fieldPtr}");
+            EmitWrapperOfRecordMemberVariableWrite(sb: sb, member: member, value: value,
+                target: target, innerRecord: innerRecord);
         }
         // Wrapper type forwarding: Modifying[T], Amending[T], etc. -> write through to inner entity
         else if (targetType is RecordTypeInfo wrapperRecord &&
@@ -887,91 +845,167 @@ public partial class LlvmCodeGenerator
                  wrapperRecord.TypeArguments is { Count: > 0 } &&
                  wrapperRecord.TypeArguments[index: 0] is EntityTypeInfo innerEntity)
         {
-            // For @llvm("ptr") wrappers, the value IS the pointer directly
-            // For struct wrappers, extract the inner Hijacked[T] (ptr) from field 0
-            string innerPtr;
-            // Retained[T] / Tracked[T] are `@llvm("ptr")` but the pointer targets a
-            // RetainController[T] struct, NOT the entity directly. The entity ptr lives in the
-            // controller's `data` field. Mirrors the read-path handling at
-            // LLVMCodeGenerator.Expressions.Entities.cs:441-465 — without this branch, writes
-            // to `me.head!!.prev = ...` etc. on Retained/Tracked would store into the
-            // controller's strong_count slot instead of the wrapped entity's field.
-            if (wrapperRecord.HasDirectBackendType &&
-                (wrapBaseName == Resolution.RuntimeContract.Retained || wrapBaseName == Resolution.RuntimeContract.Tracked))
-            {
-                TypeInfo? controllerType = _registry.LookupType(
-                    name: $"RetainController[{innerEntity.FullName}]")
-                    ?? _registry.LookupType(name: $"Core.RetainController[{innerEntity.FullName}]");
-                if (controllerType is EntityTypeInfo controllerEntity)
-                {
-                    innerPtr = EmitEntityMemberVariableRead(sb: sb,
-                        entityPtr: target,
-                        entity: controllerEntity,
-                        memberVariableName: "data");
-                }
-                else
-                {
-                    innerPtr = target;
-                }
-            }
-            else if (wrapperRecord.HasDirectBackendType &&
-                wrapBaseName == Resolution.RuntimeContract.Roamed)
-            {
-                // Roamed[T] handle: project the WRITE through RoamController.data. The access-lock
-                // bracket (lock_enter/lock_exit) is inserted as real AST calls around the enclosing
-                // statement by RoamedLockBracketLoweringPass — codegen just projects + stores here.
-                TypeInfo? controllerType = _registry.LookupType(
-                    name: $"RoamController[{innerEntity.FullName}]")
-                    ?? _registry.LookupType(name: $"Core.RoamController[{innerEntity.FullName}]");
-                string roamEntPtr = controllerType is EntityTypeInfo controllerEntity
-                    ? EmitEntityMemberVariableRead(sb: sb, entityPtr: target, entity: controllerEntity, memberVariableName: "data")
-                    : target;
-                EmitEntityMemberVariableWrite(sb: sb, entityPtr: roamEntPtr, entity: innerEntity,
-                    memberVariableName: member.MemberName, value: value, valueType: valueType);
-                return;
-            }
-            else if (wrapperRecord.HasDirectBackendType)
-            {
-                innerPtr = target;
-            }
-            else
-            {
-                string recordTypeName = GetRecordTypeName(record: wrapperRecord);
-                innerPtr = NextTemp();
-                // Find the Hijacked[T] field holding the inner entity pointer.
-                // e.g. Retained[T] has controller=0, data=1 -> must use data index.
-                int dataFieldIndex = 0;
-                for (int fi = 0; fi < wrapperRecord.MemberVariables.Count; fi++)
-                {
-                    if (wrapperRecord.MemberVariables[index: fi].Type is WrapperTypeInfo
-                        {
-                            Name: Resolution.RuntimeContract.Hijacked, TypeArguments.Count: > 0
-                        } hijacked &&
-                        hijacked.TypeArguments![index: 0] is EntityTypeInfo fieldInner &&
-                        fieldInner.FullName == innerEntity.FullName)
-                    {
-                        dataFieldIndex = fi;
-                        break;
-                    }
-                }
-
-                EmitLine(sb: sb,
-                    line:
-                    $"  {innerPtr} = extractvalue {recordTypeName} {target}, {dataFieldIndex}");
-            }
-
-            EmitEntityMemberVariableWrite(sb: sb,
-                entityPtr: innerPtr,
-                entity: innerEntity,
-                memberVariableName: member.MemberName,
-                value: value,
-                valueType: valueType);
+            EmitWrapperForwardingMemberVariableWrite(sb: sb, member: member, value: value,
+                valueType: valueType, target: target, wrapperRecord: wrapperRecord,
+                wrapBaseName: wrapBaseName, innerEntity: innerEntity);
         }
         else
         {
             throw new InvalidOperationException(
                 message: $"Cannot assign to member variable on type: {targetType?.Name}");
         }
+    }
+
+    /// <summary>Address-based store into a struct-record field (no @llvm backend type).</summary>
+    private void EmitStructRecordMemberVariableWrite(StringBuilder sb, MemberExpression member,
+        string value, RecordTypeInfo structRecord)
+    {
+        int sfIndex = -1;
+        MemberVariableInfo? sfInfo = null;
+        for (int i = 0; i < structRecord.MemberVariables.Count; i++)
+        {
+            if (structRecord.MemberVariables[index: i].Name == member.MemberName)
+            {
+                sfIndex = i;
+                sfInfo = structRecord.MemberVariables[index: i];
+                break;
+            }
+        }
+
+        if (sfIndex < 0 || sfInfo == null)
+        {
+            throw new InvalidOperationException(
+                message:
+                $"Member variable '{member.MemberName}' not found on record '{structRecord.Name}'");
+        }
+
+        string structAddr = EmitLvalueAddress(sb: sb, expr: member.Object);
+        string structTypeName = GetRecordTypeName(record: structRecord);
+        string sFieldPtr = NextTemp();
+        EmitLine(sb: sb,
+            line:
+            $"  {sFieldPtr} = getelementptr {structTypeName}, ptr {structAddr}, i32 0, i32 {sfIndex}");
+        EmitLine(sb: sb,
+            line: $"  store {GetLlvmType(type: sfInfo.Type)} {value}, ptr {sFieldPtr}");
+    }
+
+    /// <summary>GEP-and-store into the record addressed by a <c>@llvm("ptr")</c> wrapper-of-record
+    /// (Modifying[Record] etc.), where <paramref name="target"/> is the loaded wrapper pointer.</summary>
+    private void EmitWrapperOfRecordMemberVariableWrite(StringBuilder sb, MemberExpression member,
+        string value, string target, RecordTypeInfo innerRecord)
+    {
+        int fieldIndex = -1;
+        MemberVariableInfo? fieldInfo = null;
+        for (int i = 0; i < innerRecord.MemberVariables.Count; i++)
+        {
+            if (innerRecord.MemberVariables[index: i].Name == member.MemberName)
+            {
+                fieldIndex = i;
+                fieldInfo = innerRecord.MemberVariables[index: i];
+                break;
+            }
+        }
+
+        if (fieldIndex < 0 || fieldInfo == null)
+        {
+            throw new InvalidOperationException(
+                message:
+                $"Member '{member.MemberName}' not found on inner record '{innerRecord.Name}'");
+        }
+
+        string innerRecordTypeName = GetRecordTypeName(record: innerRecord);
+        string fieldPtr = NextTemp();
+        EmitLine(sb: sb,
+            line: $"  {fieldPtr} = getelementptr {innerRecordTypeName}, ptr {target}, i32 0, i32 {fieldIndex}");
+        EmitLine(sb: sb,
+            line: $"  store {GetLlvmType(type: fieldInfo.Type)} {value}, ptr {fieldPtr}");
+    }
+
+    /// <summary>Forwards a field write through a wrapper (Modifying[T], Retained[T], Roamed[T], …) to
+    /// the inner entity, projecting through the controller's <c>data</c> where needed.</summary>
+    private void EmitWrapperForwardingMemberVariableWrite(StringBuilder sb, MemberExpression member,
+        string value, TypeInfo? valueType, string target, RecordTypeInfo wrapperRecord,
+        string wrapBaseName, EntityTypeInfo innerEntity)
+    {
+        // For @llvm("ptr") wrappers, the value IS the pointer directly
+        // For struct wrappers, extract the inner Hijacked[T] (ptr) from field 0
+        string innerPtr;
+        // Retained[T] / Tracked[T] are `@llvm("ptr")` but the pointer targets a
+        // RetainController[T] struct, NOT the entity directly. The entity ptr lives in the
+        // controller's `data` field. Mirrors the read-path handling at
+        // LLVMCodeGenerator.Expressions.Entities.cs:441-465 — without this branch, writes
+        // to `me.head!!.prev = ...` etc. on Retained/Tracked would store into the
+        // controller's strong_count slot instead of the wrapped entity's field.
+        if (wrapperRecord.BackendType != null &&
+            (wrapBaseName == Resolution.RuntimeContract.Retained || wrapBaseName == Resolution.RuntimeContract.Tracked))
+        {
+            TypeInfo? controllerType = _registry.LookupType(
+                name: $"RetainController[{innerEntity.FullName}]")
+                ?? _registry.LookupType(name: $"Core.RetainController[{innerEntity.FullName}]");
+            if (controllerType is EntityTypeInfo controllerEntity)
+            {
+                innerPtr = EmitEntityMemberVariableRead(sb: sb,
+                    entityPtr: target,
+                    entity: controllerEntity,
+                    memberVariableName: "data");
+            }
+            else
+            {
+                innerPtr = target;
+            }
+        }
+        else if (wrapperRecord.BackendType != null &&
+            wrapBaseName == Resolution.RuntimeContract.Roamed)
+        {
+            // Roamed[T] handle: project the WRITE through RoamController.data. The access-lock
+            // bracket (lock_enter/lock_exit) is inserted as real AST calls around the enclosing
+            // statement by RoamedLockBracketLoweringPass — codegen just projects + stores here.
+            TypeInfo? controllerType = _registry.LookupType(
+                name: $"RoamController[{innerEntity.FullName}]")
+                ?? _registry.LookupType(name: $"Core.RoamController[{innerEntity.FullName}]");
+            string roamEntPtr = controllerType is EntityTypeInfo controllerEntity
+                ? EmitEntityMemberVariableRead(sb: sb, entityPtr: target, entity: controllerEntity, memberVariableName: "data")
+                : target;
+            EmitEntityMemberVariableWrite(sb: sb, entityPtr: roamEntPtr, entity: innerEntity,
+                memberVariableName: member.MemberName, value: value, valueType: valueType);
+            return;
+        }
+        else if (wrapperRecord.BackendType != null)
+        {
+            innerPtr = target;
+        }
+        else
+        {
+            string recordTypeName = GetRecordTypeName(record: wrapperRecord);
+            innerPtr = NextTemp();
+            // Find the Hijacked[T] field holding the inner entity pointer.
+            // e.g. Retained[T] has controller=0, data=1 -> must use data index.
+            int dataFieldIndex = 0;
+            for (int fi = 0; fi < wrapperRecord.MemberVariables.Count; fi++)
+            {
+                if (wrapperRecord.MemberVariables[index: fi].Type is WrapperTypeInfo
+                    {
+                        Name: Resolution.RuntimeContract.Hijacked, TypeArguments.Count: > 0
+                    } hijacked &&
+                    hijacked.TypeArguments![index: 0] is EntityTypeInfo fieldInner &&
+                    fieldInner.FullName == innerEntity.FullName)
+                {
+                    dataFieldIndex = fi;
+                    break;
+                }
+            }
+
+            EmitLine(sb: sb,
+                line:
+                $"  {innerPtr} = extractvalue {recordTypeName} {target}, {dataFieldIndex}");
+        }
+
+        EmitEntityMemberVariableWrite(sb: sb,
+            entityPtr: innerPtr,
+            entity: innerEntity,
+            memberVariableName: member.MemberName,
+            value: value,
+            valueType: valueType);
     }
 
     /// <summary>
@@ -982,8 +1016,7 @@ public partial class LlvmCodeGenerator
         // TODO: Record setitem is a hack and should be following setitem member routine.
         // TODO: Also, the setitem routine should be just called through anyway and handled not here.
         TypeInfo? targetType = GetExpressionType(expr: index.Object);
-        TryGetTransparentProtocolTarget(type: targetType, targetType: out TypeInfo? lookupType);
-        targetType = lookupType ?? targetType;
+        targetType = MarkerProtocolInner(type: targetType) ?? targetType;
 
         RoutineInfo? setItem = LookupSetItemMemberRoutine(index: index);
 
@@ -1061,6 +1094,20 @@ public partial class LlvmCodeGenerator
 
         string indexLlvm = indexType != null ? GetLlvmType(type: indexType) : "i64";
         string valueLlvm = ResolveSetItemValueLlvm(setItem: setItem, targetType: targetType);
+        // ABI-Indirect value: a record value param (e.g. `value: Point`) is passed as `ptr byval(%T)`
+        // on the callee side (Win64 passes a >8-byte record indirectly). This inline path emits the
+        // call by hand, so it must apply the SAME byval coercion the normal call path does — otherwise
+        // the raw struct SSA value lands where the callee expects a pointer and the callee dereferences
+        // garbage (AV). Scalar value params (i64, …) fall through unchanged.
+        TypeInfo? rhsType = GetExpressionType(expr: rhs);
+        if (rhsType != null && setItem.Parameters is [.., { Type: not GenericParameterTypeInfo } valueParam]
+            && TryCoerceArgToByval(sb: sb, argValue: value, actualType: rhsType,
+                parameterType: valueParam.Type, callee: setItem,
+                newValue: out string byvalValue, newType: out string byvalType))
+        {
+            value = byvalValue;
+            valueLlvm = byvalType;
+        }
         EmitLine(sb: sb,
             line:
             $"  call void @{mangledName}(ptr {receiver}, {indexLlvm} {indexValue}, {valueLlvm} {value})");
@@ -1120,13 +1167,12 @@ public partial class LlvmCodeGenerator
     private RoutineInfo? LookupSetItemMemberRoutine(IndexExpression index)
     {
         TypeInfo? targetType = GetExpressionType(expr: index.Object);
+        targetType = MarkerProtocolInner(type: targetType) ?? targetType;
         if (targetType == null)
         {
             return null;
         }
 
-        TryGetTransparentProtocolTarget(type: targetType, targetType: out TypeInfo? lookupType);
-        targetType = lookupType ?? targetType;
 
         return _registry.LookupMemberRoutine(type: targetType, memberRoutineName: "setitem");
     }
@@ -1286,58 +1332,69 @@ public partial class LlvmCodeGenerator
         string thenLabel = NextLabel(prefix: "if_then");
         string endLabel = NextLabel(prefix: "if_end");
 
-        if (ifStmt.ElseBranch != null)
+        return ifStmt.ElseBranch != null
+            ? EmitIfElse(sb: sb, ifStmt: ifStmt, condition: condition, thenLabel: thenLabel,
+                endLabel: endLabel)
+            : EmitIfNoElse(sb: sb, ifStmt: ifStmt, condition: condition, thenLabel: thenLabel,
+                endLabel: endLabel);
+    }
+
+    /// <summary>Emits an <c>if</c> WITH an else branch; returns true when both branches terminate.</summary>
+    private bool EmitIfElse(StringBuilder sb, IfStatement ifStmt, string condition,
+        string thenLabel, string endLabel)
+    {
+        string elseLabel = NextLabel(prefix: "if_else");
+        EmitLine(sb: sb, line: $"  br i1 {condition}, label %{thenLabel}, label %{elseLabel}");
+
+        // Then branch
+        EmitLine(sb: sb, line: $"{thenLabel}:");
+        bool thenTerminated = EmitStatement(sb: sb, stmt: ifStmt.ThenBranch);
+        if (!thenTerminated)
         {
-            string elseLabel = NextLabel(prefix: "if_else");
-            EmitLine(sb: sb, line: $"  br i1 {condition}, label %{thenLabel}, label %{elseLabel}");
-
-            // Then branch
-            EmitLine(sb: sb, line: $"{thenLabel}:");
-            bool thenTerminated = EmitStatement(sb: sb, stmt: ifStmt.ThenBranch);
-            if (!thenTerminated)
-            {
-                EmitLine(sb: sb, line: $"  br label %{endLabel}");
-            }
-
-            // Else branch
-            EmitLine(sb: sb, line: $"{elseLabel}:");
-            bool elseTerminated = EmitStatement(sb: sb, stmt: ifStmt.ElseBranch);
-            if (!elseTerminated)
-            {
-                EmitLine(sb: sb, line: $"  br label %{endLabel}");
-            }
-
-            // If both branches terminated, the end block is unreachable
-            // but we still need to emit it for LLVM (it will be dead code eliminated)
-            if (thenTerminated && elseTerminated)
-            {
-                // Both branches return - the if statement as a whole terminates
-                // Emit end label + unreachable (dead block must still have a terminator)
-                EmitLine(sb: sb, line: $"{endLabel}:");
-                EmitLine(sb: sb, line: "  unreachable");
-                return true;
-            }
-
-            // End block is reachable from at least one branch
-            EmitLine(sb: sb, line: $"{endLabel}:");
-            return false;
+            EmitLine(sb: sb, line: $"  br label %{endLabel}");
         }
-        else
+
+        // Else branch
+        EmitLine(sb: sb, line: $"{elseLabel}:");
+        bool elseTerminated = EmitStatement(sb: sb, stmt: ifStmt.ElseBranch!);
+        if (!elseTerminated)
         {
-            EmitLine(sb: sb, line: $"  br i1 {condition}, label %{thenLabel}, label %{endLabel}");
-
-            // Then branch
-            EmitLine(sb: sb, line: $"{thenLabel}:");
-            bool thenTerminated = EmitStatement(sb: sb, stmt: ifStmt.ThenBranch);
-            if (!thenTerminated)
-            {
-                EmitLine(sb: sb, line: $"  br label %{endLabel}");
-            }
-
-            // End block (always reachable via the else path, even if then returns)
-            EmitLine(sb: sb, line: $"{endLabel}:");
-            return false; // If without else never fully terminates
+            EmitLine(sb: sb, line: $"  br label %{endLabel}");
         }
+
+        // If both branches terminated, the end block is unreachable
+        // but we still need to emit it for LLVM (it will be dead code eliminated)
+        if (thenTerminated && elseTerminated)
+        {
+            // Both branches return - the if statement as a whole terminates
+            // Emit end label + unreachable (dead block must still have a terminator)
+            EmitLine(sb: sb, line: $"{endLabel}:");
+            EmitLine(sb: sb, line: "  unreachable");
+            return true;
+        }
+
+        // End block is reachable from at least one branch
+        EmitLine(sb: sb, line: $"{endLabel}:");
+        return false;
+    }
+
+    /// <summary>Emits an <c>if</c> WITHOUT an else branch; never fully terminates.</summary>
+    private bool EmitIfNoElse(StringBuilder sb, IfStatement ifStmt, string condition,
+        string thenLabel, string endLabel)
+    {
+        EmitLine(sb: sb, line: $"  br i1 {condition}, label %{thenLabel}, label %{endLabel}");
+
+        // Then branch
+        EmitLine(sb: sb, line: $"{thenLabel}:");
+        bool thenTerminated = EmitStatement(sb: sb, stmt: ifStmt.ThenBranch);
+        if (!thenTerminated)
+        {
+            EmitLine(sb: sb, line: $"  br label %{endLabel}");
+        }
+
+        // End block (always reachable via the else path, even if then returns)
+        EmitLine(sb: sb, line: $"{endLabel}:");
+        return false; // If without else never fully terminates
     }
 
     /// <summary>

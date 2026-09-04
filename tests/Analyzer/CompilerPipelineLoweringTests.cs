@@ -492,13 +492,15 @@ public class CompilerPipelineLoweringTests
             instantiatedGenericBodies: result.InstantiatedGenericBodies);
 
         string llvmIr = generator.Generate();
-        Assert.Contains(expectedSubstring: "\"[crashable, member, wired] Core.S32.sub(you: Core.S32)\"",
+        // Wired-ness is NOT part of the mangled symbol name (it is a routine PROPERTY, not an
+        // overload axis) — the attribute prefix carries only crashable/member here.
+        Assert.Contains(expectedSubstring: "\"[crashable, member] Core.S32.sub(you: Core.S32)\"",
             actualString: llvmIr);
-        Assert.Contains(expectedSubstring: "\"[crashable, member, wired] Core.S32.add(you: Core.S32)\"",
+        Assert.Contains(expectedSubstring: "\"[crashable, member] Core.S32.add(you: Core.S32)\"",
             actualString: llvmIr);
-        Assert.DoesNotContain(expectedSubstring: "declare void @\"[crashable, member, wired] Core.S32.sub",
+        Assert.DoesNotContain(expectedSubstring: "declare void @\"[crashable, member] Core.S32.sub",
             actualString: llvmIr);
-        Assert.DoesNotContain(expectedSubstring: "declare void @\"[crashable, member, wired] Core.S32.add",
+        Assert.DoesNotContain(expectedSubstring: "declare void @\"[crashable, member] Core.S32.add",
             actualString: llvmIr);
     }
 
@@ -670,11 +672,18 @@ public class CompilerPipelineLoweringTests
     [Fact]
     public void Codegen_BitListToU8_UsesConcreteHijackedU64Extract()
     {
+        // Variants are synthesized + emitted ON DEMAND — a bare propagating `to_u8!()` never
+        // materializes `try_to_u8`. The `trigger` routine RECOVERS via the `try_` variant so the
+        // body this test inspects is actually generated (mirrors ErrorVariantGenerationTests).
         string source = """
                         import Collections.BitList
 
                         routine test(bits: BitList) -> U8!
                           return bits.to_u8!()
+
+                        routine trigger(bits: BitList) -> U8
+                          discard bits.try_to_u8()
+                          return 0u8
                         """;
 
         Program program = Parse(source: source);

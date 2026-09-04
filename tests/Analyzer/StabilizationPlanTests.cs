@@ -100,18 +100,18 @@ public class StabilizationPlanTests
         string source = """
                         protocol Clonable
                           @readonly
-                          routine Me.copy() -> Me
+                          routine Me.duplicate() -> Me
 
                         record Box[T] obeys Clonable
                           value: T
 
                         @readonly
-                        routine Box[T].copy() -> Box[T]
+                        routine Box[T].duplicate() -> Box[T]
                           return Box[T](value: me.value)
 
                         routine test()
                           var boxed = Box[Box[S32]](value: Box[S32](value: 7))
-                          var copy: Box[Box[S32]] = boxed.copy()
+                          var copy: Box[Box[S32]] = boxed.duplicate()
                           return
                         """;
 

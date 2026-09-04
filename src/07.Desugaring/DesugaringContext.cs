@@ -38,7 +38,7 @@ public sealed class DesugaringContext
     /// Codegen checks this map before doing its own AST search and rewriting, so most
     /// generic memberRoutine bodies are ready before the first IR line is emitted.
     /// </summary>
-    public Dictionary<string, MonomorphizedBody> InstantiatedGenericBodies { get; } = new();
+    public Dictionary<string, MonomorphizedBody> InstantiatedGenericBodies { get; init; } = new();
 
     /// <summary>Target platform — drives BuilderQuery platform constants.</summary>
     public TargetConfig Target { get; }
@@ -50,17 +50,26 @@ public sealed class DesugaringContext
     public bool SaTiming { get; set; }
 
     /// <summary>
+    /// When true, synthesize structural derive bodies (destroy/represent/hash/…) for ALL concrete types,
+    /// not just the ones reachability marked live. Used when emitting a precompiled stdlib "base" that must
+    /// DEFINE every routine it references — e.g. the const-generic <c>Array[T,N]</c> destroy/represent that a
+    /// <c>from_literal</c> body calls, whose <c>Array[T,N]</c> type is created lazily and would otherwise
+    /// never get its derives built. Normal builds leave this false → liveness-filtered synthesis (unchanged).
+    /// </summary>
+    public bool SynthesizeAllDerives { get; init; }
+
+    /// <summary>
     /// Strategy-B live routine set (RegistryKey values reachable from program entry points).
     /// When non-empty, GMP gates body emission on membership; empty disables filtering.
     /// </summary>
-    public HashSet<string> LiveRoutineKeys { get; } = new(comparer: StringComparer.Ordinal);
+    public HashSet<string> LiveRoutineKeys { get; init; } = new(comparer: StringComparer.Ordinal);
 
     /// <summary>
     /// Live concrete owner-type FullNames mirrored from
     /// <c>InstantiationContext.LiveOwnerTypeNames</c>. GMP skips
     /// <c>ProcessConcreteType</c> for any concrete type not in this set when non-empty.
     /// </summary>
-    public HashSet<string> LiveOwnerTypeNames { get; } = new(comparer: StringComparer.Ordinal);
+    public HashSet<string> LiveOwnerTypeNames { get; init; } = new(comparer: StringComparer.Ordinal);
 
     /// <summary>
     /// Initializes shared state for passes that rewrite verified syntax before instantiation.

@@ -30,7 +30,7 @@ namespace Compiler.Desugaring.Passes;
 /// has been determined yet.</item>
 /// </list>
 /// </summary>
-internal sealed class GenericCallLoweringPass
+internal sealed class GenericCallLoweringPass : AstRewriter
 {
     /// <summary>
     /// Stores the registry state used by this compiler phase.
@@ -73,7 +73,7 @@ internal sealed class GenericCallLoweringPass
             {
                 case RoutineDeclaration r:
                 {
-                    Statement newBody = LowerStatement(r.Body);
+                    Statement newBody = VisitStatement(r.Body);
                     if (!ReferenceEquals(newBody, r.Body))
                         program.Declarations[i] = r with { Body = newBody };
                     break;
@@ -103,7 +103,7 @@ internal sealed class GenericCallLoweringPass
         foreach (string key in _variantBodies.Keys.ToList())
         {
             Statement body = _variantBodies[key];
-            Statement lowered = LowerStatement(body);
+            Statement lowered = VisitStatement(body);
             if (!ReferenceEquals(lowered, body))
                 _variantBodies[key] = lowered;
         }
@@ -120,17 +120,30 @@ internal sealed class GenericCallLoweringPass
             return;
         }
 
-        foreach (string key in _instantiatedGenericBodies.Keys.ToList())
+        RunOnInstantiatedGenericBodies(bodies: _instantiatedGenericBodies);
+    }
+
+    /// <summary>
+    /// Lowers GMCEs in the GIVEN body map. The warm-restore closure passes a SEPARATE <c>freshBodies</c>
+    /// dict (the NEW bodies GMP built this run); the sibling per-body lowering passes (f-string/operator/
+    /// …) mutate that same dict and it is merged back into the shared instantiation map afterwards. Running
+    /// this pass on the shared map instead would strand its lowered fresh bodies — the merge-back would
+    /// overwrite them with the un-GMCE-lowered <c>freshBodies</c> copies (the warm-only GMCE-survives bug).
+    /// Cold passes the shared map itself (freshBodies IS the map), so the behavior is unchanged there.
+    /// </summary>
+    public void RunOnInstantiatedGenericBodies(Dictionary<string, MonomorphizedBody> bodies)
+    {
+        foreach (string key in bodies.Keys.ToList())
         {
-            MonomorphizedBody body = _instantiatedGenericBodies[key];
+            MonomorphizedBody body = bodies[key];
             // NOTE: Previously skipped synthesized bodies (assumed they never contained GMCEs),
             // but wrapper represent/diagnose forwarders synthesized by WiredRoutinePass /
             // wrapper-forwarder synthesis DO contain GMCEs (e.g. Hijacked[T].x calls). Lower
             // them too so they meet the codegen contract.
-            Statement lowered = LowerStatement(body.Ast.Body);
+            Statement lowered = VisitStatement(body.Ast.Body);
             if (!ReferenceEquals(lowered, body.Ast.Body))
             {
-                _instantiatedGenericBodies[key] = body with
+                bodies[key] = body with
                 {
                     Ast = body.Ast with { Body = lowered }
                 };
@@ -146,7 +159,7 @@ internal sealed class GenericCallLoweringPass
         for (int j = 0; j < members.Count; j++)
         {
             if (members[j] is not RoutineDeclaration m) continue;
-            Statement newBody = LowerStatement(m.Body);
+            Statement newBody = VisitStatement(m.Body);
             if (!ReferenceEquals(newBody, m.Body))
                 members[j] = m with { Body = newBody };
         }
@@ -155,265 +168,56 @@ internal sealed class GenericCallLoweringPass
     // -----------------------------------------------------------------------------
 
     /// <summary>
-    /// Lower statement as part of this compiler phase.
+    /// The core transform: lower a <see cref="GenericMemberRoutineCallExpression"/> to a plain
+    /// <see cref="CallExpression"/> / <see cref="CreatorExpression"/> where possible, else fall
+    /// through to just rewriting its children. All other structural recursion comes from
+    /// <see cref="AstRewriter"/>.
     /// </summary>
-    private Statement LowerStatement(Statement stmt)
+    protected override Expression VisitGenericMemberRoutineCall(GenericMemberRoutineCallExpression e)
+        => TryLowerGenericCall(e) ?? LowerGenericCallChildren(e);
+
+    /// <summary>
+    /// Rewrites children, then re-copies the mutable resolution metadata that <c>with</c> drops.
+    /// </summary>
+    protected override Expression VisitCall(CallExpression e)
     {
-        switch (stmt)
-        {
-            case BlockStatement b:
-            {
-                List<Statement> stmts = LowerStatementList(b.Statements);
-                return ReferenceEquals(stmts, b.Statements) ? stmt : b with { Statements = stmts };
-            }
-
-            case IfStatement ifs:
-            {
-                Expression cond = LowerExpression(ifs.Condition);
-                Statement then = LowerStatement(ifs.ThenStatement);
-                Statement? elseS = ifs.ElseStatement != null
-                    ? LowerStatement(ifs.ElseStatement)
-                    : null;
-                bool changed = !ReferenceEquals(cond, ifs.Condition)
-                               || !ReferenceEquals(then, ifs.ThenStatement)
-                               || !ReferenceEquals(elseS, ifs.ElseStatement);
-                return changed
-                    ? ifs with { Condition = cond, ThenStatement = then, ElseStatement = elseS }
-                    : stmt;
-            }
-
-            case WhileStatement w:
-            {
-                Expression cond = LowerExpression(w.Condition);
-                Statement body = LowerStatement(w.Body);
-                Statement? elseB = w.ElseBranch != null ? LowerStatement(w.ElseBranch) : null;
-                bool changed = !ReferenceEquals(cond, w.Condition)
-                               || !ReferenceEquals(body, w.Body)
-                               || !ReferenceEquals(elseB, w.ElseBranch);
-                return changed ? w with { Condition = cond, Body = body, ElseBranch = elseB } : stmt;
-            }
-
-            case LoopStatement loop:
-            {
-                Statement body = LowerStatement(loop.Body);
-                return ReferenceEquals(body, loop.Body) ? stmt : loop with { Body = body };
-            }
-
-            case WhenStatement w:
-            {
-                Expression subj = LowerExpression(w.Expression);
-                bool clauseChanged = false;
-                var clauses = new List<WhenClause>(capacity: w.Clauses.Count);
-                foreach (WhenClause c in w.Clauses)
-                {
-                    Statement lBody = LowerStatement(c.Body);
-                    clauseChanged |= !ReferenceEquals(lBody, c.Body);
-                    clauses.Add(ReferenceEquals(lBody, c.Body) ? c : c with { Body = lBody });
-                }
-                bool changed = !ReferenceEquals(subj, w.Expression) || clauseChanged;
-                return changed ? w with { Expression = subj, Clauses = clauses } : stmt;
-            }
-
-            case ReturnStatement r:
-            {
-                if (r.Value == null) return stmt;
-                Expression val = LowerExpression(r.Value);
-                return ReferenceEquals(val, r.Value) ? stmt : r with { Value = val };
-            }
-
-            case VariantReturnStatement { Value: not null } vrs:
-            {
-                Expression val = LowerExpression(vrs.Value);
-                return ReferenceEquals(val, vrs.Value) ? stmt : vrs with { Value = val };
-            }
-
-            case ExpressionStatement es:
-            {
-                Expression e = LowerExpression(es.Expression);
-                return ReferenceEquals(e, es.Expression) ? stmt : es with { Expression = e };
-            }
-
-            case AssignmentStatement a:
-            {
-                Expression val = LowerExpression(a.Value);
-                // Target is usually not a GenericMemberRoutineCallExpression; walk it anyway
-                Expression tgt = LowerExpression(a.Target);
-                bool changed = !ReferenceEquals(val, a.Value) || !ReferenceEquals(tgt, a.Target);
-                return changed ? a with { Target = tgt, Value = val } : stmt;
-            }
-
-            case DeclarationStatement { Declaration: VariableDeclaration vd } decl:
-            {
-                if (vd.Initializer == null) return stmt;
-                Expression init = LowerExpression(vd.Initializer);
-                if (ReferenceEquals(init, vd.Initializer)) return stmt;
-                return decl with { Declaration = vd with { Initializer = init } };
-            }
-
-            case DiscardStatement d:
-            {
-                Expression e = LowerExpression(d.Expression);
-                return ReferenceEquals(e, d.Expression) ? stmt : d with { Expression = e };
-            }
-
-            case DangerStatement danger:
-            {
-                Statement body = LowerStatement(danger.Body);
-                return ReferenceEquals(body, danger.Body) ? stmt : danger with { Body = (BlockStatement)body };
-            }
-
-            default:
-                return stmt;
-        }
+        Expression rebuilt = base.VisitCall(e);
+        if (ReferenceEquals(rebuilt, e) || rebuilt is not CallExpression rewritten) return rebuilt;
+        // ResolvedRoutine/ResolvedType/etc. are mutable {get;set;} props — `with` drops them.
+        rewritten.ResolvedRoutine = e.ResolvedRoutine;
+        rewritten.LoweringKind = e.LoweringKind;
+        rewritten.ConstructedType = e.ConstructedType;
+        rewritten.IsCollectionLiteral = e.IsCollectionLiteral;
+        rewritten.TypeArguments = e.TypeArguments;
+        rewritten.ResolvedType = e.ResolvedType;
+        return rewritten;
     }
 
     /// <summary>
-    /// Lower statement list as part of this compiler phase.
+    /// Rewrites the receiver, then re-copies <c>ResolvedType</c> that <c>with</c> drops.
     /// </summary>
-    private List<Statement> LowerStatementList(List<Statement> stmts)
+    protected override Expression VisitMember(MemberExpression e)
     {
-        bool changed = false;
-        var result = new List<Statement>(capacity: stmts.Count);
-        foreach (Statement s in stmts)
-        {
-            Statement lowered = LowerStatement(s);
-            changed |= !ReferenceEquals(lowered, s);
-            result.Add(lowered);
-        }
-        return changed ? result : stmts;
+        Expression rebuilt = base.VisitMember(e);
+        if (ReferenceEquals(rebuilt, e) || rebuilt is not MemberExpression rewritten) return rebuilt;
+        rewritten.ResolvedType = e.ResolvedType;
+        return rewritten;
     }
 
-    // -----------------------------------------------------------------------------
-
     /// <summary>
-    /// Lower expression as part of this compiler phase.
+    /// Rewrites the member values, then re-copies the mutable resolution metadata that <c>with</c>
+    /// drops. Constructor arguments can themselves be GMCEs (e.g. <c>Limbs[4](d: Array[U32, 4]())</c>).
     /// </summary>
-    private Expression LowerExpression(Expression expr) // NOSONAR S3776
+    protected override Expression VisitCreator(CreatorExpression e)
     {
-        switch (expr)
-        {
-            case GenericMemberRoutineCallExpression gmc:
-                return TryLowerGenericCall(gmc) ?? LowerGenericCallChildren(gmc);
-
-            case CallExpression call:
-            {
-                Expression callee = LowerExpression(call.Callee);
-                bool argsChanged = false;
-                var args = new List<Expression>(capacity: call.Arguments.Count);
-                foreach (Expression arg in call.Arguments)
-                {
-                    Expression lowered = LowerExpression(arg);
-                    args.Add(lowered);
-                    argsChanged |= !ReferenceEquals(lowered, arg);
-                }
-                bool changed = !ReferenceEquals(callee, call.Callee) || argsChanged;
-                if (!changed) return expr;
-                var rewritten = call with { Callee = callee, Arguments = args };
-                // ResolvedRoutine/ResolvedType/etc. are mutable {get;set;} props — `with` drops them.
-                rewritten.ResolvedRoutine = call.ResolvedRoutine;
-                rewritten.LoweringKind = call.LoweringKind;
-                rewritten.ConstructedType = call.ConstructedType;
-                rewritten.IsCollectionLiteral = call.IsCollectionLiteral;
-                rewritten.TypeArguments = call.TypeArguments;
-                rewritten.ResolvedType = call.ResolvedType;
-                return rewritten;
-            }
-
-            case MemberExpression me:
-            {
-                Expression obj = LowerExpression(me.Object);
-                if (ReferenceEquals(obj, me.Object)) return expr;
-                var rewritten = me with { Object = obj };
-                rewritten.ResolvedType = me.ResolvedType;
-                return rewritten;
-            }
-
-            case BinaryExpression bin:
-            {
-                Expression left = LowerExpression(bin.Left);
-                Expression right = LowerExpression(bin.Right);
-                bool changed = !ReferenceEquals(left, bin.Left) || !ReferenceEquals(right, bin.Right);
-                return changed ? bin with { Left = left, Right = right } : expr;
-            }
-
-            case UnaryExpression u:
-            {
-                Expression operand = LowerExpression(u.Operand);
-                return ReferenceEquals(operand, u.Operand) ? expr : u with { Operand = operand };
-            }
-
-            case ConditionalExpression cond:
-            {
-                Expression c = LowerExpression(cond.Condition);
-                Expression t = LowerExpression(cond.TrueExpression);
-                Expression f = LowerExpression(cond.FalseExpression);
-                bool changed = !ReferenceEquals(c, cond.Condition)
-                               || !ReferenceEquals(t, cond.TrueExpression)
-                               || !ReferenceEquals(f, cond.FalseExpression);
-                return changed
-                    ? cond with { Condition = c, TrueExpression = t, FalseExpression = f }
-                    : expr;
-            }
-
-            case NamedArgumentExpression named:
-            {
-                Expression val = LowerExpression(named.Value);
-                return ReferenceEquals(val, named.Value) ? expr : named with { Value = val };
-            }
-
-            case InsertedTextExpression inserted:
-            {
-                // f-string interpolations: a `{ expr }` part can hold a GenericMemberRoutineCallExpression
-                // (e.g. `f"…{words.min_by[U64](selector: …)}…"`). Without recursing into the parts
-                // that GMCE survives to codegen and trips the "GenericMemberRoutineCallExpression survived
-                // postprocessing" guard.
-                bool partChanged = false;
-                var newParts = new List<InsertedTextPart>(capacity: inserted.Parts.Count);
-                foreach (InsertedTextPart part in inserted.Parts)
-                {
-                    if (part is ExpressionPart ep)
-                    {
-                        Expression loweredPart = LowerExpression(ep.Expression);
-                        if (!ReferenceEquals(loweredPart, ep.Expression))
-                        {
-                            partChanged = true;
-                            newParts.Add(item: ep with { Expression = loweredPart });
-                            continue;
-                        }
-                    }
-                    newParts.Add(item: part);
-                }
-                return partChanged ? inserted with { Parts = newParts } : expr;
-            }
-
-            case CreatorExpression creator:
-            {
-                // Constructor arguments can themselves be GMCEs (e.g.
-                // `Limbs[4](d: Array[U32, 4]())`). Without recursing into the member
-                // values, a nested GMCE survives to codegen and trips the
-                // "GenericMemberRoutineCallExpression reached codegen" guard.
-                bool membersChanged = false;
-                var newMembers =
-                    new List<(string Name, Expression Value)>(capacity: creator.MemberVariables.Count);
-                foreach ((string name, Expression value) in creator.MemberVariables)
-                {
-                    Expression lowered = LowerExpression(value);
-                    membersChanged |= !ReferenceEquals(lowered, value);
-                    newMembers.Add(item: (name, lowered));
-                }
-                if (!membersChanged) return expr;
-                var rewritten = creator with { MemberVariables = newMembers };
-                // Mutable {get;set;} props are dropped by `with` — carry them over.
-                rewritten.LoweringKind = creator.LoweringKind;
-                rewritten.ConstructedType = creator.ConstructedType;
-                rewritten.ResolvedCreatorRoutine = creator.ResolvedCreatorRoutine;
-                rewritten.ResolvedType = creator.ResolvedType;
-                return rewritten;
-            }
-
-            default:
-                return expr;
-        }
+        Expression rebuilt = base.VisitCreator(e);
+        if (ReferenceEquals(rebuilt, e) || rebuilt is not CreatorExpression rewritten) return rebuilt;
+        // Mutable {get;set;} props are dropped by `with` — carry them over.
+        rewritten.LoweringKind = e.LoweringKind;
+        rewritten.ConstructedType = e.ConstructedType;
+        rewritten.ResolvedCreatorRoutine = e.ResolvedCreatorRoutine;
+        rewritten.ResolvedType = e.ResolvedType;
+        return rewritten;
     }
 
     /// <summary>
@@ -470,32 +274,7 @@ internal sealed class GenericCallLoweringPass
             && (gmc.Arguments.Count > 0
                 || HasZeroMemberVariables(type: gmc.ConstructedType)))
         {
-            // Accept either fully named args (record-style field init) or fully positional
-            // (constructor call form like Hijacked[T](me) from synthesized wrapper bodies).
-            // CreatorExpression's MemberVariables uses ("", expr) for positional entries.
-            bool allNamed = gmc.Arguments.All(predicate: a => a is NamedArgumentExpression);
-            bool anyNamed = gmc.Arguments.Any(predicate: a => a is NamedArgumentExpression);
-            if (!allNamed && anyNamed) return null; // mixed named/positional — not our case
-
-            var members = new List<(string Name, Expression Value)>(capacity: gmc.Arguments.Count);
-            foreach (Expression arg in gmc.Arguments)
-            {
-                if (arg is NamedArgumentExpression named)
-                    members.Add((named.Name, LowerExpression(named.Value)));
-                else
-                    members.Add(("", LowerExpression(arg)));
-            }
-            return new CreatorExpression(
-                TypeName: gmc.MemberRoutineName,
-                TypeArguments: gmc.TypeArguments.Count > 0 ? gmc.TypeArguments : null,
-                MemberVariables: members,
-                Location: gmc.Location)
-            {
-                LoweringKind = gmc.LoweringKind,
-                ConstructedType = gmc.ConstructedType,
-                ResolvedType = gmc.ResolvedType,
-                IsInFlight = gmc.IsInFlight
-            };
+            return LowerFieldInitCreator(gmc: gmc);
         }
 
         // Only lower when SA has resolved the routine -> provides the concrete call target.
@@ -510,7 +289,7 @@ internal sealed class GenericCallLoweringPass
         // Lower arguments first.
         var loweredArgs = new List<Expression>(capacity: gmc.Arguments.Count);
         foreach (Expression arg in gmc.Arguments)
-            loweredArgs.Add(LowerExpression(arg));
+            loweredArgs.Add(VisitExpression(arg));
 
         // -----------------------------------------------------------------------------
         // e.g., Maybe[S64](present: true, value: x) -> SA resolved create and set ResolvedRoutine.
@@ -523,37 +302,93 @@ internal sealed class GenericCallLoweringPass
         // name) becomes a null first argument.
         if (gmc.Object is IdentifierExpression id && id.Name == gmc.MemberRoutineName)
         {
-            bool isTypeConstruction = gmc.ConstructedType != null ||
-                                      gmc.LoweringKind is CallLoweringKind.TypeConstructor
-                                          or CallLoweringKind.WrapperConstruction
-                                          or CallLoweringKind.ValueConversion
-                                          or CallLoweringKind.CollectionConstruction;
-            return new CallExpression(
-                // Callee is the type name (without the failable `!`); codegen constructs via
-                // ConstructedType/ResolvedRoutine, so the name only identifies the type.
-                Callee: new IdentifierExpression(
-                    Name: isTypeConstruction ? id.Name : gmc.ResolvedRoutine.Name,
-                    Location: gmc.Location,
-                    // Preserve the `::` realm qualifier (`LLVM::add[U128]`) so a re-analysis of the
-                    // lowered body (monomorphized stdlib bodies re-run SA post-lowering) still sees the
-                    // foreign realm and the strict realm gate passes instead of false-flagging.
-                    Realm: id.Realm),
-                Arguments: loweredArgs,
-                Location: gmc.Location)
-            {
-                IsFailable = gmc.IsMemoryOperation,
-                LoweringKind = gmc.LoweringKind,
-                ConstructedType = gmc.ConstructedType,
-                ResolvedRoutine = gmc.ResolvedRoutine,
-                TypeArguments = gmc.TypeArguments.Count > 0 ? gmc.TypeArguments : null,
-                ResolvedType = gmc.ResolvedType,
-                IsInFlight = gmc.IsInFlight
-            };
+            return LowerConstructionCall(gmc: gmc, id: id, loweredArgs: loweredArgs);
         }
 
         // -----------------------------------------------------------------------------
         // e.g., buf.read![U8](offset) -> CallExpression with TypeArguments=[U8].
-        Expression loweredObj = LowerExpression(gmc.Object);
+        return LowerMemberRoutineCall(gmc: gmc, loweredArgs: loweredArgs);
+    }
+
+    /// <summary>
+    /// Lowers a raw field-initialization / zero-arg construction GMC to a
+    /// <see cref="CreatorExpression"/> so codegen's constructor path handles it.
+    /// Returns null when the argument list mixes named and positional entries.
+    /// </summary>
+    private Expression? LowerFieldInitCreator(GenericMemberRoutineCallExpression gmc)
+    {
+        // Accept either fully named args (record-style field init) or fully positional
+        // (constructor call form like Hijacked[T](me) from synthesized wrapper bodies).
+        // CreatorExpression's MemberVariables uses ("", expr) for positional entries.
+        bool allNamed = gmc.Arguments.All(predicate: a => a is NamedArgumentExpression);
+        bool anyNamed = gmc.Arguments.Any(predicate: a => a is NamedArgumentExpression);
+        if (!allNamed && anyNamed) return null; // mixed named/positional — not our case
+
+        var members = new List<(string Name, Expression Value)>(capacity: gmc.Arguments.Count);
+        foreach (Expression arg in gmc.Arguments)
+        {
+            if (arg is NamedArgumentExpression named)
+                members.Add((named.Name, VisitExpression(named.Value)));
+            else
+                members.Add(("", VisitExpression(arg)));
+        }
+        return new CreatorExpression(
+            TypeName: gmc.MemberRoutineName,
+            TypeArguments: gmc.TypeArguments.Count > 0 ? gmc.TypeArguments : null,
+            MemberVariables: members,
+            Location: gmc.Location)
+        {
+            LoweringKind = gmc.LoweringKind,
+            ConstructedType = gmc.ConstructedType,
+            ResolvedType = gmc.ResolvedType,
+            IsInFlight = gmc.IsInFlight
+        };
+    }
+
+    /// <summary>
+    /// Lowers a resolved construction/free-routine GMC (<c>Object.Name == MemberRoutineName</c>) to a
+    /// plain <see cref="CallExpression"/> whose callee names the type (constructions) or the resolved
+    /// free routine.
+    /// </summary>
+    private CallExpression LowerConstructionCall(GenericMemberRoutineCallExpression gmc,
+        IdentifierExpression id, List<Expression> loweredArgs)
+    {
+        bool isTypeConstruction = gmc.ConstructedType != null ||
+                                  gmc.LoweringKind is CallLoweringKind.TypeConstructor
+                                      or CallLoweringKind.WrapperConstruction
+                                      or CallLoweringKind.ValueConversion
+                                      or CallLoweringKind.CollectionConstruction;
+        return new CallExpression(
+            // Callee is the type name (without the failable `!`); codegen constructs via
+            // ConstructedType/ResolvedRoutine, so the name only identifies the type.
+            Callee: new IdentifierExpression(
+                Name: isTypeConstruction ? id.Name : gmc.ResolvedRoutine!.Name,
+                Location: gmc.Location,
+                // Preserve the `::` realm qualifier (`LLVM::add[U128]`) so a re-analysis of the
+                // lowered body (monomorphized stdlib bodies re-run SA post-lowering) still sees the
+                // foreign realm and the strict realm gate passes instead of false-flagging.
+                Realm: id.Realm),
+            Arguments: loweredArgs,
+            Location: gmc.Location)
+        {
+            IsFailable = gmc.IsMemoryOperation,
+            LoweringKind = gmc.LoweringKind,
+            ConstructedType = gmc.ConstructedType,
+            ResolvedRoutine = gmc.ResolvedRoutine,
+            TypeArguments = gmc.TypeArguments.Count > 0 ? gmc.TypeArguments : null,
+            ResolvedType = gmc.ResolvedType,
+            IsInFlight = gmc.IsInFlight
+        };
+    }
+
+    /// <summary>
+    /// Lowers a resolved memberRoutine-generic call on a receiver (e.g. <c>buf.read![U8](offset)</c>)
+    /// to a plain <see cref="CallExpression"/> over a <see cref="MemberExpression"/> callee.
+    /// </summary>
+    private CallExpression LowerMemberRoutineCall(GenericMemberRoutineCallExpression gmc,
+        List<Expression> loweredArgs)
+    {
+        Expression loweredObj = VisitExpression(gmc.Object);
 
         return new CallExpression(
             Callee: new MemberExpression(
@@ -638,12 +473,12 @@ internal sealed class GenericCallLoweringPass
     /// </summary>
     private GenericMemberRoutineCallExpression LowerGenericCallChildren(GenericMemberRoutineCallExpression gmc)
     {
-        Expression loweredObj = LowerExpression(gmc.Object);
+        Expression loweredObj = VisitExpression(gmc.Object);
         bool argsChanged = false;
         var args = new List<Expression>(capacity: gmc.Arguments.Count);
         foreach (Expression arg in gmc.Arguments)
         {
-            Expression lowered = LowerExpression(arg);
+            Expression lowered = VisitExpression(arg);
             args.Add(lowered);
             argsChanged |= !ReferenceEquals(lowered, arg);
         }

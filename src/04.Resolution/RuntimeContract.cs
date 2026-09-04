@@ -82,6 +82,21 @@ public static class RuntimeContract
         public const string RawInner = "raw_inner";
     }
 
+    /// <summary>The two ORTHOGONAL duplication verbs. <c>assign</c> (Assignable) = the implicit shallow
+    /// bind/share verb that <see cref="Compiler.Postprocessing.Passes.RecordCopyLoweringPass"/> INJECTS at
+    /// every implicit-copy site (<c>b = a</c>, non-<c>steal</c> arg, return) — a bitwise dup for value
+    /// records, a refcount++ share for managed leaves. <c>duplicate</c> (Copyable) = the explicit DEEP copy
+    /// (<c>a.duplicate()</c>). For a refcounted (RC/BRC/ARC) type the two coincide (deep-clone collapses to
+    /// share). Only <c>assign</c> is injected, so it alone is the identity-copy primitive the copy pass must
+    /// not re-inject into (self-recursion guard).</summary>
+    public static class Duplication
+    {
+        /// <summary>Implicit shallow bind/share (Assignable) — the verb injected at copy sites.</summary>
+        public const string Assign = "assign";
+        /// <summary>Explicit deep copy (Copyable).</summary>
+        public const string Duplicate = "duplicate";
+    }
+
     /// <summary>The auto-derived display routines emitted for every type.</summary>
     public static class Display
     {
@@ -237,6 +252,19 @@ public static class RuntimeContract
     public const string Controlling = "Controlling";
     /// <summary>Marker protocol whose coercion mints a referring borrow (<see cref="Access"/>).</summary>
     public const string Accessing = "Accessing";
+
+    /// <summary>
+    /// The single classifier for the borrow marker protocols: true when <paramref name="baseName"/> is
+    /// the bare name of <see cref="Accessing"/> or <see cref="Controlling"/>. Use this everywhere instead
+    /// of open-coding <c>x is Accessing or Controlling</c>.
+    /// </summary>
+    public static bool IsMarkerProtocol(string? baseName) =>
+        baseName is Accessing or Controlling;
+
+    /// <summary>The coercion verb a marker protocol mints: <see cref="Control"/> for
+    /// <see cref="Controlling"/> (read/write), else <see cref="Access"/> (read-only).</summary>
+    public static string MarkerCoercionVerb(string? baseName) =>
+        baseName == Controlling ? Control : Access;
 
     /// <summary>All wrapper types recognized for layout/dispatch. Mirrors WrapperForwardingPass.WrapperTypes
     /// and LLVMCodeGenerator.WrapperTypeNames.</summary>

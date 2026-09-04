@@ -282,7 +282,7 @@ public sealed class RoutineInfo
             return false;
         }
         string baseName = (proto.GenericDefinition ?? proto).BareName;
-        return baseName is RuntimeContract.Accessing or RuntimeContract.Controlling;
+        return RuntimeContract.IsMarkerProtocol(baseName: baseName);
     }
 
     /// <summary>Visibility modifier.</summary>
@@ -594,31 +594,14 @@ public sealed class RoutineInfo
         // so reachability/instantiation paths that route through here also resolve projections.
         if (type is AssociatedProjectionTypeInfo projection)
         {
-            TypeSymbol newBase = SubstituteType(type: projection.Base, substitution: substitution);
-            TypeInfo? bound = RecordTypeInfo.ProjectAssociatedBinding(baseType: newBase,
-                slot: projection.SlotName);
-            if (bound != null)
-            {
-                return SubstituteType(type: bound, substitution: substitution);
-            }
-            return ReferenceEquals(objA: newBase, objB: projection.Base)
-                ? projection
-                : new AssociatedProjectionTypeInfo(baseType: newBase, slotName: projection.SlotName);
+            return SubstituteAssociatedProjection(projection: projection, substitution: substitution);
         }
 
         // Comptime const-generic (`${max(T.data_size().byte_size(), 8)}`): once the referenced type
         // params are bound, fold to a plain ConstGenericValueTypeInfo; otherwise keep it symbolic.
         if (type is ComptimeConstGenericTypeInfo comptime)
         {
-            return comptime.TryFold(
-                    resolveTypeParam: name => substitution.TryGetValue(key: name, value: out TypeSymbol? s)
-                        ? s as TypeInfo
-                        : null,
-                    pointerSize: 8, out long folded)
-                ? new ConstGenericValueTypeInfo(literalText: folded.ToString(),
-                    value: folded,
-                    explicitTypeName: "U64")
-                : comptime;
+            return SubstituteComptimeConstGeneric(comptime: comptime, substitution: substitution);
         }
 
         if (substitution.TryGetValue(key: type.Name, value: out TypeSymbol? substituted))
@@ -629,79 +612,131 @@ public sealed class RoutineInfo
         // Substitute inside routine types (e.g., Routine[(T, T), Bool] -> Routine[(S64, S64), Bool])
         if (type is RoutineTypeInfo routineType)
         {
-            var substitutedParams = routineType.ParameterTypes
-                .Select(selector: p => SubstituteType(type: p, substitution: substitution))
-                .ToList();
-            TypeSymbol? substitutedReturn = routineType.ReturnType != null
-                ? SubstituteType(type: routineType.ReturnType, substitution: substitution)
-                : null;
-            return new RoutineTypeInfo(parameterTypes: substitutedParams,
-                returnType: substitutedReturn) { IsFailable = routineType.IsFailable };
+            return SubstituteRoutineType(routineType: routineType, substitution: substitution);
         }
 
         if (type is TupleTypeInfo tupleType)
         {
-            var substitutedElements = tupleType.ElementTypes
-                .Select(selector => SubstituteType(type: selector, substitution: substitution))
-                .ToList();
-            bool anyChanged = substitutedElements.Where((element, index) =>
-                    !ReferenceEquals(objA: element, objB: tupleType.ElementTypes[index: index]))
-                .Any();
-            return anyChanged
-                ? new TupleTypeInfo(elementTypes: substitutedElements)
-                : tupleType;
+            return SubstituteTupleType(tupleType: tupleType, substitution: substitution);
         }
 
         if (type is { IsGenericResolution: true, TypeArguments: not null })
         {
-            var newArgs = type.TypeArguments
-                              .Select(selector: arg =>
-                                   SubstituteType(type: arg, substitution: substitution))
-                              .ToList();
-
-            // Route through the ambient TypeRegistry so entity-type specializations
-            // (e.g. Maybe[Text] -> { Hijacked[T] } layout) are picked up instead of
-            // blindly using the primary generic definition's layout.
-            TypeRegistry? registry = TypeRegistry.Ambient;
-
-            // Use GenericDefinition to create the new resolution (not the resolution itself)
-            if (type is EntityTypeInfo { GenericDefinition: not null } entityType)
-            {
-                return registry != null
-                    ? registry.GetOrCreateResolution(genericDef: entityType.GenericDefinition, typeArguments: newArgs)
-                    : entityType.GenericDefinition.CreateInstance(typeArguments: newArgs);
-            }
-
-            if (type is RecordTypeInfo { GenericDefinition: not null } recordType)
-            {
-                return registry != null
-                    ? registry.GetOrCreateResolution(genericDef: recordType.GenericDefinition, typeArguments: newArgs)
-                    : recordType.GenericDefinition.CreateInstance(typeArguments: newArgs);
-            }
-
-            if (type is ProtocolTypeInfo { GenericDefinition: not null } protocolType)
-            {
-                return registry != null
-                    ? registry.GetOrCreateResolution(genericDef: protocolType.GenericDefinition, typeArguments: newArgs)
-                    : protocolType.GenericDefinition.CreateInstance(typeArguments: newArgs);
-            }
-
-            // WrapperTypeInfo (Retained[T], Guarded[T], etc.) — if the registry has a RecordTypeInfo
-            // for the same base name, prefer that so the concrete type stays RecordTypeInfo everywhere.
-            // This avoids the WrapperTypeInfo -> "ptr" codegen mapping mismatch when the actual LLVM
-            // function definition uses the struct layout from the RecordTypeInfo.
-            if (type is WrapperTypeInfo && registry != null)
-            {
-                TypeInfo? recordDef = registry.LookupType(name: type.Name);
-                if (recordDef is RecordTypeInfo { IsGenericDefinition: true })
-                {
-                    return registry.GetOrCreateResolution(genericDef: recordDef, typeArguments: newArgs);
-                }
-            }
-
-            return type.CreateInstance(typeArguments: newArgs);
+            return SubstituteGenericResolution(type: type, substitution: substitution);
         }
 
         return type;
+    }
+
+    // Associated-type projection (`S/Iter`): substitute the base, resolve via its binding, else re-base.
+    private static TypeSymbol SubstituteAssociatedProjection(AssociatedProjectionTypeInfo projection,
+        Dictionary<string, TypeSymbol> substitution)
+    {
+        TypeSymbol newBase = SubstituteType(type: projection.Base, substitution: substitution);
+        TypeInfo? bound = RecordTypeInfo.ProjectAssociatedBinding(baseType: newBase,
+            slot: projection.SlotName);
+        if (bound != null)
+        {
+            return SubstituteType(type: bound, substitution: substitution);
+        }
+        return ReferenceEquals(objA: newBase, objB: projection.Base)
+            ? projection
+            : new AssociatedProjectionTypeInfo(baseType: newBase, slotName: projection.SlotName);
+    }
+
+    // Comptime const-generic: fold once referenced params are bound, else keep symbolic.
+    private static TypeSymbol SubstituteComptimeConstGeneric(ComptimeConstGenericTypeInfo comptime,
+        Dictionary<string, TypeSymbol> substitution)
+    {
+        return comptime.TryFold(
+                resolveTypeParam: name => substitution.TryGetValue(key: name, value: out TypeSymbol? s)
+                    ? s as TypeInfo
+                    : null,
+                pointerSize: 8, out long folded)
+            ? new ConstGenericValueTypeInfo(literalText: folded.ToString(),
+                value: folded,
+                explicitTypeName: "U64")
+            : comptime;
+    }
+
+    // Substitute inside a routine type's parameter and return types.
+    private static TypeSymbol SubstituteRoutineType(RoutineTypeInfo routineType,
+        Dictionary<string, TypeSymbol> substitution)
+    {
+        var substitutedParams = routineType.ParameterTypes
+            .Select(selector: p => SubstituteType(type: p, substitution: substitution))
+            .ToList();
+        TypeSymbol? substitutedReturn = routineType.ReturnType != null
+            ? SubstituteType(type: routineType.ReturnType, substitution: substitution)
+            : null;
+        return new RoutineTypeInfo(parameterTypes: substitutedParams,
+            returnType: substitutedReturn) { IsFailable = routineType.IsFailable };
+    }
+
+    // Substitute inside a tuple type's element types.
+    private static TypeSymbol SubstituteTupleType(TupleTypeInfo tupleType,
+        Dictionary<string, TypeSymbol> substitution)
+    {
+        var substitutedElements = tupleType.ElementTypes
+            .Select(selector => SubstituteType(type: selector, substitution: substitution))
+            .ToList();
+        bool anyChanged = substitutedElements.Where((element, index) =>
+                !ReferenceEquals(objA: element, objB: tupleType.ElementTypes[index: index]))
+            .Any();
+        return anyChanged
+            ? new TupleTypeInfo(elementTypes: substitutedElements)
+            : tupleType;
+    }
+
+    // Substitute a generic resolution's args and re-resolve through the ambient registry per kind.
+    private static TypeSymbol SubstituteGenericResolution(TypeSymbol type,
+        Dictionary<string, TypeSymbol> substitution)
+    {
+        var newArgs = type.TypeArguments!
+                          .Select(selector: arg =>
+                               SubstituteType(type: arg, substitution: substitution))
+                          .ToList();
+
+        // Route through the ambient TypeRegistry so entity-type specializations
+        // (e.g. Maybe[Text] -> { Hijacked[T] } layout) are picked up instead of
+        // blindly using the primary generic definition's layout.
+        TypeRegistry? registry = TypeRegistry.Ambient;
+
+        // Use GenericDefinition to create the new resolution (not the resolution itself)
+        if (type is EntityTypeInfo { GenericDefinition: not null } entityType)
+        {
+            return registry != null
+                ? registry.GetOrCreateResolution(genericDef: entityType.GenericDefinition, typeArguments: newArgs)
+                : entityType.GenericDefinition.CreateInstance(typeArguments: newArgs);
+        }
+
+        if (type is RecordTypeInfo { GenericDefinition: not null } recordType)
+        {
+            return registry != null
+                ? registry.GetOrCreateResolution(genericDef: recordType.GenericDefinition, typeArguments: newArgs)
+                : recordType.GenericDefinition.CreateInstance(typeArguments: newArgs);
+        }
+
+        if (type is ProtocolTypeInfo { GenericDefinition: not null } protocolType)
+        {
+            return registry != null
+                ? registry.GetOrCreateResolution(genericDef: protocolType.GenericDefinition, typeArguments: newArgs)
+                : protocolType.GenericDefinition.CreateInstance(typeArguments: newArgs);
+        }
+
+        // WrapperTypeInfo (Retained[T], Guarded[T], etc.) — if the registry has a RecordTypeInfo
+        // for the same base name, prefer that so the concrete type stays RecordTypeInfo everywhere.
+        // This avoids the WrapperTypeInfo -> "ptr" codegen mapping mismatch when the actual LLVM
+        // function definition uses the struct layout from the RecordTypeInfo.
+        if (type is WrapperTypeInfo && registry != null)
+        {
+            TypeInfo? recordDef = registry.LookupType(name: type.Name);
+            if (recordDef is RecordTypeInfo { IsGenericDefinition: true })
+            {
+                return registry.GetOrCreateResolution(genericDef: recordDef, typeArguments: newArgs);
+            }
+        }
+
+        return type.CreateInstance(typeArguments: newArgs);
     }
 }

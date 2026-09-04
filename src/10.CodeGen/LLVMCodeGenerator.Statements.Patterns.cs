@@ -199,34 +199,14 @@ public partial class LlvmCodeGenerator
             // Must do this BEFORE EmitPatternMatch to pass the right type.
             if (subjectType != null && IsCarrierType(type: subjectType) &&
                 clause.Pattern is ElsePattern { VariableName: not null } elseCarrier &&
-                subjectType.TypeArguments?.Count > 0)
+                subjectType.TypeArguments?.Count > 0 &&
+                IsNarrowedCarrierElseArm(subjectType: subjectType, handledAbsent: handledAbsent,
+                    handledCrashable: handledCrashable))
             {
-                TypeInfo innerType = subjectType.TypeArguments[index: 0];
-                bool isNarrowedToT =
-                    (GetCarrierBaseName(type: subjectType) == "Maybe" && handledAbsent) ||
-                    (GetCarrierBaseName(type: subjectType) == "Result" && handledCrashable) ||
-                    (GetCarrierBaseName(type: subjectType) == "Lookup" && handledAbsent &&
-                     handledCrashable);
-
-                if (isNarrowedToT)
-                {
-                    string bodyLabel = NextLabel(prefix: $"when_body{i}");
-                    EmitCarrierElsePatternExtract(sb: sb,
-                        subject: subject,
-                        subjectType: subjectType,
-                        innerType: innerType,
-                        variableName: elseCarrier.VariableName,
-                        matchLabel: bodyLabel);
-                    EmitLine(sb: sb, line: $"{bodyLabel}:");
-                    bool bodyTerminated2 = EmitStatement(sb: sb, stmt: clause.Body);
-                    if (!bodyTerminated2)
-                    {
-                        allTerminated = false;
-                        EmitLine(sb: sb, line: $"  br label %{endLabel}");
-                    }
-
-                    continue;
-                }
+                EmitNarrowedCarrierElseArm(sb: sb, clause: clause, subject: subject,
+                    subjectType: subjectType, variableName: elseCarrier.VariableName,
+                    clauseIndex: i, endLabel: endLabel, allTerminated: ref allTerminated);
+                continue;
             }
 
             // Track absent/crashable for narrowing of subsequent else arms
@@ -258,6 +238,43 @@ public partial class LlvmCodeGenerator
         }
 
         return allTerminated;
+    }
+
+    /// <summary>
+    /// Returns true when a carrier ElsePattern arm is narrowed to the inner <c>T</c> value: a Maybe
+    /// whose absent arm was already handled, a Result whose crashable arm was already handled, or a
+    /// Lookup whose absent AND crashable arms were both already handled.
+    /// </summary>
+    private static bool IsNarrowedCarrierElseArm(TypeInfo subjectType, bool handledAbsent,
+        bool handledCrashable) =>
+        (GetCarrierBaseName(type: subjectType) == "Maybe" && handledAbsent) ||
+        (GetCarrierBaseName(type: subjectType) == "Result" && handledCrashable) ||
+        (GetCarrierBaseName(type: subjectType) == "Lookup" && handledAbsent && handledCrashable);
+
+    /// <summary>
+    /// Emits a narrowed carrier else arm: extracts the inner T value into the bound variable, emits the
+    /// clause body, and (unless the body self-terminates) branches to <paramref name="endLabel"/>,
+    /// clearing <paramref name="allTerminated"/>.
+    /// </summary>
+    private void EmitNarrowedCarrierElseArm(StringBuilder sb, WhenClause clause, string subject,
+        TypeInfo subjectType, string variableName, int clauseIndex, string endLabel,
+        ref bool allTerminated)
+    {
+        TypeInfo innerType = subjectType.TypeArguments![index: 0];
+        string bodyLabel = NextLabel(prefix: $"when_body{clauseIndex}");
+        EmitCarrierElsePatternExtract(sb: sb,
+            subject: subject,
+            subjectType: subjectType,
+            innerType: innerType,
+            variableName: variableName,
+            matchLabel: bodyLabel);
+        EmitLine(sb: sb, line: $"{bodyLabel}:");
+        bool bodyTerminated = EmitStatement(sb: sb, stmt: clause.Body);
+        if (!bodyTerminated)
+        {
+            allTerminated = false;
+            EmitLine(sb: sb, line: $"  br label %{endLabel}");
+        }
     }
 
     // -----------------------------------------------------------------------------
@@ -805,22 +822,9 @@ public partial class LlvmCodeGenerator
     {
         var flagsType = subjectType as FlagsTypeInfo;
 
-        // Build the combined test mask
-        ulong testMask = 0;
-        foreach (string flagName in flagsPattern.FlagNames)
-        {
-            testMask |= ResolveFlagBit(flagName: flagName, flagsType: flagsType);
-        }
-
-        // Build excluded mask
-        ulong excludedMask = 0;
-        if (flagsPattern.ExcludedFlags != null)
-        {
-            foreach (string flagName in flagsPattern.ExcludedFlags)
-            {
-                excludedMask |= ResolveFlagBit(flagName: flagName, flagsType: flagsType);
-            }
-        }
+        ulong testMask = CombineFlagBits(flagNames: flagsPattern.FlagNames, flagsType: flagsType);
+        ulong excludedMask = CombineFlagBits(flagNames: flagsPattern.ExcludedFlags,
+            flagsType: flagsType);
 
         string maskStr = testMask.ToString();
         string result;
@@ -853,6 +857,23 @@ public partial class LlvmCodeGenerator
         }
 
         EmitLine(sb: sb, line: $"  br i1 {result}, label %{matchLabel}, label %{failLabel}");
+    }
+
+    /// <summary>
+    /// ORs together the bit values of a set of flag names (null-safe — a null list yields 0). Shared by
+    /// the flags-pattern test and exclusion masks.
+    /// </summary>
+    private static ulong CombineFlagBits(IEnumerable<string>? flagNames, FlagsTypeInfo? flagsType)
+    {
+        ulong mask = 0;
+        if (flagNames != null)
+        {
+            foreach (string flagName in flagNames)
+            {
+                mask |= ResolveFlagBit(flagName: flagName, flagsType: flagsType);
+            }
+        }
+        return mask;
     }
 
     /// <summary>

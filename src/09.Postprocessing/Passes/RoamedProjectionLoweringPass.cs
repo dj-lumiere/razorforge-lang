@@ -26,227 +26,33 @@ namespace Compiler.Postprocessing.Passes;
 /// <para>Runs after <see cref="OperatorLoweringPass"/> and <see cref="FStringLoweringPass"/> so the
 /// operator/f-string-lowered Roamed calls are visible. Idempotent: an already-projected receiver is
 /// inner-typed (not Roamed) so <c>Project</c> returns null on a second visit.</para>
+///
+/// <para>All structural recursion (statements, other expressions) is supplied by
+/// <see cref="AstRewriter"/>; this pass overrides only <see cref="VisitCall"/> to apply the Roamed
+/// transparency projection after its children have been rewritten.</para>
 /// </summary>
-internal sealed class RoamedProjectionLoweringPass(PostprocessingContext ctx)
+internal sealed class RoamedProjectionLoweringPass(PostprocessingContext ctx) : AstRewriter
 {
     private TypeRegistry Registry => ctx.Registry;
 
     /// <summary>Lowers Roamed receiver projections across a whole program.</summary>
     public void Run(Program program)
-    {
-        for (int i = 0; i < program.Declarations.Count; i++)
-        {
-            switch (program.Declarations[i])
-            {
-                case RoutineDeclaration r:
-                    Statement nb = LowerStatement(r.Body);
-                    if (!ReferenceEquals(nb, r.Body)) program.Declarations[i] = r with { Body = nb };
-                    break;
-                case EntityDeclaration e:
-                    LowerMemberList(e.Members);
-                    break;
-                case RecordDeclaration rec:
-                    LowerMemberList(rec.Members);
-                    break;
-                case CrashableDeclaration cr:
-                    LowerMemberList(cr.Members);
-                    break;
-            }
-        }
-    }
+        => BodyDispatch.RunOnProgram(program, lower: r => VisitStatement(r.Body));
 
     /// <summary>Lowers Roamed receiver projections in synthesized variant bodies.</summary>
     public void RunOnVariantBodies()
+        => BodyDispatch.RunOnVariantBodies(ctx.VariantBodies, lower: (_, body) => VisitStatement(body));
+
+    // ---- The core rewrite -----------------------------------------------------------------------
+
+    /// <summary>
+    /// The only node this pass rewrites: after the base rewrites the call's callee and arguments, apply
+    /// the Roamed transparency projection when the callee is a member call on a Roamed[E] receiver.
+    /// </summary>
+    protected override Expression VisitCall(CallExpression e)
     {
-        foreach (string key in ctx.VariantBodies.Keys.ToList())
-        {
-            Statement body = ctx.VariantBodies[key];
-            Statement lowered = LowerStatement(body);
-            if (!ReferenceEquals(lowered, body)) ctx.VariantBodies[key] = lowered;
-        }
-    }
-
-    private void LowerMemberList(List<SyntaxTree.Declaration> members)
-    {
-        for (int i = 0; i < members.Count; i++)
-        {
-            if (members[i] is not RoutineDeclaration mr) continue;
-            Statement nb = LowerStatement(mr.Body);
-            if (!ReferenceEquals(nb, mr.Body)) members[i] = mr with { Body = nb };
-        }
-    }
-
-    // ---- Statements -----------------------------------------------------------------------------
-
-    private Statement LowerStatement(Statement stmt)
-    {
-        switch (stmt)
-        {
-            case BlockStatement block:
-                return LowerBlock(block);
-            case DeclarationStatement { Declaration: VariableDeclaration { Initializer: not null } vd } ds:
-                return RebuildDecl(ds, vd, LowerExpression(vd.Initializer));
-            case AssignmentStatement assign:
-                return Rebuilt(assign.Value, LowerExpression(assign.Value), v => assign with { Value = v }, stmt);
-            case ReturnStatement { Value: not null } ret:
-                return Rebuilt(ret.Value, LowerExpression(ret.Value), v => ret with { Value = v }, stmt);
-            case VariantReturnStatement { Value: not null } vrs:
-                return Rebuilt(vrs.Value, LowerExpression(vrs.Value), v => vrs with { Value = v }, stmt);
-            case ExpressionStatement es:
-                return Rebuilt(es.Expression, LowerExpression(es.Expression), v => es with { Expression = v }, stmt);
-            case DiscardStatement dis:
-                return Rebuilt(dis.Expression, LowerExpression(dis.Expression), v => dis with { Expression = v }, stmt);
-            case IfStatement ifs:
-                return LowerIf(ifs);
-            case WhileStatement w:
-                return LowerWhile(w);
-            case LoopStatement loop:
-                return RebuiltBody(loop.Body, LowerStatement(loop.Body), b => loop with { Body = b }, stmt);
-            case EachStatement f:
-                return RebuiltBody(f.Body, LowerStatement(f.Body), b => f with { Body = b }, stmt);
-            case WhenStatement whenStmt:
-                return LowerWhen(whenStmt);
-            case UsingStatement u:
-                return LowerUsing(u);
-            case DangerStatement d:
-                return RebuiltBody(d.Body, LowerStatement(d.Body), b => d with { Body = (BlockStatement)b }, stmt);
-            default:
-                return stmt;
-        }
-    }
-
-    private Statement LowerBlock(BlockStatement block)
-    {
-        bool changed = false;
-        var list = new List<Statement>(capacity: block.Statements.Count);
-        foreach (Statement s in block.Statements)
-        {
-            Statement ns = LowerStatement(s);
-            list.Add(ns);
-            if (!ReferenceEquals(ns, s)) changed = true;
-        }
-        return changed ? block with { Statements = list } : block;
-    }
-
-    private Statement LowerIf(IfStatement ifs)
-    {
-        Expression c = LowerExpression(ifs.Condition);
-        Statement t = LowerStatement(ifs.ThenStatement);
-        Statement? el = ifs.ElseStatement != null ? LowerStatement(ifs.ElseStatement) : null;
-        return !ReferenceEquals(c, ifs.Condition) || !ReferenceEquals(t, ifs.ThenStatement)
-               || !ReferenceEquals(el, ifs.ElseStatement)
-            ? ifs with { Condition = c, ThenStatement = t, ElseStatement = el }
-            : ifs;
-    }
-
-    private Statement LowerWhile(WhileStatement w)
-    {
-        Expression c = LowerExpression(w.Condition);
-        Statement b = LowerStatement(w.Body);
-        return !ReferenceEquals(c, w.Condition) || !ReferenceEquals(b, w.Body)
-            ? w with { Condition = c, Body = b }
-            : w;
-    }
-
-    private Statement LowerWhen(WhenStatement whenStmt)
-    {
-        bool changed = false;
-        Expression subj = LowerExpression(whenStmt.Expression);
-        if (!ReferenceEquals(subj, whenStmt.Expression)) changed = true;
-        var clauses = new List<WhenClause>(capacity: whenStmt.Clauses.Count);
-        foreach (WhenClause cl in whenStmt.Clauses)
-        {
-            Statement nb = LowerStatement(cl.Body);
-            clauses.Add(ReferenceEquals(nb, cl.Body) ? cl : cl with { Body = nb });
-            if (!ReferenceEquals(nb, cl.Body)) changed = true;
-        }
-        return changed ? whenStmt with { Expression = subj, Clauses = clauses } : whenStmt;
-    }
-
-    private Statement LowerUsing(UsingStatement u)
-    {
-        Statement b = LowerStatement(u.Body);
-        Statement? fb = u.FallbackBody != null ? LowerStatement(u.FallbackBody) : null;
-        return !ReferenceEquals(b, u.Body) || !ReferenceEquals(fb, u.FallbackBody)
-            ? u with { Body = b, FallbackBody = fb }
-            : u;
-    }
-
-    private static Statement Rebuilt(Expression old, Expression low,
-        System.Func<Expression, Statement> build, Statement original) =>
-        ReferenceEquals(low, old) ? original : build(low);
-
-    private static Statement RebuiltBody(Statement old, Statement low,
-        System.Func<Statement, Statement> build, Statement original) =>
-        ReferenceEquals(low, old) ? original : build(low);
-
-    private static Statement RebuildDecl(DeclarationStatement ds, VariableDeclaration vd, Expression low) =>
-        ReferenceEquals(low, vd.Initializer) ? ds : ds with { Declaration = vd with { Initializer = low } };
-
-    // ---- Expressions ----------------------------------------------------------------------------
-
-    private Expression LowerExpression(Expression expr)
-    {
-        switch (expr)
-        {
-            case CallExpression call:
-                return LowerCall(call);
-            case MemberExpression m:
-                return Rebuild(m.Object, LowerExpression(m.Object), o => m with { Object = o }, m);
-            case BinaryExpression bin:
-                return LowerBinary(bin);
-            case UnaryExpression un:
-                return Rebuild(un.Operand, LowerExpression(un.Operand), o => un with { Operand = o }, un);
-            case NamedArgumentExpression na:
-                return Rebuild(na.Value, LowerExpression(na.Value), v => na with { Value = v }, na);
-            case InsertedTextExpression fstr:
-                return LowerFString(fstr);
-            default:
-                return expr;
-        }
-    }
-
-    private Expression LowerBinary(BinaryExpression bin)
-    {
-        Expression l = LowerExpression(bin.Left);
-        Expression r = LowerExpression(bin.Right);
-        return !ReferenceEquals(l, bin.Left) || !ReferenceEquals(r, bin.Right)
-            ? bin with { Left = l, Right = r }
-            : bin;
-    }
-
-    private Expression LowerFString(InsertedTextExpression fstr)
-    {
-        bool changed = false;
-        var parts = new List<InsertedTextPart>(capacity: fstr.Parts.Count);
-        foreach (InsertedTextPart part in fstr.Parts)
-        {
-            if (part is ExpressionPart ep)
-            {
-                Expression ne = LowerExpression(ep.Expression);
-                parts.Add(ReferenceEquals(ne, ep.Expression) ? ep : ep with { Expression = ne });
-                if (!ReferenceEquals(ne, ep.Expression)) changed = true;
-            }
-            else { parts.Add(part); }
-        }
-        return changed ? fstr with { Parts = parts } : fstr;
-    }
-
-    // Recurse into the call's parts, then apply the Roamed transparency projection when the callee is
-    // a member call on a Roamed[E] receiver.
-    private Expression LowerCall(CallExpression call)
-    {
-        Expression callee = LowerExpression(call.Callee);
-        var args = new List<Expression>(capacity: call.Arguments.Count);
-        bool changed = !ReferenceEquals(callee, call.Callee);
-        foreach (Expression a in call.Arguments)
-        {
-            Expression na = LowerExpression(a);
-            args.Add(na);
-            if (!ReferenceEquals(na, a)) changed = true;
-        }
-        CallExpression lowered = changed ? call with { Callee = callee, Arguments = args } : call;
-        return ProjectRoamedReceiver(lowered);
+        Expression lowered = base.VisitCall(e);
+        return lowered is CallExpression call ? ProjectRoamedReceiver(call) : lowered;
     }
 
     // The core rewrite: when the callee is a member call on a Roamed[E] receiver and
@@ -302,8 +108,4 @@ internal sealed class RoamedProjectionLoweringPass(PostprocessingContext ctx)
             ResolvedType = innerType
         };
     }
-
-    private static Expression Rebuild(Expression old, Expression low,
-        System.Func<Expression, Expression> build, Expression original) =>
-        ReferenceEquals(low, old) ? original : build(low);
 }

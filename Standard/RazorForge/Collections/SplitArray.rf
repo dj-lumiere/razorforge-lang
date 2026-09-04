@@ -13,7 +13,7 @@ import BuilderExpansion
 ###
 ### Like `Array`, it never heap-allocates: every column is packed directly into the record's own
 ### footprint, copying the `SplitArray` copies all `N` elements, and the size can never change after
-### construction. The element type must be `is SplittableType` (trivially destructible — its footprint
+### construction. The element type must be `Splittable` (trivially destructible — its footprint
 ### reduces to `@llvm` primitives with no custom store/destroy), so each column is a flat blittable
 ### `Array`.
 ###
@@ -32,12 +32,12 @@ import BuilderExpansion
 ### | `contains` / `index_of!` | O(N) |
 ### | Iteration | O(N) |
 ###
-### :typeparam T: The record element type (must be `is SplittableType`).
+### :typeparam T: The record element type (must be `Splittable`).
 ### :typeparam N: The compile-time element count, supplied as a `U64` literal.
 ### :see: {Array[T, N]} for the array-of-structs counterpart.
 ### :see: {SplitList[T]} for the growable, heap-backed SoA sequence.
 record SplitArray[T, N] obeys Comparable, Iterable[T], MutableIndexable[T], Sized, Container
-needs T is SplittableType
+needs T obeys Splittable
 needs N is U64
 relates SplitArrayEmittable[T, N] as Iter
   expand m in allmemvarof(T)
@@ -56,7 +56,7 @@ relates SplitArrayEmittable[T, N] as Iter
 routine SplitArray[T, N].getitem!(index: U64) -> T
   if index >= N
     throw IndexOutOfBoundsError(index: index, count: N)
-  var result = blank[T]()
+  var result = T.blank()
   expand m in allmemvarof(T)
     danger
       result.$nameof(m) = me.$nameof(m)[index]
@@ -144,7 +144,7 @@ needs T obeys Equatable
 ### :typeparam T: The element type yielded by the iterator.
 ### :typeparam N: The compile-time element count.
 entity SplitArrayEmittable[T, N] obeys Emittable[T]
-needs T is SplittableType
+needs T obeys Splittable
 needs N is U64
   ### Stores the split array being iterated.
   source: SplitArray[T, N]

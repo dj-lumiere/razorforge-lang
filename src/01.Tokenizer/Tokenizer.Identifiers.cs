@@ -68,22 +68,12 @@ public partial class Tokenizer
             return;
         }
 
-        // Wired member-routine marker: a leading '$' (create, store, emit, …) is a SEPARATE
-        // structural token — the parser records it as RoutineInfo.IsWiredMemberRoutine and keeps the
-        // name bare. Emit the '$' as its own Dollar token, then re-anchor so the bare identifier that
-        // follows scans and emits on its own. (The main scan loop already consumed the '$' into
-        // _position, so the identifier body is scanned by the loop below.)
-        if (_source[index: _tokenStart] == '$')
+        // Wired member-routine marker: a leading '$' emits its own Dollar token and re-anchors so
+        // the bare identifier that follows scans on its own. Returns true when a lone '$' with no
+        // identifier body was consumed (nothing more to emit).
+        if (TryEmitWiredDollarMarker())
         {
-            _tokens.Add(item: new Token(Type: TokenType.Dollar, FileName: _fileName, Text: "$",
-                Line: _tokenStartLine, Column: _tokenStartColumn, Position: _tokenStart));
-            _tokenStart += 1;
-            _tokenStartColumn += 1;
-            // A lone '$' with no identifier body — nothing more to emit.
-            if (!IsIdentifierPart(c: Peek()) && _position == _tokenStart)
-            {
-                return;
-            }
+            return;
         }
 
         // Consume identifier characters
@@ -113,15 +103,7 @@ public partial class Tokenizer
         // Check if it's a keyword
         if (_keywords.TryGetValue(key: text, value: out TokenType type))
         {
-            AddToken(type: type, text: text);
-
-            // Track definition keywords for script mode detection
-            if (type is TokenType.Routine or TokenType.Entity or TokenType.Record
-                or TokenType.Choice or TokenType.Variant or TokenType.Flags or TokenType.Protocol)
-            {
-                _hasDefinitions = true;
-            }
-
+            EmitKeywordToken(type: type, text: text);
             return;
         }
 
@@ -133,6 +115,46 @@ public partial class Tokenizer
 
         // Always emit Identifier - parser determines type vs value from context
         AddToken(type: TokenType.Identifier, text: text);
+    }
+
+    /// <summary>
+    /// Handles a leading '$' wired member-routine marker: emits the '$' as its own Dollar token and
+    /// re-anchors the token start so the following bare identifier scans on its own. (The main scan
+    /// loop already consumed the '$' into <see cref="_position"/>, so the identifier body is scanned
+    /// by the caller's loop.)
+    /// </summary>
+    /// <returns>
+    /// <c>true</c> if a lone '$' with no identifier body was consumed (caller should return);
+    /// <c>false</c> otherwise (including when there was no '$' at all).
+    /// </returns>
+    private bool TryEmitWiredDollarMarker()
+    {
+        if (_source[index: _tokenStart] != '$')
+        {
+            return false;
+        }
+
+        _tokens.Add(item: new Token(Type: TokenType.Dollar, FileName: _fileName, Text: "$",
+            Line: _tokenStartLine, Column: _tokenStartColumn, Position: _tokenStart));
+        _tokenStart += 1;
+        _tokenStartColumn += 1;
+        // A lone '$' with no identifier body — nothing more to emit.
+        return !IsIdentifierPart(c: Peek()) && _position == _tokenStart;
+    }
+
+    /// <summary>
+    /// Emits a keyword token and tracks definition keywords for script mode detection.
+    /// </summary>
+    private void EmitKeywordToken(TokenType type, string text)
+    {
+        AddToken(type: type, text: text);
+
+        // Track definition keywords for script mode detection
+        if (type is TokenType.Routine or TokenType.Entity or TokenType.Record
+            or TokenType.Choice or TokenType.Variant or TokenType.Flags or TokenType.Protocol)
+        {
+            _hasDefinitions = true;
+        }
     }
 
     private static readonly Dictionary<string, TokenType> _specialFloatLiterals =

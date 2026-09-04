@@ -5,7 +5,7 @@ module Core
 ### `U16` is commonly used for Unicode code units (UTF-16), audio samples,
 ### and other data that fits in 16 bits.
 @llvm("i16")
-record U16 obeys UnsignedIntegral, Ordered, ConstCompatible, AtomicType, Assignable, Copyable
+record U16 obeys UnsignedIntegral, Ordered, ConstCompatible, AtomicType, Assignable, Copyable, Splittable
   pass
 
 # Constants for U16 limits
@@ -592,11 +592,13 @@ routine U16.is_odd() -> Bool
 
 ### Returns the human-readable text of this value.
 ### :returns: The value rendered as `Text`.
+@override
 routine U16.represent() -> Text
   return U32(me).represent()
 
 ### Returns a type-tagged debug rendering of this value.
 ### :returns: A diagnostic `Text` rendering, e.g. `Type(value)`.
+@override
 routine U16.diagnose() -> Text
   return "U16(" + me.represent() + ")"
 

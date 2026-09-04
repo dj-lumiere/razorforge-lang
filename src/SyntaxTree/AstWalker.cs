@@ -50,349 +50,507 @@ public static class AstWalker
     /// </summary>
     public static IEnumerable<object> EnumerateChildren(object node)
     {
+        // Node types are disjoint across these categories, so at most one helper handles a given
+        // node. Chained in the original declaration order (Program → Statements → Expressions →
+        // Patterns → Declarations → Auxiliary) so the yielded child order is preserved exactly.
+        return EnumerateProgramChildren(node: node)
+            ?? EnumerateStatementChildren(node: node)
+            ?? EnumerateExpressionChildren(node: node)
+            ?? EnumeratePatternChildren(node: node)
+            ?? EnumerateDeclarationChildren(node: node)
+            ?? EnumerateAuxiliaryChildren(node: node)
+            ?? System.Linq.Enumerable.Empty<object>();
+    }
+
+    // -------- Program --------
+    private static IEnumerable<object>? EnumerateProgramChildren(object node)
+    {
+        if (node is not Program p) return null;
+        return ProgramChildren(p: p);
+    }
+
+    private static IEnumerable<object> ProgramChildren(Program p)
+    {
+        foreach (ISyntaxTreeNode d in p.Declarations) yield return d;
+    }
+
+    // -------- Statements --------
+    private static IEnumerable<object>? EnumerateStatementChildren(object node)
+    {
         switch (node)
         {
-            // -------- Program --------
-            case Program p:
-                foreach (ISyntaxTreeNode d in p.Declarations) yield return d;
-                break;
-
-            // -------- Statements --------
             case ExpressionStatement s:
-                yield return s.Expression;
-                break;
+                return new object[] { s.Expression };
             case DeclarationStatement s:
-                yield return s.Declaration;
-                break;
+                return new object[] { s.Declaration };
             case AssignmentStatement s:
-                yield return s.Target;
-                yield return s.Value;
-                break;
+                return new object[] { s.Target, s.Value };
             case DestructuringStatement s:
-                yield return s.Pattern;
-                yield return s.Initializer;
-                break;
+                return new object[] { s.Pattern, s.Initializer };
             case ReturnStatement s:
-                if (s.Value != null) yield return s.Value;
-                break;
+                return s.Value != null ? new object[] { s.Value } : System.Linq.Enumerable.Empty<object>();
             case BecomesStatement s:
-                yield return s.Value;
-                break;
+                return new object[] { s.Value };
             case ThrowStatement s:
-                yield return s.Error;
-                break;
+                return new object[] { s.Error };
             case VariantReturnStatement s:
-                if (s.Value != null) yield return s.Value;
-                break;
+                return s.Value != null ? new object[] { s.Value } : System.Linq.Enumerable.Empty<object>();
             case DiscardStatement s:
-                yield return s.Expression;
-                break;
+                return new object[] { s.Expression };
             case IfStatement s:
-                yield return s.Condition;
-                yield return s.ThenStatement;
-                if (s.ElseStatement != null) yield return s.ElseStatement;
-                break;
+                return IfStatementChildren(s: s);
             case WhileStatement s:
-                yield return s.Condition;
-                yield return s.Body;
-                if (s.ElseBranch != null) yield return s.ElseBranch;
-                break;
+                return WhileStatementChildren(s: s);
             case LoopStatement s:
-                yield return s.Body;
-                break;
+                return new object[] { s.Body };
             case EachStatement s:
-                if (s.VariablePattern != null) yield return s.VariablePattern;
-                yield return s.Iterable;
-                yield return s.Body;
-                if (s.ElseBranch != null) yield return s.ElseBranch;
-                break;
+                return EachStatementChildren(s: s);
             case BlockStatement s:
-                foreach (Statement child in s.Statements) yield return child;
-                break;
+                return BlockStatementChildren(s: s);
             case WhenStatement s:
-                yield return s.Expression;
-                foreach (WhenClause c in s.Clauses) yield return c;
-                break;
+                return WhenStatementChildren(s: s);
             case DangerStatement s:
-                yield return s.Body;
-                break;
+                return new object[] { s.Body };
             case UsingStatement s:
-                yield return s.Resource;
-                yield return s.Body;
-                if (s.FallbackBody != null) yield return s.FallbackBody;
-                break;
+                return UsingStatementChildren(s: s);
             case AbsentStatement:
             case PassStatement:
             case BreakStatement:
             case ContinueStatement:
-                break;
+                return System.Linq.Enumerable.Empty<object>();
+            default:
+                return null;
+        }
+    }
 
-            // -------- Expressions --------
+    private static IEnumerable<object> IfStatementChildren(IfStatement s)
+    {
+        yield return s.Condition;
+        yield return s.ThenStatement;
+        if (s.ElseStatement != null) yield return s.ElseStatement;
+    }
+
+    private static IEnumerable<object> WhileStatementChildren(WhileStatement s)
+    {
+        yield return s.Condition;
+        yield return s.Body;
+        if (s.ElseBranch != null) yield return s.ElseBranch;
+    }
+
+    private static IEnumerable<object> EachStatementChildren(EachStatement s)
+    {
+        if (s.VariablePattern != null) yield return s.VariablePattern;
+        yield return s.Iterable;
+        yield return s.Body;
+        if (s.ElseBranch != null) yield return s.ElseBranch;
+    }
+
+    private static IEnumerable<object> BlockStatementChildren(BlockStatement s)
+    {
+        foreach (Statement child in s.Statements) yield return child;
+    }
+
+    private static IEnumerable<object> WhenStatementChildren(WhenStatement s)
+    {
+        yield return s.Expression;
+        foreach (WhenClause c in s.Clauses) yield return c;
+    }
+
+    private static IEnumerable<object> UsingStatementChildren(UsingStatement s)
+    {
+        yield return s.Resource;
+        yield return s.Body;
+        if (s.FallbackBody != null) yield return s.FallbackBody;
+    }
+
+    // -------- Expressions --------
+    private static IEnumerable<object>? EnumerateExpressionChildren(object node)
+    {
+        switch (node)
+        {
             case InsertedTextExpression e:
-                foreach (InsertedTextPart part in e.Parts) yield return part;
-                break;
+                return InsertedTextExpressionChildren(e: e);
             case ListLiteralExpression e:
-                foreach (Expression el in e.Elements) yield return el;
-                if (e.ElementType != null) yield return e.ElementType;
-                break;
+                return ListLiteralExpressionChildren(e: e);
             case SetLiteralExpression e:
-                foreach (Expression el in e.Elements) yield return el;
-                if (e.ElementType != null) yield return e.ElementType;
-                break;
+                return SetLiteralExpressionChildren(e: e);
             case DictLiteralExpression e:
-                foreach ((Expression Key, Expression Value) pair in e.Pairs)
-                {
-                    yield return pair.Key;
-                    yield return pair.Value;
-                }
-                if (e.KeyType != null) yield return e.KeyType;
-                if (e.ValueType != null) yield return e.ValueType;
-                break;
+                return DictLiteralExpressionChildren(e: e);
             case TupleLiteralExpression e:
-                foreach (Expression el in e.Elements) yield return el;
-                break;
+                return TupleLiteralExpressionChildren(e: e);
             case CompoundAssignmentExpression e:
-                yield return e.Target;
-                yield return e.Value;
-                break;
+                return new object[] { e.Target, e.Value };
             case BinaryExpression e:
-                yield return e.Left;
-                yield return e.Right;
-                break;
+                return new object[] { e.Left, e.Right };
             case UnaryExpression e:
-                yield return e.Operand;
-                break;
+                return new object[] { e.Operand };
             case CallExpression e:
-                yield return e.Callee;
-                foreach (Expression arg in e.Arguments) yield return arg;
-                if (e.TypeArguments != null)
-                    foreach (TypeExpression t in e.TypeArguments) yield return t;
-                break;
+                return CallExpressionChildren(e: e);
             case NamedArgumentExpression e:
-                yield return e.Value;
-                break;
+                return new object[] { e.Value };
             case DictEntryLiteralExpression e:
-                yield return e.Key;
-                yield return e.Value;
-                break;
+                return new object[] { e.Key, e.Value };
             case CreatorExpression e:
-                if (e.TypeArguments != null)
-                    foreach (TypeExpression t in e.TypeArguments) yield return t;
-                foreach ((string Name, Expression Value) mv in e.MemberVariables)
-                    yield return mv.Value;
-                break;
+                return CreatorExpressionChildren(e: e);
             case WithExpression e:
-                yield return e.Base;
-                foreach ((List<string>? Path, Expression? Index, Expression Value) u in e.Updates)
-                {
-                    if (u.Index != null) yield return u.Index;
-                    yield return u.Value;
-                }
-                break;
+                return WithExpressionChildren(e: e);
             case MemberExpression e:
-                yield return e.Object;
-                break;
+                return new object[] { e.Object };
             case OptionalMemberExpression e:
-                yield return e.Object;
-                break;
+                return new object[] { e.Object };
             case IndexExpression e:
-                yield return e.Object;
-                yield return e.Index;
-                break;
+                return new object[] { e.Object, e.Index };
             case ConditionalExpression e:
-                yield return e.Condition;
-                yield return e.TrueExpression;
-                yield return e.FalseExpression;
-                break;
+                return new object[] { e.Condition, e.TrueExpression, e.FalseExpression };
             case BlockExpression e:
-                yield return e.Value;
-                break;
+                return new object[] { e.Value };
             case ChainedComparisonExpression e:
-                foreach (Expression op in e.Operands) yield return op;
-                break;
+                return ChainedComparisonExpressionChildren(e: e);
             case RangeExpression e:
-                yield return e.Start;
-                yield return e.End;
-                if (e.Step != null) yield return e.Step;
-                break;
+                return RangeExpressionChildren(e: e);
             case LambdaExpression e:
-                foreach (Parameter p in e.Parameters) yield return p;
-                yield return e.Body;
-                break;
+                return LambdaExpressionChildren(e: e);
             case TypeExpression e:
-                if (e.GenericArguments != null)
-                    foreach (TypeExpression t in e.GenericArguments) yield return t;
-                break;
+                return TypeExpressionChildren(e: e);
             case TypeConversionExpression e:
-                yield return e.Expression;
-                break;
+                return new object[] { e.Expression };
             case GenericMemberRoutineCallExpression e:
-                yield return e.Object;
-                foreach (TypeExpression t in e.TypeArguments) yield return t;
-                foreach (Expression arg in e.Arguments) yield return arg;
-                break;
+                return GenericMemberRoutineCallExpressionChildren(e: e);
             case GenericMemberExpression e:
-                yield return e.Object;
-                foreach (TypeExpression t in e.TypeArguments) yield return t;
-                break;
+                return GenericMemberExpressionChildren(e: e);
             case TypeIdExpression e:
-                yield return e.Type;
-                break;
+                return new object[] { e.Type };
             case CarrierPayloadExpression e:
-                yield return e.Carrier;
-                yield return e.ConcreteType;
-                break;
+                return new object[] { e.Carrier, e.ConcreteType };
             case IsPatternExpression e:
-                yield return e.Expression;
-                yield return e.Pattern;
-                break;
+                return new object[] { e.Expression, e.Pattern };
             case FlagsTestExpression e:
-                yield return e.Subject;
-                break;
+                return new object[] { e.Subject };
             case WhenExpression e:
-                if (e.Expression != null) yield return e.Expression;
-                foreach (WhenClause c in e.Clauses) yield return c;
-                break;
+                return WhenExpressionChildren(e: e);
             case StealExpression e:
-                yield return e.Operand;
-                break;
+                return new object[] { e.Operand };
             case WaitforExpression e:
-                yield return e.Operand;
-                if (e.Timeout != null) yield return e.Timeout;
-                break;
+                return WaitforExpressionChildren(e: e);
             case DependentWaitforExpression e:
-                foreach (TaskDependency dep in e.Dependencies) yield return dep;
-                yield return e.Operand;
-                if (e.Timeout != null) yield return e.Timeout;
-                break;
+                return DependentWaitforExpressionChildren(e: e);
             case BackIndexExpression e:
-                yield return e.Operand;
-                break;
+                return new object[] { e.Operand };
             case LiteralExpression:
             case IdentifierExpression:
-                break;
+                return System.Linq.Enumerable.Empty<object>();
+            default:
+                return null;
+        }
+    }
 
-            // -------- Patterns --------
+    private static IEnumerable<object> InsertedTextExpressionChildren(InsertedTextExpression e)
+    {
+        foreach (InsertedTextPart part in e.Parts) yield return part;
+    }
+
+    private static IEnumerable<object> ListLiteralExpressionChildren(ListLiteralExpression e)
+    {
+        foreach (Expression el in e.Elements) yield return el;
+        if (e.ElementType != null) yield return e.ElementType;
+    }
+
+    private static IEnumerable<object> SetLiteralExpressionChildren(SetLiteralExpression e)
+    {
+        foreach (Expression el in e.Elements) yield return el;
+        if (e.ElementType != null) yield return e.ElementType;
+    }
+
+    private static IEnumerable<object> DictLiteralExpressionChildren(DictLiteralExpression e)
+    {
+        foreach ((Expression Key, Expression Value) pair in e.Pairs)
+        {
+            yield return pair.Key;
+            yield return pair.Value;
+        }
+        if (e.KeyType != null) yield return e.KeyType;
+        if (e.ValueType != null) yield return e.ValueType;
+    }
+
+    private static IEnumerable<object> TupleLiteralExpressionChildren(TupleLiteralExpression e)
+    {
+        foreach (Expression el in e.Elements) yield return el;
+    }
+
+    private static IEnumerable<object> CallExpressionChildren(CallExpression e)
+    {
+        yield return e.Callee;
+        foreach (Expression arg in e.Arguments) yield return arg;
+        if (e.TypeArguments != null)
+            foreach (TypeExpression t in e.TypeArguments) yield return t;
+    }
+
+    private static IEnumerable<object> CreatorExpressionChildren(CreatorExpression e)
+    {
+        if (e.TypeArguments != null)
+            foreach (TypeExpression t in e.TypeArguments) yield return t;
+        foreach ((string Name, Expression Value) mv in e.MemberVariables)
+            yield return mv.Value;
+    }
+
+    private static IEnumerable<object> WithExpressionChildren(WithExpression e)
+    {
+        yield return e.Base;
+        foreach ((List<string>? Path, Expression? Index, Expression Value) u in e.Updates)
+        {
+            if (u.Index != null) yield return u.Index;
+            yield return u.Value;
+        }
+    }
+
+    private static IEnumerable<object> ChainedComparisonExpressionChildren(ChainedComparisonExpression e)
+    {
+        foreach (Expression op in e.Operands) yield return op;
+    }
+
+    private static IEnumerable<object> RangeExpressionChildren(RangeExpression e)
+    {
+        yield return e.Start;
+        yield return e.End;
+        if (e.Step != null) yield return e.Step;
+    }
+
+    private static IEnumerable<object> LambdaExpressionChildren(LambdaExpression e)
+    {
+        foreach (Parameter p in e.Parameters) yield return p;
+        yield return e.Body;
+    }
+
+    private static IEnumerable<object> TypeExpressionChildren(TypeExpression e)
+    {
+        if (e.GenericArguments != null)
+            foreach (TypeExpression t in e.GenericArguments) yield return t;
+    }
+
+    private static IEnumerable<object> GenericMemberRoutineCallExpressionChildren(GenericMemberRoutineCallExpression e)
+    {
+        yield return e.Object;
+        foreach (TypeExpression t in e.TypeArguments) yield return t;
+        foreach (Expression arg in e.Arguments) yield return arg;
+    }
+
+    private static IEnumerable<object> GenericMemberExpressionChildren(GenericMemberExpression e)
+    {
+        yield return e.Object;
+        foreach (TypeExpression t in e.TypeArguments) yield return t;
+    }
+
+    private static IEnumerable<object> WhenExpressionChildren(WhenExpression e)
+    {
+        if (e.Expression != null) yield return e.Expression;
+        foreach (WhenClause c in e.Clauses) yield return c;
+    }
+
+    private static IEnumerable<object> WaitforExpressionChildren(WaitforExpression e)
+    {
+        yield return e.Operand;
+        if (e.Timeout != null) yield return e.Timeout;
+    }
+
+    private static IEnumerable<object> DependentWaitforExpressionChildren(DependentWaitforExpression e)
+    {
+        foreach (TaskDependency dep in e.Dependencies) yield return dep;
+        yield return e.Operand;
+        if (e.Timeout != null) yield return e.Timeout;
+    }
+
+    // -------- Patterns --------
+    private static IEnumerable<object>? EnumeratePatternChildren(object node)
+    {
+        switch (node)
+        {
             case TypePattern p:
-                yield return p.Type;
-                if (p.Bindings != null)
-                    foreach (DestructuringBinding b in p.Bindings) yield return b;
-                break;
+                return TypePatternChildren(p: p);
             case NegatedTypePattern p:
-                yield return p.Type;
-                break;
+                return new object[] { p.Type };
             case ExpressionPattern p:
-                yield return p.Expression;
-                break;
+                return new object[] { p.Expression };
             case ComparisonPattern p:
-                yield return p.Value;
-                break;
+                return new object[] { p.Value };
             case VariantPattern p:
-                if (p.Bindings != null)
-                    foreach (DestructuringBinding b in p.Bindings) yield return b;
-                break;
+                return VariantPatternChildren(p: p);
             case GuardPattern p:
-                yield return p.InnerPattern;
-                yield return p.Guard;
-                break;
+                return new object[] { p.InnerPattern, p.Guard };
             case CrashablePattern p:
-                if (p.ErrorType != null) yield return p.ErrorType;
-                break;
+                return p.ErrorType != null ? new object[] { p.ErrorType } : System.Linq.Enumerable.Empty<object>();
             case DestructuringPattern p:
-                foreach (DestructuringBinding b in p.Bindings) yield return b;
-                break;
+                return DestructuringPatternChildren(p: p);
             case TypeDestructuringPattern p:
-                yield return p.Type;
-                foreach (DestructuringBinding b in p.Bindings) yield return b;
-                break;
+                return TypeDestructuringPatternChildren(p: p);
             case LiteralPattern:
             case IdentifierPattern:
             case FlagsPattern:
             case WildcardPattern:
             case NonePattern:
             case ElsePattern:
-                break;
+                return System.Linq.Enumerable.Empty<object>();
+            default:
+                return null;
+        }
+    }
 
-            // -------- Declarations --------
+    private static IEnumerable<object> TypePatternChildren(TypePattern p)
+    {
+        yield return p.Type;
+        if (p.Bindings != null)
+            foreach (DestructuringBinding b in p.Bindings) yield return b;
+    }
+
+    private static IEnumerable<object> VariantPatternChildren(VariantPattern p)
+    {
+        if (p.Bindings != null)
+            foreach (DestructuringBinding b in p.Bindings) yield return b;
+    }
+
+    private static IEnumerable<object> DestructuringPatternChildren(DestructuringPattern p)
+    {
+        foreach (DestructuringBinding b in p.Bindings) yield return b;
+    }
+
+    private static IEnumerable<object> TypeDestructuringPatternChildren(TypeDestructuringPattern p)
+    {
+        yield return p.Type;
+        foreach (DestructuringBinding b in p.Bindings) yield return b;
+    }
+
+    // -------- Declarations --------
+    private static IEnumerable<object>? EnumerateDeclarationChildren(object node)
+    {
+        switch (node)
+        {
             case VariableDeclaration d:
-                if (d.Type != null) yield return d.Type;
-                if (d.Initializer != null) yield return d.Initializer;
-                break;
+                return VariableDeclarationChildren(d: d);
             case RoutineDeclaration d:
-                foreach (Parameter p in d.Parameters) yield return p;
-                if (d.ReturnType != null) yield return d.ReturnType;
-                yield return d.Body;
-                break;
+                return RoutineDeclarationChildren(d: d);
             case EntityDeclaration d:
-                foreach (TypeExpression t in d.Protocols) yield return t;
-                foreach (Declaration m in d.Members) yield return m;
-                break;
+                return EntityDeclarationChildren(d: d);
             case RecordDeclaration d:
-                foreach (TypeExpression t in d.Protocols) yield return t;
-                foreach (Declaration m in d.Members) yield return m;
-                break;
+                return RecordDeclarationChildren(d: d);
             case ChoiceDeclaration d:
-                foreach (ChoiceCase c in d.Cases) yield return c;
-                foreach (RoutineDeclaration m in d.MemberRoutines) yield return m;
-                break;
+                return ChoiceDeclarationChildren(d: d);
             case CrashableDeclaration d:
-                foreach (Declaration m in d.Members) yield return m;
-                break;
+                return CrashableDeclarationChildren(d: d);
             case VariantDeclaration d:
-                foreach (VariantMember m in d.Members) yield return m;
-                break;
+                return VariantDeclarationChildren(d: d);
             case ProtocolDeclaration d:
-                foreach (TypeExpression t in d.ParentProtocols) yield return t;
-                foreach (RoutineSignature m in d.MemberRoutines) yield return m;
-                break;
+                return ProtocolDeclarationChildren(d: d);
             case PresetDeclaration d:
-                yield return d.Type;
-                yield return d.Value;
-                break;
+                return new object[] { d.Type, d.Value };
             case ExternalDeclaration d:
-                foreach (Parameter p in d.Parameters) yield return p;
-                if (d.ReturnType != null) yield return d.ReturnType;
-                break;
+                return ExternalDeclarationChildren(d: d);
             case ExternalBlockDeclaration d:
-                foreach (Declaration child in d.Declarations) yield return child;
-                break;
+                return ExternalBlockDeclarationChildren(d: d);
             case PassDeclaration:
             case FlagsDeclaration:
             case ModuleDeclaration:
             case ImportDeclaration:
             case DefineDeclaration:
-                break;
-
-            // -------- Auxiliary records --------
-            case WhenClause c:
-                yield return c.Pattern;
-                yield return c.Body;
-                break;
-            case DestructuringBinding b:
-                if (b.NestedPattern != null) yield return b.NestedPattern;
-                break;
-            case Parameter p:
-                if (p.Type != null) yield return p.Type;
-                if (p.DefaultValue != null) yield return p.DefaultValue;
-                break;
-            case ChoiceCase c:
-                if (c.Value != null) yield return c.Value;
-                break;
-            case VariantMember m:
-                yield return m.Type;
-                break;
-            case RoutineSignature r:
-                foreach (Parameter p in r.Parameters) yield return p;
-                if (r.ReturnType != null) yield return r.ReturnType;
-                break;
-            case TaskDependency d:
-                yield return d.DependencyExpr;
-                break;
-            case ExpressionPart ep:
-                yield return ep.Expression;
-                break;
-            case TextPart:
-                break;
+                return System.Linq.Enumerable.Empty<object>();
+            default:
+                return null;
         }
+    }
+
+    private static IEnumerable<object> VariableDeclarationChildren(VariableDeclaration d)
+    {
+        if (d.Type != null) yield return d.Type;
+        if (d.Initializer != null) yield return d.Initializer;
+    }
+
+    private static IEnumerable<object> RoutineDeclarationChildren(RoutineDeclaration d)
+    {
+        foreach (Parameter p in d.Parameters) yield return p;
+        if (d.ReturnType != null) yield return d.ReturnType;
+        yield return d.Body;
+    }
+
+    private static IEnumerable<object> EntityDeclarationChildren(EntityDeclaration d)
+    {
+        foreach (TypeExpression t in d.Protocols) yield return t;
+        foreach (Declaration m in d.Members) yield return m;
+    }
+
+    private static IEnumerable<object> RecordDeclarationChildren(RecordDeclaration d)
+    {
+        foreach (TypeExpression t in d.Protocols) yield return t;
+        foreach (Declaration m in d.Members) yield return m;
+    }
+
+    private static IEnumerable<object> ChoiceDeclarationChildren(ChoiceDeclaration d)
+    {
+        foreach (ChoiceCase c in d.Cases) yield return c;
+        foreach (RoutineDeclaration m in d.MemberRoutines) yield return m;
+    }
+
+    private static IEnumerable<object> CrashableDeclarationChildren(CrashableDeclaration d)
+    {
+        foreach (Declaration m in d.Members) yield return m;
+    }
+
+    private static IEnumerable<object> VariantDeclarationChildren(VariantDeclaration d)
+    {
+        foreach (VariantMember m in d.Members) yield return m;
+    }
+
+    private static IEnumerable<object> ProtocolDeclarationChildren(ProtocolDeclaration d)
+    {
+        foreach (TypeExpression t in d.ParentProtocols) yield return t;
+        foreach (RoutineSignature m in d.MemberRoutines) yield return m;
+    }
+
+    private static IEnumerable<object> ExternalDeclarationChildren(ExternalDeclaration d)
+    {
+        foreach (Parameter p in d.Parameters) yield return p;
+        if (d.ReturnType != null) yield return d.ReturnType;
+    }
+
+    private static IEnumerable<object> ExternalBlockDeclarationChildren(ExternalBlockDeclaration d)
+    {
+        foreach (Declaration child in d.Declarations) yield return child;
+    }
+
+    // -------- Auxiliary records --------
+    private static IEnumerable<object>? EnumerateAuxiliaryChildren(object node)
+    {
+        switch (node)
+        {
+            case WhenClause c:
+                return new object[] { c.Pattern, c.Body };
+            case DestructuringBinding b:
+                return b.NestedPattern != null ? new object[] { b.NestedPattern } : System.Linq.Enumerable.Empty<object>();
+            case Parameter p:
+                return ParameterChildren(p: p);
+            case ChoiceCase c:
+                return c.Value != null ? new object[] { c.Value } : System.Linq.Enumerable.Empty<object>();
+            case VariantMember m:
+                return new object[] { m.Type };
+            case RoutineSignature r:
+                return RoutineSignatureChildren(r: r);
+            case TaskDependency d:
+                return new object[] { d.DependencyExpr };
+            case ExpressionPart ep:
+                return new object[] { ep.Expression };
+            case TextPart:
+                return System.Linq.Enumerable.Empty<object>();
+            default:
+                return null;
+        }
+    }
+
+    private static IEnumerable<object> ParameterChildren(Parameter p)
+    {
+        if (p.Type != null) yield return p.Type;
+        if (p.DefaultValue != null) yield return p.DefaultValue;
+    }
+
+    private static IEnumerable<object> RoutineSignatureChildren(RoutineSignature r)
+    {
+        foreach (Parameter p in r.Parameters) yield return p;
+        if (r.ReturnType != null) yield return r.ReturnType;
     }
 }

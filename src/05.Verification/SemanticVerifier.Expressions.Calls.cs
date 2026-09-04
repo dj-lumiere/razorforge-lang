@@ -13,6 +13,19 @@ using TypeSymbol = TypeInfo;
 
 public sealed partial class SemanticVerifier
 {
+    /// <summary>
+    /// Prefix → creator-variant name for CONVERSION-variant member-routine chains: <c>.try_S64()</c> etc.
+    /// map to <c>S64.try_create</c>/<c>check_create</c>/<c>lookup_create</c> (the recoverable forms of the
+    /// <c>.S64!()</c> → <c>S64.create!(from:)</c> conversion). See the conversion-variant resolution in
+    /// <c>AnalyzeCallExpression</c>.
+    /// </summary>
+    private static readonly (string prefix, string cname)[] ConversionVariantCreators =
+    [
+        ("try_", "try_create"),
+        ("check_", "check_create"),
+        ("lookup_", "lookup_create"),
+    ];
+
     private const string StartRoutineName = "start";
     private const string UseWhenHint = "Use 'when' to match the result, '??' to provide a default, or make the enclosing routine failable (!).";
     private const string NoneTypeName = "None";
@@ -259,6 +272,34 @@ public sealed partial class SemanticVerifier
         return true;
     }
 
+    /// <summary>
+    /// Resolves a zero-arg construction <c>Type()</c> on a non-generic, non-variant/protocol
+    /// <paramref name="zeroArgType"/>: binds the no-arg <c>create</c> (routing through a user-declared
+    /// one for its side-effects; leaving a synthesized memberwise creator to inline construction) and
+    /// returns the BARE type (so the SF entity-lowering pass wraps the construction in <c>.roam()</c>).
+    /// </summary>
+    private TypeSymbol AnalyzeZeroArgConstruction(CallExpression call, TypeSymbol zeroArgType)
+    {
+        RoutineInfo? zeroCreate = _registry.LookupMemberRoutineOverload(type: zeroArgType,
+            memberRoutineName: "create", argTypes: new List<TypeSymbol>())
+            ?? _registry.LookupRoutineOverload(baseName: $"{zeroArgType.FullName}.create",
+                argTypes: new List<TypeInfo>());
+        call.ConstructedType = zeroArgType;
+        call.LoweringKind = ClassifyConstruction(type: zeroArgType,
+            isCollectionLiteral: call.IsCollectionLiteral);
+        // A user-declared (non-synthesized) `create` has a real body/side-effects — route the
+        // call through it (this ALSO seeds it for reachability). A synthesized memberwise creator
+        // is left to inline construction.
+        if (zeroCreate is { IsSynthesized: false })
+            call.ResolvedRoutine = zeroCreate;
+        call.IsInFlight = zeroCreate?.IsInFlightReturn ?? false;
+        // Return the BARE entity type (NOT create's declared return, which for a Suflae entity is
+        // `Roamed[E]`): the SF entity-lowering pass keys on `ResolvedType is EntityTypeInfo` to
+        // wrap a construction in `.roam()`, so a Roamed return type would divert it to the
+        // arg-carrying-create path and drop the wrap. For an RF entity the two coincide.
+        return zeroArgType;
+    }
+
     private TypeSymbol AnalyzeCallExpressionCore(CallExpression call, TypeSymbol? expectedType = null)
     {
         // Comptime `expand` gate: a member-routine call on a comptime member value (me.$nameof(m).cmp()/
@@ -382,6 +423,14 @@ public sealed partial class SemanticVerifier
                     }
                 }
 
+                // On-demand failable-variant synthesis: a free `try_`/`check_`/`lookup_` call whose
+                // variant isn't registered yet is synthesized from its base failable routine (the
+                // on-demand replacement for eager pre-registration of every failable's variants).
+                if (routine == null)
+                {
+                    routine = TrySynthesizeFreeVariantOnDemand(callName: callName);
+                }
+
                 // Variadic call: pack the K trailing args into an Array[T, K] literal so the arg count
                 // matches the desugared single Array parameter and const-generic inference binds the
                 // arity (must run before the generic branches below).
@@ -399,6 +448,11 @@ public sealed partial class SemanticVerifier
                     var resolvedTypeArguments = new List<TypeInfo>(capacity: routineExplicitTypeArgs.Count);
                     foreach (TypeExpression ta in routineExplicitTypeArgs)
                         resolvedTypeArguments.Add(item: ResolveType(typeExpr: ta));
+                    // Enforce the routine's `needs <param> obeys P` constraints against the explicit type
+                    // args as a CLEAN semantic error (RF-S150) — before monomorphization prunes the body
+                    // and codegen would instead trip an "over-prune / undefined symbol" crash.
+                    ValidateRoutineGenericConstraints(routine: routine,
+                        typeArgs: resolvedTypeArguments, location: call.Location);
                     RoutineInfo? monomorphized = _registry.GetOrCreateRoutineResolution(
                         genericDef: routine, typeArguments: resolvedTypeArguments);
                     if (monomorphized != null)
@@ -460,6 +514,10 @@ public sealed partial class SemanticVerifier
 
                     if (inferred != null)
                     {
+                        // Same clean-diagnostic constraint check as the explicit-type-arg branch, for an
+                        // INFERRED generic call (arg-typed, no `[...]`).
+                        ValidateRoutineGenericConstraints(routine: routine,
+                            typeArgs: inferred, location: call.Location);
                         RoutineInfo? monomorphized = _registry.GetOrCreateRoutineResolution(
                             genericDef: routine, typeArguments: inferred);
                         if (monomorphized != null)
@@ -649,24 +707,7 @@ public sealed partial class SemanticVerifier
                     && routine == null && call.Arguments.Count == 0
                     && zeroArgType is not (VariantTypeInfo or ProtocolTypeInfo))
                 {
-                    RoutineInfo? zeroCreate = _registry.LookupMemberRoutineOverload(type: zeroArgType,
-                        memberRoutineName: "create", argTypes: new List<TypeSymbol>())
-                        ?? _registry.LookupRoutineOverload(baseName: $"{zeroArgType.FullName}.create",
-                            argTypes: new List<TypeInfo>());
-                    call.ConstructedType = zeroArgType;
-                    call.LoweringKind = ClassifyConstruction(type: zeroArgType,
-                        isCollectionLiteral: call.IsCollectionLiteral);
-                    // A user-declared (non-synthesized) `create` has a real body/side-effects — route the
-                    // call through it (this ALSO seeds it for reachability). A synthesized memberwise creator
-                    // is left to inline construction.
-                    if (zeroCreate is { IsSynthesized: false })
-                        call.ResolvedRoutine = zeroCreate;
-                    call.IsInFlight = zeroCreate?.IsInFlightReturn ?? false;
-                    // Return the BARE entity type (NOT create's declared return, which for a Suflae entity is
-                    // `Roamed[E]`): the SF entity-lowering pass keys on `ResolvedType is EntityTypeInfo` to
-                    // wrap a construction in `.roam()`, so a Roamed return type would divert it to the
-                    // arg-carrying-create path and drop the wrap. For an RF entity the two coincide.
-                    return zeroArgType;
+                    return AnalyzeZeroArgConstruction(call: call, zeroArgType: zeroArgType);
                 }
 
                 if (callableType != null && call.Arguments.Count > 0)
@@ -1517,6 +1558,13 @@ public sealed partial class SemanticVerifier
                         isFailable: true);
                 }
 
+                // Clean-diagnostic gate: a resolved member routine whose owner-level `needs param obeys P`
+                // constraint is unmet by the concrete receiver (e.g. `List[Widget].duplicate()` with
+                // `needs T obeys Copyable`, Widget not Copyable) is RF-S150 here, not an over-prune crash.
+                if (memberRoutine != null)
+                    ValidateMemberOwnerConstraints(memberRoutine: memberRoutine,
+                        ownerType: dispatchType, location: member.Location);
+
                 // Phase D: Transparent wrapper forwarding — if the memberRoutine isn't found directly on
                 // the wrapper, synthesize a forwarder that delegates to the inner type's memberRoutine
                 // via `Hijacked[T](me).extract().MemberRoutine(...)`.
@@ -1528,7 +1576,7 @@ public sealed partial class SemanticVerifier
                 }
 
                 if (memberRoutine == null &&
-                    TryGetTransparentProtocolTarget(type: objectType, targetType: out TypeSymbol target))
+                    TryUnwrapMarkerReceiver(type: objectType, innerType: out TypeSymbol target))
                 {
                     dispatchType = target;
                     memberRoutine = _registry.LookupMemberRoutine(type: dispatchType,
@@ -1560,6 +1608,44 @@ public sealed partial class SemanticVerifier
                             isFailable: true,
                             constraints: constraints,
                             protocolResolver: LookupTypeWithImports);
+                    }
+                }
+
+                // Ambiguous multi-overload seed. A routine's identity is (name, parameter-types), so once
+                // >1 same-name overload is registered the name-only lookups above returned null BY DESIGN
+                // (no first-wins — that was the S8-vs-S64 mis-pick bug class). Pin the unique overload from
+                // the call shape: filter the candidates by arity + supplied named-argument names, preferring
+                // the requested failability. A single survivor IS the answer. Several survivors differ only
+                // by parameter TYPE (e.g. `Text.split(Character)` vs `split(Text)`) — scaffold with one so
+                // the arguments can be analyzed for their expected param types, and set `ambiguousSeed` to
+                // FORCE the argType-driven retry below to pin the unique (name, argTypes) match.
+                bool ambiguousSeed = false;
+                if (memberRoutine == null && dispatchType != null)
+                {
+                    var seedCandidates = new List<RoutineInfo>();
+                    _registry.CollectMemberRoutineCandidates(type: dispatchType,
+                        memberRoutineName: callLookupName, candidates: seedCandidates);
+                    if (seedCandidates.Count > 1)
+                    {
+                        var seedNames = call.Arguments.OfType<NamedArgumentExpression>()
+                            .Select(selector: n => n.Name).ToList();
+                        var arityMatches = seedCandidates.Where(predicate: c =>
+                                c.Parameters.Count == call.Arguments.Count
+                                && seedNames.All(predicate: n =>
+                                    c.Parameters.Any(predicate: p => p.Name == n)))
+                            .ToList();
+                        var failMatches = arityMatches
+                            .Where(predicate: c => c.IsFailable == isFailableMemberRoutineCall).ToList();
+                        List<RoutineInfo> pick = failMatches.Count > 0 ? failMatches : arityMatches;
+                        if (pick.Count == 1)
+                        {
+                            memberRoutine = pick[index: 0];
+                        }
+                        else if (pick.Count > 1)
+                        {
+                            memberRoutine = pick[index: 0];
+                            ambiguousSeed = true;
+                        }
                     }
                 }
 
@@ -1635,7 +1721,7 @@ public sealed partial class SemanticVerifier
                                             !IsAssignableTo(source: resolvedArgTypes[0],
                                                 target: memberRoutine.Parameters[0].Type);
 
-                    if (arityMismatch || firstArgMismatch)
+                    if (arityMismatch || firstArgMismatch || ambiguousSeed)
                     {
                         RoutineInfo? betterMemberRoutine = _registry.LookupMemberRoutineOverload(type: dispatchType!,
                             memberRoutineName: callLookupName,
@@ -2042,6 +2128,25 @@ public sealed partial class SemanticVerifier
                 bool isFailable = member.IsFailable;
                 string potentialTypeName = member.MemberName;
 
+                // Conversion-VARIANT chain: `.try_S64()`/`.check_S64()`/`.lookup_S64()` on a value resolve to
+                // the target type's `try_create`/`check_create`/`lookup_create` (the recoverable forms of the
+                // `.S64!()` -> `S64.create!(from:)` conversion). This is what a `try_`/`check_`/`lookup_`
+                // variant body's re-analysis of a converted `!` conversion call must resolve to — else the
+                // bare "try_create" member name re-resolves against the RECEIVER type (e.g. F64.try_create)
+                // instead of the conversion TARGET (S64.try_create). Strip the prefix ONLY when the remainder
+                // is an actual type name, so a real `try_foo` member routine is untouched.
+                string creatorName = "create";
+                foreach ((string prefix, string cname) in ConversionVariantCreators)
+                {
+                    if (potentialTypeName.StartsWith(value: prefix, comparisonType: StringComparison.Ordinal)
+                        && LookupTypeWithImports(name: potentialTypeName[prefix.Length..]) is not null)
+                    {
+                        potentialTypeName = potentialTypeName[prefix.Length..];
+                        creatorName = cname;
+                        break;
+                    }
+                }
+
                 TypeSymbol? targetType = LookupTypeWithImports(name: potentialTypeName);
 
                 // Type-arg inference for a memberRoutine-chain variant arm extractor: `sv.Dict!()` where `Dict`
@@ -2077,10 +2182,10 @@ public sealed partial class SemanticVerifier
                     // is the right entry point — the latter only indexes free functions.
                     RoutineInfo? creator =
                         _registry.LookupMemberRoutineOverload(type: targetType,
-                            memberRoutineName: "create",
+                            memberRoutineName: creatorName,
                             argTypes: [objectType]);
                     // Fall back to default overload if no match by arg type
-                    string creatorFullName = $"{targetType.FullName}.create";
+                    string creatorFullName = $"{targetType.FullName}.{creatorName}";
                     creator ??= _registry.LookupRoutine(fullName: creatorFullName);
 
                     if (creator != null)
@@ -2151,7 +2256,13 @@ public sealed partial class SemanticVerifier
                             }
                         }
 
-                        return targetType;
+                        // A conversion-variant chain (`.try_S64()` -> `S64.try_create`) returns the carrier
+                        // (Maybe/Result/Lookup[targetType]), not the bare target type. `create` returns the
+                        // target type as before. `call.ConstructedType` stays the target so codegen's
+                        // TypeConstructor path passes the receiver as the `from:` arg either way.
+                        return creatorName == "create"
+                            ? targetType
+                            : creator.ReturnType as TypeInfo ?? targetType;
                     }
                 }
 

@@ -68,57 +68,67 @@ public partial class Tokenizer
         // Check for type suffix
         if (char.IsLetter(c: Peek()))
         {
-            int suffixStart = _position;
-            while (char.IsLetterOrDigit(c: Peek()))
-            {
-                Advance();
-            }
-
-            string suffix =
-                _source.Substring(startIndex: suffixStart, length: _position - suffixStart);
-
-            // Arbitrary precision: `n` → Integer (integer syntax only — `1.5n`
-            // names no integer), `dn` → Decimal (both syntaxes: `1dn` and
-            // `0.5dn` are equally unambiguous, like every other typed suffix).
-            if (!isFloat && suffix == ArbitraryIntegerSuffix)
-            {
-                AddToken(type: TokenType.IntegerLiteral);
-            }
-            else if (suffix == ArbitraryDecimalSuffix)
-            {
-                AddToken(type: TokenType.DecimalLiteral);
-            }
-            else if (_numericSuffixToTokenType.TryGetValue(key: suffix,
-                         value: out TokenType numericType))
-            {
-                AddToken(type: numericType);
-            }
-            else if (_byteSizeSuffixToTokenType.TryGetValue(key: suffix,
-                         value: out TokenType memoryType))
-            {
-                AddToken(type: memoryType);
-            }
-            else if (_durationSuffixToTokenType.TryGetValue(key: suffix,
-                         value: out TokenType durationToken))
-            {
-                AddToken(type: durationToken);
-            }
-            else
-            {
-                throw new GrammarException(
-                    code: ClassifySuffixError(suffix: suffix, isFloat: isFloat),
-                    message: $"Unknown suffix '{suffix}'",
-                    fileName: _fileName,
-                    line: _line,
-                    column: _column,
-                    language: _language);
-            }
+            EmitDecimalSuffixedToken(isFloat: isFloat);
         }
         else
         {
             AddToken(type: isFloat
                 ? TokenType.UndecidedDecimal
                 : TokenType.UndecidedInteger);
+        }
+    }
+
+    /// <summary>
+    /// Consumes a decimal-number type suffix and emits the matching token, dispatching over
+    /// arbitrary-precision, numeric, memory-size, and duration suffix tables. Throws on an
+    /// unknown suffix. Assumes the caller has confirmed a letter begins the suffix.
+    /// </summary>
+    private void EmitDecimalSuffixedToken(bool isFloat)
+    {
+        int suffixStart = _position;
+        while (char.IsLetterOrDigit(c: Peek()))
+        {
+            Advance();
+        }
+
+        string suffix =
+            _source.Substring(startIndex: suffixStart, length: _position - suffixStart);
+
+        // Arbitrary precision: `n` → Integer (integer syntax only — `1.5n`
+        // names no integer), `dn` → Decimal (both syntaxes: `1dn` and
+        // `0.5dn` are equally unambiguous, like every other typed suffix).
+        if (!isFloat && suffix == ArbitraryIntegerSuffix)
+        {
+            AddToken(type: TokenType.IntegerLiteral);
+        }
+        else if (suffix == ArbitraryDecimalSuffix)
+        {
+            AddToken(type: TokenType.DecimalLiteral);
+        }
+        else if (_numericSuffixToTokenType.TryGetValue(key: suffix,
+                     value: out TokenType numericType))
+        {
+            AddToken(type: numericType);
+        }
+        else if (_byteSizeSuffixToTokenType.TryGetValue(key: suffix,
+                     value: out TokenType memoryType))
+        {
+            AddToken(type: memoryType);
+        }
+        else if (_durationSuffixToTokenType.TryGetValue(key: suffix,
+                     value: out TokenType durationToken))
+        {
+            AddToken(type: durationToken);
+        }
+        else
+        {
+            throw new GrammarException(
+                code: ClassifySuffixError(suffix: suffix, isFloat: isFloat),
+                message: $"Unknown suffix '{suffix}'",
+                fileName: _fileName,
+                line: _line,
+                column: _column,
+                language: _language);
         }
     }
 
@@ -137,61 +147,7 @@ public partial class Tokenizer
         // Consume valid digits and underscores
         if (isHex)
         {
-            while (IsHexDigit(c: Peek()) || Peek() == '_')
-            {
-                // When encountering underscore in hex mode, check if what follows
-                // is a type suffix (e.g., _addr) rather than a digit separator (e.g., _ABCD)
-                if (Peek() == '_')
-                {
-                    int lookAhead = 1;
-                    while (char.IsLetterOrDigit(c: Peek(offset: lookAhead)))
-                    {
-                        lookAhead++;
-                    }
-
-                    if (lookAhead > 1)
-                    {
-                        string candidate = _source.Substring(startIndex: _position + 1,
-                            length: lookAhead - 1);
-                        if (_numericSuffixToTokenType.ContainsKey(key: candidate) ||
-                            candidate == ArbitraryIntegerSuffix ||
-                            candidate == ArbitraryDecimalSuffix)
-                        {
-                            Advance(); // consume the underscore
-                            break; // suffix follows
-                        }
-                    }
-                }
-
-                Advance();
-            }
-
-            // Check for hex float fractional part: 0x1.ABCDp5
-            if (Peek() == '.' && IsHexDigit(c: Peek(offset: 1)))
-            {
-                isHexFloat = true;
-                Advance(); // consume '.'
-                while (IsHexDigit(c: Peek()) || Peek() == '_')
-                {
-                    Advance();
-                }
-            }
-
-            // Check for hex float binary exponent (p/P)
-            if (Peek() == 'p' || Peek() == 'P')
-            {
-                isHexFloat = true;
-                Advance(); // consume 'p'/'P'
-                if (Peek() == '+' || Peek() == '-')
-                {
-                    Advance();
-                }
-
-                while (char.IsDigit(c: Peek()))
-                {
-                    Advance();
-                }
-            }
+            isHexFloat = ScanHexDigitsAndFloatParts();
         }
         else
         {
@@ -210,49 +166,138 @@ public partial class Tokenizer
         // Check for type suffix
         if (char.IsLetter(c: Peek()))
         {
-            int suffixStart = _position;
-            while (char.IsLetterOrDigit(c: Peek()))
-            {
-                Advance();
-            }
-
-            string suffix =
-                _source.Substring(startIndex: suffixStart, length: _position - suffixStart);
-
-            // Arbitrary precision: `n` for hex integers, `dn` for Decimal (the
-            // integer form is only reachable via the explicit `_dn` spelling —
-            // a bare `d` is a hex digit and gets consumed by the mantissa).
-            if (!isHexFloat && suffix == ArbitraryIntegerSuffix)
-            {
-                AddToken(type: TokenType.IntegerLiteral);
-            }
-            else if (suffix == ArbitraryDecimalSuffix)
-            {
-                AddToken(type: TokenType.DecimalLiteral);
-            }
-            else if (_numericSuffixToTokenType.TryGetValue(key: suffix,
-                         value: out TokenType tokenType))
-            {
-                AddToken(type: tokenType);
-            }
-            else
-            {
-                string baseType = isHex
-                    ? "hex"
-                    : "binary";
-                throw new GrammarException(code: GrammarDiagnosticCode.InvalidNumericLiteral,
-                    message: $"Unknown {baseType} suffix '{suffix}'",
-                    fileName: _fileName,
-                    line: _line,
-                    column: _column,
-                    language: _language);
-            }
+            EmitPrefixedSuffixedToken(isHex: isHex, isHexFloat: isHexFloat);
         }
         else
         {
             AddToken(type: isHexFloat
                 ? TokenType.UndecidedDecimal
                 : TokenType.UndecidedInteger);
+        }
+    }
+
+    /// <summary>
+    /// Consumes hex digits/underscores plus any hex-float fractional part (0x1.ABCD) and binary
+    /// exponent (p5), treating an underscore that precedes a known type suffix as the suffix
+    /// separator rather than a digit separator.
+    /// </summary>
+    /// <returns><c>true</c> if a hex-float fractional part or exponent was seen.</returns>
+    private bool ScanHexDigitsAndFloatParts()
+    {
+        bool isHexFloat = false;
+
+        while (IsHexDigit(c: Peek()) || Peek() == '_')
+        {
+            // When encountering underscore in hex mode, check if what follows
+            // is a type suffix (e.g., _addr) rather than a digit separator (e.g., _ABCD)
+            if (Peek() == '_' && UnderscoreIntroducesSuffix())
+            {
+                Advance(); // consume the underscore
+                break; // suffix follows
+            }
+
+            Advance();
+        }
+
+        // Check for hex float fractional part: 0x1.ABCDp5
+        if (Peek() == '.' && IsHexDigit(c: Peek(offset: 1)))
+        {
+            isHexFloat = true;
+            Advance(); // consume '.'
+            while (IsHexDigit(c: Peek()) || Peek() == '_')
+            {
+                Advance();
+            }
+        }
+
+        // Check for hex float binary exponent (p/P)
+        if (Peek() == 'p' || Peek() == 'P')
+        {
+            isHexFloat = true;
+            Advance(); // consume 'p'/'P'
+            if (Peek() == '+' || Peek() == '-')
+            {
+                Advance();
+            }
+
+            while (char.IsDigit(c: Peek()))
+            {
+                Advance();
+            }
+        }
+
+        return isHexFloat;
+    }
+
+    /// <summary>
+    /// Peeks whether the underscore at the current position introduces a known type suffix
+    /// (e.g., <c>_addr</c>) rather than serving as a hex digit separator (e.g., <c>_ABCD</c>).
+    /// </summary>
+    private bool UnderscoreIntroducesSuffix()
+    {
+        int lookAhead = 1;
+        while (char.IsLetterOrDigit(c: Peek(offset: lookAhead)))
+        {
+            lookAhead++;
+        }
+
+        if (lookAhead > 1)
+        {
+            string candidate = _source.Substring(startIndex: _position + 1,
+                length: lookAhead - 1);
+            if (_numericSuffixToTokenType.ContainsKey(key: candidate) ||
+                candidate == ArbitraryIntegerSuffix ||
+                candidate == ArbitraryDecimalSuffix)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Consumes a prefixed-number (hex/binary) type suffix and emits the matching token. Throws on
+    /// an unknown suffix. Assumes the caller has confirmed a letter begins the suffix.
+    /// </summary>
+    private void EmitPrefixedSuffixedToken(bool isHex, bool isHexFloat)
+    {
+        int suffixStart = _position;
+        while (char.IsLetterOrDigit(c: Peek()))
+        {
+            Advance();
+        }
+
+        string suffix =
+            _source.Substring(startIndex: suffixStart, length: _position - suffixStart);
+
+        // Arbitrary precision: `n` for hex integers, `dn` for Decimal (the
+        // integer form is only reachable via the explicit `_dn` spelling —
+        // a bare `d` is a hex digit and gets consumed by the mantissa).
+        if (!isHexFloat && suffix == ArbitraryIntegerSuffix)
+        {
+            AddToken(type: TokenType.IntegerLiteral);
+        }
+        else if (suffix == ArbitraryDecimalSuffix)
+        {
+            AddToken(type: TokenType.DecimalLiteral);
+        }
+        else if (_numericSuffixToTokenType.TryGetValue(key: suffix,
+                     value: out TokenType tokenType))
+        {
+            AddToken(type: tokenType);
+        }
+        else
+        {
+            string baseType = isHex
+                ? "hex"
+                : "binary";
+            throw new GrammarException(code: GrammarDiagnosticCode.InvalidNumericLiteral,
+                message: $"Unknown {baseType} suffix '{suffix}'",
+                fileName: _fileName,
+                line: _line,
+                column: _column,
+                language: _language);
         }
     }
 

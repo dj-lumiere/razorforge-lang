@@ -6,7 +6,7 @@ module Core
 ### `S16` is used for audio samples (PCM 16-bit), compact numeric data,
 ### and other values that fit in 16 bits with a sign.
 @llvm("i16")
-record S16 obeys SignedIntegral, Ordered, ConstCompatible, AtomicType, Assignable, Copyable
+record S16 obeys SignedIntegral, Ordered, ConstCompatible, AtomicType, Assignable, Copyable, Splittable
   pass
 
 # Constants for S16 limits
@@ -654,6 +654,7 @@ routine S16.signum() -> S16
 
 ### Returns the human-readable text of this value.
 ### :returns: The value rendered as `Text`.
+@override
 routine S16.represent() -> Text
   if me == 0s16
     return "0"
@@ -666,6 +667,7 @@ routine S16.represent() -> Text
 
 ### Returns a type-tagged debug rendering of this value.
 ### :returns: A diagnostic `Text` rendering, e.g. `Type(value)`.
+@override
 routine S16.diagnose() -> Text
   return "S16(" + me.represent() + ")"
 

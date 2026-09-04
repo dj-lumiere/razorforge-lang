@@ -6,7 +6,7 @@ module Core
 ### RazorForge. It maps to LLVM `i1` and occupies a single bit in registers,
 ### though it is stored as a byte in memory.
 @llvm("i1")
-record Bool obeys Equatable, ConstCompatible, Assignable, Copyable
+record Bool obeys Equatable, ConstCompatible, Assignable, Copyable, Splittable
   pass
 
 ### Returns `true` when both values are equal.
@@ -39,6 +39,7 @@ routine U8(from: Bool) -> U8
 
 ### Returns a type-tagged debug rendering of this value.
 ### :returns: A diagnostic `Text` rendering, e.g. `Type(value)`.
+@override
 routine Bool.diagnose() -> Text
   if me
     return "Bool(true)"
@@ -46,6 +47,7 @@ routine Bool.diagnose() -> Text
 
 ### Returns the human-readable text of this value.
 ### :returns: The value rendered as `Text`.
+@override
 routine Bool.represent() -> Text
   if me
     return "true"
@@ -61,3 +63,4 @@ routine Bool.represent() -> Text
 ### :returns: A `U64` keyed hash suitable for denial-of-service-resistant hash tables.
 routine Bool.hash(k0: U64, k1: U64) -> U64
   return __secure_hash_u64(v: LLVM::zero_extend[Bool, U64](me), k0: k0, k1: k1)
+

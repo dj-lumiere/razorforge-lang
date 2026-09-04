@@ -119,6 +119,20 @@ public sealed class BackendEntryValidator
     private static bool TryCreateResidualError(ISyntaxTreeNode node, TypeRegistry registry,
         out SemanticError? error)
     {
+        return TryCreatePresetIdentifierError(node: node, registry: registry, error: out error)
+            || TryCreateConstructorLikeCallError(node: node, registry: registry, error: out error)
+            || TryCreateUnresolvedFreeCallError(node: node, registry: registry, error: out error)
+            || TryCreateIndexGenericError(node: node, error: out error)
+            || TryCreateMissingReprError(node: node, error: out error)
+            || TryCreateResidualNodeError(node: node, error: out error);
+    }
+
+    /// <summary>
+    /// Errors when a scalar preset identifier survived without inlining.
+    /// </summary>
+    private static bool TryCreatePresetIdentifierError(ISyntaxTreeNode node, TypeRegistry registry,
+        out SemanticError? error)
+    {
         if (node is IdentifierExpression identifier &&
             registry.LookupVariable(name: identifier.Name) is { IsPreset: true } presetVar &&
             !presetVar.IsPresettableAggregate &&
@@ -136,6 +150,16 @@ public sealed class BackendEntryValidator
             return true;
         }
 
+        error = null;
+        return false;
+    }
+
+    /// <summary>
+    /// Errors when a constructor-like call reached backend entry without lowering metadata.
+    /// </summary>
+    private static bool TryCreateConstructorLikeCallError(ISyntaxTreeNode node, TypeRegistry registry,
+        out SemanticError? error)
+    {
         if (node is CallExpression
             {
                 Callee: IdentifierExpression callee,
@@ -154,6 +178,16 @@ public sealed class BackendEntryValidator
             return true;
         }
 
+        error = null;
+        return false;
+    }
+
+    /// <summary>
+    /// Errors when a direct routine call reached backend entry without resolved metadata.
+    /// </summary>
+    private static bool TryCreateUnresolvedFreeCallError(ISyntaxTreeNode node, TypeRegistry registry,
+        out SemanticError? error)
+    {
         if (node is CallExpression
             {
                 Callee: IdentifierExpression routineCallee,
@@ -172,6 +206,15 @@ public sealed class BackendEntryValidator
             return true;
         }
 
+        error = null;
+        return false;
+    }
+
+    /// <summary>
+    /// Errors when an IndexExpression carries an unresolved generic result type.
+    /// </summary>
+    private static bool TryCreateIndexGenericError(ISyntaxTreeNode node, out SemanticError? error)
+    {
         if (node is IndexExpression { ResolvedType: { } indexType } indexExpression &&
             ContainsUnresolvedBackendGeneric(type: indexType))
         {
@@ -184,6 +227,15 @@ public sealed class BackendEntryValidator
             return true;
         }
 
+        error = null;
+        return false;
+    }
+
+    /// <summary>
+    /// Errors when a typed expression has no backend representation attached.
+    /// </summary>
+    private static bool TryCreateMissingReprError(ISyntaxTreeNode node, out SemanticError? error)
+    {
         if (node is Expression { ResolvedType: { } reprResolvedType and not ErrorTypeInfo, ResolvedRepr: null } exprWithRepr and not TypeExpression)
         {
             error = new SemanticError(
@@ -194,6 +246,15 @@ public sealed class BackendEntryValidator
             return true;
         }
 
+        error = null;
+        return false;
+    }
+
+    /// <summary>
+    /// Errors when a node kind that a lowering pass must eliminate survived postprocessing.
+    /// </summary>
+    private static bool TryCreateResidualNodeError(ISyntaxTreeNode node, out SemanticError? error)
+    {
         // Async nodes still have an active backend/codegen path today; validate those in a later
         // hardening step after AsyncLoweringPass owns them.
         string? requiredPass = node switch

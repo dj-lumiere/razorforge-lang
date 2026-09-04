@@ -77,7 +77,7 @@ public partial class LlvmCodeGenerator
                     arguments: arguments);
             case CallLoweringKind.TypeConstructor or CallLoweringKind.WrapperConstruction when constructedType is RecordTypeInfo
             {
-                HasDirectBackendType: true
+                BackendType: not null
             } directRecord && arguments.Count == 1 &&
                 ShouldInlineDirectBackendConstruction(record: directRecord,
                     arg: arguments[index: 0],
@@ -306,137 +306,15 @@ public partial class LlvmCodeGenerator
 
         if (routine != null)
         {
-            int paramCount = routine.Parameters.Count;
-
-            // Bind each written argument to its declared parameter slot (named by name, else by
-            // position). Unmatched names fall back to position defensively (SA validates names).
-            var slotArg = new Expression?[paramCount];
-            for (int argIdx = 0; argIdx < arguments.Count; argIdx++)
-            {
-                Expression a = arguments[index: argIdx];
-                int p = argIdx;
-                if (a is NamedArgumentExpression na)
-                {
-                    p = -1;
-                    for (int k = 0; k < paramCount; k++)
-                    {
-                        if (routine.Parameters[index: k].Name == na.Name)
-                        {
-                            p = k;
-                            break;
-                        }
-                    }
-
-                    if (p < 0)
-                    {
-                        p = argIdx;
-                    }
-                }
-
-                if (p >= 0 && p < paramCount)
-                {
-                    slotArg[p] = a;
-                }
-            }
-
-            // Emit slot-by-slot in declaration order: provided argument (evaluated here) or default.
-            for (int p = 0; p < paramCount; p++)
-            {
-                ParameterInfo param = routine.Parameters[index: p];
-                Expression? bound = slotArg[p];
-                if (bound != null)
-                {
-                    // FFI routine -> C function pointer: a bare top-level routine name passed where a
-                    // C:: extern expects a callback lowers to the routine's bare C-ABI symbol (its native
-                    // define is already `ccc` with NO hidden %__cl/me; the symbol IS the fn pointer).
-                    // This fires for a `CPtr` param (always an FFI slot) OR a `Routine[...]`-typed param
-                    // of a FOREIGN (C::/LLVM::) callee. WITHOUT this a routine value would flow through
-                    // EmitRoutineValueClosure — a heap `{fn}` box whose ADDRESS (not the fn) reaches C,
-                    // plus the `.rfvthunk` adapter is closure-ptr-FIRST (`__cl, a, b`) so args shift one
-                    // slot — the qsort 0xC0000005. SA gates this to non-capturing bare references.
-                    Expression argInner =
-                        bound is NamedArgumentExpression nb ? nb.Value : bound;
-                    bool paramTakesCFnPtr = param.Type?.Name == "CPtr"
-                        || (routine.IsForeign && param.Type is RoutineTypeInfo);
-                    if (paramTakesCFnPtr
-                        && argInner is IdentifierExpression routineRef
-                        && _registry.LookupRoutineByName(name: routineRef.Name) is { } refRoutine)
-                    {
-                        GenerateRoutineDeclaration(routine: refRoutine);
-                        argValues.Add(item: $"@{MangleRoutineName(routine: refRoutine)}");
-                        argTypeInfos.Add(item: param.Type);
-                        argTypes.Add(item: "ptr");
-                        continue;
-                    }
-
-                    // A Routine-typed VALUE (field / local / arbitrary expr) at a C boundary — NOT a bare
-                    // routine ref. Capturing-ness lives in the fat value's `bound`, only knowable at
-                    // runtime, so emit a `bound == null` guard: captureless → hand C the 1-word `fn`;
-                    // capturing → crash (a capture has no C slot). See [[cabi-callback-ffi]].
-                    if (paramTakesCFnPtr
-                        && GetExpressionType(expr: argInner) is RoutineTypeInfo)
-                    {
-                        string fnArg = EmitForeignRoutineValueArg(sb: sb, valueExpr: argInner);
-                        argValues.Add(item: fnArg);
-                        argTypeInfos.Add(item: param.Type);
-                        argTypes.Add(item: "ptr");
-                        continue;
-                    }
-
-                    string value = EmitExpression(sb: sb, expr: bound);
-                    TypeInfo? argType = GetExpressionType(expr: bound);
-                    if (argType == null)
-                    {
-                        throw new InvalidOperationException(
-                            message:
-                            $"Cannot determine type for argument in function call to '{functionName}'");
-                    }
-
-                    (string coercedValue, string coercedType) = CoerceCallArgumentToParameter(
-                        sb: sb,
-                        argValue: value,
-                        actualType: argType,
-                        parameterType: param.Type,
-                        callee: routine);
-                    argValues.Add(item: coercedValue);
-                    argTypes.Add(item: coercedType);
-                    argTypeInfos.Add(item: argType);
-                }
-                else if (param.HasDefaultValue)
-                {
-                    string value = EmitParameterDefault(sb: sb, param: param);
-                    argValues.Add(item: value);
-                    argTypeInfos.Add(item: param.Type);
-                    argTypes.Add(item: GetParameterLlvmType(type: param.Type));
-                }
-                else
-                {
-                    // No argument and no default: SA should have rejected this call. Stop rather
-                    // than fabricate a value and emit a malformed call.
-                    break;
-                }
-            }
+            EmitFreeCallArgumentsInDeclarationOrder(sb: sb, routine: routine,
+                functionName: functionName, arguments: arguments,
+                argValues: argValues, argTypes: argTypes, argTypeInfos: argTypeInfos);
         }
         else
         {
-            // Unresolved/dynamic callee: no parameter info to bind against — emit in writing order.
-            for (int argIdx = 0; argIdx < arguments.Count; argIdx++)
-            {
-                Expression arg = arguments[index: argIdx];
-                string value = EmitExpression(sb: sb, expr: arg);
-                argValues.Add(item: value);
-
-                TypeInfo? argType = GetExpressionType(expr: arg);
-                if (argType == null)
-                {
-                    throw new InvalidOperationException(
-                        message:
-                        $"Cannot determine type for argument in function call to '{functionName}'");
-                }
-
-                argTypeInfos.Add(item: argType);
-                argTypes.Add(item: GetLlvmType(type: argType));
-            }
+            EmitUnresolvedFreeCallArguments(sb: sb, functionName: functionName,
+                arguments: arguments,
+                argValues: argValues, argTypes: argTypes, argTypeInfos: argTypeInfos);
         }
 
         // Build the call
@@ -545,6 +423,157 @@ public partial class LlvmCodeGenerator
     }
 
     /// <summary>
+    /// Binds each written argument of a resolved free call to its declared parameter slot (named by
+    /// name, else positionally) and emits the arguments in PARAMETER-DECLARATION order — evaluating
+    /// each provided argument (with FFI C-function-pointer and coercion handling) or a default,
+    /// filling <paramref name="argValues"/> / <paramref name="argTypes"/> / <paramref name="argTypeInfos"/>.
+    /// </summary>
+    private void EmitFreeCallArgumentsInDeclarationOrder(StringBuilder sb, RoutineInfo routine,
+        string functionName, List<Expression> arguments,
+        List<string> argValues, List<string> argTypes, List<TypeInfo> argTypeInfos)
+    {
+        int paramCount = routine.Parameters.Count;
+
+        // Bind each written argument to its declared parameter slot (named by name, else by
+        // position). Unmatched names fall back to position defensively (SA validates names).
+        var slotArg = new Expression?[paramCount];
+        for (int argIdx = 0; argIdx < arguments.Count; argIdx++)
+        {
+            Expression a = arguments[index: argIdx];
+            int p = argIdx;
+            if (a is NamedArgumentExpression na)
+            {
+                p = -1;
+                for (int k = 0; k < paramCount; k++)
+                {
+                    if (routine.Parameters[index: k].Name == na.Name)
+                    {
+                        p = k;
+                        break;
+                    }
+                }
+
+                if (p < 0)
+                {
+                    p = argIdx;
+                }
+            }
+
+            if (p >= 0 && p < paramCount)
+            {
+                slotArg[p] = a;
+            }
+        }
+
+        // Emit slot-by-slot in declaration order: provided argument (evaluated here) or default.
+        for (int p = 0; p < paramCount; p++)
+        {
+            ParameterInfo param = routine.Parameters[index: p];
+            Expression? bound = slotArg[p];
+            if (bound != null)
+            {
+                // FFI routine -> C function pointer: a bare top-level routine name passed where a
+                // C:: extern expects a callback lowers to the routine's bare C-ABI symbol (its native
+                // define is already `ccc` with NO hidden %__cl/me; the symbol IS the fn pointer).
+                // This fires for a `CPtr` param (always an FFI slot) OR a `Routine[...]`-typed param
+                // of a FOREIGN (C::/LLVM::) callee. WITHOUT this a routine value would flow through
+                // EmitRoutineValueClosure — a heap `{fn}` box whose ADDRESS (not the fn) reaches C,
+                // plus the `.rfvthunk` adapter is closure-ptr-FIRST (`__cl, a, b`) so args shift one
+                // slot — the qsort 0xC0000005. SA gates this to non-capturing bare references.
+                Expression argInner =
+                    bound is NamedArgumentExpression nb ? nb.Value : bound;
+                bool paramTakesCFnPtr = param.Type?.Name == "CPtr"
+                    || (routine.IsForeign && param.Type is RoutineTypeInfo);
+                if (paramTakesCFnPtr
+                    && argInner is IdentifierExpression routineRef
+                    && _registry.LookupRoutineByName(name: routineRef.Name) is { } refRoutine)
+                {
+                    GenerateRoutineDeclaration(routine: refRoutine);
+                    argValues.Add(item: $"@{MangleRoutineName(routine: refRoutine)}");
+                    argTypeInfos.Add(item: param.Type);
+                    argTypes.Add(item: "ptr");
+                    continue;
+                }
+
+                // A Routine-typed VALUE (field / local / arbitrary expr) at a C boundary — NOT a bare
+                // routine ref. Capturing-ness lives in the fat value's `bound`, only knowable at
+                // runtime, so emit a `bound == null` guard: captureless → hand C the 1-word `fn`;
+                // capturing → crash (a capture has no C slot). See [[cabi-callback-ffi]].
+                if (paramTakesCFnPtr
+                    && GetExpressionType(expr: argInner) is RoutineTypeInfo)
+                {
+                    string fnArg = EmitForeignRoutineValueArg(sb: sb, valueExpr: argInner);
+                    argValues.Add(item: fnArg);
+                    argTypeInfos.Add(item: param.Type);
+                    argTypes.Add(item: "ptr");
+                    continue;
+                }
+
+                string value = EmitExpression(sb: sb, expr: bound);
+                TypeInfo? argType = GetExpressionType(expr: bound);
+                if (argType == null)
+                {
+                    throw new InvalidOperationException(
+                        message:
+                        $"Cannot determine type for argument in function call to '{functionName}'");
+                }
+
+                (string coercedValue, string coercedType) = CoerceCallArgumentToParameter(
+                    sb: sb,
+                    argValue: value,
+                    actualType: argType,
+                    parameterType: param.Type,
+                    callee: routine);
+                argValues.Add(item: coercedValue);
+                argTypes.Add(item: coercedType);
+                argTypeInfos.Add(item: argType);
+            }
+            else if (param.HasDefaultValue)
+            {
+                string value = EmitParameterDefault(sb: sb, param: param);
+                argValues.Add(item: value);
+                argTypeInfos.Add(item: param.Type);
+                argTypes.Add(item: GetParameterLlvmType(type: param.Type));
+            }
+            else
+            {
+                // No argument and no default: SA should have rejected this call. Stop rather
+                // than fabricate a value and emit a malformed call.
+                break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Emits a free call's arguments in WRITING order for an unresolved/dynamic callee (no parameter
+    /// info to bind against), filling <paramref name="argValues"/> / <paramref name="argTypes"/> /
+    /// <paramref name="argTypeInfos"/>.
+    /// </summary>
+    private void EmitUnresolvedFreeCallArguments(StringBuilder sb, string functionName,
+        List<Expression> arguments,
+        List<string> argValues, List<string> argTypes, List<TypeInfo> argTypeInfos)
+    {
+        // Unresolved/dynamic callee: no parameter info to bind against — emit in writing order.
+        for (int argIdx = 0; argIdx < arguments.Count; argIdx++)
+        {
+            Expression arg = arguments[index: argIdx];
+            string value = EmitExpression(sb: sb, expr: arg);
+            argValues.Add(item: value);
+
+            TypeInfo? argType = GetExpressionType(expr: arg);
+            if (argType == null)
+            {
+                throw new InvalidOperationException(
+                    message:
+                    $"Cannot determine type for argument in function call to '{functionName}'");
+            }
+
+            argTypeInfos.Add(item: argType);
+            argTypes.Add(item: GetLlvmType(type: argType));
+        }
+    }
+
+    /// <summary>
     /// Decides whether a 1-arg construction of a `@llvm("...")` record should be inlined as
     /// a scalar cast / reinterpret instead of dispatching to its `create` routine.
     /// Inline when no create was resolved, OR when the resolved routine's parameter LLVM
@@ -585,7 +614,7 @@ public partial class LlvmCodeGenerator
         // when the source is itself @llvm-primitive; a non-primitive source must go through its
         // routine.
         if (GetLlvmType(type: record) == GetLlvmType(type: argType)) return true;
-        return argType is RecordTypeInfo { HasDirectBackendType: true };
+        return argType is RecordTypeInfo { BackendType: not null };
     }
 
     /// <summary>
@@ -624,57 +653,11 @@ public partial class LlvmCodeGenerator
         // it materializes the closure through the pre-resolved-routine path in EmitIdentifier, with no
         // LookupMemberRoutine of its own. See v0.4.x-cycle-collector.md §9.3.
 
-        // Intercept var_name() -> inline the variable name from the receiver expression
-        if (member.MemberName == "var_name" && arguments.Count == 0)
+        string? interceptResult = TryEmitInterceptedMemberRoutineCall(sb: sb, member: member,
+            arguments: arguments);
+        if (interceptResult != null)
         {
-            string varName = member.Object is IdentifierExpression varId
-                ? varId.Name
-                : "<expr>";
-            return EmitStringLiteral(sb: sb, value: varName);
-        }
-
-        // Intercept `record.get_address()` -> emit `ptrtoint ptr %<receiver-lvalue> to i64`
-        // directly, using the caller's lvalue address rather than the body's broken
-        // struct->ptr bitcast (records' `me` is a by-value copy whose address lives in the
-        // callee's frame). Supported receiver forms:
-        //   - identifier x                  -> %x.addr
-        //   - member chain obj.field[.f...] -> GEP into the root lvalue, chained per field
-        // Entity receivers fall through to the regular call path — `me` for entities is
-        // already a ptr, so the stdlib body works. Index access (arr[i].get_address()) is
-        // deferred to post-v0.0.1a (requires per-collection `getitem_addr`).
-        if (member.MemberName == "get_address" && arguments.Count == 0)
-        {
-            TypeInfo? receiverTypeForIntercept = GetExpressionType(expr: member.Object);
-            // Intercept only for struct-typed records — records that ARE pointer-shaped
-            // (@llvm("ptr") records like CPtr, Hijacked[T], Viewing[T], Modifying[T]) have
-            // their own working bodies that return the wrapped pointer value, not the
-            // storage address of the wrapper itself.
-            if (receiverTypeForIntercept is RecordTypeInfo { HasDirectBackendType: false })
-            {
-                string lvaluePtr = EmitLvalueAddress(sb: sb, expr: member.Object);
-                string addrTemp = NextTemp();
-                EmitLine(sb: sb,
-                    line: $"  {addrTemp} = ptrtoint ptr {lvaluePtr} to i64");
-                return addrTemp;
-            }
-        }
-
-        // Intercept `record.hijack()` -> emit the caller's lvalue address directly as the
-        // resulting `Hijacked[T]` (which is `@llvm("ptr")`). The stdlib body
-        // `Hijacked[T](me.get_address())` runs in a callee frame where `me` is a by-value
-        // copy of the record; the address it would capture dies as soon as `hijack` returns,
-        // making subsequent `.extract()`/`.inject()` operate on dead stack. Intercepting at
-        // the caller keeps the Hijacked bound to the caller's storage. Same lvalue-shape
-        // restrictions and pointer-shaped-record exclusion as the `get_address` intercept.
-        if (member.MemberName == Resolution.RuntimeContract.RawPointer.Hijack && arguments.Count == 0)
-        {
-            TypeInfo? receiverTypeForHijack = GetExpressionType(expr: member.Object);
-            if (receiverTypeForHijack is RecordTypeInfo { HasDirectBackendType: false } || receiverTypeForHijack is RecordTypeInfo { HasDirectBackendType: true } primShape
-                   && primShape.BackendType != "ptr")
-            {
-                string lvaluePtr = EmitLvalueAddress(sb: sb, expr: member.Object);
-                return lvaluePtr;
-            }
+            return interceptResult;
         }
 
         (string receiver, TypeInfo? receiverType) = ResolveMemberRoutineCallReceiver(sb: sb,
@@ -941,115 +924,15 @@ public partial class LlvmCodeGenerator
         // receiver (if present) stays at index 0.
         if (memberRoutine is { IsGenericDefinition: false })
         {
-            int paramCount = memberRoutine.Parameters.Count;
-
-            // Bind each written explicit argument to its declared slot (named by name, else by
-            // position). Unmatched names fall back to position defensively (SA validates names).
-            var slotArgIndex = new int[paramCount];
-            for (int s = 0; s < paramCount; s++)
-            {
-                slotArgIndex[s] = -1;
-            }
-
-            for (int j = 0; j < arguments.Count; j++)
-            {
-                Expression a = arguments[index: j];
-                int p = j;
-                if (a is NamedArgumentExpression na)
-                {
-                    p = -1;
-                    for (int k = 0; k < paramCount; k++)
-                    {
-                        if (memberRoutine.Parameters[index: k].Name == na.Name)
-                        {
-                            p = k;
-                            break;
-                        }
-                    }
-
-                    if (p < 0)
-                    {
-                        p = j;
-                    }
-                }
-
-                if (p >= 0 && p < paramCount)
-                {
-                    slotArgIndex[p] = j;
-                }
-            }
-
-            var reorderedValues = new List<string>();
-            var reorderedTypes = new List<string>();
-            var reorderedTypeInfos = new List<TypeInfo>();
-            if (memberRoutineTakesReceiver)
-            {
-                reorderedValues.Add(item: argValues[index: 0]);
-                reorderedTypes.Add(item: argTypes[index: 0]);
-                reorderedTypeInfos.Add(item: argTypeInfos[index: 0]);
-            }
-
-            for (int p = 0; p < paramCount; p++)
-            {
-                ParameterInfo param = memberRoutine.Parameters[index: p];
-                int boundArg = slotArgIndex[p];
-                if (boundArg >= 0)
-                {
-                    // Emit the bound argument HERE (in declaration order) so its side effects run
-                    // in declaration order.
-                    Expression boundExpr = arguments[index: boundArg];
-                    string boundValue = EmitExpression(sb: sb, expr: boundExpr);
-                    TypeInfo? boundType = GetExpressionType(expr: boundExpr);
-                    if (boundType == null)
-                    {
-                        throw new InvalidOperationException(
-                            message:
-                            $"Cannot determine type for argument in member routine call to '{member.MemberName}'");
-                    }
-
-                    reorderedValues.Add(item: boundValue);
-                    reorderedTypes.Add(item: GetLlvmType(type: boundType));
-                    reorderedTypeInfos.Add(item: boundType);
-                    continue;
-                }
-
-                if (!param.HasDefaultValue)
-                {
-                    // No argument and no default: SA should have rejected this. Stop rather than
-                    // fabricate a value and emit a malformed call.
-                    break;
-                }
-
-                string value = EmitParameterDefault(sb: sb, param: param);
-                reorderedValues.Add(item: value);
-                reorderedTypeInfos.Add(item: param.Type);
-                reorderedTypes.Add(item: GetParameterLlvmType(type: param.Type));
-            }
-
-            argValues = reorderedValues;
-            argTypes = reorderedTypes;
-            argTypeInfos = reorderedTypeInfos;
+            (argValues, argTypes, argTypeInfos) = EmitMemberCallArgumentsInDeclarationOrder(
+                sb: sb, member: member, memberRoutine: memberRoutine, arguments: arguments,
+                memberRoutineTakesReceiver: memberRoutineTakesReceiver,
+                argValues: argValues, argTypes: argTypes, argTypeInfos: argTypeInfos);
         }
         else
         {
-            // memberRoutine unresolved or still a generic definition — the declaration-order slot loop
-            // doesn't apply (no parameter list to bind against, or this is a synthesized/operator
-            // body with positional args). Emit explicit arguments in writing order so the call (or
-            // the error path below) has its values. (argTypeInfos already holds their types.)
-            foreach (Expression arg in arguments)
-            {
-                string value = EmitExpression(sb: sb, expr: arg);
-                TypeInfo? argType = GetExpressionType(expr: arg);
-                if (argType == null)
-                {
-                    throw new InvalidOperationException(
-                        message:
-                        $"Cannot determine type for argument in member routine call to '{member.MemberName}'");
-                }
-
-                argValues.Add(item: value);
-                argTypes.Add(item: GetLlvmType(type: argType));
-            }
+            EmitMemberCallArgumentsInWritingOrder(sb: sb, member: member, arguments: arguments,
+                argValues: argValues, argTypes: argTypes);
         }
 
         // Build the call -> for resolved generic types (e.g., List[Character].add_last),
@@ -1236,6 +1119,198 @@ public partial class LlvmCodeGenerator
             EmitLine(sb: sb, line: $"  {result} = call {returnType} @{mangledName}({args})");
             ConsumeTransferredCallOwnership(arguments: arguments);
             return result;
+        }
+    }
+
+    /// <summary>
+    /// Emits the zero-arg member-call intercepts that codegen resolves directly (bypassing the stdlib
+    /// body): <c>var_name()</c> (inlines the receiver identifier name), <c>get_address()</c>
+    /// (<c>ptrtoint</c> of the caller's lvalue), and <c>hijack()</c> (the caller's lvalue address as a
+    /// <c>Hijacked[T]</c>). Returns the emitted result, or null when no intercept applies.
+    /// </summary>
+    private string? TryEmitInterceptedMemberRoutineCall(StringBuilder sb, MemberExpression member,
+        List<Expression> arguments)
+    {
+        // Intercept var_name() -> inline the variable name from the receiver expression
+        if (member.MemberName == "var_name" && arguments.Count == 0)
+        {
+            string varName = member.Object is IdentifierExpression varId
+                ? varId.Name
+                : "<expr>";
+            return EmitStringLiteral(sb: sb, value: varName);
+        }
+
+        // Intercept `record.get_address()` -> emit `ptrtoint ptr %<receiver-lvalue> to i64`
+        // directly, using the caller's lvalue address rather than the body's broken
+        // struct->ptr bitcast (records' `me` is a by-value copy whose address lives in the
+        // callee's frame). Supported receiver forms:
+        //   - identifier x                  -> %x.addr
+        //   - member chain obj.field[.f...] -> GEP into the root lvalue, chained per field
+        // Entity receivers fall through to the regular call path — `me` for entities is
+        // already a ptr, so the stdlib body works. Index access (arr[i].get_address()) is
+        // deferred to post-v0.0.1a (requires per-collection `getitem_addr`).
+        if (member.MemberName == "get_address" && arguments.Count == 0)
+        {
+            TypeInfo? receiverTypeForIntercept = GetExpressionType(expr: member.Object);
+            // Intercept only for struct-typed records — records that ARE pointer-shaped
+            // (@llvm("ptr") records like CPtr, Hijacked[T], Viewing[T], Modifying[T]) have
+            // their own working bodies that return the wrapped pointer value, not the
+            // storage address of the wrapper itself.
+            if (receiverTypeForIntercept is RecordTypeInfo { BackendType: null })
+            {
+                string lvaluePtr = EmitLvalueAddress(sb: sb, expr: member.Object);
+                string addrTemp = NextTemp();
+                EmitLine(sb: sb,
+                    line: $"  {addrTemp} = ptrtoint ptr {lvaluePtr} to i64");
+                return addrTemp;
+            }
+        }
+
+        // Intercept `record.hijack()` -> emit the caller's lvalue address directly as the
+        // resulting `Hijacked[T]` (which is `@llvm("ptr")`). The stdlib body
+        // `Hijacked[T](me.get_address())` runs in a callee frame where `me` is a by-value
+        // copy of the record; the address it would capture dies as soon as `hijack` returns,
+        // making subsequent `.extract()`/`.inject()` operate on dead stack. Intercepting at
+        // the caller keeps the Hijacked bound to the caller's storage. Same lvalue-shape
+        // restrictions and pointer-shaped-record exclusion as the `get_address` intercept.
+        if (member.MemberName == Resolution.RuntimeContract.RawPointer.Hijack && arguments.Count == 0)
+        {
+            TypeInfo? receiverTypeForHijack = GetExpressionType(expr: member.Object);
+            if (receiverTypeForHijack is RecordTypeInfo { BackendType: null } || receiverTypeForHijack is RecordTypeInfo { BackendType: not null } primShape
+                   && primShape.BackendType != "ptr")
+            {
+                string lvaluePtr = EmitLvalueAddress(sb: sb, expr: member.Object);
+                return lvaluePtr;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Binds each written explicit member-call argument to its declared slot (named by name, else
+    /// positionally) and emits the arguments in PARAMETER-DECLARATION order — evaluating each provided
+    /// argument or a default — producing fresh (values, types, typeInfos) lists (with the receiver, if
+    /// present, kept at index 0). Used when the resolved member routine is concrete.
+    /// </summary>
+    private (List<string> Values, List<string> Types, List<TypeInfo> TypeInfos)
+        EmitMemberCallArgumentsInDeclarationOrder(StringBuilder sb, MemberExpression member,
+            RoutineInfo memberRoutine, List<Expression> arguments, bool memberRoutineTakesReceiver,
+            List<string> argValues, List<string> argTypes, List<TypeInfo> argTypeInfos)
+    {
+        int paramCount = memberRoutine.Parameters.Count;
+
+        // Bind each written explicit argument to its declared slot (named by name, else by
+        // position). Unmatched names fall back to position defensively (SA validates names).
+        var slotArgIndex = new int[paramCount];
+        for (int s = 0; s < paramCount; s++)
+        {
+            slotArgIndex[s] = -1;
+        }
+
+        for (int j = 0; j < arguments.Count; j++)
+        {
+            Expression a = arguments[index: j];
+            int p = j;
+            if (a is NamedArgumentExpression na)
+            {
+                p = -1;
+                for (int k = 0; k < paramCount; k++)
+                {
+                    if (memberRoutine.Parameters[index: k].Name == na.Name)
+                    {
+                        p = k;
+                        break;
+                    }
+                }
+
+                if (p < 0)
+                {
+                    p = j;
+                }
+            }
+
+            if (p >= 0 && p < paramCount)
+            {
+                slotArgIndex[p] = j;
+            }
+        }
+
+        var reorderedValues = new List<string>();
+        var reorderedTypes = new List<string>();
+        var reorderedTypeInfos = new List<TypeInfo>();
+        if (memberRoutineTakesReceiver)
+        {
+            reorderedValues.Add(item: argValues[index: 0]);
+            reorderedTypes.Add(item: argTypes[index: 0]);
+            reorderedTypeInfos.Add(item: argTypeInfos[index: 0]);
+        }
+
+        for (int p = 0; p < paramCount; p++)
+        {
+            ParameterInfo param = memberRoutine.Parameters[index: p];
+            int boundArg = slotArgIndex[p];
+            if (boundArg >= 0)
+            {
+                // Emit the bound argument HERE (in declaration order) so its side effects run
+                // in declaration order.
+                Expression boundExpr = arguments[index: boundArg];
+                string boundValue = EmitExpression(sb: sb, expr: boundExpr);
+                TypeInfo? boundType = GetExpressionType(expr: boundExpr);
+                if (boundType == null)
+                {
+                    throw new InvalidOperationException(
+                        message:
+                        $"Cannot determine type for argument in member routine call to '{member.MemberName}'");
+                }
+
+                reorderedValues.Add(item: boundValue);
+                reorderedTypes.Add(item: GetLlvmType(type: boundType));
+                reorderedTypeInfos.Add(item: boundType);
+                continue;
+            }
+
+            if (!param.HasDefaultValue)
+            {
+                // No argument and no default: SA should have rejected this. Stop rather than
+                // fabricate a value and emit a malformed call.
+                break;
+            }
+
+            string value = EmitParameterDefault(sb: sb, param: param);
+            reorderedValues.Add(item: value);
+            reorderedTypeInfos.Add(item: param.Type);
+            reorderedTypes.Add(item: GetParameterLlvmType(type: param.Type));
+        }
+
+        return (reorderedValues, reorderedTypes, reorderedTypeInfos);
+    }
+
+    /// <summary>
+    /// Emits a member call's explicit arguments in WRITING order — for an unresolved or still-generic
+    /// member routine (no parameter list to bind against, or a synthesized/operator body with
+    /// positional args). Appends to <paramref name="argValues"/> / <paramref name="argTypes"/>.
+    /// </summary>
+    private void EmitMemberCallArgumentsInWritingOrder(StringBuilder sb, MemberExpression member,
+        List<Expression> arguments, List<string> argValues, List<string> argTypes)
+    {
+        // memberRoutine unresolved or still a generic definition — the declaration-order slot loop
+        // doesn't apply (no parameter list to bind against, or this is a synthesized/operator
+        // body with positional args). Emit explicit arguments in writing order so the call (or
+        // the error path below) has its values. (argTypeInfos already holds their types.)
+        foreach (Expression arg in arguments)
+        {
+            string value = EmitExpression(sb: sb, expr: arg);
+            TypeInfo? argType = GetExpressionType(expr: arg);
+            if (argType == null)
+            {
+                throw new InvalidOperationException(
+                    message:
+                    $"Cannot determine type for argument in member routine call to '{member.MemberName}'");
+            }
+
+            argValues.Add(item: value);
+            argTypes.Add(item: GetLlvmType(type: argType));
         }
     }
 
@@ -1462,7 +1537,7 @@ public partial class LlvmCodeGenerator
 
         if (actualType is RecordTypeInfo
             {
-                HasDirectBackendType: false,
+                BackendType: null,
                 MemberVariables.Count: 1
             } record)
         {
@@ -1550,7 +1625,7 @@ public partial class LlvmCodeGenerator
         }
 
         TypeInfo? calledType = LookupTypeInCurrentModule(name: functionName);
-        if (calledType is RecordTypeInfo { HasDirectBackendType: true })
+        if (calledType is RecordTypeInfo { BackendType: not null })
         {
             throw new InvalidOperationException(
                 $"Direct-backend conversion/constructor '{functionName}' reached LLVM codegen without lowering metadata. " +

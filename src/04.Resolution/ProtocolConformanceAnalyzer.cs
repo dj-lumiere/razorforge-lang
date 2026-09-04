@@ -27,68 +27,11 @@ internal sealed class ProtocolConformanceAnalyzer
     /// Records implicitly conform to RecordType, entities to EntityType, etc.
     /// Also adds all transitive protocols from the marker's obeys chain.
     /// </summary>
-    internal void ApplyImplicitMarkerConformance() // NOSONAR S3776
+    internal void ApplyImplicitMarkerConformance()
     {
         foreach (TypeSymbol type in _sa._registry.GetTypesWithMemberRoutines())
         {
-            // Skip generic definitions — their resolutions inherit conformance
-            if (type.IsGenericDefinition)
-            {
-                continue;
-            }
-
-            // Determine the marker protocol name for this type category
-            string? markerName = type.Category switch
-            {
-                TypeCategory.Record => "RecordType",
-                TypeCategory.Entity => "EntityType",
-                TypeCategory.Choice => "ChoiceType",
-                TypeCategory.Flags => "FlagsType",
-                TypeCategory.Crashable => "Crashable",
-                _ => null
-            };
-
-            if (markerName == null)
-            {
-                continue;
-            }
-
-            TypeSymbol? markerType = _sa._registry.LookupType(name: markerName);
-            if (markerType is not ProtocolTypeInfo marker)
-            {
-                continue;
-            }
-
-            // Collect all transitive protocols from the marker's obeys chain
-            var transitiveProtocols = new List<TypeSymbol>();
-            CollectTransitiveProtocols(protocol: marker, result: transitiveProtocols);
-
-            // Merge with existing user-declared protocols
-            List<TypeSymbol> existing = GetImplementedProtocols(type: type);
-            var merged = new List<TypeSymbol>(collection: existing);
-
-            // Add transitive protocols first, then the marker itself
-            // Track implicitly-added protocols so validation skips them
-            foreach (TypeSymbol proto in transitiveProtocols)
-            {
-                if (merged.All(predicate: p => p.Name != proto.Name))
-                {
-                    merged.Add(item: proto);
-                    _sa._implicitProtocolConformances.Add(item: (type.FullName, proto.Name));
-                }
-            }
-
-            if (merged.All(predicate: p => p.Name != marker.Name))
-            {
-                merged.Add(item: marker);
-                _sa._implicitProtocolConformances.Add(item: (type.FullName, marker.Name));
-            }
-
-            // Only update if we actually added something
-            if (merged.Count > existing.Count)
-            {
-                UpdateTypeProtocols(type: type, protocols: merged);
-            }
+            ApplyMarkerConformanceForType(type: type);
         }
 
         // SPLIT (2026-08-23) — structural vs semantic:
@@ -103,6 +46,74 @@ internal sealed class ProtocolConformanceAnalyzer
         ApplyAutoAssignableConformance();
         ApplyAutoAssignableCascadeConformance();
         ApplyEverywhereConformance();
+    }
+
+    /// <summary>
+    /// Auto-adds the type-category marker protocol (RecordType/EntityType/…) plus all transitive
+    /// protocols from the marker's obeys chain to a single type, tracking the implicitly-added
+    /// conformances so validation skips them. No-op for generic definitions or types whose category
+    /// has no marker.
+    /// </summary>
+    private void ApplyMarkerConformanceForType(TypeSymbol type)
+    {
+        // Skip generic definitions — their resolutions inherit conformance
+        if (type.IsGenericDefinition)
+        {
+            return;
+        }
+
+        // Determine the marker protocol name for this type category
+        string? markerName = type.Category switch
+        {
+            TypeCategory.Record => "RecordType",
+            TypeCategory.Entity => "EntityType",
+            TypeCategory.Choice => "ChoiceType",
+            TypeCategory.Flags => "FlagsType",
+            TypeCategory.Crashable => "Crashable",
+            _ => null
+        };
+
+        if (markerName == null)
+        {
+            return;
+        }
+
+        TypeSymbol? markerType = _sa._registry.LookupType(name: markerName);
+        if (markerType is not ProtocolTypeInfo marker)
+        {
+            return;
+        }
+
+        // Collect all transitive protocols from the marker's obeys chain
+        var transitiveProtocols = new List<TypeSymbol>();
+        CollectTransitiveProtocols(protocol: marker, result: transitiveProtocols);
+
+        // Merge with existing user-declared protocols
+        List<TypeSymbol> existing = GetImplementedProtocols(type: type);
+        var merged = new List<TypeSymbol>(collection: existing);
+
+        // Add transitive protocols first, then the marker itself
+        // Track implicitly-added protocols so validation skips them
+        foreach (TypeSymbol proto in transitiveProtocols)
+        {
+            if (merged.All(predicate: p => p.Name != proto.Name))
+            {
+                merged.Add(item: proto);
+                _sa._implicitProtocolConformances.Add(item: (type.FullName, proto.Name));
+            }
+        }
+
+        if (merged.All(predicate: p => p.Name != marker.Name))
+        {
+            merged.Add(item: marker);
+            _sa._implicitProtocolConformances.Add(item: (type.FullName, marker.Name));
+        }
+
+        // Only update if we actually added something
+        if (merged.Count > existing.Count)
+        {
+            UpdateTypeProtocols(type: type, protocols: merged);
+        }
     }
 
     /// <summary>The STRUCTURAL everywhere-protocols that are auto-conferred (value/memory semantics). The
@@ -148,35 +159,46 @@ internal sealed class ProtocolConformanceAnalyzer
         {
             foreach (TypeSymbol type in _sa._registry.GetTypesWithMemberRoutines())
             {
-                if (type.IsGenericDefinition)
-                {
-                    continue;
-                }
-
-                // Entities stay OPT-IN for Copyable (STEP 4: "entity is NOT always copyable") — a simple
-                // `entity Point{x,y}` must not silently become copyable. Entity auto-derive is a separate,
-                // deliberate increment; this gate covers value composition (record/tuple/variant/…) only.
-                if (type is EntityTypeInfo)
-                {
-                    continue;
-                }
-
-                List<TypeSymbol> existing = GetImplementedProtocols(type: type);
-                if (existing.Any(predicate: p => p.Name == proto.Name))
-                {
-                    continue;
-                }
-
-                if (!_sa._registry.EverywhereObeys(type: type, protocol: proto.Name))
-                {
-                    continue;
-                }
-
-                var merged = new List<TypeSymbol>(collection: existing) { proto };
-                _sa._implicitProtocolConformances.Add(item: (type.FullName, proto.Name));
-                UpdateTypeProtocols(type: type, protocols: merged);
+                ApplyEverywhereConformanceForType(proto: proto, type: type);
             }
         }
+    }
+
+    /// <summary>
+    /// Inductive step of the <c>needs P everywhere</c> gate for one (protocol, type) pair: confers
+    /// <paramref name="proto"/> on <paramref name="type"/> when every member obeys it. No-op for
+    /// generic definitions, entities (opt-in for Copyable), types already declaring the protocol, or
+    /// types whose members do not all obey it.
+    /// </summary>
+    private void ApplyEverywhereConformanceForType(ProtocolTypeInfo proto, TypeSymbol type)
+    {
+        if (type.IsGenericDefinition)
+        {
+            return;
+        }
+
+        // Entities stay OPT-IN for Copyable (STEP 4: "entity is NOT always copyable") — a simple
+        // `entity Point{x,y}` must not silently become copyable. Entity auto-derive is a separate,
+        // deliberate increment; this gate covers value composition (record/tuple/variant/…) only.
+        if (type is EntityTypeInfo)
+        {
+            return;
+        }
+
+        List<TypeSymbol> existing = GetImplementedProtocols(type: type);
+        if (existing.Any(predicate: p => p.Name == proto.Name))
+        {
+            return;
+        }
+
+        if (!_sa._registry.EverywhereObeys(type: type, protocol: proto.Name))
+        {
+            return;
+        }
+
+        var merged = new List<TypeSymbol>(collection: existing) { proto };
+        _sa._implicitProtocolConformances.Add(item: (type.FullName, proto.Name));
+        UpdateTypeProtocols(type: type, protocols: merged);
     }
 
     /// <summary>

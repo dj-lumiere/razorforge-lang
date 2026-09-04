@@ -6,7 +6,7 @@ module Core
 ### `S8` is the smallest signed integer type in RazorForge, used for compact
 ### signed data such as audio samples (where the range fits) and C interop.
 @llvm("i8")
-record S8 obeys SignedIntegral, Ordered, ConstCompatible, AtomicType, Assignable, Copyable
+record S8 obeys SignedIntegral, Ordered, ConstCompatible, AtomicType, Assignable, Copyable, Splittable
   pass
 
 # Constants for S8 limits
@@ -660,6 +660,7 @@ routine S8.signum() -> S8
 
 ### Returns the human-readable text of this value.
 ### :returns: The value rendered as `Text`.
+@override
 routine S8.represent() -> Text
   if me == 0s8
     return "0"
@@ -672,6 +673,7 @@ routine S8.represent() -> Text
 
 ### Returns a type-tagged debug rendering of this value.
 ### :returns: A diagnostic `Text` rendering, e.g. `Type(value)`.
+@override
 routine S8.diagnose() -> Text
   return "S8(" + me.represent() + ")"
 

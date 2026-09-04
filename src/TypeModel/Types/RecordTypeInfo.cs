@@ -30,6 +30,12 @@ public class RecordTypeInfo : TypeInfo
     /// <summary>Protocols this record implements (obeys).</summary>
     public List<TypeInfo> ImplementedProtocols { get; set; } = [];
 
+    /// <summary>Conditional-conformance conditions from an <c>obeys P onlyif (param obeys proto, …)</c>
+    /// clause, stored on the generic DEFINITION and keyed by the conditionally-obeyed protocol's bare name.
+    /// Each entry is the AND-list of <c>(paramName, protocolName)</c> conditions. A concrete instance obeys
+    /// that protocol only when every condition holds for its bound type args. Null/absent = unconditional.</summary>
+    public Dictionary<string, List<(string ParamName, string ProtocolName)>>? ConditionalObeys { get; set; }
+
     /// <summary>
     /// Associated-type bindings declared via <c>relates Concrete as Name</c> — maps a protocol
     /// slot name to the concrete type that fills it. Mirrors
@@ -41,6 +47,26 @@ public class RecordTypeInfo : TypeInfo
     /// Backend type from @llvm("type") annotation. Null if not a backend-annotated type.
     /// </summary>
     public string? BackendType { get; set; }
+
+    /// <summary>
+    /// The backend LLVM type RE-RESOLVED from the generic definition's <c>@llvm</c> template against the
+    /// CURRENT type arguments, instead of the string frozen at instantiation. Guards a resolution-ORDER
+    /// hazard: a const-generic array (<c>Array[T,N]</c>, template <c>[{N} x {T}]</c>) whose element is a
+    /// PLAIN record (no direct backend type) could be resolved while that element was still a members-less
+    /// shell, freezing e.g. <c>[10 x {  }]</c> for <c>Array[RoutineRecord,10]</c> — later the element's
+    /// members are populated, but the frozen string stays wrong (empty struct → size/align crash). By
+    /// re-running the template substitution here, layout reads see the element's live members
+    /// (<c>[10 x { i32, ... }]</c>). Records with a DIRECT (non-template) backend type or no generic
+    /// definition fall back to the frozen <see cref="BackendType"/>. Elements that carry their own backend
+    /// type (Text, etc.) were never affected — <see cref="SubstituteTypeArg"/> reads their stable backend
+    /// string regardless of member-population order.
+    /// </summary>
+    private string? LiveBackendType =>
+        GenericDefinition is { BackendType: { } template } def && template.Contains(value: '{')
+        && TypeArguments is { Count: > 0 }
+            ? ResolveBackendTypeTemplate(template: template, genericParams: def.GenericParameters,
+                typeArguments: TypeArguments)
+            : BackendType;
 
     /// <summary>
     /// C-ABI memory layout control from a <c>@layout("...")</c> annotation. Default (both false/null) is
@@ -56,11 +82,6 @@ public class RecordTypeInfo : TypeInfo
     public int? ForcedAlignment { get; set; }
 
     /// <summary>
-    /// Whether this record has a direct backend type mapping (via @llvm annotation).
-    /// </summary>
-    public bool HasDirectBackendType => BackendType != null;
-
-    /// <summary>
     /// The LLVM type representation for this record.
     /// For @llvm-annotated records, uses the backend type directly.
     /// For multi-member-variable records, this is a struct type.
@@ -69,9 +90,9 @@ public class RecordTypeInfo : TypeInfo
     {
         get
         {
-            if (BackendType != null)
+            if (LiveBackendType is { } be)
             {
-                return BackendType;
+                return be;
             }
 
             // Multi-member-variable record: struct type. A packed record embeds as an LLVM native packed
@@ -90,9 +111,9 @@ public class RecordTypeInfo : TypeInfo
     {
         // @llvm-annotated record: backend string dictates the layout. Template holes are
         // already substituted in generic resolutions (see ResolveBackendTypeTemplate).
-        if (BackendType != null && !IsGenericDefinition)
+        if (LiveBackendType is { } be && !IsGenericDefinition)
         {
-            return SizeOfLlvmType(llvmType: BackendType, pointerSize: pointerSize);
+            return SizeOfLlvmType(llvmType: be, pointerSize: pointerSize);
         }
 
         // Result[T] / Lookup[T]: 8-byte type-id tag + max(payload, 8). Maybe is handled by
@@ -139,9 +160,9 @@ public class RecordTypeInfo : TypeInfo
     /// </remarks>
     public override int Alignment(int pointerSize)
     {
-        if (BackendType != null && !IsGenericDefinition)
+        if (LiveBackendType is { } be && !IsGenericDefinition)
         {
-            return AlignOfLlvmType(llvmType: BackendType, pointerSize: pointerSize);
+            return AlignOfLlvmType(llvmType: be, pointerSize: pointerSize);
         }
 
         if (CarrierKind is CarrierKind.Result or CarrierKind.Lookup
@@ -426,55 +447,73 @@ public class RecordTypeInfo : TypeInfo
         return left;
     }
 
-    private static long ParseAtom(string expr, ref int pos, Dictionary<string, long> paramValues) // NOSONAR S3776
+    private static long ParseAtom(string expr, ref int pos, Dictionary<string, long> paramValues)
     {
         SkipWhitespace(expr: expr, pos: ref pos);
         if (pos < expr.Length && expr[index: pos] == '(')
         {
-            pos++;
-            long val = ParseAddSub(expr: expr, pos: ref pos, paramValues: paramValues);
-            SkipWhitespace(expr: expr, pos: ref pos);
-            if (pos < expr.Length && expr[index: pos] == ')')
-            {
-                pos++;
-            }
-
-            return val;
+            return ParseParenAtom(expr: expr, pos: ref pos, paramValues: paramValues);
         }
 
         if (pos < expr.Length && char.IsDigit(c: expr[index: pos]))
         {
-            int start = pos;
-            while (pos < expr.Length && char.IsDigit(c: expr[index: pos]))
-            {
-                pos++;
-            }
-
-            return long.Parse(s: expr[start..pos]);
+            return ParseDigitAtom(expr: expr, pos: ref pos);
         }
 
         if (pos < expr.Length && char.IsLetter(c: expr[index: pos]))
         {
-            int start = pos;
-            while (pos < expr.Length &&
-                   (char.IsLetterOrDigit(c: expr[index: pos]) || expr[index: pos] == '_'))
-            {
-                pos++;
-            }
-
-            string name = expr[start..pos];
-            if (paramValues.TryGetValue(key: name, value: out long val))
-            {
-                return val;
-            }
-
-            throw new InvalidOperationException(
-                message: $"Unknown parameter '{name}' in @llvm template expression");
+            return ParseNameAtom(expr: expr, pos: ref pos, paramValues: paramValues);
         }
 
         throw new InvalidOperationException(
             message:
             $"Unexpected character in @llvm template expression at position {pos}: '{expr}'");
+    }
+
+    // Parenthesized subexpression: `( ... )`.
+    private static long ParseParenAtom(string expr, ref int pos, Dictionary<string, long> paramValues)
+    {
+        pos++;
+        long val = ParseAddSub(expr: expr, pos: ref pos, paramValues: paramValues);
+        SkipWhitespace(expr: expr, pos: ref pos);
+        if (pos < expr.Length && expr[index: pos] == ')')
+        {
+            pos++;
+        }
+
+        return val;
+    }
+
+    // Integer literal.
+    private static long ParseDigitAtom(string expr, ref int pos)
+    {
+        int start = pos;
+        while (pos < expr.Length && char.IsDigit(c: expr[index: pos]))
+        {
+            pos++;
+        }
+
+        return long.Parse(s: expr[start..pos]);
+    }
+
+    // Parameter reference resolved against the const-generic value map.
+    private static long ParseNameAtom(string expr, ref int pos, Dictionary<string, long> paramValues)
+    {
+        int start = pos;
+        while (pos < expr.Length &&
+               (char.IsLetterOrDigit(c: expr[index: pos]) || expr[index: pos] == '_'))
+        {
+            pos++;
+        }
+
+        string name = expr[start..pos];
+        if (paramValues.TryGetValue(key: name, value: out long val))
+        {
+            return val;
+        }
+
+        throw new InvalidOperationException(
+            message: $"Unknown parameter '{name}' in @llvm template expression");
     }
 
     private static void SkipWhitespace(string expr, ref int pos)
@@ -598,7 +637,14 @@ public class RecordTypeInfo : TypeInfo
             return type;
         }
 
-        var newArgs = type.TypeArguments
+        return SubstituteGenericResolution(type: type, substitution: substitution);
+    }
+
+    // Substitute a generic resolution's args and re-resolve through the ambient registry per kind.
+    private static TypeInfo SubstituteGenericResolution(TypeInfo type,
+        Dictionary<string, TypeInfo> substitution)
+    {
+        var newArgs = type.TypeArguments!
                           .Select(selector: arg =>
                                SubstituteType(type: arg, substitution: substitution))
                           .ToList();

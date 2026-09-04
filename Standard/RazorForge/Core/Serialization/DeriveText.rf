@@ -11,6 +11,7 @@ import Collections
 ### publicly-readable (OPEN ∪ POSTED) members. Each value renders via its own `represent`.
 @overridable
 routine T.represent() -> Text
+needs T is TypeName
   var result = me.type_name() + "("
   var first = true
   expand m in openmemvarof(T)
@@ -27,7 +28,8 @@ routine T.represent() -> Text
 ### type-switch is folded at monomorphization (T is concrete there; RF has no inheritance, so `T is X` is
 ### exact type-identity), so each instantiation collapses to just its arm. Containers call `nested_repr`
 ### on every element; the top-level `represent()` stays bare.
-routine nested_repr[T](value: T) -> Text
+routine nested_repr(value: T) -> Text
+needs T is TypeName
   when T
     is Text => return "\"" + value.represent() + "\""
     is Bytes => return "\"" + value.represent() + "\""
@@ -169,6 +171,7 @@ needs T is RoutineType
 ### value still renders via `represent` (never `diagnose`) to avoid exponentially verbose nested output.
 @overridable
 routine T.diagnose() -> Text
+needs T is TypeName
   var result = me.full_type_name() + "("
   var first = true
   expand m in allmemvarof(T)
@@ -187,6 +190,7 @@ routine T.diagnose() -> Text
 ### builder — a zero-field type expands to no comparisons and returns `true`.
 @overridable
 routine T.eq(you: T) -> Bool
+needs T is TypeName
 needs T obeys Equatable
   expand m in allmemvarof(T)
     if me.$nameof(m) != you.$nameof(m)
@@ -199,6 +203,7 @@ needs T obeys Equatable
 ### zero-field type expands to no comparisons and returns `SAME`.
 @overridable
 routine T.cmp(you: T) -> ComparisonSign
+needs T is TypeName
 needs T obeys Comparable
   expand m in allmemvarof(T)
     if me.$nameof(m).cmp(you: you.$nameof(m)) isnot SAME
@@ -210,6 +215,7 @@ needs T obeys Comparable
 ### and a zero-field type hashes to `0` — matching the hand-written C# builder. `expand` field-walk.
 @overridable
 routine T.hash() -> U64
+needs T is TypeName
 needs T obeys Hashable
   var acc = 0u64
   expand m in allmemvarof(T)
@@ -220,6 +226,7 @@ needs T obeys Hashable
 ### variable's keyed hash.
 @overridable
 routine T.hash(k0: U64, k1: U64) -> U64
+needs T is TypeName
 needs T obeys Hashable
   var acc = 0u64
   expand m in allmemvarof(T)
@@ -242,6 +249,7 @@ needs T obeys Hashable
 ### so the walk calls `me.field.serialize()` UNCONDITIONALLY — no capability gate, no comptime prune.
 @overridable
 routine T.serialize() -> SerialValue
+needs T is TypeName
   var __sv = Dict[Text, SerialValue]()
   expand m in openmemvarof(T)
     discard __sv.add(key: nameof(m), value: me.$nameof(m).serialize())
@@ -250,31 +258,33 @@ routine T.serialize() -> SerialValue
 ### The auto-derived deep `copy()` (Copyable): forwards to `store` — a bitwise copy for a pure value
 ### type, or the retaining store for a managed-leaf / retaining-field record. Same as the C# builder.
 @overridable
-routine T.copy() -> Me
+routine T.duplicate() -> Me
+needs T is TypeName
 needs T obeys Copyable
   return me.assign()
 
 ### Variant `copy()`: TAG-dispatch DEEP copy — reconstruct the live arm with a copied payload, so a
 ### heap arm (a collection, a managed leaf) is NOT bitwise-aliased (which would double-free). `branchof`
-### emits one clause per payload arm boxing `v.copy()` back into the variant via the arm constructor
+### emits one clause per payload arm boxing `v.duplicate()` back into the variant via the arm constructor
 ### `Me(from: …)`; None / borrow arms (borrow can't be a variant payload) fall to `else => return me`.
 @override
-routine T.copy() -> Me
+routine T.duplicate() -> Me
 needs T is VariantType
 needs T obeys Copyable
   when me
     is None => return me
     expand m in branchof(T)
       is $typeof(m) v =>
-        return T(from: v.copy())
+        return T(from: v.duplicate())
     else => return me
 
 ### The auto-derived `destroy()`: tear down each member (unconditionally — every type has a `destroy`,
 ### a no-op for a raw-pointer / scalar / borrow leaf). Records/tuples stop here (stack values); an ENTITY
 ### additionally frees its heap allocation via `hijack().invalidate()`, mirroring a hand-written entity
-### destructor. The `allmemvarof` walk covers every owned member incl `secret`.
+### destructor. The `allmemvarof` walk covers every owned member including `secret`.
 @overridable
 routine T.destroy()
+needs T is TypeName
   expand m in allmemvarof(T)
     me.$nameof(m).destroy()
   return
@@ -312,6 +322,7 @@ needs T is VariantType
 ### reconstruction `T(f: me.f.assign(), …)` with a mutation walk — no creator arg-list needed.
 @overridable
 routine T.assign() -> Me
+needs T is TypeName
 needs T obeys Assignable
 needs Assignable everywhere
   var result = me
@@ -321,7 +332,7 @@ needs Assignable everywhere
 
 ### Variant `assign()`: TAG-dispatch shallow store — reconstruct the live arm with a RE-STORED payload,
 ### so a retaining arm (managed leaf) gets its refcount bumped rather than bitwise-aliased. Mirrors the
-### variant `copy()` but with the arm's shallow `.assign()` instead of the deep `.copy()`. None / void
+### variant `copy()` but with the arm's shallow `.assign()` instead of the deep `.duplicate()`. None / void
 ### arms fall to `else => return me` (nothing to re-store). A variant used as a plain record member (e.g.
 ### `Maybe[S32]` in a struct) MUST resolve `.assign()` — the record's own `assign` field-walk calls it.
 @override

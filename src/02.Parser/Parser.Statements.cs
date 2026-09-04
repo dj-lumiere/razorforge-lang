@@ -320,42 +320,8 @@ public partial class Parser
         //                   when true { x > 0 => ... }        (RF only)
         // ═══════════════════════════════════════════════════════════════════════════
 
-        bool isConditionBased = false;
-        Expression expression;
-
-        // Check for condition-based forms:
-        // 1. `when true\n` - explicit condition-based
-        // 2. `when\n` - bare when (no subject) = condition-based
-        if (Check(type: TokenType.Newline))
-        {
-            // Bare `when` followed by newline — condition-based with no subject
-            isConditionBased = true;
-            expression = new LiteralExpression(Value: true,
-                LiteralType: TokenType.True,
-                Location: location);
-        }
-        else if (Check(type: TokenType.True))
-        {
-            // Peek ahead to see if this is `when true\n  INDENT` (condition-based)
-            // vs `when true_var\n  INDENT` (subject-based with a variable named starting with true)
-            Token nextToken = PeekToken(offset: 1);
-            if (nextToken.Type == TokenType.Newline)
-            {
-                isConditionBased = true;
-                Advance(); // consume 'true'
-                expression = new LiteralExpression(Value: true,
-                    LiteralType: TokenType.True,
-                    Location: location);
-            }
-            else
-            {
-                expression = ParseExpression();
-            }
-        }
-        else
-        {
-            expression = ParseExpression();
-        }
+        Expression expression = ParseWhenStatementSubject(location: location,
+            isConditionBased: out bool isConditionBased);
 
         // Indentation-delimited when block for both languages
         Consume(type: TokenType.Newline, errorMessage: "Expected newline after when expression");
@@ -403,111 +369,9 @@ public partial class Parser
                 continue;
             }
 
-            Pattern pattern;
             SourceLocation clauseLocation = GetLocation();
-
-            // ─────────────────────────────────────────────────────────────────────
-            // Pattern dispatch: determine which pattern type we're parsing
-            // Order matters - check specific patterns before general ones
-            // ─────────────────────────────────────────────────────────────────────
-
-            // Case 1: 'else' keyword - default/fallback case
-            if (Match(type: TokenType.Else))
-            {
-                // Check for variable binding: else varName => ... or else varName\n INDENT
-                if (Check(type: TokenType.Identifier))
-                {
-                    TokenType nextAfterIdent = PeekToken(offset: 1)
-                       .Type;
-                    if (nextAfterIdent is TokenType.FatArrow or TokenType.Newline)
-                    {
-                        string varName =
-                            ConsumeIdentifier(errorMessage: "Expected variable name after 'else'");
-                        pattern = new ElsePattern(VariableName: varName, Location: clauseLocation);
-                    }
-                    else
-                    {
-                        pattern = new ElsePattern(VariableName: null, Location: clauseLocation);
-                    }
-                }
-                else
-                {
-                    // Plain else without variable binding
-                    pattern = new ElsePattern(VariableName: null, Location: clauseLocation);
-                }
-            }
-            // Case 2: Condition-based when (RF only) - parse full expression as pattern
-            else if (isConditionBased)
-            {
-                bool savedConditionContext = _inWhenConditionContext;
-                _inWhenConditionContext = true;
-                Expression condExpr;
-                try
-                {
-                    condExpr = ParseExpression();
-                }
-                finally
-                {
-                    _inWhenConditionContext = savedConditionContext;
-                }
-
-                pattern = new ExpressionPattern(Expression: condExpr, Location: clauseLocation);
-            }
-            // Case 3: 'is' keyword - type pattern
-            else if (Match(type: TokenType.Is))
-            {
-                _inWhenPatternContext = true;
-                // Check if this is a flags pattern: identifier followed by and/or/but
-                if (Check(type: TokenType.Identifier) && PeekToken(offset: 1)
-                       .Type is TokenType.And or TokenType.Or or TokenType.But)
-                {
-                    pattern = ParseFlagsIsWhenPattern();
-                }
-                // 'is' must be followed by a type/variant name
-                else if (Check(type: TokenType.None) || Check(type: TokenType.Identifier))
-                {
-                    pattern = ParseTypePattern();
-                }
-                else
-                {
-                    throw ThrowParseError(code: GrammarDiagnosticCode.InvalidPattern,
-                        message:
-                        $"'is' must be followed by a type name. For value comparisons, use '== {CurrentToken.Text}' instead of 'is {CurrentToken.Text}'.");
-                }
-
-                _inWhenPatternContext = false;
-            }
-            // Case 4: 'isnot' keyword - negated type pattern (no variable binding)
-            else if (Match(type: TokenType.IsNot))
-            {
-                _inWhenPatternContext = true;
-                if (Check(type: TokenType.None) || Check(type: TokenType.Identifier))
-                {
-                    TypeExpression type = ParseType();
-                    pattern = new NegatedTypePattern(Type: type, Location: clauseLocation);
-                }
-                else
-                {
-                    throw ThrowParseError(code: GrammarDiagnosticCode.InvalidPattern,
-                        message: "'isnot' must be followed by a type name.");
-                }
-
-                _inWhenPatternContext = false;
-            }
-            // Case 6: Comparison patterns (==, !=, <, >, <=, >=)
-            else if (IsComparisonOperator(tokenType: CurrentToken.Type))
-            {
-                pattern = ParseComparisonPattern();
-            }
-            // Case 7: Other patterns (wildcards, literals, identifiers)
-            else
-            {
-                // Set context flag to prevent single-param lambdas from being parsed
-                // inside when patterns (e.g., a < b => action should not treat b => action as lambda)
-                _inWhenPatternContext = true;
-                pattern = ParsePattern();
-                _inWhenPatternContext = false;
-            }
+            Pattern pattern = ParseWhenStatementPattern(isConditionBased: isConditionBased,
+                clauseLocation: clauseLocation);
 
             // ─────────────────────────────────────────────────────────────────────
             // Arm body: either `=> expression` (single-line) or indented block
@@ -535,6 +399,167 @@ public partial class Parser
 
         return new WhenStatement(Expression: expression, Clauses: clauses, Location: location,
             ArmExpansion: armExpansion);
+    }
+
+    /// <summary>
+    /// Parses the subject of a when-STATEMENT, distinguishing the condition-based forms
+    /// (<c>when</c>-newline and <c>when true</c>-newline, both yielding a <c>true</c> literal subject)
+    /// from a subject-based expression. Reports which form via <paramref name="isConditionBased"/>.
+    /// </summary>
+    private Expression ParseWhenStatementSubject(SourceLocation location, out bool isConditionBased)
+    {
+        // Check for condition-based forms:
+        // 1. `when true\n` - explicit condition-based
+        // 2. `when\n` - bare when (no subject) = condition-based
+        if (Check(type: TokenType.Newline))
+        {
+            // Bare `when` followed by newline — condition-based with no subject
+            isConditionBased = true;
+            return new LiteralExpression(Value: true,
+                LiteralType: TokenType.True,
+                Location: location);
+        }
+
+        if (Check(type: TokenType.True))
+        {
+            // Peek ahead to see if this is `when true\n  INDENT` (condition-based)
+            // vs `when true_var\n  INDENT` (subject-based with a variable named starting with true)
+            Token nextToken = PeekToken(offset: 1);
+            if (nextToken.Type == TokenType.Newline)
+            {
+                isConditionBased = true;
+                Advance(); // consume 'true'
+                return new LiteralExpression(Value: true,
+                    LiteralType: TokenType.True,
+                    Location: location);
+            }
+        }
+
+        isConditionBased = false;
+        return ParseExpression();
+    }
+
+    /// <summary>
+    /// Parses a single when-STATEMENT clause pattern, dispatching (in order) to: <c>else</c>/
+    /// <c>else name</c>, a condition-based expression pattern, an <c>is</c> flags/type pattern, an
+    /// <c>isnot</c> negated type pattern, a comparison pattern, or a general pattern.
+    /// </summary>
+    private Pattern ParseWhenStatementPattern(bool isConditionBased, SourceLocation clauseLocation)
+    {
+        // ─────────────────────────────────────────────────────────────────────
+        // Pattern dispatch: determine which pattern type we're parsing
+        // Order matters - check specific patterns before general ones
+        // ─────────────────────────────────────────────────────────────────────
+
+        // Case 1: 'else' keyword - default/fallback case
+        if (Match(type: TokenType.Else))
+        {
+            return ParseElseStatementPattern(clauseLocation: clauseLocation);
+        }
+
+        // Case 2: Condition-based when (RF only) - parse full expression as pattern
+        if (isConditionBased)
+        {
+            bool savedConditionContext = _inWhenConditionContext;
+            _inWhenConditionContext = true;
+            Expression condExpr;
+            try
+            {
+                condExpr = ParseExpression();
+            }
+            finally
+            {
+                _inWhenConditionContext = savedConditionContext;
+            }
+
+            return new ExpressionPattern(Expression: condExpr, Location: clauseLocation);
+        }
+
+        // Case 3: 'is' keyword - type pattern
+        if (Match(type: TokenType.Is))
+        {
+            _inWhenPatternContext = true;
+            Pattern pattern;
+            // Check if this is a flags pattern: identifier followed by and/or/but
+            if (Check(type: TokenType.Identifier) && PeekToken(offset: 1)
+                   .Type is TokenType.And or TokenType.Or or TokenType.But)
+            {
+                pattern = ParseFlagsIsWhenPattern();
+            }
+            // 'is' must be followed by a type/variant name
+            else if (Check(type: TokenType.None) || Check(type: TokenType.Identifier))
+            {
+                pattern = ParseTypePattern();
+            }
+            else
+            {
+                throw ThrowParseError(code: GrammarDiagnosticCode.InvalidPattern,
+                    message:
+                    $"'is' must be followed by a type name. For value comparisons, use '== {CurrentToken.Text}' instead of 'is {CurrentToken.Text}'.");
+            }
+
+            _inWhenPatternContext = false;
+            return pattern;
+        }
+
+        // Case 4: 'isnot' keyword - negated type pattern (no variable binding)
+        if (Match(type: TokenType.IsNot))
+        {
+            _inWhenPatternContext = true;
+            Pattern pattern;
+            if (Check(type: TokenType.None) || Check(type: TokenType.Identifier))
+            {
+                TypeExpression type = ParseType();
+                pattern = new NegatedTypePattern(Type: type, Location: clauseLocation);
+            }
+            else
+            {
+                throw ThrowParseError(code: GrammarDiagnosticCode.InvalidPattern,
+                    message: "'isnot' must be followed by a type name.");
+            }
+
+            _inWhenPatternContext = false;
+            return pattern;
+        }
+
+        // Case 6: Comparison patterns (==, !=, <, >, <=, >=)
+        if (IsComparisonOperator(tokenType: CurrentToken.Type))
+        {
+            return ParseComparisonPattern();
+        }
+
+        // Case 7: Other patterns (wildcards, literals, identifiers)
+        // Set context flag to prevent single-param lambdas from being parsed
+        // inside when patterns (e.g., a < b => action should not treat b => action as lambda)
+        _inWhenPatternContext = true;
+        Pattern generalPattern = ParsePattern();
+        _inWhenPatternContext = false;
+        return generalPattern;
+    }
+
+    /// <summary>
+    /// Parses a when-STATEMENT <c>else</c> clause pattern after the <c>else</c> keyword has been
+    /// consumed, with an optional variable binding (<c>else name</c>).
+    /// </summary>
+    private ElsePattern ParseElseStatementPattern(SourceLocation clauseLocation)
+    {
+        // Check for variable binding: else varName => ... or else varName\n INDENT
+        if (Check(type: TokenType.Identifier))
+        {
+            TokenType nextAfterIdent = PeekToken(offset: 1)
+               .Type;
+            if (nextAfterIdent is TokenType.FatArrow or TokenType.Newline)
+            {
+                string varName =
+                    ConsumeIdentifier(errorMessage: "Expected variable name after 'else'");
+                return new ElsePattern(VariableName: varName, Location: clauseLocation);
+            }
+
+            return new ElsePattern(VariableName: null, Location: clauseLocation);
+        }
+
+        // Plain else without variable binding
+        return new ElsePattern(VariableName: null, Location: clauseLocation);
     }
 
     /// <summary>
@@ -603,32 +628,7 @@ public partial class Parser
             errorMessage: "Expected 'is $typeof(m) ...' clause in an branchof-expand");
         // The arm pattern's type is the handle's arm type — the brace-less `$typeof(m)` splice (or the
         // legacy `${m.type}`); parsed and validated, then the optional payload binding follows.
-        SpliceExpression splice;
-        if (Match(type: TokenType.Dollar))
-        {
-            splice = ParseDollarSplice(kind: SpliceKind.Value);
-            if (splice.Inner is not CallExpression
-                {
-                    Callee: IdentifierExpression { Name: "typeof" },
-                    Arguments: [IdentifierExpression spliceHandleNew]
-                } || spliceHandleNew.Name != handle)
-            {
-                throw ThrowParseError(code: GrammarDiagnosticCode.InvalidPattern,
-                    message: $"An branchof-expand arm pattern must be 'is $typeof({handle}) ...'.");
-            }
-        }
-        else
-        {
-            Consume(type: TokenType.SpliceOpen,
-                errorMessage: "Expected '$typeof(m)' type splice after 'is'");
-            splice = ParseSplice(kind: SpliceKind.Value);
-            if (splice.Inner is not MemberExpression { Object: IdentifierExpression spliceHandle, MemberName: "type" }
-                || spliceHandle.Name != handle)
-            {
-                throw ThrowParseError(code: GrammarDiagnosticCode.InvalidPattern,
-                    message: $"An branchof-expand arm pattern must be 'is $typeof({handle}) ...'.");
-            }
-        }
+        ParseAndValidateArmExpansionSplice(handle: handle);
 
         string? binding = Check(type: TokenType.Identifier)
             ? ConsumeIdentifier(errorMessage: "Expected payload binding name")
@@ -646,6 +646,40 @@ public partial class Parser
 
         var template = new WhenClause(Pattern: pattern, Body: body, Location: clauseLoc);
         return new WhenArmExpansion(HandleName: handle, SourceType: sourceType, Template: template);
+    }
+
+    /// <summary>
+    /// Parses and validates the arm-expansion type splice after <c>is</c>: either the brace-less
+    /// <c>$typeof(m)</c> form or the legacy <c>${m.type}</c> form. Both must reference the given
+    /// <paramref name="handle"/>; otherwise an <c>InvalidPattern</c> error is raised.
+    /// </summary>
+    private void ParseAndValidateArmExpansionSplice(string handle)
+    {
+        if (Match(type: TokenType.Dollar))
+        {
+            SpliceExpression splice = ParseDollarSplice(kind: SpliceKind.Value);
+            if (splice.Inner is not CallExpression
+                {
+                    Callee: IdentifierExpression { Name: "typeof" },
+                    Arguments: [IdentifierExpression spliceHandleNew]
+                } || spliceHandleNew.Name != handle)
+            {
+                throw ThrowParseError(code: GrammarDiagnosticCode.InvalidPattern,
+                    message: $"An branchof-expand arm pattern must be 'is $typeof({handle}) ...'.");
+            }
+        }
+        else
+        {
+            Consume(type: TokenType.SpliceOpen,
+                errorMessage: "Expected '$typeof(m)' type splice after 'is'");
+            SpliceExpression splice = ParseSplice(kind: SpliceKind.Value);
+            if (splice.Inner is not MemberExpression { Object: IdentifierExpression spliceHandle, MemberName: "type" }
+                || spliceHandle.Name != handle)
+            {
+                throw ThrowParseError(code: GrammarDiagnosticCode.InvalidPattern,
+                    message: $"An branchof-expand arm pattern must be 'is $typeof({handle}) ...'.");
+            }
+        }
     }
 
     /// <summary>
@@ -671,15 +705,7 @@ public partial class Parser
 
             if (Match(type: TokenType.But))
             {
-                excluded =
-                [
-                    ConsumeIdentifier(errorMessage: "Expected flag name after 'but'")
-                ];
-                while (Match(type: TokenType.And))
-                {
-                    excluded.Add(
-                        item: ConsumeIdentifier(errorMessage: ExpectedFlagNameAfterAnd));
-                }
+                excluded = ParseExcludedFlagsAfterBut();
             }
         }
         else if (Check(type: TokenType.Or))
@@ -692,15 +718,7 @@ public partial class Parser
         }
         else if (Match(type: TokenType.But))
         {
-            excluded =
-            [
-                ConsumeIdentifier(errorMessage: "Expected flag name after 'but'")
-            ];
-            while (Match(type: TokenType.And))
-            {
-                excluded.Add(
-                    item: ConsumeIdentifier(errorMessage: ExpectedFlagNameAfterAnd));
-            }
+            excluded = ParseExcludedFlagsAfterBut();
         }
 
         return new FlagsPattern(FlagNames: flags,
@@ -710,12 +728,30 @@ public partial class Parser
     }
 
     /// <summary>
+    /// Parses the excluded-flag list following a <c>but</c> keyword (already consumed): the first flag
+    /// name, then each subsequent <c>and</c>-separated flag name.
+    /// </summary>
+    private List<string> ParseExcludedFlagsAfterBut()
+    {
+        var excluded = new List<string>
+        {
+            ConsumeIdentifier(errorMessage: "Expected flag name after 'but'")
+        };
+        while (Match(type: TokenType.And))
+        {
+            excluded.Add(item: ConsumeIdentifier(errorMessage: ExpectedFlagNameAfterAnd));
+        }
+
+        return excluded;
+    }
+
+    /// <summary>
     /// Parses a pattern for use in when clauses.
     /// Supports: wildcard (_), type patterns (Type varName), variant patterns (Type.CASE or CASE),
     /// destructuring patterns (CASE (a, b)), literal patterns, guard patterns (n if n &lt; 0).
     /// </summary>
     /// <returns>A <see cref="Pattern"/> AST node.</returns>
-    private Pattern ParsePattern() // NOSONAR S3776
+    private Pattern ParsePattern()
     {
         SourceLocation location = GetLocation();
 
@@ -731,51 +767,7 @@ public partial class Parser
         // Type/Variant pattern: Type, Type varName, Choice.CASE, Variant.CASE varName, CASE, CASE (a, b)
         if (Check(type: TokenType.Identifier) && CurrentToken.Text.Length > 0)
         {
-            string name = CurrentToken.Text;
-            Advance();
-
-            // Check for qualified name: Type.CASE or Type.CASE.SubCase
-            var nameSb1 = new System.Text.StringBuilder(name);
-            while (Match(type: TokenType.Dot))
-            {
-                if (Match(type: TokenType.Identifier))
-                {
-                    nameSb1.Append('.');
-                    nameSb1.Append(PeekToken(offset: -1).Text);
-                }
-                else
-                {
-                    throw ThrowParseError(
-                        code: GrammarDiagnosticCode.ExpectedDotInQualifiedPattern,
-                        message: "Expected identifier after '.' in pattern");
-                }
-            }
-            name = nameSb1.ToString();
-
-            // Check for destructuring: Type.CASE (memberVar1, memberVar2), (memberVar: alias), or ((x, y), z)
-            List<DestructuringBinding>? bindings = null;
-            if (Match(type: TokenType.LeftParen))
-            {
-                bindings = ParseDestructuringBindingList();
-                Consume(type: TokenType.RightParen,
-                    errorMessage: "Expected ')' after destructuring bindings");
-            }
-
-            // Check for variable binding (only if no destructuring)
-            string? variableName = null;
-            if (bindings == null && Check(type: TokenType.Identifier))
-            {
-                variableName =
-                    ConsumeIdentifier(errorMessage: "Expected variable name for type pattern");
-            }
-
-            TypeExpression type = new(Name: name, GenericArguments: null, Location: location);
-            Pattern typePattern = new TypePattern(Type: type,
-                VariableName: variableName,
-                Bindings: bindings,
-                Location: location);
-            return TryParseAndGuard(innerPattern: typePattern,
-                guardAllowed: variableName != null || bindings != null, location: location);
+            return ParseTypeOrVariantPattern(location: location);
         }
 
         // Literal pattern: constants like 42, "hello", true, etc. No flags collision → guard allowed.
@@ -794,6 +786,70 @@ public partial class Parser
     }
 
     /// <summary>
+    /// Parses a bare type/variant pattern that starts with an identifier (not the <c>is</c>-prefixed
+    /// form): <c>Type</c>, <c>Type varName</c>, <c>Choice.CASE</c>, <c>Variant.CASE varName</c>,
+    /// <c>CASE</c>, or <c>CASE (a, b)</c>, with an optional trailing <c>and</c>-guard.
+    /// </summary>
+    private Pattern ParseTypeOrVariantPattern(SourceLocation location)
+    {
+        string name = CurrentToken.Text;
+        Advance();
+
+        // Check for qualified name: Type.CASE or Type.CASE.SubCase
+        name = ReadQualifiedPatternName(head: name);
+
+        // Check for destructuring: Type.CASE (memberVar1, memberVar2), (memberVar: alias), or ((x, y), z)
+        List<DestructuringBinding>? bindings = null;
+        if (Match(type: TokenType.LeftParen))
+        {
+            bindings = ParseDestructuringBindingList();
+            Consume(type: TokenType.RightParen,
+                errorMessage: "Expected ')' after destructuring bindings");
+        }
+
+        // Check for variable binding (only if no destructuring)
+        string? variableName = null;
+        if (bindings == null && Check(type: TokenType.Identifier))
+        {
+            variableName =
+                ConsumeIdentifier(errorMessage: "Expected variable name for type pattern");
+        }
+
+        TypeExpression type = new(Name: name, GenericArguments: null, Location: location);
+        Pattern typePattern = new TypePattern(Type: type,
+            VariableName: variableName,
+            Bindings: bindings,
+            Location: location);
+        return TryParseAndGuard(innerPattern: typePattern,
+            guardAllowed: variableName != null || bindings != null, location: location);
+    }
+
+    /// <summary>
+    /// Reads a dot-qualified pattern name (<c>Type.CASE</c>, <c>Type.CASE.SubCase</c>) starting from an
+    /// already-consumed <paramref name="head"/> identifier, appending each <c>.identifier</c> segment.
+    /// </summary>
+    private string ReadQualifiedPatternName(string head)
+    {
+        var nameSb = new System.Text.StringBuilder(head);
+        while (Match(type: TokenType.Dot))
+        {
+            if (Match(type: TokenType.Identifier))
+            {
+                nameSb.Append('.');
+                nameSb.Append(PeekToken(offset: -1).Text);
+            }
+            else
+            {
+                throw ThrowParseError(
+                    code: GrammarDiagnosticCode.ExpectedDotInQualifiedPattern,
+                    message: "Expected identifier after '.' in pattern");
+            }
+        }
+
+        return nameSb.ToString();
+    }
+
+    /// <summary>
     /// Parses a type pattern (used after 'is' keyword).
     /// Syntax: Type, Type varName, Type.CASE, Type.CASE varName, CASE (a, b)
     /// Also handles special keywords like 'none'.
@@ -806,24 +862,7 @@ public partial class Parser
         // Handle 'is None' as a special case - None is a keyword
         if (Match(type: TokenType.None))
         {
-            var noneType =
-                new TypeExpression(Name: "None", GenericArguments: null, Location: location);
-            // `None` carries no payload, so it binds nothing: reject a binding (`is None x`) or a
-            // destructuring (`is None (x, y)`) after it.
-            if ((Check(type: TokenType.Identifier) && !IsKeywordToken(token: CurrentToken)) ||
-                Check(type: TokenType.LeftParen))
-            {
-                throw ThrowParseError(code: GrammarDiagnosticCode.InvalidPattern,
-                    message:
-                    "The 'None' pattern binds no value — remove the binding or destructuring after 'None'.");
-            }
-
-            Pattern nonePattern = new TypePattern(Type: noneType,
-                VariableName: null,
-                Bindings: null,
-                Location: location);
-            // `is None` binds nothing, so it takes no `and`-guard (guards require a binding).
-            return nonePattern;
+            return ParseNoneTypePattern(location: location);
         }
 
         if (!Check(type: TokenType.Identifier))
@@ -836,21 +875,7 @@ public partial class Parser
         Advance();
 
         // Check for qualified name: Type.CASE or Type.CASE.SubCase
-        var nameSb2 = new System.Text.StringBuilder(name);
-        while (Match(type: TokenType.Dot))
-        {
-            if (Match(type: TokenType.Identifier))
-            {
-                nameSb2.Append('.');
-                nameSb2.Append(PeekToken(offset: -1).Text);
-            }
-            else
-            {
-                throw ThrowParseError(code: GrammarDiagnosticCode.ExpectedDotInQualifiedPattern,
-                    message: "Expected identifier after '.' in pattern");
-            }
-        }
-        name = nameSb2.ToString();
+        name = ReadQualifiedPatternName(head: name);
 
         // Generic-instance arm: `is Dict[Text, SerialValue] inner` / `is List[SerialValue] xs`.
         // Parse the type arguments so the pattern resolves to the concrete instance (and the binding
@@ -893,6 +918,32 @@ public partial class Parser
             Location: location);
         return TryParseAndGuard(innerPattern: typePattern,
             guardAllowed: variableName != null || bindings != null, location: location);
+    }
+
+    /// <summary>
+    /// Parses the <c>is None</c> type pattern after the <c>None</c> keyword has been consumed. <c>None</c>
+    /// carries no payload, so a trailing binding (<c>is None x</c>) or destructuring (<c>is None (x, y)</c>)
+    /// is rejected; it takes no <c>and</c>-guard either.
+    /// </summary>
+    private Pattern ParseNoneTypePattern(SourceLocation location)
+    {
+        var noneType =
+            new TypeExpression(Name: "None", GenericArguments: null, Location: location);
+        // `None` carries no payload, so it binds nothing: reject a binding (`is None x`) or a
+        // destructuring (`is None (x, y)`) after it.
+        if ((Check(type: TokenType.Identifier) && !IsKeywordToken(token: CurrentToken)) ||
+            Check(type: TokenType.LeftParen))
+        {
+            throw ThrowParseError(code: GrammarDiagnosticCode.InvalidPattern,
+                message:
+                "The 'None' pattern binds no value — remove the binding or destructuring after 'None'.");
+        }
+
+        // `is None` binds nothing, so it takes no `and`-guard (guards require a binding).
+        return new TypePattern(Type: noneType,
+            VariableName: null,
+            Bindings: null,
+            Location: location);
     }
 
     /// <summary>
@@ -1158,16 +1209,7 @@ public partial class Parser
         // (it's a common variable name — e.g. `unwrap_or(fallback:)`). It is only the block
         // keyword here, recognised as an identifier `fallback` immediately followed by an
         // indented block right after a `using` body.
-        Statement? fallbackBody = null;
-        if (IsContextualFallbackBlock())
-        {
-            Advance(); // consume the `fallback` identifier
-            if (resources.Count > 1)
-                throw ThrowParseError(
-                    message: "'fallback' is only allowed on a single-resource 'using' " +
-                             "(a fallible acquisition binds exactly one resource).");
-            fallbackBody = ParseBody();
-        }
+        Statement? fallbackBody = ParseOptionalUsingFallbackBlock(resourceCount: resources.Count);
 
         // Build nested UsingStatements from inside out (last resource is innermost).
         // `fallback` (single-resource only) attaches to the sole using.
@@ -1182,6 +1224,26 @@ public partial class Parser
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Parses the optional contextual <c>fallback</c> block that may follow a <c>using</c> body. Rejects
+    /// it on a multi-resource <c>using</c> (fallible acquisition binds exactly one resource). Returns the
+    /// fallback body, or null when no fallback block is present.
+    /// </summary>
+    private Statement? ParseOptionalUsingFallbackBlock(int resourceCount)
+    {
+        if (!IsContextualFallbackBlock())
+        {
+            return null;
+        }
+
+        Advance(); // consume the `fallback` identifier
+        if (resourceCount > 1)
+            throw ThrowParseError(
+                message: "'fallback' is only allowed on a single-resource 'using' " +
+                         "(a fallible acquisition binds exactly one resource).");
+        return ParseBody();
     }
 
     /// <summary>

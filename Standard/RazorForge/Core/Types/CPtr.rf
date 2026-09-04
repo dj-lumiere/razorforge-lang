@@ -52,14 +52,14 @@ routine CPtr.is_none() -> Bool
 
 ### Formats this pointer as its raw address.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine CPtr.represent() -> Text
   danger
     return me.get_address().represent()
 
 ### Diagnostic representation for debugging — same as `represent`.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine CPtr.diagnose() -> Text
   return "CPtr(" + me.represent() + ")"
 
@@ -73,11 +73,3 @@ routine bigint_handle_none() -> CPtr
 routine bigdec_handle_none() -> CPtr
   return cptr_none()
 
-### `CPtr` is a non-owning, type-erased `void*` — it never owns the memory it
-### points at. The pointee may be a stack slot, an interior field address, an
-### FFI-borrowed buffer, or a runtime handle whose real owner frees it explicitly
-### (e.g. `Integer.destroy` calls `rf_bigint_clear`). Freeing here would either
-### corrupt non-heap memory or double-free an owner-managed handle, so teardown
-### is a deliberate no-op.
-dangerous routine CPtr.destroy()
-  return

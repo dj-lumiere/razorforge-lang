@@ -463,7 +463,7 @@ public class AssignableProtocolTests
 
                         routine start()
                           var a = Point(x: 1, y: 2)
-                          var b = a.copy()
+                          var b = a.duplicate()
                           return
                         """;
 
@@ -482,7 +482,7 @@ public class AssignableProtocolTests
 
                         routine start()
                           var a = Color.Red
-                          var b = a.copy()
+                          var b = a.duplicate()
                           return
                         """;
 
@@ -501,7 +501,7 @@ public class AssignableProtocolTests
 
                         routine start()
                           var a = Perms.Read
-                          var b = a.copy()
+                          var b = a.duplicate()
                           return
                         """;
 
@@ -522,7 +522,7 @@ public class AssignableProtocolTests
 
                         routine start()
                           var a = Outer(inner: Inner(v: 1), tag: 42)
-                          var b = a.copy()
+                          var b = a.duplicate()
                           return
                         """;
 
@@ -534,7 +534,7 @@ public class AssignableProtocolTests
     public void Analyze_Clone_OnRecordWithRetained_Fails()
     {
         // Record with Retained field does not auto-derive Assignable, so it also
-        // does not auto-derive Cloneable — calling .copy() should fail to resolve.
+        // does not auto-derive Cloneable — calling .duplicate() should fail to resolve.
         string source = """
                         entity Node
                           value: S64
@@ -545,7 +545,7 @@ public class AssignableProtocolTests
                         routine start()
                           var a = Node(value: 1)
                           var b = Box(handle: Retained(from: steal a))
-                          var c = b.copy()
+                          var c = b.duplicate()
                           return
                         """;
 

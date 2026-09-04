@@ -40,7 +40,6 @@ public sealed partial class SemanticVerifier
 
     /// <summary>Call graph for modification inference.</summary>
     private readonly CallGraph _callGraph = new();
-    private MarkerProtocolDesugarPass? _markerPass;
 
     /// <summary>Errors collected during analysis (insertion order preserved; deduplicated).</summary>
     private readonly List<SemanticError> _errors = [];
@@ -348,6 +347,16 @@ public sealed partial class SemanticVerifier
     /// </summary>
     public bool SaOnly { get; set; }
 
+    /// <summary>
+    /// When true, root EVERY concrete stdlib routine in reachability so monomorphization materializes the
+    /// full stdlib generic closure — for emitting a precompiled stdlib base (see
+    /// <see cref="Compiler.CodeGen.LlvmCodeGenerator.GenerateBase"/>) that must define everything it
+    /// references. Threaded into <see cref="InstantiationContext.SeedAllStdlibRoutines"/> and (as
+    /// <see cref="Compiler.Desugaring.DesugaringContext.SynthesizeAllDerives"/>) the Phase-6 derive
+    /// synthesis. Default false = normal builds (byte-identical).
+    /// </summary>
+    public bool SeedAllStdlibRoutines { get; set; }
+
     #endregion
 
     #region Public API
@@ -376,7 +385,7 @@ public sealed partial class SemanticVerifier
         {
             if (!saTiming) return;
             swPhase.Stop();
-            Console.Error.WriteLine(value: $"[SA] {label}: {swPhase.ElapsedMilliseconds} ms");
+            Console.Error.WriteLine(value: $"{label}: {swPhase.ElapsedMilliseconds} ms");
             swPhase.Restart();
         }
 
@@ -386,6 +395,11 @@ public sealed partial class SemanticVerifier
         // in scope. Phase 5 TypeLiveness only runs on the multi-file path (see AnalyzeMultiple).
         // NOTE: Phase 10 (CodeGen) uses "Stage 1–4" for its internal emit stages; MutationInference
         // uses "Step 1–3" for its internal propagation steps — neither conflicts with these phase numbers.
+        // Install the on-demand failable-variant synthesizer: any LookupMemberRoutine miss on a
+        // try_/check_/lookup_ name now synthesizes that variant from the deferred base index (populated
+        // by pre-registration) rather than relying on eager registration of every failable's variants.
+        _registry.OnDemandVariantSynthesizer = TrySynthesizeVariantOnDemand;
+        _registry.OnDemandVariantForBase = SynthesizeVariantForBase;
         RunPhase3Declaration(program: program);
         Mark(label: "Phase 3 Declaration");
         CaptureCurrentImportStateSnapshot(filePath: _currentFilePath);
@@ -408,17 +422,27 @@ public sealed partial class SemanticVerifier
             filePath: _currentFilePath,
             module: _currentModuleName ?? "");
 
+        // Register auto-derive templates UNCONDITIONALLY (even under SaOnly): the warm-stdlib snapshot is
+        // captured with SaOnly=true, before CollectStdlibBodiesForVariantGeneration would register them,
+        // so a warm full-analyze needs the templates in the snapshot to clone per-type derive bodies
+        // (e.g. CLong.destroy). Idempotent — CollectStdlibBodiesForVariantGeneration's re-scan no-ops.
+        RegisterStdlibDeriveTemplates();
+
         if (!SaOnly)
         {
             CollectStdlibBodiesForVariantGeneration();
             Mark(label: "CollectStdlibBodies");
+            // Skip in snapshot/warm mode: the derive-marker validation is a property of the STDLIB SOURCE,
+            // already enforced in the cold capture run. The opt-in-derive marking (_optInDeriveMemberRoutines,
+            // which excludes eq/cmp/assign/copy) is NOT part of the serialized snapshot, so re-running here
+            // over the restored stdlib would false-positive on Array.assign/Dict.copy/etc.
+            if (!_snapshotMode) CheckOverridableDeriveMarkers();
             RunPhase6GlobalDesugaring();
             Mark(label: "Phase 6 GlobalDesugaring");
             RunPhase8Instantiation();
             Mark(label: "Phase 8 Instantiation");
             RunPhase9Postprocessing(program: program);
             Mark(label: "Phase 9 Postprocessing");
-            SurveyMarkerProtocolLeaks();
             RunPhase9PostDesugarChecks();
             Mark(label: "Phase 9 PostDesugarChecks");
             FinalizeReturnTypes();
@@ -523,22 +547,42 @@ public sealed partial class SemanticVerifier
         {
             if (swSub == null) return;
             swSub.Stop();
-            Console.Error.WriteLine(value: $"[SA]     P6sub - {label}: {swSub.ElapsedMilliseconds} ms");
+            Console.Error.WriteLine(value: $"    P6sub - {label}: {swSub.ElapsedMilliseconds} ms");
             swSub.Restart();
         }
+
+        // BASE build only (SeedAllStdlibRoutines): const-generic Array[T,N] and other instances created
+        // during stdlib body analysis carry the "defer until user code touches it" lazy flag, which
+        // excludes them from AllConcreteGenericInstances (so GMP never monomorphizes them) and from the
+        // routine sweeps below (so their derive stubs are never registered). A precompiled base must
+        // DEFINE everything it references, so clear the flag on all of them here — before the derive-stub
+        // registration + WiredRoutinePass body-building below and before Phase 8 monomorphization — so
+        // their destroy/represent/hash derives are synthesized and emitted. Normal builds skip this
+        // entirely (flag stays; entry-point liveness drives what gets materialized), so they are unchanged.
+        if (SeedAllStdlibRoutines)
+        {
+            int materialized = _registry.MaterializeAllLazyStdlibTypes();
+            if (SaTiming) Console.Error.WriteLine(value: $"    P6sub - MaterializeAllLazyStdlibTypes: {materialized} types");
+        }
+
+        // Build the bodies of all on-demand-synthesized variants (Phase-5 demand + transitive) BEFORE the
+        // desugaring pipeline, so they flow through the same variant-body lowering (PresetInlining,
+        // control-flow, operator, etc.) the eager `emit` bodies get — otherwise a body's preset identifiers
+        // (e.g. S64_MIN in try_floordiv) survive to codegen (RF-S958).
+        DrainVariantBodyGenQueue();
 
         var ctx = new DesugaringContext(registry: _registry,
             routineBodies: _routineBodies,
             target: _target,
-            buildMode: _buildMode) { VariantBodies = _variantBodies };
+            buildMode: _buildMode) { VariantBodies = _variantBodies, SynthesizeAllDerives = SeedAllStdlibRoutines };
         new DesugaringPipeline(ctx: ctx).RunGlobal();
-        SubMark(label: "DesugaringPipeline.RunGlobal");
+        SubMark(label: $"{nameof(DesugaringPipeline)}.RunGlobal");
         // Capture variant bodies produced by ErrorHandlingVariantPass for codegen. On the warm-restore
         // path _variantBodies is pre-seeded with the captured stdlib variants, so ErrorHandlingVariantPass
         // only ADDS user variants here — the seeded restored ones survive for codegen.
         _variantBodies = ctx.VariantBodies;
         AnalyzeVariantBodies();
-        SubMark(label: "AnalyzeVariantBodies");
+        SubMark(label: nameof(AnalyzeVariantBodies));
 
         // Phase 8 global: lower variant bodies and stdlib programs with type-aware passes.
         // Also pass synthesized operator bodies so CallOverloadResolutionPass can classify
@@ -556,9 +600,9 @@ public sealed partial class SemanticVerifier
         var lateCtx = new DesugaringContext(registry: _registry,
             routineBodies: _routineBodies,
             target: _target,
-            buildMode: _buildMode) { VariantBodies = _variantBodies };
+            buildMode: _buildMode) { VariantBodies = _variantBodies, SynthesizeAllDerives = SeedAllStdlibRoutines };
         new WiredRoutinePass(ctx: lateCtx).RunGlobal();
-        SubMark(label: "AutoRegisterWiredRoutines + WiredRoutinePass.RunGlobal");
+        SubMark(label: $"{nameof(AutoRegisterWiredRoutines)} + {nameof(WiredRoutinePass)}.RunGlobal");
 
         var p7ctx = new PostprocessingContext(registry: _registry,
             variantBodies: _variantBodies,
@@ -566,19 +610,45 @@ public sealed partial class SemanticVerifier
             target: _target,
             buildMode: _buildMode,
             monomorphizedBodies: _instantiatedGenericBodies as Dictionary<string, MonomorphizedBody>);
+        // WARM-GATE (②): variant bodies restored from a warm snapshot were fully lowered at capture
+        // time, so re-running the ~15 RunGlobal lowering passes over them is an idempotent no-op — the
+        // dominant warm cost of this phase. Temporarily remove the restored keys from the SHARED
+        // _variantBodies dict (every RunGlobal pass iterates this one object) so each pass sweeps only
+        // the USER-delta fresh keys, then restore them afterward (codegen reads the lowered bodies back
+        // from _variantBodies). Safe because no pass looks up a variant body by a key it isn't currently
+        // iterating (verified: no ContainsKey/TryGetValue and every indexer read is the loop's own key).
+        // Cold path is untouched: _restoredVariantKeys is empty, so the block is skipped entirely.
+        Dictionary<string, Statement>? stashedRestoredVariants = null;
+        if (_restoredVariantKeys.Count > 0)
+        {
+            stashedRestoredVariants =
+                new Dictionary<string, Statement>(capacity: _restoredVariantKeys.Count,
+                    comparer: System.StringComparer.Ordinal);
+            foreach (string key in _restoredVariantKeys)
+                if (_variantBodies.TryGetValue(key: key, value: out Statement? restoredBody))
+                {
+                    stashedRestoredVariants[key] = restoredBody;
+                    _variantBodies.Remove(key: key);
+                }
+        }
         new PostprocessingPipeline(ctx: p7ctx).RunGlobal();
-        SubMark(label: "PostprocessingPipeline.RunGlobal");
+        if (stashedRestoredVariants != null)
+            foreach (var kv in stashedRestoredVariants)
+                _variantBodies[key: kv.Key] = kv.Value;
+        SubMark(label: $"{nameof(PostprocessingPipeline)}.RunGlobal");
     }
 
     /// <summary>
     /// Phase 7: close reachable generic bodies up front so codegen no longer owns the
     /// common-case monomorphization entry point.
     /// </summary>
-    private void RunPhase8Instantiation()
+    /// <summary>
+    /// Builds the variant-body dictionary passed into instantiation: the pre-transformed variant
+    /// bodies plus every synthesized wrapper-forwarder body and derived-operator body on a generic
+    /// owner type (GMP must monomorphize both; the generic-def version must not be emitted).
+    /// </summary>
+    private Dictionary<string, Statement> BuildMergedVariantBodies()
     {
-        // Include wrapper forwarder bodies in variantBodies so GMP can rewrite them with
-        // concrete type substitutions. Without this, GMP creates empty-body sentinels for
-        // concrete forwarder instances instead of properly monomorphized bodies.
         var mergedVariantBodies = new Dictionary<string, Statement>(_variantBodies);
         foreach (var (key, pair) in _synthesizedBodies)
         {
@@ -589,6 +659,39 @@ public sealed partial class SemanticVerifier
                 mergedVariantBodies[key] = pair.Body;
         }
 
+        return mergedVariantBodies;
+    }
+
+    private void RunPhase8Instantiation()
+    {
+        // Include wrapper forwarder bodies in variantBodies so GMP can rewrite them with
+        // concrete type substitutions. Without this, GMP creates empty-body sentinels for
+        // concrete forwarder instances instead of properly monomorphized bodies.
+        var mergedVariantBodies = BuildMergedVariantBodies();
+
+        // WARM GATE: the teardown/temp-teardown/marker passes below re-walk EVERY variant body each warm
+        // run. Restored variant bodies (from the snapshot) were already teardown/marker-lowered at capture,
+        // and those passes are idempotent on an already-lowered body (proven: warm output == cold), so the
+        // re-walk is pure wasted work. Stash the restored keys OUT of mergedVariantBodies for the duration of
+        // those passes (so they only touch the fresh user-delta bodies), then restore them BEFORE reachability
+        // /GMP, which must still walk the FULL set for liveness. Cold path: _restoredVariantKeys is empty →
+        // no-op. mergedVariantBodies IS ctx.VariantBodies (shared object), so removing/re-adding here is what
+        // the passes and the fixpoint below observe.
+        Dictionary<string, Statement>? stashedP8Variants = null;
+        long _p8GateStash = 0;
+        if (_restoredVariantKeys.Count > 0)
+        {
+            var _swGate = SaTiming ? Stopwatch.StartNew() : null;
+            stashedP8Variants = new Dictionary<string, Statement>(comparer: StringComparer.Ordinal);
+            foreach (string key in _restoredVariantKeys)
+                if (mergedVariantBodies.TryGetValue(key: key, value: out Statement? body))
+                {
+                    stashedP8Variants[key] = body;
+                    mergedVariantBodies.Remove(key: key);
+                }
+            _p8GateStash = _swGate?.ElapsedMilliseconds ?? 0;
+        }
+
         var ctx = new InstantiationContext(registry: _registry,
             userPrograms: _registry.UserPrograms,
             routineBodies: _routineBodies,
@@ -597,7 +700,9 @@ public sealed partial class SemanticVerifier
                 ? dict
                 : _instantiatedGenericBodies.ToDictionary(kvp => kvp.Key, kvp => kvp.Value),
             target: _target,
-            buildMode: _buildMode) { SaTiming = SaTiming };
+            buildMode: _buildMode,
+            bodyScanCache: _bodyScanCache,
+            stdlibTemplateBodies: _warmStdlibRoutineBodies) { SaTiming = SaTiming, SeedAllStdlibRoutines = SeedAllStdlibRoutines };
 
         // Rewrite Accessing[T]/Controlling[T] params to inner T before reachability so
         // the resulting RegistryKeys / mangled names captured downstream match codegen.
@@ -651,21 +756,26 @@ public sealed partial class SemanticVerifier
             tempTeardownPass.Run(program: program);
         tempTeardownPass.RunOnBodies(markerCtx.VariantBodies);
 
-        var markerPass = new MarkerProtocolDesugarPass(markerCtx);
-        _markerPass = markerPass;
-        markerPass.RewriteAllSignatures();
-        foreach ((Program program, _, _) in _registry.UserPrograms)
+        // MarkerProtocolDesugarPass. The warm-daemon RF-S413 false positive is ALREADY fixed by routing
+        // marker protocols through the ordinary generic-bound desugar in SignatureResolver: a param is now a
+        // generic `V obeys Accessing[X]`, never a bare `Accessing[X]` protocol, so RewriteAllSignatures finds
+        // NO marker param to erase in place — the shared/cached RoutineInfo is no longer mutated, so the cache
+        // can't be poisoned. The pass is kept because its expression cleanup + late-resolution/instantiated-
+        // body re-keying is still load-bearing for non-marker lowering (e.g. Sender[T] GMCE construction);
+        // fully removing it requires separately solving that GMCE-lowering gap (warm-restore-gmce-bug).
+        // ERASE PASS DELETED (marker protocols now desugar to generic bounds; see SignatureResolver).
+        // Kept minimal RewriteAllSignatures re-keying disabled to expose the true GMCE-lowering gap.
+
+        // Restore the stashed restored variant bodies BEFORE reachability/GMP — the fixpoint below must walk
+        // the FULL (restored + fresh) set for liveness (its GMP re-monomorphization short-circuits on the
+        // already-present InstantiatedGenericBodies keys, so this only re-adds them for the liveness WALK).
+        if (stashedP8Variants != null)
         {
-            MarkerProtocolDesugarPass.RewriteAstSignatures(program);
-            markerPass.Run(program);
+            foreach (var kv in stashedP8Variants) mergedVariantBodies[key: kv.Key] = kv.Value;
+            if (SaTiming)
+                Console.Error.WriteLine(
+                    value: $"  Phase 8 warm-gate - skipped teardown/marker on {stashedP8Variants.Count} restored variants (stash {_p8GateStash} ms)");
         }
-        foreach ((Program program, _, _) in freshStdlib)
-        {
-            MarkerProtocolDesugarPass.RewriteAstSignatures(program);
-            markerPass.Run(program);
-        }
-        markerPass.RunOnVariantBodies();
-        markerPass.RunOnSynthesizedBodies();
 
         // Expand `is Crashable err` clauses BEFORE reachability so that the new
         // per-crashable `err.crash_message()` calls participate in liveness analysis.
@@ -679,28 +789,21 @@ public sealed partial class SemanticVerifier
                 crashablePass.Run(program);
         }
 
-        if (SaTiming)
-        {
-            var sw = Stopwatch.StartNew();
-            void Step(string label)
-            {
-                sw.Stop();
-                Console.Error.WriteLine(value: $"[SA]   Phase 7 sub - {label}: {sw.ElapsedMilliseconds} ms");
-                sw.Restart();
-            }
-            new ReachableGenericCollectionPass(ctx: ctx).Run();
-            Step(label: "ReachableGenericCollectionPass");
-            new RoutineReachabilityPass(ctx: ctx).Run();
-            Step(label: "RoutineReachabilityPass");
-            new GenericClosurePass(ctx: ctx).Run();
-            Step(label: "GenericClosurePass");
-            GenericCanonicalizationPass.Run();
-            Step(label: "GenericCanonicalizationPass");
-        }
-        else
-        {
-            new InstantiationPipeline(ctx: ctx).Run();
-        }
+        // Fold constant list-returning BuilderQuery reflection calls (routine_names/protocols/annotations/…)
+        // into inline analyzed List[Text] literals BEFORE reachability, so RRP walks the literal (seeding its
+        // from_literal builder) rather than a per-type reflection routine — no such routine is synthesized, so
+        // none survives into codegen. Must run after the marker/crashable AST rewrites above (stable call
+        // shape) and before ReachableGenericCollectionPass/RRP below.
+        FoldListBuilderQueryReflection();
+
+        // Full-stdlib-closure FIXPOINT (only when SeedAllStdlibRoutines is set, i.e. building the precompiled
+        // stdlib base): each reachability+monomorphization round materializes new instances whose bodies then
+        // reference STILL-MORE concrete instances a single pass never seeded. Re-run reachability (which
+        // re-seeds ALL concrete routines, now including the freshly-materialized ones) + monomorphization
+        // until InstantiatedGenericBodies stops growing → the full closure the base must define. Bounded (the
+        // instance set is finite; the guard caps any runaway). Normal builds run exactly ONE round (the
+        // while-condition is false) → byte-identical.
+        RunReachabilityMonomorphizationFixpoint(ctx: ctx);
 
         _variantBodies = ctx.VariantBodies;
         _instantiatedGenericBodies = ctx.InstantiatedGenericBodies;
@@ -720,8 +823,54 @@ public sealed partial class SemanticVerifier
             variantBodies: _variantBodies,
             target: _target,
             buildMode: _buildMode);
+        // WARM GATE: restored instantiation bodies were already call-classified at capture; only re-classify
+        // the FRESH (user-delta) ones. Cold path: _restoredInstantiationKeys empty → classifies all.
         new CallOverloadResolutionPass(classCtx).RunOnStatements(
-            _instantiatedGenericBodies.Values.Select(selector: b => b.Ast.Body));
+            _instantiatedGenericBodies
+                .Where(predicate: kv => !_restoredInstantiationKeys.Contains(item: kv.Key))
+                .Select(selector: kv => kv.Value.Ast.Body));
+    }
+
+    /// <summary>
+    /// Runs the reachability + monomorphization passes (ReachableGenericCollection →
+    /// RoutineReachability → GenericClosure), then canonicalizes. For a normal build this executes
+    /// exactly ONE round; only a full-stdlib-closure base build (<c>SeedAllStdlibRoutines</c>)
+    /// re-runs the round until <c>InstantiatedGenericBodies</c> stops growing (bounded by a guard).
+    /// </summary>
+    private void RunReachabilityMonomorphizationFixpoint(InstantiationContext ctx)
+    {
+        int prevCount;
+        int guard = 0;
+        do
+        {
+            prevCount = ctx.InstantiatedGenericBodies.Count;
+            if (SaTiming)
+            {
+                var sw = Stopwatch.StartNew();
+                void Step(string label)
+                {
+                    sw.Stop();
+                    Console.Error.WriteLine(value: $"  Phase 8 sub - {label}: {sw.ElapsedMilliseconds} ms");
+                    sw.Restart();
+                }
+                new ReachableGenericCollectionPass(ctx: ctx).Run();
+                Step(label: nameof(ReachableGenericCollectionPass));
+                new RoutineReachabilityPass(ctx: ctx).Run();
+                Step(label: nameof(RoutineReachabilityPass));
+                new GenericClosurePass(ctx: ctx).Run();
+                Step(label: nameof(GenericClosurePass));
+            }
+            else
+            {
+                new ReachableGenericCollectionPass(ctx: ctx).Run();
+                new RoutineReachabilityPass(ctx: ctx).Run();
+                new GenericClosurePass(ctx: ctx).Run();
+            }
+        } while (ctx.SeedAllStdlibRoutines &&
+                 ctx.InstantiatedGenericBodies.Count != prevCount && ++guard < 20);
+        GenericCanonicalizationPass.Run();
+        if (SaTiming && ctx.SeedAllStdlibRoutines)
+            Console.Error.WriteLine(value: $"  Phase 8 base-closure fixpoint rounds={guard + 1}");
     }
 
     /// <summary>
@@ -789,85 +938,6 @@ public sealed partial class SemanticVerifier
         new TemporaryTeardownPass(ctx).Run(program: program);
     }
 
-    /// <summary>
-    /// Diagnostic survey: after Phase 7/8 monomorphization, walks every routine in the
-    /// registry and reports any RoutineInfo whose Parameters still contain
-    /// Accessing[T]/Controlling[T]. Such routines indicate a creation path that bypassed
-    /// MarkerProtocolDesugarPass.RewriteAllSignatures — call-site mangling will then
-    /// diverge from definition-site mangling and produce LINKERRs.
-    /// </summary>
-    private void SurveyMarkerProtocolLeaks()
-    {
-        // This survey's RescanLateResolutions / RewriteInstantiatedBodyInfos below are FUNCTIONAL
-        // (they clean the registry + instantiated-body cache) and always run. Its leak REPORT, however,
-        // is a developer early-warning aid that writes to stderr; a residual dormant leak
-        // (Hijacked[Accessing[List[S64]]] comparison ops) would otherwise pollute every build's stderr
-        // and fail the harness's clean-stderr assertion. Gate the prints behind an opt-in env var — the
-        // over-prune tripwire in codegen is the real undefined-symbol safety net.
-        bool report = Compiler.Diagnostics.DiagnosticFlags.MarkerSurvey;
-
-        static bool IsMarker(TypeInfo? t)
-        {
-            if (t is not ProtocolTypeInfo p) return false;
-            string n = (p.GenericDefinition ?? p).Name;
-            return n is RuntimeContract.Accessing or RuntimeContract.Controlling;
-        }
-
-        static bool ContainsMarker(TypeInfo? t, HashSet<TypeInfo> seen)
-        {
-            if (t == null) return false;
-            if (!seen.Add(t)) return false;
-            if (IsMarker(t)) return true;
-            if (t.TypeArguments is { Count: > 0 } args)
-                foreach (TypeInfo a in args)
-                    if (ContainsMarker(a, seen)) return true;
-            return false;
-        }
-
-        int leakCount = 0;
-        void Check(IEnumerable<RoutineInfo> rs, string bucket)
-        {
-            foreach (RoutineInfo r in rs)
-            {
-                for (int i = 0; i < r.Parameters.Count; i++)
-                {
-                    if (ContainsMarker(r.Parameters[i].Type, new HashSet<TypeInfo>()))
-                    {
-                        leakCount++;
-                        if (report)
-                            Console.Error.WriteLine(
-                                $"[MARKER-LEAK] bucket={bucket} routine={r.RegistryKey} " +
-                                $"param[{i}]={r.Parameters[i].Name}:{r.Parameters[i].Type?.FullName} " +
-                                $"isGenericDef={r.IsGenericDefinition} owner={r.OwnerType?.FullName}");
-                        break;
-                    }
-                }
-            }
-        }
-
-        _markerPass?.RescanLateResolutions();
-
-        // GMP creates body.Info entries in Phase 7 whose params still wear Accessing/Controlling;
-        // RescanLateResolutions cleans the registry but not the codegen-side instantiated-body cache.
-        // Rewrite those param types and re-key the dict + live-set so definition emission and
-        // call-site mangling agree.
-        if (_markerPass != null
-            && _instantiatedGenericBodies is Dictionary<string, MonomorphizedBody> bodyDict)
-        {
-            Dictionary<string, string> bodyKeyMap = _markerPass.RewriteInstantiatedBodyInfos(bodyDict);
-            if (bodyKeyMap.Count > 0)
-            {
-                _liveRoutineKeys = _liveRoutineKeys
-                    .Select(selector: k => bodyKeyMap.TryGetValue(k, value: out string? newK) ? newK : k)
-                    .ToArray();
-            }
-        }
-
-        Check(_registry.GetAllRoutines(), "routines");
-        Check(_registry.GetAllRoutineResolutions(), "resolutions");
-        if (report && leakCount > 0)
-            Console.Error.WriteLine($"[MARKER-LEAK] total={leakCount}");
-    }
 
     /// <summary>
     /// Phase 9: validates that postprocessing produced a backend-safe normalized AST.
@@ -886,13 +956,25 @@ public sealed partial class SemanticVerifier
             }
         }
 
-        foreach ((Program stdlibProgram, _, _) in _registry.StdlibPrograms)
+        // Warm-restore: the stdlib program ASTs are shared read-only across warm compiles and were
+        // already lowered to backend representation at capture time — re-running reprPass on them each
+        // warm run is pure redundant cost (and re-mutating a shared AST is unsafe).
+        if (!_snapshotMode)
         {
-            reprPass.Run(program: stdlibProgram);
+            foreach ((Program stdlibProgram, _, _) in _registry.StdlibPrograms)
+            {
+                reprPass.Run(program: stdlibProgram);
+            }
         }
 
         foreach ((string key, Statement body) in _variantBodies)
         {
+            // Warm-restore: variants captured from the snapshot were already repr'd + validated.
+            if (_restoredVariantKeys.Contains(item: key))
+            {
+                continue;
+            }
+
             reprPass.Run(statement: body);
             foreach (SemanticError error in validator.ValidateStatement(statement: body))
             {
@@ -905,6 +987,12 @@ public sealed partial class SemanticVerifier
 
         foreach ((string key, MonomorphizedBody mono) in _instantiatedGenericBodies)
         {
+            // Warm-restore: instantiations captured from the snapshot were already repr'd + validated.
+            if (_restoredInstantiationKeys.Contains(item: key))
+            {
+                continue;
+            }
+
             if (!mono.IsSynthesized)
             {
                 reprPass.Run(statement: mono.Ast.Body);
@@ -963,10 +1051,12 @@ public sealed partial class SemanticVerifier
         InferWiredMemberRoutines();
         AnalyzeSynthesizedBodies();
 
-        // Pre-register try_/check_/lookup_ stubs for all failable stdlib routines so that
-        // stdlib bodies that call try_X (e.g. try_get_by_rank) resolve during body analysis.
-        // Uses AST-level detection — no full body analysis or expression lowering required.
+        // Index failable stdlib routines for on-demand variant synthesis (no eager GenerateVariants),
+        // then install the synthesizer hook so stdlib bodies that call try_X (e.g. try_get_by_rank)
+        // resolve during body analysis. Uses AST-level detection — no full body analysis required.
         PreRegisterStdlibVariants();
+        _registry.OnDemandVariantSynthesizer = TrySynthesizeVariantOnDemand;
+        _registry.OnDemandVariantForBase = SynthesizeVariantForBase;
 
         AnalyzeStdlibBodies();
 
@@ -1101,6 +1191,10 @@ public sealed partial class SemanticVerifier
     /// <returns>Analysis result containing errors, warnings, and the populated type registry.</returns>
     public AnalysisResult AnalyzeMultiple(List<(Program Program, string FilePath)> files)
     {
+        // On-demand failable-variant synthesis (see Analyze): install the hook here too — the
+        // multi-file / stdlib build path does not go through Analyze.
+        _registry.OnDemandVariantSynthesizer = TrySynthesizeVariantOnDemand;
+        _registry.OnDemandVariantForBase = SynthesizeVariantForBase;
         _importSnapshots.Clear();
         _symbolNameSnapshots.Clear();
         _moduleNameSnapshots.Clear();
@@ -1111,7 +1205,7 @@ public sealed partial class SemanticVerifier
         {
             if (!saTiming) return;
             swPhase.Stop();
-            Console.Error.WriteLine(value: $"[SA] {label}: {swPhase.ElapsedMilliseconds} ms");
+            Console.Error.WriteLine(value: $"{label}: {swPhase.ElapsedMilliseconds} ms");
             swPhase.Restart();
         }
 
@@ -1241,13 +1335,13 @@ public sealed partial class SemanticVerifier
 
         // Phase 3 global: synthesized routines, derived operators, protocol validation
         AutoRegisterWiredRoutines();
-        Mark(label: "Phase 6 global -> AutoRegisterWiredRoutines");
+        Mark(label: $"Phase 6 global -> {nameof(AutoRegisterWiredRoutines)}");
         GenerateDerivedOperators();
-        Mark(label: "Phase 6 global -> GenerateDerivedOperators");
+        Mark(label: $"Phase 6 global -> {nameof(GenerateDerivedOperators)}");
         InferWiredMemberRoutines();
-        Mark(label: "Phase 6 global -> InferWiredMemberRoutines");
+        Mark(label: $"Phase 6 global -> {nameof(InferWiredMemberRoutines)}");
         ValidateProtocolImplementations();
-        Mark(label: "Phase 6 global -> ValidateProtocolImplementations");
+        Mark(label: $"Phase 6 global -> {nameof(ValidateProtocolImplementations)}");
 
         // Phase 6 pre-file: pre-register error handling variants before Phase 5 body analysis
         foreach ((Program program, string filePath) in files)
@@ -1259,7 +1353,7 @@ public sealed partial class SemanticVerifier
 
             PreRegisterUserVariants(program: program);
         }
-        Mark(label: "Phase 6 pre-file -> PreRegisterUserVariants");
+        Mark(label: $"Phase 6 pre-file -> {nameof(PreRegisterUserVariants)}");
 
         // Phase 6 global (pre-pass): pre-register stdlib failable memberRoutine variants (try_emit, try_recover, etc.)
         // Must run before Phase 5 body analysis and before Phase 7 syntax prepass
@@ -1267,7 +1361,7 @@ public sealed partial class SemanticVerifier
         // Snapshot mode: stdlib variants are already registered in the restored registry (parity with the
         // single-file Analyze gate) — re-registering them is pure warm-compile overhead (~240 ms).
         if (!_snapshotMode) PreRegisterStdlibVariants();
-        Mark(label: "Phase 6 global -> PreRegisterStdlibVariants");
+        Mark(label: $"Phase 6 global -> {nameof(PreRegisterStdlibVariants)}");
 
         // Phase 7 per-file: syntax-only lowering (no type info needed; runs before Phase 5 annotates types)
         foreach ((Program program, string filePath) in files)
@@ -1296,28 +1390,28 @@ public sealed partial class SemanticVerifier
         // an explicit `RF::` inside an SF-realm body (the wrapper's `inner: RF::Core.List[T]()`) keeps
         // its RF binding instead of being re-resolved under a leaked SF resolution realm.
         _registry.ResolutionRealm = _registry.AmbientRealm;
-        Mark(label: "Phase 5 per-file -> AnalyzeBodies (user)");
+        Mark(label: $"Phase 5 per-file -> {nameof(AnalyzeBodies)} (user)");
 
         // Phase 5 global: synthesized body analysis, modification inference
         AnalyzeSynthesizedBodies();
-        Mark(label: "Phase 5 global -> AnalyzeSynthesizedBodies");
+        Mark(label: $"Phase 5 global -> {nameof(AnalyzeSynthesizedBodies)}");
         // M-0: Annotate stdlib expression types so desugaring passes can lower stdlib bodies
         // uniformly (OperatorLoweringPass, ExpressionLoweringPass, etc.).
         // Stdlib errors are suppressed from user-visible output -> use 'validate-stdlib' to surface them.
         int errorsBeforeStdlib = _errors.Count;
         AnalyzeStdlibBodies();
-        Mark(label: "Phase 5 global -> AnalyzeStdlibBodies");
+        Mark(label: $"Phase 5 global -> {nameof(AnalyzeStdlibBodies)}");
         if (_errors.Count > errorsBeforeStdlib)
             _errors.RemoveRange(index: errorsBeforeStdlib,
                 count: _errors.Count - errorsBeforeStdlib);
         EagerSynthesizeAllWrapperForwarders();
-        Mark(label: "Phase 5 global -> EagerSynthesizeAllWrapperForwarders");
+        Mark(label: $"Phase 5 global -> {nameof(EagerSynthesizeAllWrapperForwarders)}");
 
         // Failability inference: recompute RoutineInfo.IsFailable from throw/absent + propagated
         // failable callees now that all bodies (user + stdlib + synthesized) are analyzed, BEFORE
         // variant generation and codegen key the failable-carrier ABI on it.
         InferFailableRoutines();
-        Mark(label: "Phase 5 global -> InferFailableRoutines");
+        Mark(label: $"Phase 5 global -> {nameof(InferFailableRoutines)}");
 
         // If SA produced errors in user code, skip desugaring. Lowering passes over a broken
         // AST produce garbage types and can drive GenericMonomorphizationPass's fixed-point loop
@@ -1346,15 +1440,15 @@ public sealed partial class SemanticVerifier
         // WiredRoutinePass and GMP only operate on live types, preventing phantom instantiations
         // (e.g. BTreeListNode[None]) from reaching codegen.
         new TypeLivenessPass(registry: _registry).Run();
-        Mark(label: "Phase 5 global -> TypeLivenessPass");
+        Mark(label: $"Phase 5 global -> {nameof(TypeLivenessPass)}");
 
         if (!SaOnly)
         {
             // Phase 6 global: error handling variants + future global passes (runs once)
             CollectStdlibBodiesForVariantGeneration();
-            Mark(label: "Phase 6 global -> CollectStdlibBodiesForVariantGeneration");
+            Mark(label: $"Phase 6 global -> {nameof(CollectStdlibBodiesForVariantGeneration)}");
             RunPhase6GlobalDesugaring();
-            Mark(label: "Phase 6 global -> RunPhase6GlobalDesugaring");
+            Mark(label: $"Phase 6 global -> {nameof(RunPhase6GlobalDesugaring)}");
             RunPhase8Instantiation();
             Mark(label: "Phase 8 -> Instantiation (monomorphization)");
 
@@ -1370,11 +1464,10 @@ public sealed partial class SemanticVerifier
             }
             Mark(label: "Phase 9 per-file -> type-aware postprocessing");
 
-            SurveyMarkerProtocolLeaks();
             RunPhase9PostDesugarChecks();
             Mark(label: "Phase 9 -> PostDesugarChecks");
             FinalizeReturnTypes();
-            Mark(label: "Phase 9 -> FinalizeReturnTypes");
+            Mark(label: $"Phase 9 -> {nameof(FinalizeReturnTypes)}");
         }
 
         // Merge synthesized operator bodies and pre-transformed variant bodies
@@ -1416,8 +1509,13 @@ public sealed partial class SemanticVerifier
     /// </summary>
     private void AnalyzeVariantBodies()
     {
-        foreach ((string key, Statement body) in _variantBodies)
+        // Build the bodies of every on-demand-synthesized variant reached so far (+ transitive) before
+        // analyzing them. Snapshot the keys: analysis of a variant body can resolve an inner variant call
+        // that synthesizes+enqueues yet another base, so drain again afterwards until fixed.
+        DrainVariantBodyGenQueue();
+        foreach (string key in _variantBodies.Keys.ToList())
         {
+            Statement body = _variantBodies[key: key];
             // Warm-restore: variants captured from the snapshot were already analyzed at capture time.
             if (_restoredVariantKeys.Contains(item: key))
             {

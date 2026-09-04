@@ -32,15 +32,7 @@ public partial class Parser
             // Optional 'but' exclusion
             if (Match(type: TokenType.But))
             {
-                excluded =
-                [
-                    ConsumeIdentifier(errorMessage: "Expected flag name after 'but'")
-                ];
-                while (Match(type: TokenType.And))
-                {
-                    excluded.Add(
-                        item: ConsumeIdentifier(errorMessage: ExpectedFlagNameAfterAnd));
-                }
+                excluded = ParseButExclusionList();
             }
 
             return new FlagsTestExpression(Subject: subject,
@@ -70,15 +62,7 @@ public partial class Parser
         if (Match(type: TokenType.But))
         {
             // Single flag with but exclusion: is READ but WRITE
-            excluded =
-            [
-                ConsumeIdentifier(errorMessage: "Expected flag name after 'but'")
-            ];
-            while (Match(type: TokenType.And))
-            {
-                excluded.Add(
-                    item: ConsumeIdentifier(errorMessage: ExpectedFlagNameAfterAnd));
-            }
+            excluded = ParseButExclusionList();
 
             return new FlagsTestExpression(Subject: subject,
                 Kind: kind,
@@ -93,10 +77,29 @@ public partial class Parser
     }
 
     /// <summary>
+    /// Parses the excluded-flag list following a <c>but</c> keyword (already consumed):
+    /// the first flag name, then any <c>and</c>-chained additional flag names.
+    /// </summary>
+    private List<string> ParseButExclusionList()
+    {
+        var excluded = new List<string>
+        {
+            ConsumeIdentifier(errorMessage: "Expected flag name after 'but'")
+        };
+        while (Match(type: TokenType.And))
+        {
+            excluded.Add(
+                item: ConsumeIdentifier(errorMessage: ExpectedFlagNameAfterAnd));
+        }
+
+        return excluded;
+    }
+
+    /// <summary>
     /// Parses destructuring bindings for pattern matching.
     /// Syntax: (memberVar1, memberVar2) or (memberVar: binding, ...) or nested ((x: x1, y: y1), ...)
     /// </summary>
-    private List<DestructuringBinding> ParseDestructuringBindings() // NOSONAR S3776
+    private List<DestructuringBinding> ParseDestructuringBindings()
     {
         Consume(type: TokenType.LeftParen, errorMessage: "Expected '(' for destructuring pattern");
 
@@ -129,42 +132,7 @@ public partial class Parser
             }
             else
             {
-                // Named or positional binding
-                string name = ConsumeIdentifier(
-                    errorMessage:
-                    "Expected member variable name or binding in destructuring pattern");
-
-                if (Match(type: TokenType.Colon))
-                {
-                    // Named binding: memberVar: binding
-                    // Check if binding is a nested pattern
-                    if (Check(type: TokenType.LeftParen))
-                    {
-                        List<DestructuringBinding> nestedBindings = ParseDestructuringBindings();
-                        bindings.Add(item: new DestructuringBinding(MemberVariableName: name,
-                            BindingName: name,
-                            NestedPattern: new DestructuringPattern(Bindings: nestedBindings,
-                                Location: bindingLocation),
-                            Location: bindingLocation));
-                    }
-                    else
-                    {
-                        string bindingName =
-                            ConsumeIdentifier(errorMessage: "Expected binding name after ':'");
-                        bindings.Add(item: new DestructuringBinding(MemberVariableName: name,
-                            BindingName: bindingName,
-                            NestedPattern: null,
-                            Location: bindingLocation));
-                    }
-                }
-                else
-                {
-                    // Positional binding: name binds to member variable of same name
-                    bindings.Add(item: new DestructuringBinding(MemberVariableName: name,
-                        BindingName: name,
-                        NestedPattern: null,
-                        Location: bindingLocation));
-                }
+                bindings.Add(item: ParseNamedOrPositionalBinding(bindingLocation: bindingLocation));
             }
         } while (Match(type: TokenType.Comma));
 
@@ -175,10 +143,51 @@ public partial class Parser
     }
 
     /// <summary>
+    /// Parses a single named or positional destructuring binding: <c>name</c>, <c>memberVar: binding</c>,
+    /// or <c>memberVar: (nested)</c>. Shared by <see cref="ParseDestructuringBindings"/> and
+    /// <see cref="ParseDestructuringBindingList"/>.
+    /// </summary>
+    private DestructuringBinding ParseNamedOrPositionalBinding(SourceLocation bindingLocation)
+    {
+        // Named or positional binding
+        string name = ConsumeIdentifier(
+            errorMessage:
+            "Expected member variable name or binding in destructuring pattern");
+
+        if (Match(type: TokenType.Colon))
+        {
+            // Named binding: memberVar: binding
+            // Check if binding is a nested pattern
+            if (Check(type: TokenType.LeftParen))
+            {
+                List<DestructuringBinding> nestedBindings = ParseDestructuringBindings();
+                return new DestructuringBinding(MemberVariableName: name,
+                    BindingName: name,
+                    NestedPattern: new DestructuringPattern(Bindings: nestedBindings,
+                        Location: bindingLocation),
+                    Location: bindingLocation);
+            }
+
+            string bindingName =
+                ConsumeIdentifier(errorMessage: "Expected binding name after ':'");
+            return new DestructuringBinding(MemberVariableName: name,
+                BindingName: bindingName,
+                NestedPattern: null,
+                Location: bindingLocation);
+        }
+
+        // Positional binding: name binds to member variable of same name
+        return new DestructuringBinding(MemberVariableName: name,
+            BindingName: name,
+            NestedPattern: null,
+            Location: bindingLocation);
+    }
+
+    /// <summary>
     /// Parses a list of destructuring bindings (without consuming the surrounding parentheses).
     /// Used by ParseTypePattern() for type patterns with destructuring like: is CIRCLE ((x, y), radius)
     /// </summary>
-    private List<DestructuringBinding> ParseDestructuringBindingList() // NOSONAR S3776
+    private List<DestructuringBinding> ParseDestructuringBindingList()
     {
         var bindings = new List<DestructuringBinding>();
 
@@ -214,45 +223,53 @@ public partial class Parser
             }
             else
             {
-                // Named or positional binding
-                string name = ConsumeIdentifier(
-                    errorMessage:
-                    "Expected member variable name or binding in destructuring pattern");
-
-                if (Match(type: TokenType.Colon))
-                {
-                    // Named binding: memberVar: binding or memberVar: (nested)
-                    if (Check(type: TokenType.LeftParen))
-                    {
-                        List<DestructuringBinding> nestedBindings = ParseDestructuringBindings();
-                        bindings.Add(item: new DestructuringBinding(MemberVariableName: name,
-                            BindingName: null,
-                            NestedPattern: new DestructuringPattern(Bindings: nestedBindings,
-                                Location: bindingLocation),
-                            Location: bindingLocation));
-                    }
-                    else
-                    {
-                        string bindingName =
-                            ConsumeIdentifier(errorMessage: "Expected binding name after ':'");
-                        bindings.Add(item: new DestructuringBinding(MemberVariableName: name,
-                            BindingName: bindingName,
-                            NestedPattern: null,
-                            Location: bindingLocation));
-                    }
-                }
-                else
-                {
-                    // Positional binding: name binds to member variable of same name
-                    bindings.Add(item: new DestructuringBinding(MemberVariableName: name,
-                        BindingName: name,
-                        NestedPattern: null,
-                        Location: bindingLocation));
-                }
+                bindings.Add(
+                    item: ParseNamedOrPositionalBindingForList(bindingLocation: bindingLocation));
             }
         } while (Match(type: TokenType.Comma));
 
         return bindings;
+    }
+
+    /// <summary>
+    /// Parses a single named or positional binding for <see cref="ParseDestructuringBindingList"/>:
+    /// <c>name</c>, <c>memberVar: binding</c>, or <c>memberVar: (nested)</c>. Differs from
+    /// <see cref="ParseNamedOrPositionalBinding"/> only in that a named nested pattern uses a null
+    /// BindingName.
+    /// </summary>
+    private DestructuringBinding ParseNamedOrPositionalBindingForList(SourceLocation bindingLocation)
+    {
+        // Named or positional binding
+        string name = ConsumeIdentifier(
+            errorMessage:
+            "Expected member variable name or binding in destructuring pattern");
+
+        if (Match(type: TokenType.Colon))
+        {
+            // Named binding: memberVar: binding or memberVar: (nested)
+            if (Check(type: TokenType.LeftParen))
+            {
+                List<DestructuringBinding> nestedBindings = ParseDestructuringBindings();
+                return new DestructuringBinding(MemberVariableName: name,
+                    BindingName: null,
+                    NestedPattern: new DestructuringPattern(Bindings: nestedBindings,
+                        Location: bindingLocation),
+                    Location: bindingLocation);
+            }
+
+            string bindingName =
+                ConsumeIdentifier(errorMessage: "Expected binding name after ':'");
+            return new DestructuringBinding(MemberVariableName: name,
+                BindingName: bindingName,
+                NestedPattern: null,
+                Location: bindingLocation);
+        }
+
+        // Positional binding: name binds to member variable of same name
+        return new DestructuringBinding(MemberVariableName: name,
+            BindingName: name,
+            NestedPattern: null,
+            Location: bindingLocation);
     }
 
     /// <summary>

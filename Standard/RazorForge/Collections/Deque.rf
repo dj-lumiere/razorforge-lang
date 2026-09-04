@@ -307,7 +307,7 @@ needs T obeys Copyable
   var result = Deque[T]()
   each i in range
     if i < me.count
-      result.add_last(value: me[i].copy())
+      result.add_last(value: me[i].duplicate())
   return steal result
 
 # ============================================================================
@@ -466,6 +466,7 @@ needs T obeys Equatable
     i = i +% 1u64
   return true
 
+@override
 dangerous routine Deque[T].destroy()
   # Tear down each live element in logical front-to-back (ring) order before freeing the buffer
   # (mirrors DequeEmittable.emit!). No-op for value types; frees owned entity elements.

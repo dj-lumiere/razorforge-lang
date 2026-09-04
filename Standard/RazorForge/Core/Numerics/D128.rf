@@ -795,10 +795,12 @@ routine d128_represent(p: D128Parts) -> Text
   return if p.sign then "-" + body else body
 
 ### Returns the decimal text of this value.
+@override
 routine D128.represent() -> Text
   return d128_represent(p: me.decode())
 
 ### Returns a diagnostic representation tagged with the type name.
+@override
 routine D128.diagnose() -> Text
   return "D128(" + me.represent() + ")"
 

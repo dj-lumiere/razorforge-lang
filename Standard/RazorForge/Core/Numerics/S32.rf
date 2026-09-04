@@ -5,7 +5,7 @@ module Core
 ### `S32` is the standard 32-bit integer type in RazorForge, used for Unicode
 ### code points, array indices on smaller platforms, and general arithmetic.
 @llvm("i32")
-record S32 obeys SignedIntegral, Ordered, ConstCompatible, AtomicType, Assignable, Copyable
+record S32 obeys SignedIntegral, Ordered, ConstCompatible, AtomicType, Assignable, Copyable, Splittable
   pass
 
 # Constants for S32 limits
@@ -654,6 +654,7 @@ routine S32.is_power_of_two() -> Bool
 
 ### Returns the human-readable text of this value.
 ### :returns: The value rendered as `Text`.
+@override
 routine S32.represent() -> Text
   if me == 0s32
     return "0"
@@ -666,6 +667,7 @@ routine S32.represent() -> Text
 
 ### Returns a type-tagged debug rendering of this value.
 ### :returns: A diagnostic `Text` rendering, e.g. `Type(value)`.
+@override
 routine S32.diagnose() -> Text
   return "S32(" + me.represent() + ")"
 
@@ -711,3 +713,4 @@ routine S32!(from_text: Text) -> S32
 ### :returns: A `U64` keyed hash suitable for denial-of-service-resistant hash tables.
 routine S32.hash(k0: U64, k1: U64) -> U64
   return __secure_hash_u64(v: LLVM::zero_extend[S32, U64](me), k0: k0, k1: k1)
+

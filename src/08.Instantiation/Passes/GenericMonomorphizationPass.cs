@@ -94,7 +94,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     private bool _routineIndexBuilt;
 
     /// <summary>Runs global monomorphization of all generic types and routines in the registry.</summary>
-    public void RunGlobal() // NOSONAR S3776
+    public void RunGlobal()
     {
         // Pre-build the routine-declaration index so FindInStdlib is O(1) per lookup.
         if (!_routineIndexBuilt)
@@ -195,16 +195,27 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         {
             sw!.Stop();
             Console.Error.WriteLine(value:
-                $"[SA]     GMP reachable types: {_processedTypes.Count} ({_processedTypes.Count - startCount} new) ({sw.ElapsedMilliseconds} ms)");
+                $"    GMP reachable types: {_processedTypes.Count} ({_processedTypes.Count - startCount} new) ({sw.ElapsedMilliseconds} ms)");
         }
 
         // Scan built bodies for memberRoutine-generic call sites (e.g. getitem[U64]! called from
         // List[Bytes].eq). SA only analyzes generic-def bodies, so these concrete
         // call sites are never registered in _routineResolutions. Register them now so
         // ProcessResolvedMemberRoutineGenericRoutines can build their bodies.
+        var _sw2 = timing ? Stopwatch.StartNew() : null;
+        void _s2(string label)
+        {
+            if (_sw2 == null) return;
+            _sw2.Stop();
+            Console.Error.WriteLine(value: $"        GMP.RG sub - {label}: {_sw2.ElapsedMilliseconds} ms");
+            _sw2.Restart();
+        }
+
         ScanAndRegisterMemberRoutineGenericCallResolutions();
+        _s2(label: "ScanAndRegisterMemberRoutineGenericCallResolutions");
 
         ProcessResolvedMemberRoutineGenericRoutines();
+        _s2(label: "ProcessResolvedMemberRoutineGenericRoutines");
 
         // Liveness expansion across the bodies emitted above. RoutineReachabilityPass ran BEFORE
         // ProtocolDefaultImplLoweringPass synthesized the iterator-adapter bodies, so the nested
@@ -216,8 +227,10 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         // routine they call, and re-process — iterating to a fixed point as newly-emitted bodies
         // surface deeper layers of the adapter chain.
         ExpandLivenessThroughEmittedBodies();
+        _s2(label: "ExpandLivenessThroughEmittedBodies");
 
         EmitGenericDefBuilderQueryBodies();
+        _s2(label: "EmitGenericDefBuilderQueryBodies");
     }
 
     /// <summary>
@@ -249,6 +262,16 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
 
             foreach ((string bodyKey, MonomorphizedBody mb) in ctx.InstantiatedGenericBodies.ToList())
             {
+                // Only walk LIVE bodies. A dead (unreachable) instantiation is never emitted by codegen,
+                // so the owner types / callees it references need no enlivening: any adapter reached only
+                // through a LIVE body is marked live when that body is walked below (line ~306) and then
+                // picked up as live in the next fixed-point round. This skips re-walking the thousands of
+                // restored-but-dead stdlib instantiations every warm run (the resident-set cost that
+                // priming the whole stdlib into the snapshot exposed). The live check is BEFORE
+                // _walkedBodyKeys so a body that only BECOMES live in a later round is still walked then.
+                // Empty LiveRoutineKeys = fan-out/no-filter mode (the method already early-returns when
+                // BOTH liveness gates are empty), so keep walking everything in that case.
+                if (ctx.LiveRoutineKeys.Count > 0 && !ctx.LiveRoutineKeys.Contains(item: bodyKey)) continue;
                 if (!_walkedBodyKeys.Add(item: bodyKey) || mb.Ast?.Body == null) continue;
                 // A `throw X` in an emitted body needs X's crash_message live: codegen's EmitThrow
                 // calls it directly with no source CallExpression. RoutineReachabilityPass handles
@@ -256,88 +279,14 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
                 // member's retrieve!/race! that throws TaskSpawnError) were never walked by it.
                 AstWalker.Walk(root: mb.Ast.Body, visit: node =>
                 {
-                    if (node is not ThrowStatement throwStmt) return;
-                    TypeInfo? errorType = throwStmt.Error.ResolvedType
-                        ?? (throwStmt.Error is CreatorExpression cre ? cre.ConstructedType : null);
-                    if (errorType == null) return;
-                    RoutineInfo? crashMsg =
-                        ctx.Registry.LookupMemberRoutine(type: errorType, memberRoutineName: RuntimeContract.CrashMessage);
-                    if (crashMsg != null && ctx.LiveRoutineKeys.Count > 0
-                        && ctx.LiveRoutineKeys.Add(item: crashMsg.RegistryKey))
-                    {
-                        changed = true;
-                    }
+                    if (EnliveThrowCrashMessage(node: node)) changed = true;
                 });
                 AstWalker.WalkExpressions(root: mb.Ast.Body, visit: expr =>
                 {
-                    CollectConcreteOwnerTypes(t: expr.ResolvedType, sink: newOwners);
-                    if (expr is CreatorExpression creator)
-                        CollectConcreteOwnerTypes(t: creator.ConstructedType, sink: newOwners);
-                    // A routine CALLED from an emitted body is reachable. This covers universal
-                    // memberRoutines (e.g. WhereIterator[..].hijack, whose generic-def owner is `T`) that
-                    // ProcessConcreteType never emits because they aren't owned by the receiver's
-                    // generic definition.
-                    // A resolved routine reached from an emitted body — either a plain CallExpression or a
-                    // GenericMemberRoutineCallExpression (`hijacked_from[${m.type}]` folded to `hijacked_from[F32]`
-                    // via the `$Col` expand substitution: its concrete instance is discovered HERE, during
-                    // the expand unroll, so it post-dates RoutineReachabilityPass and would otherwise be
-                    // "declared but never defined"). Both node kinds carry a settable ResolvedRoutine.
-                    RoutineInfo? calledRoutine = expr switch
+                    if (EnliveEmittedBodyExpression(expr: expr, newOwners: newOwners,
+                            registeredRoutine: ref registeredRoutine))
                     {
-                        CallExpression { ResolvedRoutine: { } cr } => cr,
-                        GenericMemberRoutineCallExpression { ResolvedRoutine: { } gr } => gr,
-                        _ => null
-                    };
-                    if (calledRoutine is { } rr
-                        && ctx.LiveRoutineKeys.Count > 0
-                        && ctx.LiveRoutineKeys.Add(item: rr.RegistryKey))
-                    {
-                        if (rr.GenericDefinition != null
-                            && !ctx.InstantiatedGenericBodies.ContainsKey(rr.RegistryKey)
-                            && !ctx.VariantBodies.ContainsKey(rr.RegistryKey))
-                        {
-                            ctx.Registry.RegisterRoutineResolution(resolvedMemberRoutine: rr);
-                            registeredRoutine = true;
-                        }
                         changed = true;
-                    }
-
-                    // An `obj[i]` access is still an IndexExpression in an emitted body (OperatorLoweringPass
-                    // on instantiated bodies only rewrites it to a `getitem`/`setitem` CallExpression
-                    // LATER, in GenericClosurePass, which runs AFTER this liveness pass). Its concrete
-                    // callee — e.g. `Array[F32, 4].getitem`/`.setitem` reached only through a SoA container's
-                    // monomorphized memberRoutine `me.${m.name}[index]` — was never seen by RoutineReachabilityPass
-                    // and is left "declared but never defined" at codegen. Mark both index accessors live
-                    // here, mirroring the CallExpression callee handling above and the IndexExpression
-                    // discovery at ScanExprForMemberRoutineGenericCalls. (A read never calls `setitem`, but
-                    // emitting the extra concrete accessor is harmless — codegen only calls the one it needs.)
-                    if (expr is IndexExpression { Object.ResolvedType: { } idxObjType } idxExpr
-                        && idxObjType is not GenericParameterTypeInfo
-                        && ctx.LiveRoutineKeys.Count > 0)
-                    {
-                        TypeInfo? idxType = idxExpr.Index.ResolvedType;
-                        foreach (string accessor in (ReadOnlySpan<string>)["getitem", "setitem"])
-                        {
-                            RoutineInfo? acc = (idxType != null
-                                ? ctx.Registry.LookupMemberRoutineOverload(type: idxObjType,
-                                      memberRoutineName: accessor, argTypes: [idxType])
-                                : null)
-                                ?? ctx.Registry.LookupMemberRoutine(type: idxObjType,
-                                    memberRoutineName: accessor, isFailable: true);
-                            if (acc is not { OwnerType: not { IsGenericDefinition: true } }
-                                || !ctx.LiveRoutineKeys.Add(item: acc.RegistryKey))
-                            {
-                                continue;
-                            }
-                            if (acc.GenericDefinition != null
-                                && !ctx.InstantiatedGenericBodies.ContainsKey(acc.RegistryKey)
-                                && !ctx.VariantBodies.ContainsKey(acc.RegistryKey))
-                            {
-                                ctx.Registry.RegisterRoutineResolution(resolvedMemberRoutine: acc);
-                                registeredRoutine = true;
-                            }
-                            changed = true;
-                        }
                     }
                 });
             }
@@ -369,6 +318,129 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         }
 
         EnliveWiredLeafCallees();
+    }
+
+    /// <summary>
+    /// A `throw X` in an emitted body needs X's crash_message live: codegen's EmitThrow calls it
+    /// directly with no source CallExpression. Enlivens that crash_message. Returns true if it newly
+    /// marked a routine live.
+    /// </summary>
+    private bool EnliveThrowCrashMessage(object? node)
+    {
+        if (node is not ThrowStatement throwStmt) return false;
+        TypeInfo? errorType = throwStmt.Error.ResolvedType
+            ?? (throwStmt.Error is CreatorExpression cre ? cre.ConstructedType : null);
+        if (errorType == null) return false;
+        RoutineInfo? crashMsg =
+            ctx.Registry.LookupMemberRoutine(type: errorType, memberRoutineName: RuntimeContract.CrashMessage);
+        return crashMsg != null && ctx.LiveRoutineKeys.Count > 0
+               && ctx.LiveRoutineKeys.Add(item: crashMsg.RegistryKey);
+    }
+
+    /// <summary>
+    /// Enlivens the concrete owner types and callees referenced by one expression in an emitted body.
+    /// Returns true if it newly marked an owner type or routine live (so the fixed point continues).
+    /// </summary>
+    private bool EnliveEmittedBodyExpression(Expression expr, Dictionary<string, TypeInfo> newOwners,
+        ref bool registeredRoutine)
+    {
+        bool changed = false;
+        CollectConcreteOwnerTypes(t: expr.ResolvedType, sink: newOwners);
+        if (expr is CreatorExpression creator)
+            CollectConcreteOwnerTypes(t: creator.ConstructedType, sink: newOwners);
+        // A routine CALLED from an emitted body is reachable. This covers universal
+        // memberRoutines (e.g. WhereIterator[..].hijack, whose generic-def owner is `T`) that
+        // ProcessConcreteType never emits because they aren't owned by the receiver's
+        // generic definition.
+        // A resolved routine reached from an emitted body — either a plain CallExpression or a
+        // GenericMemberRoutineCallExpression (`hijacked_from[${m.type}]` folded to `hijacked_from[F32]`
+        // via the `$Col` expand substitution: its concrete instance is discovered HERE, during
+        // the expand unroll, so it post-dates RoutineReachabilityPass and would otherwise be
+        // "declared but never defined"). Both node kinds carry a settable ResolvedRoutine.
+        RoutineInfo? calledRoutine = expr switch
+        {
+            CallExpression { ResolvedRoutine: { } cr } => cr,
+            GenericMemberRoutineCallExpression { ResolvedRoutine: { } gr } => gr,
+            _ => null
+        };
+        if (calledRoutine is { } rr
+            && ctx.LiveRoutineKeys.Count > 0
+            && ctx.LiveRoutineKeys.Add(item: rr.RegistryKey))
+        {
+            if (rr.GenericDefinition != null
+                && !ctx.InstantiatedGenericBodies.ContainsKey(rr.RegistryKey)
+                && !ctx.VariantBodies.ContainsKey(rr.RegistryKey))
+            {
+                ctx.Registry.RegisterRoutineResolution(resolvedMemberRoutine: rr);
+                registeredRoutine = true;
+            }
+            changed = true;
+        }
+
+        if (EnliveIndexAccessors(expr: expr, registeredRoutine: ref registeredRoutine))
+            changed = true;
+        return changed;
+    }
+
+    /// <summary>
+    /// An `obj[i]` access is still an IndexExpression in an emitted body (OperatorLoweringPass on
+    /// instantiated bodies only rewrites it to a `getitem`/`setitem` CallExpression LATER, in
+    /// GenericClosurePass, which runs AFTER this liveness pass). Its concrete callee — e.g.
+    /// `Array[F32, 4].getitem`/`.setitem` reached only through a SoA container's monomorphized
+    /// memberRoutine `me.${m.name}[index]` — was never seen by RoutineReachabilityPass and is left
+    /// "declared but never defined" at codegen. Marks both index accessors live here, mirroring the
+    /// CallExpression callee handling and the IndexExpression discovery at
+    /// ScanExprForMemberRoutineGenericCalls. (A read never calls `setitem`, but emitting the extra
+    /// concrete accessor is harmless — codegen only calls the one it needs.) Returns true if it newly
+    /// marked an accessor live.
+    /// </summary>
+    private bool EnliveIndexAccessors(Expression expr, ref bool registeredRoutine)
+    {
+        if (expr is not IndexExpression { Object.ResolvedType: { } idxObjType } idxExpr
+            || idxObjType is GenericParameterTypeInfo
+            || ctx.LiveRoutineKeys.Count == 0)
+        {
+            return false;
+        }
+
+        bool changed = false;
+        TypeInfo? idxType = idxExpr.Index.ResolvedType;
+        foreach (string accessor in (ReadOnlySpan<string>)["getitem", "setitem"])
+        {
+            // Prefer the exact argType-matched overload. When the index type doesn't pin one (it is
+            // null, or not the accessor's index-parameter type), enliven EVERY registered overload of
+            // this accessor on the concrete owner instead of taking an arbitrary name-only pick — a
+            // name-only lookup can't disambiguate >1 overload (no first-wins), and liveness is
+            // conservative: an extra concrete accessor is harmless (codegen emits only the one it calls).
+            var accs = new List<RoutineInfo>();
+            RoutineInfo? typed = idxType != null
+                ? ctx.Registry.LookupMemberRoutineOverload(type: idxObjType,
+                    memberRoutineName: accessor, argTypes: [idxType])
+                : null;
+            if (typed != null)
+                accs.Add(item: typed);
+            else
+                ctx.Registry.CollectMemberRoutineCandidates(type: idxObjType,
+                    memberRoutineName: accessor, candidates: accs);
+
+            foreach (RoutineInfo acc in accs)
+            {
+                if (acc is not { OwnerType: not { IsGenericDefinition: true } }
+                    || !ctx.LiveRoutineKeys.Add(item: acc.RegistryKey))
+                {
+                    continue;
+                }
+                if (acc.GenericDefinition != null
+                    && !ctx.InstantiatedGenericBodies.ContainsKey(acc.RegistryKey)
+                    && !ctx.VariantBodies.ContainsKey(acc.RegistryKey))
+                {
+                    ctx.Registry.RegisterRoutineResolution(resolvedMemberRoutine: acc);
+                    registeredRoutine = true;
+                }
+                changed = true;
+            }
+        }
+        return changed;
     }
 
     /// <summary>
@@ -479,7 +551,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
             EntityTypeInfo e => e.MemberVariables.Select(selector: f => f.Type),
             TupleTypeInfo t => t.MemberVariables.Select(selector: f => f.Type),
             ChoiceTypeInfo or FlagsTypeInfo => [],
-            RecordTypeInfo { HasDirectBackendType: false } r =>
+            RecordTypeInfo { BackendType: null } r =>
                 r.MemberVariables.Select(selector: f => f.Type),
             _ => []
         };
@@ -508,7 +580,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     }
     // Per-type processing
 
-    private void ProcessConcreteType(TypeInfo concreteType) // NOSONAR S3776
+    private void ProcessConcreteType(TypeInfo concreteType)
     {
         // Strategy-B reachability gate at the type level: skip concrete instances that no
         // reachable routine ever owned. This prevents unreachable types like Array[BuildMode, 63]
@@ -544,102 +616,136 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         if (typeArgs == null || typeArgs.Count != genDef.GenericParameters.Count)
             return;
 
-        // Build type substitution maps.
-        // stringSubs uses FullName (e.g. "T" ??"Core.S64") so rewritten AST type-expression
-        // names are fully qualified. LookupType handles both "S64" and "Core.S64" via the
-        // Core-prefix fallback, and GetOrCreateResolution stores types under both the FullName
-        // key ("Hijacked[Core.Byte]") and the short-name alias ("Hijacked[Byte]").
-        // typeSubs carries the resolved TypeInfo for ResolvedType annotation in GenericAstRewriter.
-        var typeSubs = new Dictionary<string, TypeInfo>(capacity: genDef.GenericParameters.Count);
+        (Dictionary<string, TypeInfo> typeSubs, Dictionary<string, string> stringSubs) =
+            BuildConcreteTypeSubstitutionMaps(genDef: genDef, typeArgs: typeArgs);
+
+        foreach (RoutineInfo genMemberRoutine in ctx.Registry.GetMemberRoutinesForType(genDef))
+        {
+            ProcessConcreteTypeMemberRoutine(
+                concreteType: concreteType,
+                genDef: genDef,
+                genMemberRoutine: genMemberRoutine,
+                typeSubs: typeSubs,
+                stringSubs: stringSubs);
+        }
+    }
+
+    /// <summary>
+    /// Builds the owner type-parameter substitution maps for a concrete generic instance.
+    /// stringSubs uses FullName (e.g. "T" → "Core.S64") so rewritten AST type-expression names are
+    /// fully qualified; typeSubs carries the resolved TypeInfo for ResolvedType annotation in
+    /// GenericAstRewriter.
+    /// </summary>
+    private static (Dictionary<string, TypeInfo> typeSubs, Dictionary<string, string> stringSubs)
+        BuildConcreteTypeSubstitutionMaps(TypeInfo genDef, List<TypeInfo> typeArgs)
+    {
+        var typeSubs = new Dictionary<string, TypeInfo>(capacity: genDef.GenericParameters!.Count);
         var stringSubs = new Dictionary<string, string>(capacity: genDef.GenericParameters.Count);
         for (int i = 0; i < genDef.GenericParameters.Count; i++)
         {
             typeSubs[genDef.GenericParameters[i]] = typeArgs[i];
             stringSubs[genDef.GenericParameters[i]] = typeArgs[i].FullName;
         }
+        return (typeSubs, stringSubs);
+    }
 
-        foreach (RoutineInfo genMemberRoutine in ctx.Registry.GetMemberRoutinesForType(genDef))
+    /// <summary>
+    /// Builds and stores the monomorphized body for one member routine of a concrete generic
+    /// instance, applying the reachability + capability gates and the abstract-derive check.
+    /// </summary>
+    private void ProcessConcreteTypeMemberRoutine(
+        TypeInfo concreteType,
+        TypeInfo genDef,
+        RoutineInfo genMemberRoutine,
+        Dictionary<string, TypeInfo> typeSubs,
+        Dictionary<string, string> stringSubs)
+    {
+        RoutineInfo? concreteInfo = BuildConcreteRoutineInfo(
+            genMemberRoutine: genMemberRoutine,
+            concreteOwner: concreteType,
+            typeSubs: typeSubs);
+
+        // Null means the forwarder's inner type doesn't have this memberRoutine — skip it.
+        if (concreteInfo == null)
+            return;
+
+        string key = concreteInfo.RegistryKey;
+        if (ctx.InstantiatedGenericBodies.ContainsKey(key))
+            return;
+
+        // Strategy-B reachability gate: when LiveRoutineKeys is populated, only emit bodies
+        // for routines reachable from program entry points. Empty set disables the filter
+        // (legacy fan-out behavior). RoutineReachabilityPass populates the set.
+        // Wired routines bypass the gate: codegen/synthesis emit them unconditionally for
+        // every live owner type. Types created during GMP body rewriting (e.g.,
+        // ListEmitter[Byte] from List[Byte].represent) post-date RoutineReachabilityPass
+        // and so were never seeded — without this bypass their wired routines vanish.
+        // Genuinely reachable from entry points (in the live set) vs merely wired-bypass-built for a
+        // live OWNER (a wired routine synthesized for every owner even if never called). Only the former
+        // is asserted below — a wired-bypass body (e.g. `Roamed[Node].eq` synthesized but never compared)
+        // may legitimately carry an abstract-forwarding call that is dead and never emitted.
+        bool genuinelyLive = ctx.LiveRoutineKeys.Count == 0 || ctx.LiveRoutineKeys.Contains(item: key);
+        if (!genuinelyLive && !IsWiredRoutineName(genMemberRoutine.Name))
+            return;
+
+        // Capability gate: skip wired comparison/containment/hashing routines whose
+        // generic-def constraint (e.g. `needs T obeys Equatable`) is not satisfied by
+        // this concrete owner. See RoutineApplicableToConcreteOwner.
+        if (!RoutineApplicableToConcreteOwner(routine: concreteInfo, owner: concreteType))
+            return;
+
+        MonomorphizedBody? body = BuildBody(
+            genMemberRoutine: genMemberRoutine,
+            concreteInfo: concreteInfo,
+            genDef: genDef,
+            typeSubs: typeSubs,
+            stringSubs: stringSubs);
+
+        if (body != null && BodyHasAbstractDeriveCall(body: body, member: out string absMember))
         {
-            RoutineInfo? concreteInfo = BuildConcreteRoutineInfo(
-                genMemberRoutine: genMemberRoutine,
-                concreteOwner: concreteType,
-                typeSubs: typeSubs);
-
-            // Null means the forwarder's inner type doesn't have this memberRoutine — skip it.
-            if (concreteInfo == null)
-                continue;
-
-            string key = concreteInfo.RegistryKey;
-            if (ctx.InstantiatedGenericBodies.ContainsKey(key))
-                continue;
-
-            // Strategy-B reachability gate: when LiveRoutineKeys is populated, only emit bodies
-            // for routines reachable from program entry points. Empty set disables the filter
-            // (legacy fan-out behavior). RoutineReachabilityPass populates the set.
-            // Wired routines bypass the gate: codegen/synthesis emit them unconditionally for
-            // every live owner type. Types created during GMP body rewriting (e.g.,
-            // ListEmitter[Byte] from List[Byte].represent) post-date RoutineReachabilityPass
-            // and so were never seeded — without this bypass their wired routines vanish.
-            // Genuinely reachable from entry points (in the live set) vs merely wired-bypass-built for a
-            // live OWNER (a wired routine synthesized for every owner even if never called). Only the former
-            // is asserted below — a wired-bypass body (e.g. `Roamed[Node].eq` synthesized but never compared)
-            // may legitimately carry an abstract-forwarding call that is dead and never emitted.
-            bool genuinelyLive = ctx.LiveRoutineKeys.Count == 0 || ctx.LiveRoutineKeys.Contains(item: key);
-            if (!genuinelyLive && !IsWiredRoutineName(genMemberRoutine.Name))
-                continue;
-
-            // Capability gate: skip wired comparison/containment/hashing routines whose
-            // generic-def constraint (e.g. `needs T obeys Equatable`) is not satisfied by
-            // this concrete owner. See RoutineApplicableToConcreteOwner.
-            if (!RoutineApplicableToConcreteOwner(routine: concreteInfo, owner: concreteType))
-                continue;
-
-            MonomorphizedBody? body = BuildBody(
-                genMemberRoutine: genMemberRoutine,
-                concreteInfo: concreteInfo,
-                genDef: genDef,
-                typeSubs: typeSubs,
-                stringSubs: stringSubs);
-
-            if (body != null && BodyHasAbstractDeriveCall(body: body, member: out string absMember))
-            {
-                // A monomorphized body still calls an abstract derive member. TWO cases:
-                //  * WRAPPER forwarder (Roamed/Retained/…): the inner type simply doesn't implement this
-                //    member (e.g. `Roamed[Node].eq` where the entity Node isn't Equatable). The forwarder is
-                //    DEAD — drop it (don't emit), exactly as if it were never synthesized.
-                //  * Anything else (a real collection/carrier like `List[Text].copy`): the receiver obeys the
-                //    protocol but has no concrete derive — a genuine conformance/derive gap. Blow up LOUDLY.
-                bool ownerIsWrapper =
-                    WrapperForwardingPass.WrapperTypeNames.Contains(genDef.Name);
-                if (ownerIsWrapper)
-                {
-                    body = null;
-                }
-                else
-                {
-                    throw new InvalidOperationException(
-                        message:
-                        $"Monomorphization left a call to the ABSTRACT protocol member '{absMember}' inside the " +
-                        $"concrete routine '{concreteInfo.RegistryKey}'. The receiver obeys the protocol but has " +
-                        "NO concrete derive/impl to resolve to — the conformance/derive layer must provide it " +
-                        "(a managed leaf like Text implements it; a variant that obeys Copyable gets its arm-walk " +
-                        "`copy`). Failing loudly pre-codegen instead of emitting an unresolved abstract symbol.");
-                }
-            }
-
-            if (body != null)
-            {
-                ctx.InstantiatedGenericBodies[key] = body;
-                // Keep codegen's Phase-B live gate in sync with GMP's wired-routine bypass.
-                // LLVMCodeGenerator emits an instantiated body only when its key is in the live set,
-                // with NO wired bypass — so a wired routine emitted here for a live owner that
-                // post-dates RoutineReachabilityPass (e.g. try_emit on a chained iterator emitter
-                // like SelectEmitter[S64, S64, ListEmitter[S64]]) was never seeded and would be
-                // silently dropped at codegen. Marking the key live closes that gap; non-wired
-                // emissions already have a live key, so this is a no-op for them.
-                ctx.LiveRoutineKeys.Add(item: key);
-            }
+            body = HandleAbstractDeriveCall(genDef: genDef, concreteInfo: concreteInfo,
+                absMember: absMember);
         }
+
+        if (body != null)
+        {
+            ctx.InstantiatedGenericBodies[key] = body;
+            // Keep codegen's Phase-B live gate in sync with GMP's wired-routine bypass.
+            // LLVMCodeGenerator emits an instantiated body only when its key is in the live set,
+            // with NO wired bypass — so a wired routine emitted here for a live owner that
+            // post-dates RoutineReachabilityPass (e.g. try_emit on a chained iterator emitter
+            // like SelectEmitter[S64, S64, ListEmitter[S64]]) was never seeded and would be
+            // silently dropped at codegen. Marking the key live closes that gap; non-wired
+            // emissions already have a live key, so this is a no-op for them.
+            ctx.LiveRoutineKeys.Add(item: key);
+        }
+    }
+
+    /// <summary>
+    /// Handles a monomorphized body that still calls an abstract derive member. TWO cases:
+    ///  * WRAPPER forwarder (Roamed/Retained/…): the inner type simply doesn't implement this
+    ///    member (e.g. `Roamed[Node].eq` where the entity Node isn't Equatable). The forwarder is
+    ///    DEAD — drop it (return null), exactly as if it were never synthesized.
+    ///  * Anything else (a real collection/carrier like `List[Text].copy`): the receiver obeys the
+    ///    protocol but has no concrete derive — a genuine conformance/derive gap. Blow up LOUDLY.
+    /// </summary>
+    private static MonomorphizedBody? HandleAbstractDeriveCall(TypeInfo genDef,
+        RoutineInfo concreteInfo, string absMember)
+    {
+        bool ownerIsWrapper =
+            WrapperForwardingPass.WrapperTypeNames.Contains(genDef.Name);
+        if (ownerIsWrapper)
+        {
+            return null;
+        }
+
+        throw new InvalidOperationException(
+            message:
+            $"Monomorphization left a call to the ABSTRACT protocol member '{absMember}' inside the " +
+            $"concrete routine '{concreteInfo.RegistryKey}'. The receiver obeys the protocol but has " +
+            "NO concrete derive/impl to resolve to — the conformance/derive layer must provide it " +
+            "(a managed leaf like Text implements it; a variant that obeys Copyable gets its arm-walk " +
+            "`copy`). Failing loudly pre-codegen instead of emitting an unresolved abstract symbol.");
     }
 
     /// Routines emitted for every live owner regardless of call-site reachability. Two sources:
@@ -683,174 +789,204 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
                 }
 
                 discoveredNew = true;
-                if (resolvedRoutine.GenericDefinition == null ||
-                    ctx.InstantiatedGenericBodies.ContainsKey(resolvedRoutine.RegistryKey) ||
-                    ctx.VariantBodies.ContainsKey(resolvedRoutine.RegistryKey) ||
-                    resolvedRoutine.OwnerType is ProtocolTypeInfo)
-                {
-                    continue;
-                }
+                ProcessResolvedMemberRoutineGenericRoutine(resolvedRoutine: resolvedRoutine);
+            }
+        } while (discoveredNew);
+    }
 
-                // Reachability gate: SA's RoutineResolutions index includes routines that were
-                // type-checked during analysis but never reached from program entry points.
-                // ProcessConcreteType applies this gate at line ~222; this path historically
-                // bypassed it, causing Phase B to emit unreachable bodies whose call sites
-                // reference further unreachable routines (linker errors).
-                if (ctx.LiveRoutineKeys.Count > 0
-                    && !ctx.LiveRoutineKeys.Contains(item: resolvedRoutine.RegistryKey)
-                    && !IsWiredRoutineName(resolvedRoutine.Name))
-                {
-                    continue;
-                }
+    /// <summary>
+    /// Builds and stores the monomorphized body for a single resolved memberRoutine-generic
+    /// resolution, applying the gate/reachability checks and the various body-source fallbacks.
+    /// </summary>
+    private void ProcessResolvedMemberRoutineGenericRoutine(RoutineInfo resolvedRoutine)
+    {
+        if (resolvedRoutine.GenericDefinition == null ||
+            ctx.InstantiatedGenericBodies.ContainsKey(resolvedRoutine.RegistryKey) ||
+            ctx.VariantBodies.ContainsKey(resolvedRoutine.RegistryKey) ||
+            resolvedRoutine.OwnerType is ProtocolTypeInfo)
+        {
+            return;
+        }
 
-                if (resolvedRoutine.OwnerType is { } resolvedOwner
-                    && !RoutineApplicableToConcreteOwner(routine: resolvedRoutine, owner: resolvedOwner))
-                {
-                    continue;
-                }
+        // Reachability gate: SA's RoutineResolutions index includes routines that were
+        // type-checked during analysis but never reached from program entry points.
+        // ProcessConcreteType applies this gate at line ~222; this path historically
+        // bypassed it, causing Phase B to emit unreachable bodies whose call sites
+        // reference further unreachable routines (linker errors).
+        if (ctx.LiveRoutineKeys.Count > 0
+            && !ctx.LiveRoutineKeys.Contains(item: resolvedRoutine.RegistryKey)
+            && !IsWiredRoutineName(resolvedRoutine.Name))
+        {
+            return;
+        }
 
-                // Routine types are structural — no per-type wired handler in WiredRoutinePass — so the
-                // universal represent/diagnose template would field-walk their (empty) member set into a
-                // bogus `Routine()`. Emit the SIGNATURE (the routine type's own name, e.g.
-                // `Routine[(S32,), S32]`) directly: no parens, no field walk. (serialize isn't a
-                // universal memberRoutine, so routine serialize is handled where it's registered.)
-                if (resolvedRoutine.OwnerType is RoutineTypeInfo routineOwner
-                    && resolvedRoutine.Name is RuntimeContract.Display.Represent
-                        or RuntimeContract.Display.Diagnose)
-                {
-                    var sigBody = new ReturnStatement(
-                        Value: new LiteralExpression(Value: routineOwner.Name,
-                            LiteralType: Tokenizer.TokenType.TextLiteral,
-                            Location: resolvedRoutine.Location)
-                        {
-                            ResolvedType = ctx.Registry.LookupType(name: "Text")
-                        },
-                        Location: resolvedRoutine.Location);
-                    ctx.InstantiatedGenericBodies[key: resolvedRoutine.RegistryKey] =
-                        new MonomorphizedBody(
-                            Ast: WrapInShellDecl(name: resolvedRoutine.Name, body: sigBody,
-                                info: resolvedRoutine),
-                            Info: resolvedRoutine,
-                            TypeSubs: new Dictionary<string, TypeInfo>(),
-                            VariantStatus: null,
-                            VariantInnerType: null,
-                            IsSynthesized: true);
-                    continue;
-                }
+        if (resolvedRoutine.OwnerType is { } resolvedOwner
+            && !RoutineApplicableToConcreteOwner(routine: resolvedRoutine, owner: resolvedOwner))
+        {
+            return;
+        }
 
-                Dictionary<string, TypeInfo> typeSubs =
-                    BuildResolvedRoutineTypeSubstitutions(resolvedRoutine);
-                if (typeSubs.Count == 0 ||
-                    typeSubs.Values.Any(predicate: HasUnresolvedTypeArgs))
-                {
-                    continue;
-                }
+        // Routine types are structural — no per-type wired handler in WiredRoutinePass — so the
+        // universal represent/diagnose template would field-walk their (empty) member set into a
+        // bogus `Routine()`. Emit the SIGNATURE (the routine type's own name, e.g.
+        // `Routine[(S32,), S32]`) directly: no parens, no field walk. (serialize isn't a
+        // universal memberRoutine, so routine serialize is handled where it's registered.)
+        if (resolvedRoutine.OwnerType is RoutineTypeInfo routineOwner
+            && resolvedRoutine.Name is RuntimeContract.Display.Represent
+                or RuntimeContract.Display.Diagnose)
+        {
+            EmitRoutineTypeSignatureBody(resolvedRoutine: resolvedRoutine, routineOwner: routineOwner);
+            return;
+        }
 
-                string astName = BuildAstNameForResolvedRoutine(resolvedRoutine);
-                RoutineDeclaration? astDecl = FindInStdlib(
-                    genericAstName: astName,
-                    expectedParamCount: resolvedRoutine.GenericDefinition.Parameters.Count,
-                    typeSubs: typeSubs,
-                    expectedParamNames: resolvedRoutine.GenericDefinition.Parameters
-                        .Select(static p => p.Name).ToList(),
-                    expectedParamTypeNames: resolvedRoutine.GenericDefinition.Parameters
-                        .Select(static p => (string?)p.Type?.Name).ToList(),
-                    expectedOwnerModule: resolvedRoutine.OwnerType?.FullName is { } ownerFn
-                        ? TypeInfo.StripTypeArgs(name: ownerFn)
-                        : null);
-                if (astDecl == null)
-                {
-                    // Check if the generic definition has a synthesized body in VariantBodies.
-                    // ProcessConcreteType->BuildBody checks genMemberRoutine.RegistryKey (the generic def key),
-                    // but this path only checked resolvedRoutine.RegistryKey (the concrete key).
-                    // Example: List[T].eq body is stored under "Core.List[T].eq#Core.List[T]",
-                    // but resolvedRoutine.RegistryKey is "Core.List[Core.Byte].eq#Core.List[Core.Byte]".
-                    string genDefRoutineKey = resolvedRoutine.GenericDefinition.RegistryKey;
-                    if (ctx.VariantBodies.TryGetValue(key: genDefRoutineKey, out Statement? defVariantBody))
-                    {
-                        var stringSubs2 = typeSubs.ToDictionary(
-                            keySelector: kvp => kvp.Key,
-                            elementSelector: kvp => kvp.Value.FullName);
-                        Statement rewritten = GenericAstRewriter.RewriteStatement(
-                            defVariantBody, stringSubs2, typeSubs, ctx.Registry, resolvedRoutine);
-                        ctx.InstantiatedGenericBodies[resolvedRoutine.RegistryKey] = new MonomorphizedBody(
-                            Ast: WrapInShellDecl(name: resolvedRoutine.Name, body: rewritten,
-                                info: resolvedRoutine),
-                            Info: resolvedRoutine,
-                            TypeSubs: typeSubs,
-                            VariantStatus: null,
-                            VariantInnerType: null,
-                            IsSynthesized: true);
-                        continue;
-                    }
-                    // Two-level generic wrapper forwarder: the generic-def body is stored under
-                    // GenericDefinition.GenericDefinition (the T forwarder), not under
-                    // GenericDefinition (the Text forwarder with memberRoutine-level generic I).
-                    // typeSubs already contains both T->Text (from owner) and I->U64 (from TypeArguments).
-                    string? genDefGenDefKey = resolvedRoutine.GenericDefinition.GenericDefinition?.RegistryKey;
-                    if (genDefGenDefKey != null &&
-                        resolvedRoutine.GenericDefinition.WrapperForwarderInnerMemberRoutine != null &&
-                        ctx.VariantBodies.TryGetValue(key: genDefGenDefKey, out Statement? genDefGenDefBody))
-                    {
-                        var stringSubs3 = typeSubs.ToDictionary(
-                            keySelector: kvp => kvp.Key,
-                            elementSelector: kvp => kvp.Value.FullName);
-                        Statement rewritten3 = GenericAstRewriter.RewriteStatement(
-                            genDefGenDefBody, stringSubs3, typeSubs, ctx.Registry, resolvedRoutine);
-                        ctx.InstantiatedGenericBodies[resolvedRoutine.RegistryKey] = new MonomorphizedBody(
-                            Ast: WrapInShellDecl(name: resolvedRoutine.Name, body: rewritten3,
-                                info: resolvedRoutine),
-                            Info: resolvedRoutine,
-                            TypeSubs: typeSubs,
-                            VariantStatus: null,
-                            VariantInnerType: null,
-                            IsSynthesized: true);
-                        continue;
-                    }
+        Dictionary<string, TypeInfo> typeSubs =
+            BuildResolvedRoutineTypeSubstitutions(resolvedRoutine);
+        if (typeSubs.Count == 0 ||
+            typeSubs.Values.Any(predicate: HasUnresolvedTypeArgs))
+        {
+            return;
+        }
 
-                    // Pure-synthesized resolved routines have no source AST. Add a sentinel
-                    // MonomorphizedBody so EmitFromInstantiatedGenericBodies picks them up;
-                    // the body comes from WiredRoutinePass via ctx.VariantBodies.
-                    if (resolvedRoutine.IsSynthesized)
-                    {
-                        SourceLocation loc = resolvedRoutine.Location ??
-                                             new SourceLocation("", 0, 0, 0);
-                        ctx.InstantiatedGenericBodies[resolvedRoutine.RegistryKey] =
-                            new MonomorphizedBody(
-                                Ast: WrapInShellDecl(name: resolvedRoutine.Name,
-                                    body: new BlockStatement(Statements: [], Location: loc),
-                                    info: resolvedRoutine),
-                                Info: resolvedRoutine,
-                                TypeSubs: typeSubs,
-                                VariantStatus: null,
-                                VariantInnerType: null,
-                                IsSynthesized: true);
-                    }
+        string astName = BuildAstNameForResolvedRoutine(resolvedRoutine);
+        RoutineDeclaration? astDecl = FindInStdlib(
+            genericAstName: astName,
+            expectedParamCount: resolvedRoutine.GenericDefinition.Parameters.Count,
+            typeSubs: typeSubs,
+            expectedParamNames: resolvedRoutine.GenericDefinition.Parameters
+                .Select(static p => p.Name).ToList(),
+            expectedParamTypeNames: resolvedRoutine.GenericDefinition.Parameters
+                .Select(static p => (string?)p.Type?.Name).ToList(),
+            expectedOwnerModule: resolvedRoutine.OwnerType?.FullName is { } ownerFn
+                ? TypeInfo.StripTypeArgs(name: ownerFn)
+                : null);
+        if (astDecl == null)
+        {
+            EmitResolvedRoutineBodyFromVariantFallback(resolvedRoutine: resolvedRoutine,
+                typeSubs: typeSubs);
+            return;
+        }
 
-                    continue;
-                }
+        var stringSubs = typeSubs.ToDictionary(
+            keySelector: kvp => kvp.Key,
+            elementSelector: kvp => kvp.Value.FullName);
 
-                var stringSubs = typeSubs.ToDictionary(
-                    keySelector: kvp => kvp.Key,
-                    elementSelector: kvp => kvp.Value.FullName);
+        RoutineDeclaration rewrittenDecl =
+            GenericAstRewriter.Rewrite(
+                routine: astDecl,
+                subs: stringSubs,
+                typeSubs: typeSubs,
+                registry: ctx.Registry,
+                enclosingRoutine: resolvedRoutine);
 
-                RoutineDeclaration rewrittenDecl =
-                    GenericAstRewriter.Rewrite(
-                        routine: astDecl,
-                        subs: stringSubs,
-                        typeSubs: typeSubs,
-                        registry: ctx.Registry,
-                        enclosingRoutine: resolvedRoutine);
+        ctx.InstantiatedGenericBodies[resolvedRoutine.RegistryKey] = new MonomorphizedBody(
+            Ast: rewrittenDecl,
+            Info: resolvedRoutine,
+            TypeSubs: typeSubs,
+            VariantStatus: null,
+            VariantInnerType: null,
+            IsSynthesized: false);
+    }
 
-                ctx.InstantiatedGenericBodies[resolvedRoutine.RegistryKey] = new MonomorphizedBody(
-                    Ast: rewrittenDecl,
+    /// <summary>
+    /// Emits the display body for a structural routine-type represent/diagnose as the routine type's
+    /// own name literal (no field walk).
+    /// </summary>
+    private void EmitRoutineTypeSignatureBody(RoutineInfo resolvedRoutine, RoutineTypeInfo routineOwner)
+    {
+        var sigBody = new ReturnStatement(
+            Value: new LiteralExpression(Value: routineOwner.Name,
+                LiteralType: Tokenizer.TokenType.TextLiteral,
+                Location: resolvedRoutine.Location)
+            {
+                ResolvedType = ctx.Registry.LookupType(name: "Text")
+            },
+            Location: resolvedRoutine.Location);
+        ctx.InstantiatedGenericBodies[key: resolvedRoutine.RegistryKey] =
+            new MonomorphizedBody(
+                Ast: WrapInShellDecl(name: resolvedRoutine.Name, body: sigBody,
+                    info: resolvedRoutine),
+                Info: resolvedRoutine,
+                TypeSubs: new Dictionary<string, TypeInfo>(),
+                VariantStatus: null,
+                VariantInnerType: null,
+                IsSynthesized: true);
+    }
+
+    /// <summary>
+    /// Fallback body sources for a resolved memberRoutine whose concrete AST decl was not found in
+    /// stdlib: (1) a generic-def variant body keyed by the generic-def RegistryKey; (2) a two-level
+    /// generic wrapper forwarder body keyed by GenericDefinition.GenericDefinition; (3) a pure-
+    /// synthesized sentinel body. Stores whichever matches first.
+    /// </summary>
+    private void EmitResolvedRoutineBodyFromVariantFallback(RoutineInfo resolvedRoutine,
+        Dictionary<string, TypeInfo> typeSubs)
+    {
+        // Check if the generic definition has a synthesized body in VariantBodies.
+        // ProcessConcreteType->BuildBody checks genMemberRoutine.RegistryKey (the generic def key),
+        // but this path only checked resolvedRoutine.RegistryKey (the concrete key).
+        // Example: List[T].eq body is stored under "Core.List[T].eq#Core.List[T]",
+        // but resolvedRoutine.RegistryKey is "Core.List[Core.Byte].eq#Core.List[Core.Byte]".
+        string genDefRoutineKey = resolvedRoutine.GenericDefinition!.RegistryKey;
+        if (ctx.VariantBodies.TryGetValue(key: genDefRoutineKey, out Statement? defVariantBody))
+        {
+            var stringSubs2 = typeSubs.ToDictionary(
+                keySelector: kvp => kvp.Key,
+                elementSelector: kvp => kvp.Value.FullName);
+            Statement rewritten = GenericAstRewriter.RewriteStatement(
+                defVariantBody, stringSubs2, typeSubs, ctx.Registry, resolvedRoutine);
+            ctx.InstantiatedGenericBodies[resolvedRoutine.RegistryKey] = new MonomorphizedBody(
+                Ast: WrapInShellDecl(name: resolvedRoutine.Name, body: rewritten,
+                    info: resolvedRoutine),
+                Info: resolvedRoutine,
+                TypeSubs: typeSubs,
+                VariantStatus: null,
+                VariantInnerType: null,
+                IsSynthesized: true);
+            return;
+        }
+        // Two-level generic wrapper forwarder: the generic-def body is stored under
+        // GenericDefinition.GenericDefinition (the T forwarder), not under
+        // GenericDefinition (the Text forwarder with memberRoutine-level generic I).
+        // typeSubs already contains both T->Text (from owner) and I->U64 (from TypeArguments).
+        string? genDefGenDefKey = resolvedRoutine.GenericDefinition.GenericDefinition?.RegistryKey;
+        if (genDefGenDefKey != null &&
+            resolvedRoutine.GenericDefinition.WrapperForwarderInnerMemberRoutine != null &&
+            ctx.VariantBodies.TryGetValue(key: genDefGenDefKey, out Statement? genDefGenDefBody))
+        {
+            var stringSubs3 = typeSubs.ToDictionary(
+                keySelector: kvp => kvp.Key,
+                elementSelector: kvp => kvp.Value.FullName);
+            Statement rewritten3 = GenericAstRewriter.RewriteStatement(
+                genDefGenDefBody, stringSubs3, typeSubs, ctx.Registry, resolvedRoutine);
+            ctx.InstantiatedGenericBodies[resolvedRoutine.RegistryKey] = new MonomorphizedBody(
+                Ast: WrapInShellDecl(name: resolvedRoutine.Name, body: rewritten3,
+                    info: resolvedRoutine),
+                Info: resolvedRoutine,
+                TypeSubs: typeSubs,
+                VariantStatus: null,
+                VariantInnerType: null,
+                IsSynthesized: true);
+            return;
+        }
+
+        // Pure-synthesized resolved routines have no source AST. Add a sentinel
+        // MonomorphizedBody so EmitFromInstantiatedGenericBodies picks them up;
+        // the body comes from WiredRoutinePass via ctx.VariantBodies.
+        if (resolvedRoutine.IsSynthesized)
+        {
+            SourceLocation loc = resolvedRoutine.Location ??
+                                 new SourceLocation("", 0, 0, 0);
+            ctx.InstantiatedGenericBodies[resolvedRoutine.RegistryKey] =
+                new MonomorphizedBody(
+                    Ast: WrapInShellDecl(name: resolvedRoutine.Name,
+                        body: new BlockStatement(Statements: [], Location: loc),
+                        info: resolvedRoutine),
                     Info: resolvedRoutine,
                     TypeSubs: typeSubs,
                     VariantStatus: null,
                     VariantInnerType: null,
-                    IsSynthesized: false);
-            }
-        } while (discoveredNew);
+                    IsSynthesized: true);
+        }
     }
 
     /// <summary>
@@ -863,7 +999,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// mangled name (e.g. Collections.BTreeDictNode.type_name). This pass ensures that name has a
     /// definition so the linker does not fail.
     /// </summary>
-    private void EmitGenericDefBuilderQueryBodies() // NOSONAR S3776
+    private void EmitGenericDefBuilderQueryBodies()
     {
         foreach (TypeInfo type in ctx.Registry.GetTypesWithMemberRoutines())
         {
@@ -876,20 +1012,29 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
 
             foreach (RoutineInfo routine in ctx.Registry.GetMemberRoutinesForType(type))
             {
-                if (!BuilderInfoProvider.IsBuilderQueryRoutine(name: routine.Name)) continue;
-                string key = routine.RegistryKey;
-                if (ctx.InstantiatedGenericBodies.ContainsKey(key)) continue;
-                if (!ctx.VariantBodies.TryGetValue(key: key, value: out Statement? body)) continue;
-
-                ctx.InstantiatedGenericBodies[key] = new MonomorphizedBody(
-                    Ast: WrapInShellDecl(name: routine.Name, body: body, info: routine),
-                    Info: routine,
-                    TypeSubs: new Dictionary<string, TypeInfo>(),
-                    VariantStatus: null,
-                    VariantInnerType: null,
-                    IsSynthesized: true);
+                EmitGenericDefBuilderQueryBody(routine: routine);
             }
         }
+    }
+
+    /// <summary>
+    /// Emits the generic-definition variant body for a single BuilderQuery routine, if it has one
+    /// and hasn't already been emitted.
+    /// </summary>
+    private void EmitGenericDefBuilderQueryBody(RoutineInfo routine)
+    {
+        if (!BuilderInfoProvider.IsBuilderQueryRoutine(name: routine.Name)) return;
+        string key = routine.RegistryKey;
+        if (ctx.InstantiatedGenericBodies.ContainsKey(key)) return;
+        if (!ctx.VariantBodies.TryGetValue(key: key, value: out Statement? body)) return;
+
+        ctx.InstantiatedGenericBodies[key] = new MonomorphizedBody(
+            Ast: WrapInShellDecl(name: routine.Name, body: body, info: routine),
+            Info: routine,
+            TypeSubs: new Dictionary<string, TypeInfo>(),
+            VariantStatus: null,
+            VariantInnerType: null,
+            IsSynthesized: true);
     }
 
     // Body construction
@@ -899,7 +1044,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// obeys the protocol but has no concrete derive/impl; that must blow up LOUDLY here (pre-codegen),
     /// naming the offending routine, rather than silently degrading to an unresolved abstract symbol.</summary>
     private static readonly HashSet<string> _concreteRequiredDerives =
-        new(comparer: StringComparer.Ordinal) { "assign", "copy", "eq", "ne", "cmp", "hash" };
+        new(comparer: StringComparer.Ordinal) { "assign", "duplicate", "eq", "ne", "cmp", "hash" };
 
     /// <summary>
     /// After monomorphization, no call in a CONCRETE routine body may remain resolved to an ABSTRACT
@@ -933,7 +1078,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         RoutineInfo concreteInfo,
         TypeInfo genDef,
         Dictionary<string, TypeInfo> typeSubs,
-        Dictionary<string, string> stringSubs) // NOSONAR S3776
+        Dictionary<string, string> stringSubs)
     {
         // Variant memberRoutines (try_/check_/lookup_)
         // These have OriginalName pointing back to the failable source routine.
@@ -955,30 +1100,15 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         bool skippedVariantBodyForStdlibFallback = false;
         if (ctx.VariantBodies.TryGetValue(key: genMemberRoutine.RegistryKey, out Statement? variantBody))
         {
-            // Wrapper forwarder bodies call as_entity()/extract() on the inner type, which requires
-            // T is EntityType (entity layout). For wrapper types (Hijacked, Retained, Owned, etc.)
-            // with a non-entity concrete T, skip the variant body (which may be a forwarder) and
-            // fall through to the stdlib AST lookup below — the RF source handles all T without
-            // requiring entity layout.
-            // NOTE: both the synthesized forwarder RoutineInfo and the stdlib RoutineInfo for
-            // the same wrapper memberRoutine share the same RegistryKey, so we check by wrapper type
-            // name rather than genMemberRoutine.WrapperForwarderInnerMemberRoutine.
-            bool isWrapperWithNonEntityInner =
-                WrapperForwardingPass.WrapperTypeNames.Contains(genDef.Name) &&
-                typeSubs.Count > 0 &&
-                typeSubs.Values.First() is not EntityTypeInfo;
-            if (!isWrapperWithNonEntityInner)
-            {
-                Statement rewritten = GenericAstRewriter.RewriteStatement(variantBody, stringSubs, typeSubs, ctx.Registry, concreteInfo);
-                return new MonomorphizedBody(
-                    Ast: WrapInShellDecl(name: concreteInfo.Name, body: rewritten, info: concreteInfo),
-                    Info: concreteInfo,
-                    TypeSubs: typeSubs,
-                    VariantStatus: null,
-                    VariantInnerType: null,
-                    IsSynthesized: true);  // treat as synthesized so codegen uses EmitSynthesizedBodyFromAst
-            }
-            skippedVariantBodyForStdlibFallback = true;
+            MonomorphizedBody? variantMono = BuildVariantBodyFromVariantBodies(
+                concreteInfo: concreteInfo,
+                genDef: genDef,
+                typeSubs: typeSubs,
+                stringSubs: stringSubs,
+                variantBody: variantBody,
+                skippedForStdlibFallback: out skippedVariantBodyForStdlibFallback);
+            if (variantMono != null)
+                return variantMono;
         }
         // Pure synthesized: no AST body available.
         // If we skipped a variant body to force stdlib fallback (wrapper with non-entity T),
@@ -1025,6 +1155,48 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
             VariantStatus: null,
             VariantInnerType: null,
             IsSynthesized: false);
+    }
+
+    /// <summary>
+    /// Builds a monomorphized body from a WiredRoutinePass / ErrorHandlingVariantPass body found in
+    /// VariantBodies. Returns null (and sets <paramref name="skippedForStdlibFallback"/> to true) when
+    /// the body is a wrapper forwarder over a non-entity inner type, so the caller falls through to the
+    /// stdlib AST lookup instead.
+    /// </summary>
+    private MonomorphizedBody? BuildVariantBodyFromVariantBodies(
+        RoutineInfo concreteInfo,
+        TypeInfo genDef,
+        Dictionary<string, TypeInfo> typeSubs,
+        Dictionary<string, string> stringSubs,
+        Statement variantBody,
+        out bool skippedForStdlibFallback)
+    {
+        skippedForStdlibFallback = false;
+        // Wrapper forwarder bodies call as_entity()/extract() on the inner type, which requires
+        // T is EntityType (entity layout). For wrapper types (Hijacked, Retained, Owned, etc.)
+        // with a non-entity concrete T, skip the variant body (which may be a forwarder) and
+        // fall through to the stdlib AST lookup below — the RF source handles all T without
+        // requiring entity layout.
+        // NOTE: both the synthesized forwarder RoutineInfo and the stdlib RoutineInfo for
+        // the same wrapper memberRoutine share the same RegistryKey, so we check by wrapper type
+        // name rather than genMemberRoutine.WrapperForwarderInnerMemberRoutine.
+        bool isWrapperWithNonEntityInner =
+            WrapperForwardingPass.WrapperTypeNames.Contains(genDef.Name) &&
+            typeSubs.Count > 0 &&
+            typeSubs.Values.First() is not EntityTypeInfo;
+        if (!isWrapperWithNonEntityInner)
+        {
+            Statement rewritten = GenericAstRewriter.RewriteStatement(variantBody, stringSubs, typeSubs, ctx.Registry, concreteInfo);
+            return new MonomorphizedBody(
+                Ast: WrapInShellDecl(name: concreteInfo.Name, body: rewritten, info: concreteInfo),
+                Info: concreteInfo,
+                TypeSubs: typeSubs,
+                VariantStatus: null,
+                VariantInnerType: null,
+                IsSynthesized: true);  // treat as synthesized so codegen uses EmitSynthesizedBodyFromAst
+        }
+        skippedForStdlibFallback = true;
+        return null;
     }
 
     private MonomorphizedBody? BuildVariantBody(
@@ -1267,10 +1439,23 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     /// Also converts <see cref="WrapperTypeInfo"/> to the concrete <see cref="RecordTypeInfo"/>
     /// so memberRoutine lookup and LLVM name mangling use the correct module-qualified type name.
     /// </summary>
+    /// <summary>The inner X of a marker borrow protocol <c>Accessing[X]</c>/<c>Controlling[X]</c>, or null.
+    /// A marker is ABI-transparent to its inner, so during monomorphization it is replaced by X — no marker
+    /// protocol survives into a concrete signature, and the backend never sees a protocol-typed param.</summary>
+    private static TypeInfo? MarkerInner(TypeInfo t) =>
+        t is ProtocolTypeInfo { TypeArguments: [{ } inner] } p
+        && RuntimeContract.IsMarkerProtocol(baseName: (p.GenericDefinition ?? p).BareName)
+            ? inner
+            : null;
+
     private TypeInfo ResolveSubstitutedType(TypeInfo type, Dictionary<string, TypeInfo> subs)
     {
+        // A marker borrow protocol (directly, or reached through a substitution below) collapses to its
+        // ABI-transparent inner — recurse so a still-generic inner is resolved too.
+        if (MarkerInner(type) is { } directInner) return ResolveSubstitutedType(directInner, subs);
+
         if (subs.TryGetValue(key: type.Name, value: out TypeInfo? sub))
-            return sub;
+            return MarkerInner(sub) is { } subbedInner ? ResolveSubstitutedType(subbedInner, subs) : sub;
 
         // WrapperTypeInfo (e.g., Hijacked[T] or Hijacked[Core.Byte]) must always be resolved
         // to the real RecordTypeInfo so LookupMemberRoutine and LLVM mangled names work correctly.
@@ -1741,8 +1926,8 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
             if (!subs.TryGetValue(key: c.ParameterName, value: out TypeInfo? actual)) continue;
             bool ok = c.ConstraintType switch
             {
-                ConstraintKind.ValueType     => IsRecordLike(actual),
-                ConstraintKind.ReferenceType => actual is EntityTypeInfo,
+                ConstraintKind.RecordType     => IsRecordLike(actual),
+                ConstraintKind.EntityType => actual is EntityTypeInfo,
                 ConstraintKind.ChoiceType    => actual is ChoiceTypeInfo,
                 ConstraintKind.FlagsType     => actual is FlagsTypeInfo,
                 ConstraintKind.VariantType   => actual is VariantTypeInfo,
@@ -1894,7 +2079,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         }
     }
 
-    private void ScanExprForMemberRoutineGenericCalls(Expression expr) // NOSONAR S3776
+    private void ScanExprForMemberRoutineGenericCalls(Expression expr)
     {
         switch (expr)
         {
@@ -1902,22 +2087,8 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
                 return;
 
             case CallExpression call:
-            {
-                // Check if this call targets a memberRoutine with unresolved memberRoutine-level generic params
-                if (call.ResolvedRoutine is { IsGenericDefinition: true, GenericParameters: { Count: > 0 } genParams } memberRoutine)
-                {
-                    TypeInfo?[] inferred = InferMemberRoutineTypeArgsFromCall(memberRoutine, genParams, call);
-                    if (inferred.Length == genParams.Count && inferred.All(t => t != null))
-                    {
-                        ctx.Registry.GetOrCreateRoutineResolution(
-                            genericDef: memberRoutine,
-                            typeArguments: inferred.Cast<TypeInfo>().ToList());
-                    }
-                }
-                ScanExprForMemberRoutineGenericCalls(call.Callee);
-                foreach (Expression arg in call.Arguments) ScanExprForMemberRoutineGenericCalls(arg);
+                ScanCallForMemberRoutineGenericCalls(call: call);
                 break;
-            }
             case BinaryExpression bin:
                 ScanExprForMemberRoutineGenericCalls(bin.Left);
                 ScanExprForMemberRoutineGenericCalls(bin.Right);
@@ -1937,29 +2108,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
             case IndexExpression idx:
                 ScanExprForMemberRoutineGenericCalls(idx.Object);
                 ScanExprForMemberRoutineGenericCalls(idx.Index);
-                // Register memberRoutine-generic getitem!/setitem! resolutions from IndexExpression nodes.
-                // OperatorLoweringPass doesn't run on InstantiatedGenericBodies, so getitem/setitem
-                // calls in those bodies are still IndexExpression rather than CallExpression.
-                if (idx.Object.ResolvedType is { } idxObjType &&
-                    idx.Index.ResolvedType is { } idxIdxType and not GenericParameterTypeInfo)
-                {
-                    RoutineInfo? getItem = ctx.Registry.LookupMemberRoutine(
-                        type: idxObjType, memberRoutineName: "getitem", isFailable: true);
-                    if (getItem is { IsGenericDefinition: true, GenericParameters.Count: > 0 })
-                    {
-                        ctx.Registry.GetOrCreateRoutineResolution(
-                            genericDef: getItem,
-                            typeArguments: [idxIdxType]);
-                    }
-                    RoutineInfo? setItem = ctx.Registry.LookupMemberRoutine(
-                        type: idxObjType, memberRoutineName: "setitem", isFailable: true);
-                    if (setItem is { IsGenericDefinition: true, GenericParameters.Count: > 0 })
-                    {
-                        ctx.Registry.GetOrCreateRoutineResolution(
-                            genericDef: setItem,
-                            typeArguments: [idxIdxType]);
-                    }
-                }
+                RegisterIndexAccessorGenericResolutions(idx: idx);
                 break;
             case CreatorExpression creator:
                 foreach (var (_, v) in creator.MemberVariables) ScanExprForMemberRoutineGenericCalls(v);
@@ -1973,11 +2122,62 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     }
 
     /// <summary>
+    /// Registers a memberRoutine-generic resolution for a call that targets a memberRoutine with
+    /// unresolved memberRoutine-level generic params, then recurses into the callee and arguments.
+    /// </summary>
+    private void ScanCallForMemberRoutineGenericCalls(CallExpression call)
+    {
+        if (call.ResolvedRoutine is { IsGenericDefinition: true, GenericParameters: { Count: > 0 } genParams } memberRoutine)
+        {
+            TypeInfo?[] inferred = InferMemberRoutineTypeArgsFromCall(memberRoutine, genParams, call);
+            if (inferred.Length == genParams.Count && inferred.All(t => t != null))
+            {
+                ctx.Registry.GetOrCreateRoutineResolution(
+                    genericDef: memberRoutine,
+                    typeArguments: inferred.Cast<TypeInfo>().ToList());
+            }
+        }
+        ScanExprForMemberRoutineGenericCalls(call.Callee);
+        foreach (Expression arg in call.Arguments) ScanExprForMemberRoutineGenericCalls(arg);
+    }
+
+    /// <summary>
+    /// Registers memberRoutine-generic getitem!/setitem! resolutions from an IndexExpression node.
+    /// OperatorLoweringPass doesn't run on InstantiatedGenericBodies, so getitem/setitem calls in
+    /// those bodies are still IndexExpression rather than CallExpression.
+    /// </summary>
+    private void RegisterIndexAccessorGenericResolutions(IndexExpression idx)
+    {
+        if (idx.Object.ResolvedType is not { } idxObjType ||
+            idx.Index.ResolvedType is not ({ } idxIdxType and not GenericParameterTypeInfo))
+        {
+            return;
+        }
+
+        RoutineInfo? getItem = ctx.Registry.LookupMemberRoutine(
+            type: idxObjType, memberRoutineName: "getitem", isFailable: true);
+        if (getItem is { IsGenericDefinition: true, GenericParameters.Count: > 0 })
+        {
+            ctx.Registry.GetOrCreateRoutineResolution(
+                genericDef: getItem,
+                typeArguments: [idxIdxType]);
+        }
+        RoutineInfo? setItem = ctx.Registry.LookupMemberRoutine(
+            type: idxObjType, memberRoutineName: "setitem", isFailable: true);
+        if (setItem is { IsGenericDefinition: true, GenericParameters.Count: > 0 })
+        {
+            ctx.Registry.GetOrCreateRoutineResolution(
+                genericDef: setItem,
+                typeArguments: [idxIdxType]);
+        }
+    }
+
+    /// <summary>
     /// Infers memberRoutine-level type arguments by matching GenericParameterTypeInfo params
     /// against the corresponding call-site argument ResolvedTypes.
     /// </summary>
     private static TypeInfo?[] InferMemberRoutineTypeArgsFromCall(
-        RoutineInfo memberRoutine, List<string> genParams, CallExpression call) // NOSONAR S3776
+        RoutineInfo memberRoutine, List<string> genParams, CallExpression call)
     {
         var result = new TypeInfo?[genParams.Count];
 
@@ -1986,28 +2186,32 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
             if (param.Name == "me") continue;
             if (param.Type is not GenericParameterTypeInfo gp) continue;
 
-            int idx = -1;
-            for (int i = 0; i < genParams.Count; i++)
-            {
-                if (genParams[i] == gp.Name) { idx = i; break; }
-            }
+            int idx = genParams.IndexOf(item: gp.Name);
             if (idx < 0 || result[idx] != null) continue;
 
-            // Find the matching argument by name
-            foreach (Expression arg in call.Arguments)
-            {
-                Expression argValue = arg is NamedArgumentExpression nae && nae.Name == param.Name
-                    ? nae.Value
-                    : arg;
-                TypeInfo? argType = argValue.ResolvedType;
-                if (argType != null && argType is not GenericParameterTypeInfo)
-                {
-                    result[idx] = argType;
-                    break;
-                }
-            }
+            result[idx] = FindArgTypeForParam(call: call, paramName: param.Name);
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Finds the ResolvedType of the argument bound to <paramref name="paramName"/> in the call,
+    /// skipping arguments whose type is still an unresolved generic parameter.
+    /// </summary>
+    private static TypeInfo? FindArgTypeForParam(CallExpression call, string paramName)
+    {
+        foreach (Expression arg in call.Arguments)
+        {
+            Expression argValue = arg is NamedArgumentExpression nae && nae.Name == paramName
+                ? nae.Value
+                : arg;
+            TypeInfo? argType = argValue.ResolvedType;
+            if (argType != null && argType is not GenericParameterTypeInfo)
+            {
+                return argType;
+            }
+        }
+        return null;
     }
 }

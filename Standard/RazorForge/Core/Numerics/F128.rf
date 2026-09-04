@@ -22,7 +22,7 @@ import Collections
 ### (raw 128-bit container, no LLVM `fp128`), so results are bit-identical on every
 ### platform without relying on compiler-rt `__*tf*` libcalls.
 @llvm("i128")
-record F128 obeys Numeric, Ordered, Assignable, Copyable
+record F128 obeys Numeric, Ordered, Assignable, Copyable, Splittable
   pass
 
 # ============================================================================
@@ -1190,6 +1190,7 @@ routine F128.remainder(you: F128) -> F128
 
 ### Returns the decimal text of this value (%g with 6 significant digits).
 ### :returns: The formatted representation.
+@override
 routine F128.represent() -> Text
   if me.is_signaling()
     return "snan"
@@ -1197,6 +1198,7 @@ routine F128.represent() -> Text
 
 ### Returns a diagnostic representation tagged with the type name.
 ### :returns: The formatted representation.
+@override
 routine F128.diagnose() -> Text
   return "F128(" + f128_represent(bits: me.to_bits()) + ")"
 

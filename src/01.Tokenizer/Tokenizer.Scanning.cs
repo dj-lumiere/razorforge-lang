@@ -127,28 +127,7 @@ public partial class Tokenizer
 
             // Multi-character punctuation
             case '.':
-                if (Match(expected: '.'))
-                {
-                    if (Match(expected: '.'))
-                    {
-                        AddToken(type: TokenType.DotDotDot);
-                    }
-                    else
-                    {
-                        throw new GrammarException(code: GrammarDiagnosticCode.InvalidCharacter,
-                            message:
-                            "Range operator '..' is no longer supported. Use 'to' keyword instead (e.g., '1 to 10').",
-                            fileName: _fileName,
-                            line: _line,
-                            column: _column,
-                            language: _language);
-                    }
-                }
-                else
-                {
-                    AddToken(type: TokenType.Dot);
-                }
-
+                ScanDotOperator();
                 break;
             case ':':
                 if (Match(expected: ':'))
@@ -190,38 +169,10 @@ public partial class Tokenizer
 
             // Comparison and assignment
             case '=':
-                if (Match(expected: '='))
-                {
-                    // `==` value equality, or `===` reference identity (longest match).
-                    AddToken(type: Match(expected: '=') ? TokenType.IdentityEqual : TokenType.Equal);
-                }
-                else if (Match(expected: '>'))
-                {
-                    AddToken(type: TokenType.FatArrow);
-                }
-                else
-                {
-                    AddToken(type: TokenType.Assign);
-                }
-
+                ScanEqualsOperator();
                 break;
             case '!':
-                if (Match(expected: '='))
-                {
-                    // `!=` value inequality, or `!==` reference non-identity (longest match).
-                    AddToken(type: Match(expected: '=') ? TokenType.IdentityNotEqual : TokenType.NotEqual);
-                }
-                else if (Match(expected: '!'))
-                {
-                    // !! (force unwrap)
-                    AddToken(type: TokenType.BangBang);
-                }
-                else
-                {
-                    // ! (failable marker or negation)
-                    AddToken(type: TokenType.Bang);
-                }
-
+                ScanBangOperator();
                 break;
             case '<':
                 ScanLessThanOperator();
@@ -250,22 +201,7 @@ public partial class Tokenizer
                 AddToken(type: TokenType.Tilde);
                 break;
             case '?':
-                if (Match(expected: '.'))
-                {
-                    AddToken(type: TokenType.QuestionDot);
-                }
-                else if (Match(expected: '?'))
-                {
-//?? or ??=
-                    AddToken(type: Match(expected: '=')
-                        ? TokenType.NoneCoalesceAssign
-                        : TokenType.NoneCoalesce);
-                }
-                else
-                {
-                    AddToken(type: TokenType.Question);
-                }
-
+                ScanQuestionOperator();
                 break;
 
             // Special @ tokens
@@ -275,47 +211,155 @@ public partial class Tokenizer
 
             // Numbers (special handling for 0x, 0b, and 0o prefixes)
             case '0':
-                if (Match(expected: 'x') || Match(expected: 'X'))
-                {
-                    ScanPrefixedNumber(isHex: true);
-                }
-                else if ((Peek() == 'b' || Peek() == 'B') && (Peek(offset: 1) == '0' ||
-                                                              Peek(offset: 1) == '1' ||
-                                                              Peek(offset: 1) == '_'))
-                {
-                    Advance(); // consume 'b' or 'B'
-                    ScanPrefixedNumber(isHex: false);
-                }
-                else if ((Peek() == 'o' || Peek() == 'O') &&
-                         (Peek(offset: 1) >= '0' && Peek(offset: 1) <= '7' ||
-                          Peek(offset: 1) == '_'))
-                {
-                    Advance(); // consume 'o' or 'O'
-                    ScanOctalNumber();
-                }
-                else
-                {
-                    ScanNumber();
-                }
-
+                ScanZeroPrefixedNumber();
                 break;
 
             // Default: digits, identifiers, or unknown
             default:
-                if (char.IsDigit(c: c))
-                {
-                    ScanNumber();
-                }
-                else if (IsIdentifierStart(c: c))
-                {
-                    ScanIdentifier();
-                }
-                else
-                {
-                    AddToken(type: TokenType.Unknown);
-                }
-
+                ScanDefaultCharacter(c: c);
                 break;
+        }
+    }
+
+    /// <summary>
+    /// Scans a '.' token: '...' variadic/spread, the removed '..' range (error), or a bare dot.
+    /// </summary>
+    private void ScanDotOperator()
+    {
+        if (Match(expected: '.'))
+        {
+            if (Match(expected: '.'))
+            {
+                AddToken(type: TokenType.DotDotDot);
+            }
+            else
+            {
+                throw new GrammarException(code: GrammarDiagnosticCode.InvalidCharacter,
+                    message:
+                    "Range operator '..' is no longer supported. Use 'to' keyword instead (e.g., '1 to 10').",
+                    fileName: _fileName,
+                    line: _line,
+                    column: _column,
+                    language: _language);
+            }
+        }
+        else
+        {
+            AddToken(type: TokenType.Dot);
+        }
+    }
+
+    /// <summary>
+    /// Scans a '=' token: '==' equality, '===' reference identity, '=>' fat arrow, or '=' assign.
+    /// </summary>
+    private void ScanEqualsOperator()
+    {
+        if (Match(expected: '='))
+        {
+            // `==` value equality, or `===` reference identity (longest match).
+            AddToken(type: Match(expected: '=') ? TokenType.IdentityEqual : TokenType.Equal);
+        }
+        else if (Match(expected: '>'))
+        {
+            AddToken(type: TokenType.FatArrow);
+        }
+        else
+        {
+            AddToken(type: TokenType.Assign);
+        }
+    }
+
+    /// <summary>
+    /// Scans a '!' token: '!=' inequality, '!==' reference non-identity, '!!' force unwrap, or '!'.
+    /// </summary>
+    private void ScanBangOperator()
+    {
+        if (Match(expected: '='))
+        {
+            // `!=` value inequality, or `!==` reference non-identity (longest match).
+            AddToken(type: Match(expected: '=') ? TokenType.IdentityNotEqual : TokenType.NotEqual);
+        }
+        else if (Match(expected: '!'))
+        {
+            // !! (force unwrap)
+            AddToken(type: TokenType.BangBang);
+        }
+        else
+        {
+            // ! (failable marker or negation)
+            AddToken(type: TokenType.Bang);
+        }
+    }
+
+    /// <summary>
+    /// Scans a '?' token: '?.' optional access, '??'/'??=' none-coalescing, or a bare question mark.
+    /// </summary>
+    private void ScanQuestionOperator()
+    {
+        if (Match(expected: '.'))
+        {
+            AddToken(type: TokenType.QuestionDot);
+        }
+        else if (Match(expected: '?'))
+        {
+//?? or ??=
+            AddToken(type: Match(expected: '=')
+                ? TokenType.NoneCoalesceAssign
+                : TokenType.NoneCoalesce);
+        }
+        else
+        {
+            AddToken(type: TokenType.Question);
+        }
+    }
+
+    /// <summary>
+    /// Scans a numeric literal beginning with '0', dispatching on the base prefix (0x hex, 0b binary,
+    /// 0o octal) or falling back to a decimal number.
+    /// </summary>
+    private void ScanZeroPrefixedNumber()
+    {
+        if (Match(expected: 'x') || Match(expected: 'X'))
+        {
+            ScanPrefixedNumber(isHex: true);
+        }
+        else if ((Peek() == 'b' || Peek() == 'B') && (Peek(offset: 1) == '0' ||
+                                                      Peek(offset: 1) == '1' ||
+                                                      Peek(offset: 1) == '_'))
+        {
+            Advance(); // consume 'b' or 'B'
+            ScanPrefixedNumber(isHex: false);
+        }
+        else if ((Peek() == 'o' || Peek() == 'O') &&
+                 (Peek(offset: 1) >= '0' && Peek(offset: 1) <= '7' ||
+                  Peek(offset: 1) == '_'))
+        {
+            Advance(); // consume 'o' or 'O'
+            ScanOctalNumber();
+        }
+        else
+        {
+            ScanNumber();
+        }
+    }
+
+    /// <summary>
+    /// Scans the default character case: a digit begins a number, an identifier-start begins an
+    /// identifier, and anything else is an unknown token.
+    /// </summary>
+    private void ScanDefaultCharacter(char c)
+    {
+        if (char.IsDigit(c: c))
+        {
+            ScanNumber();
+        }
+        else if (IsIdentifierStart(c: c))
+        {
+            ScanIdentifier();
+        }
+        else
+        {
+            AddToken(type: TokenType.Unknown);
         }
     }
 

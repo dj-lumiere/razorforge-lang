@@ -32,7 +32,7 @@ import BuilderQuery
 ### :typeparam T: The element type stored in the list.
 ### :see: {Deque[T]} for efficient double-ended insertion and removal.
 ### :see: {SortedList[T]} for a list that maintains ascending order automatically.
-entity List[T] obeys Iterable[T], MutableIndexable[T], Sized, Container, Equatable, Copyable, ListLiteral[T]
+entity List[T] obeys Iterable[T], MutableIndexable[T], Sized, Container, Equatable, Copyable onlyif (T obeys Copyable), ListLiteral[T]
 relates ListEmittable[T] as Iter
   ### Stores the backing buffer.
   secret data: Hijacked[T]
@@ -307,7 +307,7 @@ needs T obeys Copyable
   var result = List[T]()
   each i in range
     if i < me.count
-      result.add_last(value: me.get_raw(index: i).copy())
+      result.add_last(value: me.get_raw(index: i).duplicate())
   return steal result
 
 # ============================================================================
@@ -461,7 +461,7 @@ needs T obeys Copyable
   # elements are owned independently. The prior bitwise copy aliased buffer pointers (double-free).
   var i = 0u64
   while i < count
-    me.add_last(value: source[from + i].copy())
+    me.add_last(value: source[from + i].duplicate())
     i = i + 1u64
   return
 
@@ -470,12 +470,12 @@ needs T obeys Copyable
 ### their refcount; aggregate elements are duplicated recursively). This is the deep-copy point
 ### the compiler inserts when a `List[T]` is an owned arm of a value being copied.
 ### :returns: A new `List[T]` owning independent copies of every element.
-routine List[T].copy() -> List[T]
+routine List[T].duplicate() -> List[T]
 needs T obeys Copyable
   var result = List[T](capacity: me.count)
   var i = 0u64
   while i < me.count
-    result.add_last(value: me[i].copy())
+    result.add_last(value: me[i].duplicate())
     i = i +% 1u64
   return steal result
 
@@ -803,6 +803,7 @@ routine List[T].merge_into_by(left: U64, mid: U64, right: U64, buffer: Controlli
   return
 
 ### Destroys each live element (no-op for value-typed `T`), then frees the backing buffer.
+@override
 dangerous routine List[T].destroy()
   var elem_size = T.data_size()
   each i in 0 til me.count()

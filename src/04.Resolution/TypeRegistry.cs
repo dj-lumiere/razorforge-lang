@@ -569,6 +569,18 @@ public sealed partial class TypeRegistry
             return false;
         }
 
+        return LoadResolvedModuleFile(resolvedPath: resolvedPath, moduleId: moduleId,
+            effectiveModule: out effectiveModule);
+    }
+
+    /// <summary>
+    /// Loads a module from an already-resolved file path: dedups by RESOLVED FILE PATH (serving an
+    /// existing registration when the file was already loaded under a different import-path alias, to
+    /// avoid duplicate-definition errors), otherwise marks it loaded (before parsing, to break import
+    /// recursion) and loads it via <see cref="StdlibLoader"/>.
+    /// </summary>
+    private bool LoadResolvedModuleFile(string resolvedPath, string moduleId, out string? effectiveModule)
+    {
         // Dedup by RESOLVED FILE PATH: the file may already be registered under a different
         // import-path alias (e.g. the build pipeline pre-marked `module Fun2` from Fun2/A.rf,
         // and we're now serving `import Fun2.A` which resolves back to that same file). Serve
@@ -588,7 +600,7 @@ public sealed partial class TypeRegistry
 
         // Load the module using StdlibLoader
         effectiveModule =
-            _stdlibLoader.LoadModule(registry: this, filePath: resolvedPath, moduleId: moduleId);
+            _stdlibLoader!.LoadModule(registry: this, filePath: resolvedPath, moduleId: moduleId);
 
         if (effectiveModule != null)
         {
@@ -1088,7 +1100,7 @@ public sealed partial class TypeRegistry
     /// Looks up a type by name in the AMBIENT realm only (the realm-blind workhorse). Callers that must
     /// honor the per-file <see cref="ResolutionRealm"/> use <see cref="LookupType(string)"/> instead.
     /// </summary>
-    private TypeInfo? LookupTypeInAmbient(string name) // NOSONAR S3776
+    private TypeInfo? LookupTypeInAmbient(string name)
     {
         // Try exact match first
         if (_types.TryGetValue(key: name, value: out TypeInfo? type))
@@ -1199,31 +1211,10 @@ public sealed partial class TypeRegistry
         // The module-qualified key is DISTINCT across modules/realms (RazorForge `Core.List` vs the
         // Suflae-realm overlay `Suflae.List`), so check it FIRST — the bare fullKey/shortKey below are
         // module-blind aliases that a same-named other-module type can occupy first-wins.
-        if (moduleFullKey != null &&
-            _resolutions.TryGetValue(key: moduleFullKey, value: out TypeInfo? existing))
+        if (TryGetCachedResolution(fullKey: fullKey, shortKey: shortKey, moduleFullKey: moduleFullKey,
+                genericDef: genericDef, typeArguments: typeArguments) is { } cachedHit)
         {
-            if (!_stdlibAnalysisActive) MaterializeIfLazy(existing);
-            return existing;
-        }
-        // Bare fullKey: accept only when the cached resolution's generic DEFINITION is the one requested
-        // (no-op for single-realm types; rejects a Suflae `List[Core.S32]` for a Core.List request).
-        if (_resolutions.TryGetValue(key: fullKey, value: out existing)
-            && ResolutionGenericDefMatches(resolved: existing, genericDef: genericDef))
-        {
-            if (!_stdlibAnalysisActive) MaterializeIfLazy(existing);
-            return existing;
-        }
-        // The shortKey is a bare-type-arg alias (e.g. "Modifying[Counter]") shared by callers that
-        // look up by short arg name. It COLLIDES when two modules declare a same-named type
-        // (Modifying[A/Counter] vs Modifying[B/Counter]): a first-wins short alias would return the
-        // wrong module's inner type, contaminating wrapper forwarding / memberRoutine dispatch. Only accept a
-        // short-alias hit whose type arguments AND generic definition match the request.
-        if (fullKey != shortKey && _resolutions.TryGetValue(key: shortKey, value: out existing)
-            && ResolutionTypeArgsMatch(resolved: existing, typeArguments: typeArguments)
-            && ResolutionGenericDefMatches(resolved: existing, genericDef: genericDef))
-        {
-            if (!_stdlibAnalysisActive) MaterializeIfLazy(existing);
-            return existing;
+            return cachedHit;
         }
 
         // If an entity-type specialization exists for this generic and the first type argument
@@ -1266,26 +1257,69 @@ public sealed partial class TypeRegistry
         }
         else
         {
-            // Notify GMP's fixed-point loop about newly discovered concrete entity/record types.
-            // Guards:
-            // 1. Fully-concrete: no unresolved GenericParameterTypeInfo args (avoids LookupMemberRoutine recursion).
-            // 2. No self-nesting: skip types where a type argument's FullName contains the outer type's
-            //    bare base name — e.g. Hijacked[Hijacked[Text]] created by Hijacked[T].offset
-            //    body rewriting would recurse unboundedly (Hijacked^N for all N).
-            //    resolved.Name may already contain type args (e.g. "Hijacked[Text]"),
-            //    so strip everything from '[' onwards to get just the bare name "Hijacked".
-            if (_gmpDiscoveryQueue != null && resolved is EntityTypeInfo or RecordTypeInfo &&
-                IsFullyConcrete(resolved))
-            {
-                string bareBaseName = resolved.BareName;
-                bool isSelfNesting = resolved.TypeArguments != null &&
-                                     resolved.TypeArguments.Any(arg => arg.FullName.Contains(bareBaseName));
-                if (!isSelfNesting)
-                    _gmpDiscoveryQueue.Enqueue(resolved);
-            }
+            EnqueueDiscoveredResolution(resolved: resolved);
         }
 
         return resolved;
+    }
+
+    /// <summary>
+    /// Notifies GMP's fixed-point loop about a newly created concrete entity/record resolution. Guards:
+    /// (1) fully-concrete (no unresolved param args, avoiding LookupMemberRoutine recursion); (2) no
+    /// self-nesting (a type arg whose FullName contains the outer bare base name, e.g.
+    /// <c>Hijacked[Hijacked[Text]]</c>, would recurse unboundedly).
+    /// </summary>
+    private void EnqueueDiscoveredResolution(TypeInfo resolved)
+    {
+        if (_gmpDiscoveryQueue != null && resolved is EntityTypeInfo or RecordTypeInfo &&
+            IsFullyConcrete(resolved))
+        {
+            string bareBaseName = resolved.BareName;
+            bool isSelfNesting = resolved.TypeArguments != null &&
+                                 resolved.TypeArguments.Any(arg => arg.FullName.Contains(bareBaseName));
+            if (!isSelfNesting)
+                _gmpDiscoveryQueue.Enqueue(resolved);
+        }
+    }
+
+    /// <summary>
+    /// Probes the three resolution-cache aliases (module-qualified, bare full, bare short) for an
+    /// existing instance of the requested generic, materializing it if lazy. The module-qualified key is
+    /// distinct across modules/realms so it is checked first; the bare aliases are module-blind and only
+    /// accepted when the cached resolution's generic definition (and, for the short alias, its type args)
+    /// match the request. Returns null when no matching cached resolution exists.
+    /// </summary>
+    private TypeInfo? TryGetCachedResolution(string fullKey, string shortKey, string? moduleFullKey,
+        TypeInfo genericDef, List<TypeInfo> typeArguments)
+    {
+        if (moduleFullKey != null &&
+            _resolutions.TryGetValue(key: moduleFullKey, value: out TypeInfo? existing))
+        {
+            if (!_stdlibAnalysisActive) MaterializeIfLazy(existing);
+            return existing;
+        }
+        // Bare fullKey: accept only when the cached resolution's generic DEFINITION is the one requested
+        // (no-op for single-realm types; rejects a Suflae `List[Core.S32]` for a Core.List request).
+        if (_resolutions.TryGetValue(key: fullKey, value: out existing)
+            && ResolutionGenericDefMatches(resolved: existing, genericDef: genericDef))
+        {
+            if (!_stdlibAnalysisActive) MaterializeIfLazy(existing);
+            return existing;
+        }
+        // The shortKey is a bare-type-arg alias (e.g. "Modifying[Counter]") shared by callers that
+        // look up by short arg name. It COLLIDES when two modules declare a same-named type
+        // (Modifying[A/Counter] vs Modifying[B/Counter]): a first-wins short alias would return the
+        // wrong module's inner type, contaminating wrapper forwarding / memberRoutine dispatch. Only accept a
+        // short-alias hit whose type arguments AND generic definition match the request.
+        if (fullKey != shortKey && _resolutions.TryGetValue(key: shortKey, value: out existing)
+            && ResolutionTypeArgsMatch(resolved: existing, typeArguments: typeArguments)
+            && ResolutionGenericDefMatches(resolved: existing, genericDef: genericDef))
+        {
+            if (!_stdlibAnalysisActive) MaterializeIfLazy(existing);
+            return existing;
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -1635,164 +1669,121 @@ public sealed partial class TypeRegistry
         var newType = new TupleTypeInfo(elementTypes: elementTypes);
         _resolutions[key: key] = newType;
 
-        // Auto-register TupleType.represent()
+        RegisterTupleDisplayRoutines(newType: newType);
+        RegisterTupleEqualityRoutines(newType: newType, elementTypes: elementTypes);
+        RegisterTupleHashRoutine(newType: newType, elementTypes: elementTypes);
+        RegisterTupleSerializeRoutine(newType: newType, elementTypes: elementTypes);
+        RegisterTupleStoreRoutine(newType: newType, elementTypes: elementTypes);
+        RegisterTupleComparisonRoutines(newType: newType, elementTypes: elementTypes);
+
+        return newType;
+    }
+
+    /// <summary>Registers a synthesized readonly zero-arg member routine <paramref name="name"/> on
+    /// <paramref name="owner"/> returning <paramref name="returnType"/>, with optional parameters.</summary>
+    private void RegisterSynthesizedMemberRoutine(string name, TypeInfo owner, TypeInfo returnType,
+        List<ParameterInfo>? parameters = null)
+    {
+        RegisterRoutine(routine: new RoutineInfo(name: name)
+        {
+            Kind = RoutineKind.MemberRoutine,
+            OwnerType = owner,
+            Parameters = parameters ?? [],
+            ReturnType = returnType,
+            IsFailable = false,
+            DeclaredMutation = MutationCategory.Readonly,
+            MutationCategory = MutationCategory.Readonly,
+            Visibility = VisibilityModifier.Open,
+            IsSynthesized = true
+        });
+    }
+
+    /// <summary>Auto-registers <c>TupleType.represent()</c> / <c>diagnose()</c> when Text is available.</summary>
+    private void RegisterTupleDisplayRoutines(TupleTypeInfo newType)
+    {
         TypeInfo? textType = LookupType(name: "Text");
         if (textType != null)
         {
-            RegisterRoutine(routine: new RoutineInfo(name: RuntimeContract.Display.Represent)
-            {
-                Kind = RoutineKind.MemberRoutine,
-                OwnerType = newType,
-                Parameters = [],
-                ReturnType = textType,
-                IsFailable = false,
-                DeclaredMutation = MutationCategory.Readonly,
-                MutationCategory = MutationCategory.Readonly,
-                Visibility = VisibilityModifier.Open,
-                IsSynthesized = true
-            });
-
-            RegisterRoutine(routine: new RoutineInfo(name: RuntimeContract.Display.Diagnose)
-            {
-                Kind = RoutineKind.MemberRoutine,
-                OwnerType = newType,
-                Parameters = [],
-                ReturnType = textType,
-                IsFailable = false,
-                DeclaredMutation = MutationCategory.Readonly,
-                MutationCategory = MutationCategory.Readonly,
-                Visibility = VisibilityModifier.Open,
-                IsSynthesized = true
-            });
+            RegisterSynthesizedMemberRoutine(name: RuntimeContract.Display.Represent, owner: newType, returnType: textType);
+            RegisterSynthesizedMemberRoutine(name: RuntimeContract.Display.Diagnose, owner: newType, returnType: textType);
         }
+    }
 
-        // Auto-register eq and ne if every element type has eq (option a:
-        // structural derivation iff all components support it). Component types whose
-        // owners haven't opted into Equatable simply won't have eq registered, so the
-        // tuple won't either — keeping derivation in lockstep with the underlying types.
+    /// <summary>
+    /// Auto-registers <c>eq</c> and <c>ne</c> if every element type has <c>eq</c> (option a: structural
+    /// derivation iff all components support it). Component types whose owners haven't opted into
+    /// Equatable simply won't have eq registered, so the tuple won't either.
+    /// </summary>
+    private void RegisterTupleEqualityRoutines(TupleTypeInfo newType, List<TypeInfo> elementTypes)
+    {
         TypeInfo? boolType = LookupType(name: "Bool");
         if (boolType != null &&
             elementTypes.All(predicate: et => LookupMemberRoutine(type: et, memberRoutineName: "eq") != null))
         {
             var youParam = new ParameterInfo(name: "you", type: newType);
-
-            RegisterRoutine(routine: new RoutineInfo(name: "eq")
-            {
-                Kind = RoutineKind.MemberRoutine,
-                OwnerType = newType,
-                Parameters = [youParam],
-                ReturnType = boolType,
-                IsFailable = false,
-                DeclaredMutation = MutationCategory.Readonly,
-                MutationCategory = MutationCategory.Readonly,
-                Visibility = VisibilityModifier.Open,
-                IsSynthesized = true
-            });
-
-            RegisterRoutine(routine: new RoutineInfo(name: "ne")
-            {
-                Kind = RoutineKind.MemberRoutine,
-                OwnerType = newType,
-                Parameters = [youParam],
-                ReturnType = boolType,
-                IsFailable = false,
-                DeclaredMutation = MutationCategory.Readonly,
-                MutationCategory = MutationCategory.Readonly,
-                Visibility = VisibilityModifier.Open,
-                IsSynthesized = true
-            });
+            RegisterSynthesizedMemberRoutine(name: "eq", owner: newType, returnType: boolType, parameters: [youParam]);
+            RegisterSynthesizedMemberRoutine(name: "ne", owner: newType, returnType: boolType, parameters: [youParam]);
         }
+    }
 
-        // Auto-register hash if ALL element types support hash
+    /// <summary>Auto-registers <c>hash</c> if ALL element types support hash.</summary>
+    private void RegisterTupleHashRoutine(TupleTypeInfo newType, List<TypeInfo> elementTypes)
+    {
         TypeInfo? u64Type = LookupType(name: "U64");
         if (u64Type != null &&
             elementTypes.All(predicate: et => LookupMemberRoutine(type: et, memberRoutineName: "hash") != null))
         {
-            RegisterRoutine(routine: new RoutineInfo(name: "hash")
-            {
-                Kind = RoutineKind.MemberRoutine,
-                OwnerType = newType,
-                Parameters = [],
-                ReturnType = u64Type,
-                IsFailable = false,
-                DeclaredMutation = MutationCategory.Readonly,
-                MutationCategory = MutationCategory.Readonly,
-                Visibility = VisibilityModifier.Open,
-                IsSynthesized = true
-            });
+            RegisterSynthesizedMemberRoutine(name: "hash", owner: newType, returnType: u64Type);
         }
+    }
 
-        // Auto-register serialize if EVERY element is serializable — or a routine (the derive template
-        // boxes a routine element's signature via `represent`, routine values having no `serialize`).
-        // A tuple can hold otherwise-unserializable elements (unlike a record), so gate on the elements.
-        // Exclude generic-parameter elements (e.g. `Tuple[U64, T]`): the body clones per CONCRETE
-        // instantiation via monomorphization — synthesizing one for the unresolved `T` sends the
-        // template's `SerialValue(…)` constructor to codegen without lowering metadata (RF-S959).
+    /// <summary>
+    /// Auto-registers <c>serialize</c> if EVERY element is serializable — or a routine (the derive
+    /// template boxes a routine element's signature via <c>represent</c>). A tuple can hold otherwise-
+    /// unserializable elements (unlike a record), so gate on the elements. Generic-parameter elements
+    /// (<c>Tuple[U64, T]</c>) are excluded — the body clones per CONCRETE instantiation (RF-S959).
+    /// </summary>
+    private void RegisterTupleSerializeRoutine(TupleTypeInfo newType, List<TypeInfo> elementTypes)
+    {
         TypeInfo? serialValueType = LookupType(name: "SerialValue");
         if (serialValueType != null &&
             elementTypes.All(predicate: et =>
                 et is not GenericParameterTypeInfo &&
                 (et is RoutineTypeInfo || LookupMemberRoutine(type: et, memberRoutineName: RuntimeContract.Serialize) != null)))
         {
-            RegisterRoutine(routine: new RoutineInfo(name: RuntimeContract.Serialize)
-            {
-                Kind = RoutineKind.MemberRoutine,
-                OwnerType = newType,
-                Parameters = [],
-                ReturnType = serialValueType,
-                IsFailable = false,
-                DeclaredMutation = MutationCategory.Readonly,
-                MutationCategory = MutationCategory.Readonly,
-                Visibility = VisibilityModifier.Open,
-                IsSynthesized = true
-            });
+            RegisterSynthesizedMemberRoutine(name: RuntimeContract.Serialize, owner: newType, returnType: serialValueType);
         }
+    }
 
-        // Auto-register `store` (the retaining field-walk copy) iff every element is itself Assignable —
-        // a value / managed leaf / RC wrapper, never a bare `entity` or access token. Mirrors how a
-        // declared record gets its synthesized `store`: without it, `var u = t` on a tuple holding a
-        // managed leaf (Text) bitwise-aliases and double-frees at the two scopes' teardown. The body
-        // (WiredRoutinePass.HandleTuple `store` → BuildRecordCopyBody) reconstructs the tuple field-by-
-        // field, calling each retaining field's own `store`. Generic-parameter elements (`Tuple[U64, T]`)
-        // are not Assignable here, so store is registered per CONCRETE instantiation (like serialize).
+    /// <summary>
+    /// Auto-registers <c>store</c> (the retaining field-walk copy) iff every element is itself Assignable
+    /// — a value / managed leaf / RC wrapper, never a bare <c>entity</c> or access token. Without it,
+    /// <c>var u = t</c> on a tuple holding a managed leaf (Text) bitwise-aliases and double-frees at the
+    /// two scopes' teardown. Generic-parameter elements are not Assignable here, so store is registered
+    /// per CONCRETE instantiation (like serialize).
+    /// </summary>
+    private void RegisterTupleStoreRoutine(TupleTypeInfo newType, List<TypeInfo> elementTypes)
+    {
         if (elementTypes.All(predicate: et =>
                 CanAutoDeriveAssignable(type: et)
                 || DoesTypeObeyProtocol(type: et, protocolName: "Assignable")
                 || LookupMemberRoutine(type: et, memberRoutineName: "assign") is not null))
         {
-            RegisterRoutine(routine: new RoutineInfo(name: "assign")
-            {
-                Kind = RoutineKind.MemberRoutine,
-                OwnerType = newType,
-                Parameters = [],
-                ReturnType = newType,
-                IsFailable = false,
-                DeclaredMutation = MutationCategory.Readonly,
-                MutationCategory = MutationCategory.Readonly,
-                Visibility = VisibilityModifier.Open,
-                IsSynthesized = true
-            });
+            RegisterSynthesizedMemberRoutine(name: "assign", owner: newType, returnType: newType);
         }
+    }
 
-        // Auto-register cmp + derived operators if ALL element types support cmp
+    /// <summary>Auto-registers <c>cmp</c> plus the derived <c>lt/le/gt/ge</c> operators if ALL element
+    /// types support cmp.</summary>
+    private void RegisterTupleComparisonRoutines(TupleTypeInfo newType, List<TypeInfo> elementTypes)
+    {
+        TypeInfo? boolType = LookupType(name: "Bool");
         TypeInfo? comparisonSignType = LookupType(name: "ComparisonSign");
         if (boolType != null && comparisonSignType != null &&
             elementTypes.All(predicate: et => LookupMemberRoutine(type: et, memberRoutineName: "cmp") != null))
         {
             var youParam = new ParameterInfo(name: "you", type: newType);
-
-            RegisterRoutine(routine: new RoutineInfo(name: "cmp")
-            {
-                Kind = RoutineKind.MemberRoutine,
-                OwnerType = newType,
-                Parameters = [youParam],
-                ReturnType = comparisonSignType,
-                IsFailable = false,
-                DeclaredMutation = MutationCategory.Readonly,
-                MutationCategory = MutationCategory.Readonly,
-                Visibility = VisibilityModifier.Open,
-                IsSynthesized = true
-            });
+            RegisterSynthesizedMemberRoutine(name: "cmp", owner: newType, returnType: comparisonSignType, parameters: [youParam]);
 
             // Derived: lt, le, gt, ge
             foreach (string opName in new[]
@@ -1803,22 +1794,9 @@ public sealed partial class TypeRegistry
                          "ge"
                      })
             {
-                RegisterRoutine(routine: new RoutineInfo(name: opName)
-                {
-                    Kind = RoutineKind.MemberRoutine,
-                    OwnerType = newType,
-                    Parameters = [youParam],
-                    ReturnType = boolType,
-                    IsFailable = false,
-                    DeclaredMutation = MutationCategory.Readonly,
-                    MutationCategory = MutationCategory.Readonly,
-                    Visibility = VisibilityModifier.Open,
-                    IsSynthesized = true
-                });
+                RegisterSynthesizedMemberRoutine(name: opName, owner: newType, returnType: boolType, parameters: [youParam]);
             }
         }
-
-        return newType;
     }
 
     /// <summary>
@@ -1892,6 +1870,49 @@ public sealed partial class TypeRegistry
     /// from their generic definitions during type checking. Used by
     /// <c>GenericMonomorphizationPass</c> to enumerate which memberRoutine bodies need rewriting.
     /// </summary>
+    /// <summary>
+    /// Clears the "created during stdlib analysis, defer until user code needs it" (<see
+    /// cref="TypeInfo.IsStdlibLazy"/>) flag on EVERY concrete instance, so all of them flow through
+    /// monomorphization + derive synthesis. Used when building a precompiled stdlib base (empty entry
+    /// program), where nothing user-side references these instances yet but the base must still define them.
+    /// Returns how many were materialized. Normal builds never call this.
+    /// </summary>
+    public int MaterializeAllLazyStdlibTypes()
+    {
+        int n = 0;
+        foreach (TypeInfo t in _resolutions.Values.Distinct().ToList())
+            if (t.IsStdlibLazy)
+            {
+                t.IsStdlibLazy = false;
+                n++;
+            }
+        return n;
+    }
+
+    /// <summary>
+    /// WARM-RESTORE: re-marks every concrete generic/wrapper instance as <see cref="TypeInfo.IsStdlibLazy"/>.
+    /// The whole-stdlib snapshot capture UN-lazied instances the stdlib's own bodies reference (Maybe/Result/
+    /// Hijacked[X] for many X) — far more than any single user program uses (measured warm 638 vs cold 378
+    /// processed, only 122 live). Re-lazying on restore makes a warm compile re-discover from the USER
+    /// program's reachability (via <see cref="MaterializeIfLazy"/>), like a cold compile does, instead of
+    /// GMP re-processing the whole primed closure every run. Returns how many were re-lazied.
+    /// </summary>
+    public int RelazyStdlibConcreteInstances()
+    {
+        int n = 0;
+        void Relazy(TypeInfo t)
+        {
+            if (!t.IsStdlibLazy && t.TypeArguments is { Count: > 0 } && IsFullyConcrete(t))
+            {
+                t.IsStdlibLazy = true;
+                n++;
+            }
+        }
+        foreach (TypeInfo t in _resolutions.Values.Distinct().ToList()) Relazy(t);
+        foreach (TypeInfo t in _wrapperResolutions.Values.Distinct().ToList()) Relazy(t);
+        return n;
+    }
+
     public IEnumerable<TypeInfo> AllConcreteGenericInstances =>
         _resolutions.Values
                     .Where(predicate: t =>
@@ -2048,23 +2069,7 @@ public sealed partial class TypeRegistry
                 if (!type.IsGenericDefinition && protocol.TypeArguments is { Count: > 0 } &&
                     impl.TypeArguments is { Count: > 0 })
                 {
-                    if (protocol.TypeArguments.Count != impl.TypeArguments.Count)
-                    {
-                        continue;
-                    }
-
-                    bool argsMatch = true;
-                    for (int i = 0; i < protocol.TypeArguments.Count; i++)
-                    {
-                        if (protocol.TypeArguments[index: i].FullName !=
-                            impl.TypeArguments[index: i].FullName)
-                        {
-                            argsMatch = false;
-                            break;
-                        }
-                    }
-
-                    if (!argsMatch)
+                    if (!ProtocolTypeArgsMatch(protocol: protocol, impl: impl))
                     {
                         continue;
                     }
@@ -2073,49 +2078,15 @@ public sealed partial class TypeRegistry
                 }
                 else if (type.IsGenericDefinition && protocol.TypeArguments is { Count: > 0 })
                 {
-                    // Resolve generic implementing type against protocol type arguments.
-                    // We can only synthesize a concrete obeyer instance when every one of the
-                    // obeyer's own generic parameters can be bound from the protocol's args.
-                    // For `entity BitArrayIterator[N] obeys Iterator[Bool]`, the obeys-clause
-                    // names no obeyer parameter — N is unbindable, so skip and let the obeyer
-                    // surface as a concrete implementer only via real `BitArrayIterator[8]`-style
-                    // instantiations elsewhere in the program.
-                    ProtocolTypeInfo protoDef2 = protocol.GenericDefinition ?? protocol;
-                    if (protoDef2.GenericParameters is not { Count: > 0 } ||
-                        type.GenericParameters is not { Count: > 0 } ||
-                        impl.TypeArguments is not { Count: > 0 })
+                    if (TryBindGenericImplementor(protocol: protocol, type: type, impl: impl)
+                        is { } resolved)
+                    {
+                        result.Add(item: resolved);
+                    }
+                    else
                     {
                         continue;
                     }
-
-                    // Walk the obeyer's `obeys Proto[...]` slots: wherever the obeyer wrote its
-                    // own generic parameter (e.g. `obeys Iterator[T]` with obeyer param `T`),
-                    // bind that obeyer-param to the protocol's concrete arg in the same slot.
-                    // Concrete entries in impl.TypeArguments (e.g. `Bool`) contribute no binding.
-                    var obeyerBindings = new Dictionary<string, TypeInfo>();
-                    int slots = Math.Min(val1: impl.TypeArguments.Count,
-                        val2: protocol.TypeArguments.Count);
-                    for (int slot = 0; slot < slots; slot++)
-                    {
-                        if (impl.TypeArguments[index: slot] is GenericParameterTypeInfo gp &&
-                            type.GenericParameters.Contains(item: gp.Name))
-                        {
-                            obeyerBindings[key: gp.Name] = protocol.TypeArguments[index: slot];
-                        }
-                    }
-
-                    if (obeyerBindings.Count != type.GenericParameters.Count)
-                    {
-                        continue;
-                    }
-
-                    var typeArgs = type.GenericParameters
-                                       .Select(selector: p => obeyerBindings[key: p])
-                                       .ToList();
-
-                    TypeInfo resolved = GetOrCreateResolution(genericDef: type,
-                        typeArguments: typeArgs);
-                    result.Add(item: resolved);
                 }
                 else
                 {
@@ -2127,6 +2098,74 @@ public sealed partial class TypeRegistry
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// True when a concrete implementer's <c>obeys Proto[...]</c> type arguments match the queried
+    /// protocol's type arguments positionally by fully-qualified name (equal arity required).
+    /// </summary>
+    private static bool ProtocolTypeArgsMatch(ProtocolTypeInfo protocol, TypeInfo impl)
+    {
+        if (protocol.TypeArguments!.Count != impl.TypeArguments!.Count)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < protocol.TypeArguments.Count; i++)
+        {
+            if (protocol.TypeArguments[index: i].FullName !=
+                impl.TypeArguments[index: i].FullName)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Attempts to synthesize a concrete obeyer instance of a GENERIC implementing <paramref name="type"/>
+    /// by binding each of its own generic parameters from the queried protocol's concrete arguments (in
+    /// the obeyer's <c>obeys Proto[...]</c> slots). Returns null when not every obeyer parameter is
+    /// bindable — e.g. <c>entity BitArrayIterator[N] obeys Iterator[Bool]</c> leaves N unbound, so the
+    /// obeyer surfaces only via real <c>BitArrayIterator[8]</c>-style instantiations elsewhere.
+    /// </summary>
+    private TypeInfo? TryBindGenericImplementor(ProtocolTypeInfo protocol, TypeInfo type, TypeInfo impl)
+    {
+        ProtocolTypeInfo protoDef2 = protocol.GenericDefinition ?? protocol;
+        if (protoDef2.GenericParameters is not { Count: > 0 } ||
+            type.GenericParameters is not { Count: > 0 } ||
+            impl.TypeArguments is not { Count: > 0 })
+        {
+            return null;
+        }
+
+        // Walk the obeyer's `obeys Proto[...]` slots: wherever the obeyer wrote its
+        // own generic parameter (e.g. `obeys Iterator[T]` with obeyer param `T`),
+        // bind that obeyer-param to the protocol's concrete arg in the same slot.
+        // Concrete entries in impl.TypeArguments (e.g. `Bool`) contribute no binding.
+        var obeyerBindings = new Dictionary<string, TypeInfo>();
+        int slots = Math.Min(val1: impl.TypeArguments.Count,
+            val2: protocol.TypeArguments!.Count);
+        for (int slot = 0; slot < slots; slot++)
+        {
+            if (impl.TypeArguments[index: slot] is GenericParameterTypeInfo gp &&
+                type.GenericParameters.Contains(item: gp.Name))
+            {
+                obeyerBindings[key: gp.Name] = protocol.TypeArguments[index: slot];
+            }
+        }
+
+        if (obeyerBindings.Count != type.GenericParameters.Count)
+        {
+            return null;
+        }
+
+        var typeArgs = type.GenericParameters
+                           .Select(selector: p => obeyerBindings[key: p])
+                           .ToList();
+
+        return GetOrCreateResolution(genericDef: type, typeArguments: typeArgs);
     }
 
     #endregion

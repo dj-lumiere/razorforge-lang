@@ -93,7 +93,7 @@ public partial class Tokenizer
     /// For formatted strings, delegates to ScanFormattedStringLiteral.
     /// </summary>
     private void ScanStringLiteral(bool isRaw, bool isFormatted, TokenType tokenType,
-        int bitWidth = 32) // NOSONAR S3776
+        int bitWidth = 32)
     {
         if (isFormatted)
         {
@@ -107,44 +107,7 @@ public partial class Tokenizer
 
         while (!IsAtEnd() && Peek() != '"')
         {
-            if (Peek() == '\n')
-            {
-                content.Append(value: '\n');
-                Advance();
-            }
-            else if (!isRaw && Peek() == '\\')
-            {
-                int escapeStart = _position;
-                Advance(); // consume backslash
-
-                // Check for line continuation (\ followed by newline)
-                if (Peek() == '\n' || Peek() == '\r')
-                {
-                    // Line continuation: skip newline and leading whitespace, don't add to content
-                    ScanEscapeSequence(bitWidth: bitWidth);
-                }
-                else
-                {
-                    ScanEscapeSequence(bitWidth: bitWidth);
-                    content.Append(value: ParseEscapeSequence(escapeStart: escapeStart));
-                }
-            }
-            else
-            {
-                char c = Advance();
-                if (bitWidth == 8 && c > '\x7F')
-                {
-                    throw new GrammarException(code: GrammarDiagnosticCode.InvalidEscapeSequence,
-                        message: $"Non-ASCII character '{c}' (U+{(int)c:X4}) in byte literal. " +
-                                 "Byte literals only accept ASCII (0x00-0x7F). Use \"text\".encode_as(UTF8) instead.",
-                        fileName: _fileName,
-                        line: _line,
-                        column: _column,
-                        language: _language);
-                }
-
-                content.Append(value: c);
-            }
+            ScanStringLiteralChar(isRaw: isRaw, bitWidth: bitWidth, content: content);
         }
 
         if (IsAtEnd())
@@ -162,10 +125,57 @@ public partial class Tokenizer
     }
 
     /// <summary>
+    /// Scans a single character (or escape sequence) within a basic string literal, appending its
+    /// value to <paramref name="content"/>. Handles literal newlines, escape sequences (with line
+    /// continuation), and byte-literal ASCII validation.
+    /// </summary>
+    private void ScanStringLiteralChar(bool isRaw, int bitWidth, StringBuilder content)
+    {
+        if (Peek() == '\n')
+        {
+            content.Append(value: '\n');
+            Advance();
+        }
+        else if (!isRaw && Peek() == '\\')
+        {
+            int escapeStart = _position;
+            Advance(); // consume backslash
+
+            // Check for line continuation (\ followed by newline)
+            if (Peek() == '\n' || Peek() == '\r')
+            {
+                // Line continuation: skip newline and leading whitespace, don't add to content
+                ScanEscapeSequence(bitWidth: bitWidth);
+            }
+            else
+            {
+                ScanEscapeSequence(bitWidth: bitWidth);
+                content.Append(value: ParseEscapeSequence(escapeStart: escapeStart));
+            }
+        }
+        else
+        {
+            char c = Advance();
+            if (bitWidth == 8 && c > '\x7F')
+            {
+                throw new GrammarException(code: GrammarDiagnosticCode.InvalidEscapeSequence,
+                    message: $"Non-ASCII character '{c}' (U+{(int)c:X4}) in byte literal. " +
+                             "Byte literals only accept ASCII (0x00-0x7F). Use \"text\".encode_as(UTF8) instead.",
+                    fileName: _fileName,
+                    line: _line,
+                    column: _column,
+                    language: _language);
+            }
+
+            content.Append(value: c);
+        }
+    }
+
+    /// <summary>
     /// Scans a formatted string literal (f"..." or rf"..."), emitting a structured token sequence:
     /// InsertionStart, TextSegment*, (LeftBrace, expr tokens, RightBrace)*, InsertionEnd
     /// </summary>
-    private void ScanFormattedStringLiteral(bool isRaw) // NOSONAR S3776
+    private void ScanFormattedStringLiteral(bool isRaw)
     {
         int startLine = _line;
         int startColumn = _column;
@@ -180,91 +190,11 @@ public partial class Tokenizer
 
         while (!IsAtEnd())
         {
-            char c = Peek();
-
-            if (c == '"')
+            // Returns true when the closing quote was consumed (f-string complete).
+            if (ScanFormattedStringChar(isRaw: isRaw, textBuffer: textBuffer))
             {
-                // End of f-string — flush remaining text and emit InsertionEnd
-                FlushTextSegment(textBuffer: textBuffer);
-                Advance(); // consume closing quote
-                _tokenStart = _position - 1;
-                _tokenStartColumn = _column - 1;
-                _tokenStartLine = _line;
-                AddToken(type: TokenType.InsertionEnd, text: "\"");
                 return;
             }
-
-            if (c == '{')
-            {
-                if (Peek(offset: 1) == '{')
-                {
-                    // Escaped brace {{ → literal {
-                    Advance();
-                    Advance();
-                    textBuffer.Append(value: '{');
-                    continue;
-                }
-
-                // Start of insertion expression — flush text, emit LeftBrace
-                FlushTextSegment(textBuffer: textBuffer);
-                _tokenStart = _position;
-                _tokenStartColumn = _column;
-                _tokenStartLine = _line;
-                Advance(); // consume {
-                AddToken(type: TokenType.LeftBrace, text: "{");
-                _bracketDepth++;
-                ScanInsertionExpression();
-                continue;
-            }
-
-            if (c == '}')
-            {
-                if (Peek(offset: 1) == '}')
-                {
-                    // Escaped brace }} → literal }
-                    Advance();
-                    Advance();
-                    textBuffer.Append(value: '}');
-                    continue;
-                }
-
-                // Unmatched } outside insertion — treat as error
-                throw new GrammarException(code: GrammarDiagnosticCode.UnexpectedToken,
-                    message: "Unmatched '}' in formatted text. Use '}}' for a literal brace.",
-                    fileName: _fileName,
-                    line: _line,
-                    column: _column,
-                    language: _language);
-            }
-
-            if (!isRaw && c == '\\')
-            {
-                // Process escape sequence
-                int escapeStart = _position;
-                Advance(); // consume backslash
-                if (Peek() == '\n' || Peek() == '\r')
-                {
-                    ScanEscapeSequence(bitWidth: 32);
-                }
-                else
-                {
-                    ScanEscapeSequence(bitWidth: 32);
-                    textBuffer.Append(
-                        value: ParseEscapeSequence(escapeStart: escapeStart));
-                }
-
-                continue;
-            }
-
-            if (c == '\n')
-            {
-                textBuffer.Append(value: '\n');
-                Advance();
-                continue;
-            }
-
-            // Regular character
-            textBuffer.Append(value: Advance());
         }
 
         // Reached EOF without closing quote
@@ -278,6 +208,120 @@ public partial class Tokenizer
     }
 
     /// <summary>
+    /// Handles one character position within a formatted string literal: the closing quote,
+    /// insertion braces (with <c>{{</c>/<c>}}</c> escapes), escape sequences, and literal text.
+    /// </summary>
+    /// <returns><c>true</c> if the closing quote was consumed and scanning is complete.</returns>
+    private bool ScanFormattedStringChar(bool isRaw, StringBuilder textBuffer)
+    {
+        char c = Peek();
+
+        if (c == '"')
+        {
+            // End of f-string — flush remaining text and emit InsertionEnd
+            FlushTextSegment(textBuffer: textBuffer);
+            Advance(); // consume closing quote
+            _tokenStart = _position - 1;
+            _tokenStartColumn = _column - 1;
+            _tokenStartLine = _line;
+            AddToken(type: TokenType.InsertionEnd, text: "\"");
+            return true;
+        }
+
+        if (c == '{')
+        {
+            ScanFormattedStringOpenBrace(textBuffer: textBuffer);
+            return false;
+        }
+
+        if (c == '}')
+        {
+            ScanFormattedStringCloseBrace(textBuffer: textBuffer);
+            return false;
+        }
+
+        if (!isRaw && c == '\\')
+        {
+            // Process escape sequence
+            int escapeStart = _position;
+            Advance(); // consume backslash
+            if (Peek() == '\n' || Peek() == '\r')
+            {
+                ScanEscapeSequence(bitWidth: 32);
+            }
+            else
+            {
+                ScanEscapeSequence(bitWidth: 32);
+                textBuffer.Append(
+                    value: ParseEscapeSequence(escapeStart: escapeStart));
+            }
+
+            return false;
+        }
+
+        if (c == '\n')
+        {
+            textBuffer.Append(value: '\n');
+            Advance();
+            return false;
+        }
+
+        // Regular character
+        textBuffer.Append(value: Advance());
+        return false;
+    }
+
+    /// <summary>
+    /// Handles a '{' in a formatted string: either an escaped <c>{{</c> → literal '{', or the
+    /// start of an insertion expression (flush text, emit LeftBrace, scan the expression).
+    /// </summary>
+    private void ScanFormattedStringOpenBrace(StringBuilder textBuffer)
+    {
+        if (Peek(offset: 1) == '{')
+        {
+            // Escaped brace {{ → literal {
+            Advance();
+            Advance();
+            textBuffer.Append(value: '{');
+            return;
+        }
+
+        // Start of insertion expression — flush text, emit LeftBrace
+        FlushTextSegment(textBuffer: textBuffer);
+        _tokenStart = _position;
+        _tokenStartColumn = _column;
+        _tokenStartLine = _line;
+        Advance(); // consume {
+        AddToken(type: TokenType.LeftBrace, text: "{");
+        _bracketDepth++;
+        ScanInsertionExpression();
+    }
+
+    /// <summary>
+    /// Handles a '}' in a formatted string: an escaped <c>}}</c> → literal '}', otherwise an
+    /// unmatched brace error.
+    /// </summary>
+    private void ScanFormattedStringCloseBrace(StringBuilder textBuffer)
+    {
+        if (Peek(offset: 1) == '}')
+        {
+            // Escaped brace }} → literal }
+            Advance();
+            Advance();
+            textBuffer.Append(value: '}');
+            return;
+        }
+
+        // Unmatched } outside insertion — treat as error
+        throw new GrammarException(code: GrammarDiagnosticCode.UnexpectedToken,
+            message: "Unmatched '}' in formatted text. Use '}}' for a literal brace.",
+            fileName: _fileName,
+            line: _line,
+            column: _column,
+            language: _language);
+    }
+
+    /// <summary>
     /// Scans the tokens inside an insertion expression ({...}) within a formatted string.
     /// Delegates to ScanToken() for each token until the matching } is found.
     /// </summary>
@@ -287,18 +331,7 @@ public partial class Tokenizer
 
         while (!IsAtEnd())
         {
-            // Skip whitespace inside the insertion expression
-            while (!IsAtEnd() &&
-                   (Peek() == ' ' || Peek() == '\t' || Peek() == '\r' || Peek() == '\n'))
-            {
-                if (Peek() == '\n')
-                {
-                    _line++;
-                    _column = 0;
-                }
-
-                Advance();
-            }
+            SkipInsertionWhitespace();
 
             if (IsAtEnd())
             {
@@ -328,216 +361,250 @@ public partial class Tokenizer
             }
 
             // Otherwise, scan a regular token
-            char c = Advance();
+            ScanInsertionToken(c: Advance());
+        }
+    }
 
-            switch (c)
+    /// <summary>
+    /// Skips whitespace (including newlines) inside an insertion expression, updating line/column
+    /// tracking for consumed newlines.
+    /// </summary>
+    private void SkipInsertionWhitespace()
+    {
+        while (!IsAtEnd() &&
+               (Peek() == ' ' || Peek() == '\t' || Peek() == '\r' || Peek() == '\n'))
+        {
+            if (Peek() == '\n')
             {
-                case '(':
-                    AddToken(type: TokenType.LeftParen);
-                    _bracketDepth++;
-                    break;
-                case ')':
-                    AddToken(type: TokenType.RightParen);
-                    if (_bracketDepth > 0)
-                    {
-                        _bracketDepth--;
-                    }
-
-                    break;
-                case '[':
-                    AddToken(type: TokenType.LeftBracket);
-                    _bracketDepth++;
-                    break;
-                case ']':
-                    AddToken(type: TokenType.RightBracket);
-                    if (_bracketDepth > 0)
-                    {
-                        _bracketDepth--;
-                    }
-
-                    break;
-                case '{':
-                    AddToken(type: TokenType.LeftBrace);
-                    _bracketDepth++;
-                    break;
-                case '}':
-                    AddToken(type: TokenType.RightBrace);
-                    if (_bracketDepth > 0)
-                    {
-                        _bracketDepth--;
-                    }
-
-                    break;
-                case ',':
-                    AddToken(type: TokenType.Comma);
-                    break;
-                case '.':
-                    AddToken(type: TokenType.Dot);
-                    break;
-                case '+':
-                    ScanPlusOperator();
-                    break;
-                case '-':
-                    if (Match(expected: '>'))
-                    {
-                        AddToken(type: TokenType.Arrow);
-                    }
-                    else
-                    {
-                        ScanMinusOperator();
-                    }
-
-                    break;
-                case '*':
-                    ScanStarOperator();
-                    break;
-                case '/':
-                    ScanSlashOperator();
-                    break;
-                case '%':
-                    ScanPercentOperator();
-                    break;
-                case ':':
-                    // `::` is a realm qualifier (`LLVM::int_eq`) — emit DoubleColon so a
-                    // realm-qualified call parses inside an f-string interpolation.
-                    // Otherwise a lone `:` at entry depth was already handled above as a
-                    // format-spec start (line ~319); reaching here with a lone `:` means
-                    // we're inside nested parens/brackets — emit a regular Colon token so
-                    // named arguments like `value: 42` inside an f-string interpolation
-                    // parse correctly.
-                    AddToken(type: Match(expected: ':')
-                        ? TokenType.DoubleColon
-                        : TokenType.Colon);
-                    break;
-                case '=':
-                    if (Match(expected: '='))
-                    {
-                        AddToken(type: Match(expected: '=') ? TokenType.IdentityEqual : TokenType.Equal);
-                    }
-                    else if (Match(expected: '>'))
-                    {
-                        AddToken(type: TokenType.FatArrow);
-                    }
-                    else
-                    {
-                        AddToken(type: TokenType.Assign);
-                    }
-
-                    break;
-                case '!':
-                    if (Match(expected: '='))
-                    {
-                        AddToken(type: Match(expected: '=') ? TokenType.IdentityNotEqual : TokenType.NotEqual);
-                    }
-                    else if (Match(expected: '!'))
-                    {
-                        AddToken(type: TokenType.BangBang);
-                    }
-                    else
-                    {
-                        AddToken(type: TokenType.Bang);
-                    }
-
-                    break;
-                case '<':
-                    ScanLessThanOperator();
-                    break;
-                case '>':
-                    ScanGreaterThanOperator();
-                    break;
-                case '&':
-                    AddToken(type: Match(expected: '=')
-                        ? TokenType.AmpersandAssign
-                        : TokenType.Ampersand);
-                    break;
-                case '|':
-                    AddToken(type: Match(expected: '=')
-                        ? TokenType.PipeAssign
-                        : TokenType.Pipe);
-                    break;
-                case '^':
-                    AddToken(type: Match(expected: '=')
-                        ? TokenType.CaretAssign
-                        : TokenType.Caret);
-                    break;
-                case '~':
-                    AddToken(type: TokenType.Tilde);
-                    break;
-                case '?':
-                    if (Match(expected: '.'))
-                    {
-                        AddToken(type: TokenType.QuestionDot);
-                    }
-                    else if (Match(expected: '?'))
-                    {
-                        AddToken(type: Match(expected: '=')
-                            ? TokenType.NoneCoalesceAssign
-                            : TokenType.NoneCoalesce);
-                    }
-                    else
-                    {
-                        AddToken(type: TokenType.Question);
-                    }
-
-                    break;
-                case '"':
-                    ScanString();
-                    break;
-                case '\'':
-                    ScanCharacter();
-                    break;
-                // Prefixed string literals (b"..", r"..", f"..", rf"..", br"..") —
-                // mirror Tokenizer.Scanning so nested literals work inside f-string
-                // interpolation holes, e.g. f"{try_parse(bytes: b\"42\")}".
-                case 'r' or 'f':
-                    if (!TryParseTextPrefix())
-                    {
-                        ScanIdentifier();
-                    }
-
-                    break;
-                case 'b':
-                    if (!TryParseTextPrefix() && !TryParseByteLiteralPrefix())
-                    {
-                        ScanIdentifier();
-                    }
-
-                    break;
-                default:
-                    if (c == '0' && (Peek() == 'x' || Peek() == 'X'))
-                    {
-                        Advance(); // consume 'x'/'X'
-                        ScanPrefixedNumber(isHex: true);
-                    }
-                    else if (c == '0' && (Peek() == 'b' || Peek() == 'B') &&
-                             (Peek(offset: 1) == '0' || Peek(offset: 1) == '1' ||
-                              Peek(offset: 1) == '_'))
-                    {
-                        Advance(); // consume 'b'/'B'
-                        ScanPrefixedNumber(isHex: false);
-                    }
-                    else if (c == '0' && (Peek() == 'o' || Peek() == 'O') &&
-                             ((Peek(offset: 1) >= '0' && Peek(offset: 1) <= '7') ||
-                              Peek(offset: 1) == '_'))
-                    {
-                        Advance(); // consume 'o'/'O'
-                        ScanOctalNumber();
-                    }
-                    else if (char.IsDigit(c: c))
-                    {
-                        ScanNumber();
-                    }
-                    else
-                    {
-                        // Permissive fallback: anything that isn't a recognised
-                        // bracket/punct/operator above is treated as identifier
-                        // start. Lets sigils like `$` (and future ones) flow
-                        // through without per-char allow-listing.
-                        ScanIdentifier();
-                    }
-
-                    break;
+                _line++;
+                _column = 0;
             }
+
+            Advance();
+        }
+    }
+
+    /// <summary>
+    /// Scans a single token inside an insertion expression given its already-consumed first
+    /// character, dispatching to the shared operator/literal scanners.
+    /// </summary>
+    private void ScanInsertionToken(char c)
+    {
+        switch (c)
+        {
+            case '(':
+                AddToken(type: TokenType.LeftParen);
+                _bracketDepth++;
+                break;
+            case ')':
+                AddToken(type: TokenType.RightParen);
+                if (_bracketDepth > 0)
+                {
+                    _bracketDepth--;
+                }
+
+                break;
+            case '[':
+                AddToken(type: TokenType.LeftBracket);
+                _bracketDepth++;
+                break;
+            case ']':
+                AddToken(type: TokenType.RightBracket);
+                if (_bracketDepth > 0)
+                {
+                    _bracketDepth--;
+                }
+
+                break;
+            case '{':
+                AddToken(type: TokenType.LeftBrace);
+                _bracketDepth++;
+                break;
+            case '}':
+                AddToken(type: TokenType.RightBrace);
+                if (_bracketDepth > 0)
+                {
+                    _bracketDepth--;
+                }
+
+                break;
+            case ',':
+                AddToken(type: TokenType.Comma);
+                break;
+            case '.':
+                AddToken(type: TokenType.Dot);
+                break;
+            case '+':
+                ScanPlusOperator();
+                break;
+            case '-':
+                if (Match(expected: '>'))
+                {
+                    AddToken(type: TokenType.Arrow);
+                }
+                else
+                {
+                    ScanMinusOperator();
+                }
+
+                break;
+            case '*':
+                ScanStarOperator();
+                break;
+            case '/':
+                ScanSlashOperator();
+                break;
+            case '%':
+                ScanPercentOperator();
+                break;
+            case ':':
+                // `::` is a realm qualifier (`LLVM::int_eq`) — emit DoubleColon so a
+                // realm-qualified call parses inside an f-string interpolation.
+                // Otherwise a lone `:` at entry depth was already handled above as a
+                // format-spec start (line ~319); reaching here with a lone `:` means
+                // we're inside nested parens/brackets — emit a regular Colon token so
+                // named arguments like `value: 42` inside an f-string interpolation
+                // parse correctly.
+                AddToken(type: Match(expected: ':')
+                    ? TokenType.DoubleColon
+                    : TokenType.Colon);
+                break;
+            case '=':
+                if (Match(expected: '='))
+                {
+                    AddToken(type: Match(expected: '=') ? TokenType.IdentityEqual : TokenType.Equal);
+                }
+                else if (Match(expected: '>'))
+                {
+                    AddToken(type: TokenType.FatArrow);
+                }
+                else
+                {
+                    AddToken(type: TokenType.Assign);
+                }
+
+                break;
+            case '!':
+                if (Match(expected: '='))
+                {
+                    AddToken(type: Match(expected: '=') ? TokenType.IdentityNotEqual : TokenType.NotEqual);
+                }
+                else if (Match(expected: '!'))
+                {
+                    AddToken(type: TokenType.BangBang);
+                }
+                else
+                {
+                    AddToken(type: TokenType.Bang);
+                }
+
+                break;
+            case '<':
+                ScanLessThanOperator();
+                break;
+            case '>':
+                ScanGreaterThanOperator();
+                break;
+            case '&':
+                AddToken(type: Match(expected: '=')
+                    ? TokenType.AmpersandAssign
+                    : TokenType.Ampersand);
+                break;
+            case '|':
+                AddToken(type: Match(expected: '=')
+                    ? TokenType.PipeAssign
+                    : TokenType.Pipe);
+                break;
+            case '^':
+                AddToken(type: Match(expected: '=')
+                    ? TokenType.CaretAssign
+                    : TokenType.Caret);
+                break;
+            case '~':
+                AddToken(type: TokenType.Tilde);
+                break;
+            case '?':
+                if (Match(expected: '.'))
+                {
+                    AddToken(type: TokenType.QuestionDot);
+                }
+                else if (Match(expected: '?'))
+                {
+                    AddToken(type: Match(expected: '=')
+                        ? TokenType.NoneCoalesceAssign
+                        : TokenType.NoneCoalesce);
+                }
+                else
+                {
+                    AddToken(type: TokenType.Question);
+                }
+
+                break;
+            case '"':
+                ScanString();
+                break;
+            case '\'':
+                ScanCharacter();
+                break;
+            // Prefixed string literals (b"..", r"..", f"..", rf"..", br"..") —
+            // mirror Tokenizer.Scanning so nested literals work inside f-string
+            // interpolation holes, e.g. f"{try_parse(bytes: b\"42\")}".
+            case 'r' or 'f':
+                if (!TryParseTextPrefix())
+                {
+                    ScanIdentifier();
+                }
+
+                break;
+            case 'b':
+                if (!TryParseTextPrefix() && !TryParseByteLiteralPrefix())
+                {
+                    ScanIdentifier();
+                }
+
+                break;
+            default:
+                ScanInsertionDefaultToken(c: c);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Handles the default insertion-token case: prefixed numbers (hex/binary/octal), decimal
+    /// numbers, and a permissive identifier fallback for any other character.
+    /// </summary>
+    private void ScanInsertionDefaultToken(char c)
+    {
+        if (c == '0' && (Peek() == 'x' || Peek() == 'X'))
+        {
+            Advance(); // consume 'x'/'X'
+            ScanPrefixedNumber(isHex: true);
+        }
+        else if (c == '0' && (Peek() == 'b' || Peek() == 'B') &&
+                 (Peek(offset: 1) == '0' || Peek(offset: 1) == '1' ||
+                  Peek(offset: 1) == '_'))
+        {
+            Advance(); // consume 'b'/'B'
+            ScanPrefixedNumber(isHex: false);
+        }
+        else if (c == '0' && (Peek() == 'o' || Peek() == 'O') &&
+                 ((Peek(offset: 1) >= '0' && Peek(offset: 1) <= '7') ||
+                  Peek(offset: 1) == '_'))
+        {
+            Advance(); // consume 'o'/'O'
+            ScanOctalNumber();
+        }
+        else if (char.IsDigit(c: c))
+        {
+            ScanNumber();
+        }
+        else
+        {
+            // Permissive fallback: anything that isn't a recognised
+            // bracket/punct/operator above is treated as identifier
+            // start. Lets sigils like `$` (and future ones) flow
+            // through without per-char allow-listing.
+            ScanIdentifier();
         }
     }
 

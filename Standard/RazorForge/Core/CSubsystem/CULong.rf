@@ -20,13 +20,13 @@ routine CULong.cmp(you: CULong) -> ComparisonSign
 
 ### Returns the display form of this C `unsigned long`, rendered as its unsigned decimal value.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine CULong.represent() -> Text
   return U64(from: me).represent()
 
 ### Returns the diagnostic form of this C `unsigned long`.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine CULong.diagnose() -> Text
   return "CULong(" + U64(from: me).represent() + ")"
 

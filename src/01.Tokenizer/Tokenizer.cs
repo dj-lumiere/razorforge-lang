@@ -218,6 +218,7 @@ public partial class Tokenizer
 
             // Generic constraints
             [key: "needs"] = TokenType.Needs,
+            [key: "onlyif"] = TokenType.OnlyIf,
 
             // Associated types
             [key: "relates"] = TokenType.Relates,
@@ -318,45 +319,60 @@ public partial class Tokenizer
 
         for (int i = 0; i < source.Length; i += 1)
         {
-            char c = source[index: i];
-            if (c == '\0')
-            {
-                ThrowInvalidSourceCharacter(source: source,
-                    fileName: fileName,
-                    language: language,
-                    position: i,
-                    message: "Source contains a null byte");
-            }
-
-            if (c == '\t')
-            {
-                ThrowInvalidSourceCharacter(source: source,
-                    fileName: fileName,
-                    language: language,
-                    position: i,
-                    message: "Tabs are not allowed; indentation must use spaces");
-            }
-
-            if (char.IsWhiteSpace(c: c) && c is not ' ' and not '\n')
-            {
-                ThrowInvalidSourceCharacter(source: source,
-                    fileName: fileName,
-                    language: language,
-                    position: i,
-                    message: $"Unsupported whitespace character U+{(int)c:X4}");
-            }
-
-            if (CharUnicodeInfo.GetUnicodeCategory(ch: c) == UnicodeCategory.Format)
-            {
-                ThrowInvalidSourceCharacter(source: source,
-                    fileName: fileName,
-                    language: language,
-                    position: i,
-                    message: $"Unsupported format character U+{(int)c:X4}");
-            }
+            ValidateSourceCharacter(source: source,
+                fileName: fileName,
+                language: language,
+                position: i);
         }
 
         return source;
+    }
+
+    /// <summary>
+    /// Rejects a single invisible or ambiguous source character (null byte, tab, unsupported
+    /// whitespace, or a Unicode format character) at the given position.
+    /// </summary>
+    private static void ValidateSourceCharacter(string source,
+        string fileName,
+        Language language,
+        int position)
+    {
+        char c = source[index: position];
+        if (c == '\0')
+        {
+            ThrowInvalidSourceCharacter(source: source,
+                fileName: fileName,
+                language: language,
+                position: position,
+                message: "Source contains a null byte");
+        }
+
+        if (c == '\t')
+        {
+            ThrowInvalidSourceCharacter(source: source,
+                fileName: fileName,
+                language: language,
+                position: position,
+                message: "Tabs are not allowed; indentation must use spaces");
+        }
+
+        if (char.IsWhiteSpace(c: c) && c is not ' ' and not '\n')
+        {
+            ThrowInvalidSourceCharacter(source: source,
+                fileName: fileName,
+                language: language,
+                position: position,
+                message: $"Unsupported whitespace character U+{(int)c:X4}");
+        }
+
+        if (CharUnicodeInfo.GetUnicodeCategory(ch: c) == UnicodeCategory.Format)
+        {
+            ThrowInvalidSourceCharacter(source: source,
+                fileName: fileName,
+                language: language,
+                position: position,
+                message: $"Unsupported format character U+{(int)c:X4}");
+        }
     }
 
     private static void ThrowInvalidSourceCharacter(string source,

@@ -360,7 +360,7 @@ needs TPriority obeys Copyable
   while i < limit
     # `clone` out of the read-only borrows (elided for trivial types; retain-aware via `store` for
     # RC records) — `add` takes ownership, so aliasing would double-free when both queues drop.
-    me.add(element: elements[i].copy(), priority: priorities[i].copy())
+    me.add(element: elements[i].duplicate(), priority: priorities[i].duplicate())
     i = i +% 1u64
   return
 
@@ -470,6 +470,7 @@ routine PriorityQueue[TPriority, TElement].diagnose() -> Text
   result = result + "])"
   return steal result
 
+@override
 dangerous routine PriorityQueue[TPriority, TElement].destroy()
   # Tear down each stored priority and element before freeing the buffers. No-op for value
   # types; frees owned entity priorities/elements.

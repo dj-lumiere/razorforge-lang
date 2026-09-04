@@ -152,21 +152,10 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
                 return LowerBlock(b, live, loopBoundary);
 
             case IfStatement ifs:
-            {
-                Statement then = LowerStatement(ifs.ThenStatement, Copy(live), loopBoundary);
-                Statement? elseS = ifs.ElseStatement != null
-                    ? LowerStatement(ifs.ElseStatement, Copy(live), loopBoundary)
-                    : null;
-                return ifs with { ThenStatement = then, ElseStatement = elseS };
-            }
+                return LowerIfStatement(ifs: ifs, live: live, loopBoundary: loopBoundary);
 
             case WhenStatement w:
-            {
-                var clauses = w.Clauses
-                    .Select(selector: c => c with { Body = LowerStatement(c.Body, Copy(live), loopBoundary) })
-                    .ToList();
-                return w with { Clauses = clauses };
-            }
+                return LowerWhenStatement(w: w, live: live, loopBoundary: loopBoundary);
 
             case LoopStatement loop:
             {
@@ -185,13 +174,7 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
             // UsingLoweringPass injects. (In already-lowered stdlib bodies the `using` is gone; its
             // `__uf_` temporaries are skipped by IsUsingBinding instead.)
             case UsingStatement u:
-                return u with
-                {
-                    Body = LowerStatement(u.Body, Copy(live), loopBoundary),
-                    FallbackBody = u.FallbackBody != null
-                        ? LowerStatement(u.FallbackBody, Copy(live), loopBoundary)
-                        : null
-                };
+                return LowerUsingStatement(u: u, live: live, loopBoundary: loopBoundary);
 
             case ReturnStatement or AbsentStatement or ThrowStatement or VariantReturnStatement:
                 return PrefixDestroys(stmt, live, from: 0, skip: ReturnedName(stmt));
@@ -251,6 +234,34 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
         }
     }
 
+    private Statement LowerIfStatement(IfStatement ifs, List<Owned> live, int loopBoundary)
+    {
+        Statement then = LowerStatement(ifs.ThenStatement, Copy(live), loopBoundary);
+        Statement? elseS = ifs.ElseStatement != null
+            ? LowerStatement(ifs.ElseStatement, Copy(live), loopBoundary)
+            : null;
+        return ifs with { ThenStatement = then, ElseStatement = elseS };
+    }
+
+    private Statement LowerWhenStatement(WhenStatement w, List<Owned> live, int loopBoundary)
+    {
+        var clauses = w.Clauses
+            .Select(selector: c => c with { Body = LowerStatement(c.Body, Copy(live), loopBoundary) })
+            .ToList();
+        return w with { Clauses = clauses };
+    }
+
+    private Statement LowerUsingStatement(UsingStatement u, List<Owned> live, int loopBoundary)
+    {
+        return u with
+        {
+            Body = LowerStatement(u.Body, Copy(live), loopBoundary),
+            FallbackBody = u.FallbackBody != null
+                ? LowerStatement(u.FallbackBody, Copy(live), loopBoundary)
+                : null
+        };
+    }
+
     private BlockStatement LowerBlock(BlockStatement block, List<Owned> outerLive, int loopBoundary)
     {
         // `live` grows as this block's own declarations are seen; nested scopes get a copy.
@@ -263,29 +274,7 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
             if (s is DeclarationStatement { Declaration: VariableDeclaration v })
             {
                 stmts.Add(item: s);
-
-                // A `var buf = _lit_N` binding takes over ownership of a hoisted collection-literal
-                // temporary (ExpressionLoweringPass lowers `var buf = []` to
-                // `var _lit_N = List(); _lit_N.add(...); var buf = _lit_N`). `buf` and `_lit_N` alias
-                // the SAME object, so only ONE may be torn down. When this pass runs AFTER that lowering
-                // (stdlib + synthesized variant bodies — user programs are lowered later), both would be
-                // live and BOTH destroyed → double-free. Treat the move as consuming the temp: drop it
-                // from `live` and record it moved so no scope-exit/return teardown frees it.
-                if (v.Initializer is IdentifierExpression { Name: var srcName }
-                    && srcName.StartsWith(value: "_lit_", comparisonType: StringComparison.Ordinal))
-                {
-                    _movedNames.Add(item: srcName);
-                    int srcIdx = live.FindLastIndex(match: o => o.Name == srcName);
-                    if (srcIdx >= 0) live.RemoveAt(index: srcIdx);
-                }
-
-                TypeInfo? t = v.Type?.ResolvedType ?? v.Initializer?.ResolvedType;
-                if (t != null && !_movedNames.Contains(item: v.Name) && !IsUsingBinding(v: v)
-                    && !IsViewBinding(v: v)
-                    && TryResolveDestroy(type: t, out RoutineInfo? d) && d != null)
-                {
-                    live.Add(item: new Owned(Name: v.Name, Type: t, Destroy: d));
-                }
+                RegisterBlockDeclaration(v: v, live: live);
                 continue;
             }
 
@@ -307,6 +296,34 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
         return block with { Statements = stmts };
     }
 
+    // Records a block-local `var` declaration into `live` (so its scope-exit teardown is emitted),
+    // after handling the `var buf = _lit_N` collection-literal ownership transfer.
+    private void RegisterBlockDeclaration(VariableDeclaration v, List<Owned> live)
+    {
+        // A `var buf = _lit_N` binding takes over ownership of a hoisted collection-literal
+        // temporary (ExpressionLoweringPass lowers `var buf = []` to
+        // `var _lit_N = List(); _lit_N.add(...); var buf = _lit_N`). `buf` and `_lit_N` alias
+        // the SAME object, so only ONE may be torn down. When this pass runs AFTER that lowering
+        // (stdlib + synthesized variant bodies — user programs are lowered later), both would be
+        // live and BOTH destroyed → double-free. Treat the move as consuming the temp: drop it
+        // from `live` and record it moved so no scope-exit/return teardown frees it.
+        if (v.Initializer is IdentifierExpression { Name: var srcName }
+            && srcName.StartsWith(value: "_lit_", comparisonType: StringComparison.Ordinal))
+        {
+            _movedNames.Add(item: srcName);
+            int srcIdx = live.FindLastIndex(match: o => o.Name == srcName);
+            if (srcIdx >= 0) live.RemoveAt(index: srcIdx);
+        }
+
+        TypeInfo? t = v.Type?.ResolvedType ?? v.Initializer?.ResolvedType;
+        if (t != null && !_movedNames.Contains(item: v.Name) && !IsUsingBinding(v: v)
+            && !IsViewBinding(v: v)
+            && TryResolveDestroy(type: t, out RoutineInfo? d) && d != null)
+        {
+            live.Add(item: new Owned(Name: v.Name, Type: t, Destroy: d));
+        }
+    }
+
     /// <summary>
     /// Wraps <paramref name="exit"/> in a block that destroys live owned bindings at indices
     /// <c>[from, live.Count)</c>, skipping <paramref name="skip"/> (a returned bare local, which is
@@ -322,38 +339,8 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
     private Statement PrefixDestroys(Statement exit, List<Owned> live, int from, string? skip)
     {
         var stmts = new List<Statement>();
-        Statement finalExit = exit;
-
-        // Spill a non-trivial returned expression so it's computed while its locals are still live.
-        // (A bare-identifier return is a move — `skip` already excludes it — and needs no spill.)
-        Expression? retVal = exit switch
-        {
-            ReturnStatement r => r.Value,
-            VariantReturnStatement vr => vr.Value,
-            _ => null
-        };
-        if (retVal is not null and not IdentifierExpression && WillDestroyAny(live, from, skip))
-        {
-            string tmp = $"__td_ret_{_spillCounter++}";
-            // Leave the slot type to be inferred from EXPR — codegen emits the spilled value with its
-            // own resolved type, so the slot must match THAT, not the declared routine return type
-            // (they can disagree, e.g. a synthesized diagnose whose AST return type lags the body, or
-            // a return that codegen wraps). The failable-passthrough case (node says S64, emits
-            // Maybe[S64]) is handled at the source: ErrorHandlingVariantPass stamps the passthrough
-            // call's ResolvedType with the variant carrier, so EXPR inference already sees Maybe[S64].
-            var decl = new VariableDeclaration(Name: tmp, Type: null, Initializer: retVal,
-                Visibility: VisibilityModifier.Secret, Location: exit.Location);
-            stmts.Add(item: new DeclarationStatement(Declaration: decl, Location: exit.Location));
-            var tmpRef = new IdentifierExpression(Name: tmp, Location: exit.Location)
-                { ResolvedType = retVal.ResolvedType };
-            finalExit = exit switch
-            {
-                ReturnStatement r => r with { Value = tmpRef },
-                VariantReturnStatement vr => vr with { Value = tmpRef },
-                _ => exit
-            };
-            skip = tmp; // the spilled value is moved out — never tear it down
-        }
+        Statement finalExit = TrySpillReturnValue(exit: exit, live: live, from: from,
+            skip: ref skip, stmts: stmts);
 
         // Destroy in REVERSE declaration order (LIFO) — the safe RAII order, matching this pass's
         // documented contract and the fall-through end-of-block teardown above.
@@ -365,6 +352,45 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
         if (stmts.Count == 0) return exit;
         stmts.Add(item: finalExit);
         return new BlockStatement(Statements: stmts, Location: exit.Location);
+    }
+
+    // Spills a non-trivial returned expression into a `__td_ret_N` temp so it's computed while its
+    // locals are still live (destroying them first would free memory the expression then reads). The
+    // spill decl is appended to <paramref name="stmts"/>, <paramref name="skip"/> is updated to the
+    // temp (moved out — never torn down), and the rewritten exit (returning the temp) is returned.
+    // When no spill is needed the original exit is returned and nothing is appended.
+    private Statement TrySpillReturnValue(Statement exit, List<Owned> live, int from,
+        ref string? skip, List<Statement> stmts)
+    {
+        // A bare-identifier return is a move — `skip` already excludes it — and needs no spill.
+        Expression? retVal = exit switch
+        {
+            ReturnStatement r => r.Value,
+            VariantReturnStatement vr => vr.Value,
+            _ => null
+        };
+        if (retVal is null or IdentifierExpression || !WillDestroyAny(live, from, skip))
+            return exit;
+
+        string tmp = $"__td_ret_{_spillCounter++}";
+        // Leave the slot type to be inferred from EXPR — codegen emits the spilled value with its
+        // own resolved type, so the slot must match THAT, not the declared routine return type
+        // (they can disagree, e.g. a synthesized diagnose whose AST return type lags the body, or
+        // a return that codegen wraps). The failable-passthrough case (node says S64, emits
+        // Maybe[S64]) is handled at the source: ErrorHandlingVariantPass stamps the passthrough
+        // call's ResolvedType with the variant carrier, so EXPR inference already sees Maybe[S64].
+        var decl = new VariableDeclaration(Name: tmp, Type: null, Initializer: retVal,
+            Visibility: VisibilityModifier.Secret, Location: exit.Location);
+        stmts.Add(item: new DeclarationStatement(Declaration: decl, Location: exit.Location));
+        var tmpRef = new IdentifierExpression(Name: tmp, Location: exit.Location)
+            { ResolvedType = retVal.ResolvedType };
+        skip = tmp; // the spilled value is moved out — never tear it down
+        return exit switch
+        {
+            ReturnStatement r => r with { Value = tmpRef },
+            VariantReturnStatement vr => vr with { Value = tmpRef },
+            _ => exit
+        };
     }
 
     /// <summary>
@@ -501,15 +527,6 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
         destroy = lc.Destroy;
         if (lc.IsBorrow || destroy == null)
             return false;
-        // Elide the teardown of a trivially-destructible value (a pure-scalar record/tuple with no
-        // user destroy): its destroy is a transitive chain of `ret void`s that the optimizer can't
-        // strip (external linkage) and that pins the value's alloca, blocking SROA. Skipping the call
-        // lets the value scalarize — e.g. `record R { inner: S64 }` collapses to a bare `i64`.
-        if (ctx.Registry.IsTriviallyDestructible(type: type))
-        {
-            destroy = null;
-            return false;
-        }
         return true;
     }
 
@@ -612,99 +629,132 @@ internal sealed class ScopeTeardownLoweringPass(PostprocessingContext ctx)
 
     private void CollectMovedNames(Statement stmt)
     {
-        AstWalker.Walk(root: stmt, visit: node =>
+        AstWalker.Walk(root: stmt, visit: CollectMovedNamesFromNode);
+    }
+
+    private void CollectMovedNamesFromNode(object node)
+    {
+        switch (node)
         {
-            switch (node)
+            case StealExpression { Operand: IdentifierExpression id }:
+                _movedNames.Add(item: id.Name);
+                break;
+            // `T.retain()` / `T.track()` on a bare ENTITY consumes it (ownership moves into the
+            // Constructing an RC wrapper FROM a bare entity moves the entity into the controller —
+            // STRUCTURAL (name-agnostic): a call whose receiver is a bare entity and whose result is
+            // an RC wrapper. `Retained.assign()` / `.observe()` mint a handle from an existing WRAPPER
+            // receiver (not a bare entity), so they are correctly excluded and still released.
+            case CallExpression
             {
-                case StealExpression { Operand: IdentifierExpression id }:
-                    _movedNames.Add(item: id.Name);
-                    break;
-                // `T.retain()` / `T.track()` on a bare ENTITY consumes it (ownership moves into the
-                // Constructing an RC wrapper FROM a bare entity moves the entity into the controller —
-                // STRUCTURAL (name-agnostic): a call whose receiver is a bare entity and whose result is
-                // an RC wrapper. `Retained.assign()` / `.observe()` mint a handle from an existing WRAPPER
-                // receiver (not a bare entity), so they are correctly excluded and still released.
-                case CallExpression
+                Callee: MemberExpression
                 {
-                    Callee: MemberExpression
-                    {
-                        Object: IdentifierExpression { ResolvedType: EntityTypeInfo } recv
-                    }
-                } rcCtorCall
-                    when rcCtorCall.ResolvedType is { } rcRes
-                         && TypeRegistry.GetRcWrapperBaseName(type: rcRes) is not null:
-                    _movedNames.Add(item: recv.Name);
-                    break;
-                // Store primitives write their argument(s) into memory/storage — the source binding
-                // is moved into the container, not dropped at scope exit.
-                case CallExpression call when CalleeName(call.Callee) is { } n && StorePrimitives.Contains(item: n):
-                    foreach (Expression arg in call.Arguments)
-                        if (Unwrap(arg) is IdentifierExpression a)
-                            _movedNames.Add(item: a.Name);
-                    break;
-                // `target = source` / `me.field = source` moves `source` into the target.
-                case AssignmentStatement assign when Unwrap(assign.Value) is IdentifierExpression rhs:
-                    _movedNames.Add(item: rhs.Name);
-                    break;
-                // An explicit `v.destroy()` consumes `v` — it must NOT then be torn down again at
-                // scope exit. This is the auto-synthesized variant `destroy` shape (`when me is Arm
-                // as v: v.destroy()`): without this the pattern-bound heap payload is destroyed by the
-                // explicit call AND by binding teardown → double free (scalar arms hid it: no-op destroy).
-                case CallExpression
+                    Object: IdentifierExpression { ResolvedType: EntityTypeInfo } recv
+                }
+            } rcCtorCall
+                when rcCtorCall.ResolvedType is { } rcRes
+                     && TypeRegistry.GetRcWrapperBaseName(type: rcRes) is not null:
+                _movedNames.Add(item: recv.Name);
+                break;
+            // Store primitives write their argument(s) into memory/storage — the source binding
+            // is moved into the container, not dropped at scope exit.
+            case CallExpression call when CalleeName(call.Callee) is { } n && StorePrimitives.Contains(item: n):
+                HandleStorePrimitiveMove(call: call);
+                break;
+            // `target = source` / `me.field = source` moves `source` into the target.
+            case AssignmentStatement assign when Unwrap(assign.Value) is IdentifierExpression rhs:
+                _movedNames.Add(item: rhs.Name);
+                break;
+            // The move in operator-expression form `target = __rv` (an ExpressionStatement wrapping a
+            // `BinaryExpression{Assign}`) — the tail TemporaryTeardownPass emits for a lowered managed-
+            // leaf reassignment. GATED on the STRUCTURED IsSynthesizedTeardownTemp marker (not the
+            // `__rv_` name, and not every operator assign — a plain user `x = y` on a Copyable leaf
+            // receives an injected `.assign()` from RecordCopyLoweringPass and its source stays owned,
+            // so it must NOT be marked moved). When this pass RE-runs over an already-temp-teardown-
+            // lowered body (the warm-restore path), this makes the moved-out `__rv` temp escape scope-
+            // exit teardown — otherwise it frees the buffer the target now owns and returns a dangling
+            // value (the record-`represent` double-free).
+            case BinaryExpression
+            {
+                Operator: BinaryOperator.Assign,
+                Right: IdentifierExpression { IsSynthesizedTeardownTemp: true } rhs2
+            }:
+                _movedNames.Add(item: rhs2.Name);
+                break;
+            // An explicit `v.destroy()` consumes `v` — it must NOT then be torn down again at
+            // scope exit. This is the auto-synthesized variant `destroy` shape (`when me is Arm
+            // as v: v.destroy()`): without this the pattern-bound heap payload is destroyed by the
+            // explicit call AND by binding teardown → double free (scalar arms hid it: no-op destroy).
+            case CallExpression
+            {
+                Callee: MemberExpression
                 {
-                    Callee: MemberExpression
-                    {
-                        MemberName: "destroy", Object: IdentifierExpression dv
-                    }
-                }:
-                    _movedNames.Add(item: dv.Name);
-                    break;
-                // Constructing a VARIANT boxes (takes ownership of) its single payload — the source
-                // binding is moved into the variant, not dropped at scope exit. Without this, a heap
-                // payload boxed into a returned variant (e.g. a synthesized `serialize()` returning
-                // `SerialValue.Dict(<hoisted dict temp>)`) is BOTH boxed and torn down → double free.
-                // (Harmless for scalar arms: scalars have no `destroy`. Entity/record field moves are
-                // handled via `steal`; variant/carrier boxing has no steal, so mark it here.)
-                case CreatorExpression creator
-                    when (creator.ConstructedType ?? creator.ResolvedType) is VariantTypeInfo:
-                    foreach ((_, Expression val) in creator.MemberVariables)
-                        if (Unwrap(val) is IdentifierExpression a)
-                            _movedNames.Add(item: a.Name);
-                    break;
-                // Constructing an ENTITY (incl. Crashable) MOVES each identifier argument bound to a
-                // NON-Copyable field into that field: the entity is single-owner and a non-Copyable value
-                // (an entity, or a collection like List) transfers ownership on construction. A Copyable
-                // field (Text, scalar) instead receives a retaining copy (RecordCopyLoweringPass injects
-                // it, in a LATER pass), so the source binding stays owned and must still be torn down —
-                // hence the field-type Copyable gate (NOT the argument's own ResolvedType, which a hoisted
-                // temp identifier may not carry). This matters for synthesized bodies whose list literals
-                // ExpressionLoweringPass hoists to `var _lit = List[…](); …` temps BEFORE this pass runs
-                // (the reverse of user code, torn down while the literal is still inline): without marking
-                // the moved temp, scope-exit teardown would `_lit.destroy()` it on top of the entity's own
-                // field teardown → double free (e.g. BuilderQuery `protocol_info`/`routine_info` nested
-                // `List[Text]` fields).
-                case CreatorExpression entityCreator
-                    when (entityCreator.ConstructedType ?? entityCreator.ResolvedType) is EntityTypeInfo ent:
-                    foreach ((string memberName, Expression val) in entityCreator.MemberVariables)
-                        if (Unwrap(val) is IdentifierExpression a)
-                        {
-                            TypeInfo? fieldType = ent.MemberVariables
-                                .FirstOrDefault(m => m.Name == memberName)?.Type;
-                            if (fieldType == null) continue;
-                            // Mirror RecordCopyLoweringPass.NeedsRetainingCopy EXACTLY (both keyed on the
-                            // unified GetLifecycle): a field whose type needs a retaining copy (hand-written
-                            // `store`, e.g. Text) receives an INJECTED copy — the source stays owned and must
-                            // still be torn down, so it is NOT moved. A field without one (a collection like
-                            // List, or a bare entity) takes the source by MOVE, so the source binding must
-                            // not be destroyed. Agreeing with the copy pass is what keeps ownership balanced.
-                            TypeRegistry.Lifecycle lc = ctx.Registry.GetLifecycle(type: fieldType);
-                            bool needsRetainingCopy = !lc.IsBorrow && lc.Store != null;
-                            if (!needsRetainingCopy)
-                                _movedNames.Add(item: a.Name);
-                        }
-                    break;
+                    MemberName: "destroy", Object: IdentifierExpression dv
+                }
+            }:
+                _movedNames.Add(item: dv.Name);
+                break;
+            // Constructing a VARIANT boxes (takes ownership of) its single payload — the source
+            // binding is moved into the variant, not dropped at scope exit. Without this, a heap
+            // payload boxed into a returned variant (e.g. a synthesized `serialize()` returning
+            // `SerialValue.Dict(<hoisted dict temp>)`) is BOTH boxed and torn down → double free.
+            // (Harmless for scalar arms: scalars have no `destroy`. Entity/record field moves are
+            // handled via `steal`; variant/carrier boxing has no steal, so mark it here.)
+            case CreatorExpression creator
+                when (creator.ConstructedType ?? creator.ResolvedType) is VariantTypeInfo:
+                HandleVariantBoxingMove(creator: creator);
+                break;
+            // Constructing an ENTITY (incl. Crashable) MOVES each identifier argument bound to a
+            // NON-Copyable field into that field: the entity is single-owner and a non-Copyable value
+            // (an entity, or a collection like List) transfers ownership on construction. A Copyable
+            // field (Text, scalar) instead receives a retaining copy (RecordCopyLoweringPass injects
+            // it, in a LATER pass), so the source binding stays owned and must still be torn down —
+            // hence the field-type Copyable gate (NOT the argument's own ResolvedType, which a hoisted
+            // temp identifier may not carry). This matters for synthesized bodies whose list literals
+            // ExpressionLoweringPass hoists to `var _lit = List[…](); …` temps BEFORE this pass runs
+            // (the reverse of user code, torn down while the literal is still inline): without marking
+            // the moved temp, scope-exit teardown would `_lit.destroy()` it on top of the entity's own
+            // field teardown → double free (e.g. BuilderQuery `protocol_info`/`routine_info` nested
+            // `List[Text]` fields).
+            case CreatorExpression entityCreator
+                when (entityCreator.ConstructedType ?? entityCreator.ResolvedType) is EntityTypeInfo ent:
+                HandleEntityConstructionMove(entityCreator: entityCreator, ent: ent);
+                break;
+        }
+    }
+
+    private void HandleStorePrimitiveMove(CallExpression call)
+    {
+        foreach (Expression arg in call.Arguments)
+            if (Unwrap(arg) is IdentifierExpression a)
+                _movedNames.Add(item: a.Name);
+    }
+
+    private void HandleVariantBoxingMove(CreatorExpression creator)
+    {
+        foreach ((_, Expression val) in creator.MemberVariables)
+            if (Unwrap(val) is IdentifierExpression a)
+                _movedNames.Add(item: a.Name);
+    }
+
+    private void HandleEntityConstructionMove(CreatorExpression entityCreator, EntityTypeInfo ent)
+    {
+        foreach ((string memberName, Expression val) in entityCreator.MemberVariables)
+            if (Unwrap(val) is IdentifierExpression a)
+            {
+                TypeInfo? fieldType = ent.MemberVariables
+                    .FirstOrDefault(m => m.Name == memberName)?.Type;
+                if (fieldType == null) continue;
+                // Mirror RecordCopyLoweringPass.NeedsRetainingCopy EXACTLY (both keyed on the
+                // unified GetLifecycle): a field whose type needs a retaining copy (hand-written
+                // `store`, e.g. Text) receives an INJECTED copy — the source stays owned and must
+                // still be torn down, so it is NOT moved. A field without one (a collection like
+                // List, or a bare entity) takes the source by MOVE, so the source binding must
+                // not be destroyed. Agreeing with the copy pass is what keeps ownership balanced.
+                TypeRegistry.Lifecycle lc = ctx.Registry.GetLifecycle(type: fieldType);
+                bool needsRetainingCopy = !lc.IsBorrow && lc.Store != null;
+                if (!needsRetainingCopy)
+                    _movedNames.Add(item: a.Name);
             }
-        });
     }
 
     private static Expression Unwrap(Expression e) =>

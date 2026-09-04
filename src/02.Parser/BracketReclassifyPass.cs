@@ -154,19 +154,7 @@ internal static class BracketReclassifyPass
             // seen in isolation; as a TYPE argument it is a nested generic instantiation. The Object
             // supplies the type name and the Index becomes the single (recursive) type argument.
             case IndexExpression idx:
-            {
-                string nestedName = idx.Object switch
-                {
-                    IdentifierExpression nid => nid.Name,
-                    MemberExpression nmem => QualifiedName(mem: nmem),
-                    BinaryExpression { Operator: BinaryOperator.TrueDivide } nbin =>
-                        FlattenProjection(bin: nbin),
-                    _ => (idx.Object as IdentifierExpression)?.Name ?? ""
-                };
-                return new TypeExpression(Name: nestedName,
-                    GenericArguments: [ExpressionToTypeArg(expr: idx.Index)],
-                    Location: idx.Location);
-            }
+                return NestedIndexToTypeArg(idx: idx);
 
             // Qualified type name a.b -> "a.b" (mirrors the dotted type path).
             case MemberExpression mem:
@@ -233,6 +221,26 @@ internal static class BracketReclassifyPass
                     GenericArguments: null,
                     Location: expr.Location);
         }
+    }
+
+    /// <summary>
+    /// Converts a single-argument nested bracket (List[S64]) — seen in isolation it reclassifies to an
+    /// IndexExpression, but as a TYPE argument it is a nested generic instantiation. The Object supplies
+    /// the type name and the Index becomes the single (recursive) type argument.
+    /// </summary>
+    private static TypeExpression NestedIndexToTypeArg(IndexExpression idx)
+    {
+        string nestedName = idx.Object switch
+        {
+            IdentifierExpression nid => nid.Name,
+            MemberExpression nmem => QualifiedName(mem: nmem),
+            BinaryExpression { Operator: BinaryOperator.TrueDivide } nbin =>
+                FlattenProjection(bin: nbin),
+            _ => (idx.Object as IdentifierExpression)?.Name ?? ""
+        };
+        return new TypeExpression(Name: nestedName,
+            GenericArguments: [ExpressionToTypeArg(expr: idx.Index)],
+            Location: idx.Location);
     }
 
     /// <summary>Flattens a `/`-chained projection expression into a slash-joined name string.</summary>

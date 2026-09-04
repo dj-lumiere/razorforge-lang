@@ -78,7 +78,7 @@ routine Amending[T, P].control() -> T
 
 ### Returns the display form of the amended entity.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine Amending[T, P].represent() -> Text
   danger
     var ctrl = Hijacked[GuardController[T, P]](me).as_entity()
@@ -86,7 +86,7 @@ routine Amending[T, P].represent() -> Text
 
 ### Returns the diagnostic form of the amended entity.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine Amending[T, P].diagnose() -> Text
   danger
     var ctrl = Hijacked[GuardController[T, P]](me).as_entity()
@@ -94,5 +94,6 @@ routine Amending[T, P].diagnose() -> Text
 
 ### No-op: the token owns no heap (it only aliases the controller), and the amender hold is
 ### released by `exit`. Releasing here too would double-release the lock.
+@override
 dangerous routine Amending[T, P].destroy()
   return

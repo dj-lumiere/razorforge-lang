@@ -160,366 +160,34 @@ internal sealed class AutoWiredRegistrationPass
             switch (type.Category)
             {
                 case TypeCategory.Record:
-                    // None maps to LLVM void — it cannot appear as a parameter type.
-                    // Skip comparison/hash/copy stubs; two Nones are trivially equal.
-                    // Wrapper types (Retained, Viewing, etc.) are transparent forwarders —
-                    // WrapperForwardingPass lazily synthesizes their hash/eq/cmp from the inner T.
-                    // Don't register field-based stubs here: for zero-field wrappers (T)
-                    // WiredRoutinePass would generate wrong bodies (returns 0 / returns true).
-                    bool isWrapper = type is RecordTypeInfo &&
-                                     WrapperForwardingPass.WrapperTypeNames.Contains(
-                                         item: (type as RecordTypeInfo)?.GenericDefinition?.Name
-                                               ?? type.Name);
-                    // DECISION (2026-06-14): records do NOT auto-derive eq / hash. `obeys Equatable`
-                    // / `Hashable` on a record is a PROMISE the author fulfils by HAND-WRITING the
-                    // memberRoutine — field-delegated synthesis is fragile (breaks when a field type lacks the
-                    // memberRoutine, e.g. an Atomic / lock-flag field) and is semantically wrong for opaque /
-                    // container types whose logical value is not their field tuple. Auto eq / hash is
-                    // reserved for tuple / choice / flags (simple, unambiguous tag/element compare). The
-                    // stdlib's equatable/hashable struct records (Complex, Integer, Decimal, C32/64/128)
-                    // already hand-write these. store (below) + represent / diagnose stay auto-derived.
-
-                    // `assign` (Assignable) / `copy` (Copyable) are now registered by the declaration-driven
-                    // everywhere-derive loop (RegisterEverywhereDeriveMembers) — the `needs P everywhere` rule
-                    // read straight from the protocol, opt-in via `obeys P`, replacing this per-protocol
-                    // hardcode. A type that must be assignable/copyable declares `obeys Assignable`/`Copyable`.
-
-                    // `eq` (Equatable) is now registered by the declaration-driven everywhere-derive loop
-                    // (RegisterEverywhereDeriveMembers) — the `needs Equatable everywhere` rule read straight
-                    // from the protocol, opt-in + all-members-Equatable, replacing this per-protocol hardcode.
-                    // `hash` (Hashable) stays below: its keyed `hash(k0, k1)` form is not a field-walk derive.
-
-                    // `Hashable` requires ONLY the keyed `hash(k0, k1)` (what Set/Dict use); there is no
-                    // 0-arg `hash()` on value types (scalars supply only the keyed form), so field-walking
-                    // a 0-arg field hash would be undefined. Register just the keyed hash.
-                    if (!type.IsNone && !isWrapper && u64Type != null &&
-                        ObeysProtocol(type: type, protocolName: "Hashable"))
-                    {
-                        MaybeRegisterKeyedHash(owner: type, u64Type: u64Type,
-                            existingMemberRoutines: existingMemberRoutines);
-                    }
-
+                    HandleRecordCategory(type: type, u64Type: u64Type,
+                        existingMemberRoutines: existingMemberRoutines);
                     break;
 
                 case TypeCategory.Entity:
-                    // DECISION (2026-06-14): entities do NOT auto-derive eq either. An entity is an
-                    // identity/reference type whose logical value is rarely its field tuple (e.g. a
-                    // collection's value is its elements, not its buffer pointer + counts), so
-                    // field-delegated equality is the wrong default. Entities that want equality declare
-                    // `eq` explicitly with the right semantics. (No stdlib entity obeys Equatable.)
-
-                    // Synthesize create(field1: T1, ...) -> EntityType for field construction.
-                    // Always synthesize the all-fields overload unless an exact match already exists,
-                    // so field construction inside user-defined create overloads works too.
-                    // Skip generic definitions (their resolved instances get synthesis).
-                    if (type is EntityTypeInfo entityForCreate &&
-                        !type.IsGenericDefinition &&
-                        !existingMemberRoutines.Any(predicate: m =>
-                            m.Name == CreateMemberRoutineName &&
-                            m.Parameters.Count == entityForCreate.MemberVariables.Count &&
-                            entityForCreate.MemberVariables.Select(selector: mv => mv.Name)
-                                           .SequenceEqual(second: m.Parameters.Select(selector: p => p.Name))))
-                    {
-                        _registry.RegisterRoutine(routine: new RoutineInfo(name: CreateMemberRoutineName)
-                        {
-                            Kind = RoutineKind.Creator,
-                            OwnerType = type,
-                            Parameters = entityForCreate.MemberVariables
-                                                        .Select(selector: mv =>
-                                                             new ParameterInfo(name: mv.Name,
-                                                                 type: mv.Type))
-                                                        .ToList(),
-                            ReturnType = type,
-                            IsFailable = false,
-                            DeclaredMutation = MutationCategory.Readonly,
-                            MutationCategory = MutationCategory.Readonly,
-                            Visibility = VisibilityModifier.Open,
-                            IsSynthesized = true
-                        });
-                    }
-
+                    HandleEntityCategory(type: type,
+                        existingMemberRoutines: existingMemberRoutines);
                     break;
 
                 case TypeCategory.Choice:
-                    // Choices/flags get eq/hash unconditionally — equality is unambiguous
-                    // tag-compare with no field-selection design choice to make. Stdlib's
-                    // ComparisonSign and BuilderQuery enums rely on this for represent /
-                    // diagnose / derived comparison operators.
-                    if (u64Type != null)
-                    {
-                        MaybeRegisterWired(owner: type,
-                            name: "hash",
-                            returnType: u64Type,
-                            existingMemberRoutines: existingMemberRoutines);
-                        MaybeRegisterKeyedHash(owner: type, u64Type: u64Type,
-                            existingMemberRoutines: existingMemberRoutines);
-                    }
-
-                    if (boolType != null)
-                    {
-                        MaybeRegisterWiredWithParam(owner: type,
-                            name: "eq",
-                            paramName: "you",
-                            paramType: type,
-                            returnType: boolType,
-                            existingMemberRoutines: existingMemberRoutines);
-                    }
-
-                    // Choices auto-derive Assignable (scalar tag layout).
-                    MaybeRegisterWired(owner: type,
-                        name: "assign",
-                        returnType: type,
+                    HandleChoiceCategory(type: type, u64Type: u64Type, boolType: boolType,
+                        s64Type: s64Type, textType: textType, listDef: listDef,
                         existingMemberRoutines: existingMemberRoutines);
-                    MaybeRegisterWired(owner: type,
-                        name: "copy",
-                        returnType: type,
-                        existingMemberRoutines: existingMemberRoutines);
-
-                    // S64.create(from: ChoiceType) — choice_val.S64() desugars to S64.create(from: choice_val)
-                    if (s64Type != null && !type.IsGenericDefinition &&
-                        _registry.LookupRoutineOverload(baseName: "S64.create",
-                            argTypes: [type]) == null)
-                    {
-                        _registry.RegisterRoutine(routine: new RoutineInfo(name: CreateMemberRoutineName)
-                        {
-                            Kind = RoutineKind.Creator,
-                            OwnerType = s64Type,
-                            Parameters = [new ParameterInfo(name: "from", type: type)],
-                            ReturnType = s64Type,
-                            IsFailable = false,
-                            DeclaredMutation = MutationCategory.Readonly,
-                            MutationCategory = MutationCategory.Readonly,
-                            Visibility = VisibilityModifier.Open,
-                            IsSynthesized = true
-                        });
-                    }
-
-                    if (textType != null)
-                    {
-                        // name stays bare `create` + IsFailable (set by the helper); the `!` is a
-                        // STRUCTURED flag, never baked into the Name. A `.create!(…)` call resolves
-                        // against "create" and the `from: Text` param disambiguates.
-                        MaybeRegisterWiredFailable(owner: type,
-                            name: CreateMemberRoutineName,
-                            returnType: type,
-                            existingMemberRoutines: existingMemberRoutines,
-                            param: ("from", textType),
-                            kind: RoutineKind.Creator);
-                    }
-
-                    if (listDef != null)
-                    {
-                        TypeSymbol listMeType = _registry.GetOrCreateResolution(
-                            genericDef: listDef,
-                            typeArguments: [type]);
-                        MaybeRegisterWired(owner: type,
-                            name: "all_cases",
-                            returnType: listMeType,
-                            existingMemberRoutines: existingMemberRoutines);
-                    }
-
                     break;
 
                 case TypeCategory.Crashable:
-                    // crash_title() is @generated — synthesized from type name, overridable
-                    if (textType != null)
-                    {
-                        MaybeRegisterWired(owner: type,
-                            name: "crash_title",
-                            returnType: textType,
-                            existingMemberRoutines: existingMemberRoutines);
-                        // crash_message() has a default too — a crashable that declares no explicit
-                        // crash_message (e.g. `crashable BareErr`) still needs a concrete body, or the
-                        // throw path resolves to the abstract `Crashable.crash_message()` protocol
-                        // requirement and codegen over-prunes it ("declared and called but never
-                        // defined"). Default body is `return me.crash_title()` (synthesized below).
-                        MaybeRegisterWired(owner: type,
-                            name: RuntimeContract.CrashMessage,
-                            returnType: textType,
-                            existingMemberRoutines: existingMemberRoutines);
-                    }
-
-                    // Synthesize create(field1: T1, ...) -> CrashableType for construction via throw
-                    if (type is CrashableTypeInfo crashableForCreate &&
-                        !existingMemberRoutines.Any(predicate: m => m.Name == CreateMemberRoutineName))
-                    {
-                        _registry.RegisterRoutine(routine: new RoutineInfo(name: CreateMemberRoutineName)
-                        {
-                            Kind = RoutineKind.Creator,
-                            OwnerType = type,
-                            Parameters = crashableForCreate.MemberVariables
-                                                           .Select(selector: mv =>
-                                                                new ParameterInfo(name: mv.Name,
-                                                                    type: mv.Type))
-                                                           .ToList(),
-                            ReturnType = type,
-                            IsFailable = false,
-                            DeclaredMutation = MutationCategory.Readonly,
-                            MutationCategory = MutationCategory.Readonly,
-                            Visibility = VisibilityModifier.Open,
-                            IsSynthesized = true
-                        });
-                    }
-
-                    // Auto-add Crashable protocol conformance (implicit from the crashable keyword)
-                    TypeSymbol? crashableProto = _registry.LookupType(name: "Crashable");
-                    if (crashableProto != null && type is CrashableTypeInfo crashableInfo &&
-                        crashableInfo.ImplementedProtocols.All(predicate: p =>
-                            p.Name != "Crashable"))
-                    {
-                        var protocols = crashableInfo.ImplementedProtocols.ToList();
-                        protocols.Add(item: crashableProto);
-                        _registry.UpdateCrashableProtocols(typeName: type.FullName,
-                            protocols: protocols);
-                    }
-
+                    HandleCrashableCategory(type: type, textType: textType,
+                        existingMemberRoutines: existingMemberRoutines);
                     break;
 
                 case TypeCategory.Flags:
-                    // See Choice case above — equality is unambiguous bit-compare; always-on.
-                    if (u64Type != null)
-                    {
-                        MaybeRegisterWired(owner: type,
-                            name: "hash",
-                            returnType: u64Type,
-                            existingMemberRoutines: existingMemberRoutines);
-                        MaybeRegisterKeyedHash(owner: type, u64Type: u64Type,
-                            existingMemberRoutines: existingMemberRoutines);
-                    }
-
-                    if (boolType != null)
-                    {
-                        MaybeRegisterWiredWithParam(owner: type,
-                            name: "eq",
-                            paramName: "you",
-                            paramType: type,
-                            returnType: boolType,
-                            existingMemberRoutines: existingMemberRoutines);
-                    }
-
-                    // Bitwise combinators (`a and b`/`a but b` lower to bitor/bitand; `bitxor` for
-                    // symmetry). WiredRoutinePass.HandleFlags synthesizes the bodies as @llvm_ir
-                    // intrinsic calls on the underlying i64 repr; OperatorLoweringPass then lowers
-                    // `BitwiseOr`/`BitwiseAnd`/`BitwiseXor` on a Flags receiver to these calls.
-                    foreach (string bitOp in new[] { "bitand", "bitor", "bitxor" })
-                    {
-                        MaybeRegisterWiredWithParam(owner: type,
-                            name: bitOp,
-                            paramName: "you",
-                            paramType: type,
-                            returnType: type,
-                            existingMemberRoutines: existingMemberRoutines);
-                    }
-
-                    // Flags auto-derive Assignable (scalar bitset layout).
-                    MaybeRegisterWired(owner: type,
-                        name: "assign",
-                        returnType: type,
-                        existingMemberRoutines: existingMemberRoutines);
-                    MaybeRegisterWired(owner: type,
-                        name: "copy",
-                        returnType: type,
-                        existingMemberRoutines: existingMemberRoutines);
-
-                    // U64.create(from: FlagsType) — flags_val.U64() desugars to U64.create(from: flags_val)
-                    if (u64Type != null && !type.IsGenericDefinition &&
-                        _registry.LookupRoutineOverload(baseName: "U64.create",
-                            argTypes: [type]) == null)
-                    {
-                        _registry.RegisterRoutine(routine: new RoutineInfo(name: CreateMemberRoutineName)
-                        {
-                            Kind = RoutineKind.Creator,
-                            OwnerType = u64Type,
-                            Parameters = [new ParameterInfo(name: "from", type: type)],
-                            ReturnType = u64Type,
-                            IsFailable = false,
-                            DeclaredMutation = MutationCategory.Readonly,
-                            MutationCategory = MutationCategory.Readonly,
-                            Visibility = VisibilityModifier.Open,
-                            IsSynthesized = true
-                        });
-                    }
-
-                    MaybeRegisterWired(owner: type,
-                        name: "all_on",
-                        returnType: type,
-                        existingMemberRoutines: existingMemberRoutines);
-                    MaybeRegisterWired(owner: type,
-                        name: "all_off",
-                        returnType: type,
-                        existingMemberRoutines: existingMemberRoutines);
-                    if (listDef != null)
-                    {
-                        TypeSymbol listMeType = _registry.GetOrCreateResolution(
-                            genericDef: listDef,
-                            typeArguments: [type]);
-                        MaybeRegisterWired(owner: type,
-                            name: "all_cases",
-                            returnType: listMeType,
-                            existingMemberRoutines: existingMemberRoutines);
-                    }
-
+                    HandleFlagsCategory(type: type, u64Type: u64Type, boolType: boolType,
+                        listDef: listDef, existingMemberRoutines: existingMemberRoutines);
                     break;
 
                 case TypeCategory.Variant:
-                    // Variants get auto-synthesized `represent` / `diagnose` so user-defined
-                    // tagged unions render in f-strings and `show()` without manual impls.
-                    // WiredRoutinePass.HandleVariant builds the bodies from the member list;
-                    // registration here makes the stubs visible to overload resolution and the
-                    // reachability sweep so the symbols actually get emitted by codegen.
-                    if (textType != null && !type.IsGenericDefinition)
-                    {
-                        MaybeRegisterWired(owner: type,
-                            name: RuntimeContract.Display.Represent,
-                            returnType: textType,
-                            existingMemberRoutines: existingMemberRoutines);
-                        MaybeRegisterWired(owner: type,
-                            name: RuntimeContract.Display.Diagnose,
-                            returnType: textType,
-                            existingMemberRoutines: existingMemberRoutines);
-                    }
-
-                    // A variant with a destructible arm (a heap/managed payload that double-frees on
-                    // bitwise alias) gets a synthesized deep `copy` — WiredRoutinePass.BuildVariantCopyBody
-                    // reconstructs each such arm with `arm.copy()`. Registering it here makes the symbol
-                    // visible to overload resolution + the reachability sweep, and lets GetLifecycle return
-                    // it as the variant's retaining Copy so copy-lowering injects it at every copy point.
-                    if (!type.IsGenericDefinition && type is VariantTypeInfo variantForCopy &&
-                        _registry.VariantHasDestructibleArm(variant: variantForCopy))
-                    {
-                        MaybeRegisterWired(owner: type,
-                            name: "copy",
-                            returnType: type,
-                            existingMemberRoutines: existingMemberRoutines);
-                    }
-
-                    // A variant whose every arm is Assignable gets a shallow `assign` (arm-walk re-store).
-                    // REQUIRED so a variant used as a record member (e.g. `Maybe[S32]` in a struct) resolves
-                    // the field-walk `.assign()` its owner's auto-derived `assign` emits — the everywhere-
-                    // derive for records/entities is arm-blind, so variants register here. Gate on the
-                    // STRUCTURAL `EverywhereObeys` (branchof over THIS instance's concrete arms), NOT the
-                    // conferred `obeys` — a monomorphized instance (`Maybe[S32]`) is created AFTER conferral
-                    // ran, so it never gained the conferred `obeys Assignable`. Body: the `T.assign() needs T
-                    // is VariantType` derive template (branchof re-store).
-                    if (!type.IsGenericDefinition && type is VariantTypeInfo &&
-                        _registry.EverywhereObeys(type: type, protocol: "Assignable"))
-                    {
-                        MaybeRegisterWired(owner: type,
-                            name: "assign",
-                            returnType: type,
-                            existingMemberRoutines: existingMemberRoutines);
-                    }
-
-                    // Bidirectional per-arm constructors, auto-generated for every variant:
-                    //   V.create(from: Arm)  -> V    — box a branch value into the variant.
-                    //   Arm.create!(from: V) -> Arm  — failable extraction (absent when the active arm
-                    //                                   is not this one). The `from:` param type (not the
-                    //                                   arm name) carries the overload, so no RF-S770 clash
-                    //                                   with a same-named type (e.g. the `List` arm).
-                    if (!type.IsGenericDefinition && type is VariantTypeInfo variantForCtor)
-                    {
-                        RegisterVariantArmConstructors(variant: variantForCtor);
-                    }
+                    HandleVariantCategory(type: type, textType: textType,
+                        existingMemberRoutines: existingMemberRoutines);
                     break;
             }
 
@@ -625,6 +293,394 @@ internal sealed class AutoWiredRegistrationPass
         {
             MaybeRegisterDestroy(owner: tParam, noneType: noneType,
                 existingMemberRoutines: universalExisting);
+        }
+    }
+
+    /// <summary>
+    /// Registers the auto-derived member routines for a <see cref="TypeCategory.Record"/> type.
+    /// </summary>
+    private void HandleRecordCategory(TypeSymbol type, TypeSymbol? u64Type,
+        List<RoutineInfo> existingMemberRoutines)
+    {
+        // None maps to LLVM void — it cannot appear as a parameter type.
+        // Skip comparison/hash/copy stubs; two Nones are trivially equal.
+        // Wrapper types (Retained, Viewing, etc.) are transparent forwarders —
+        // WrapperForwardingPass lazily synthesizes their hash/eq/cmp from the inner T.
+        // Don't register field-based stubs here: for zero-field wrappers (T)
+        // WiredRoutinePass would generate wrong bodies (returns 0 / returns true).
+        bool isWrapper = type is RecordTypeInfo &&
+                         WrapperForwardingPass.WrapperTypeNames.Contains(
+                             item: (type as RecordTypeInfo)?.GenericDefinition?.Name
+                                   ?? type.Name);
+        // DECISION (2026-06-14): records do NOT auto-derive eq / hash. `obeys Equatable`
+        // / `Hashable` on a record is a PROMISE the author fulfils by HAND-WRITING the
+        // memberRoutine — field-delegated synthesis is fragile (breaks when a field type lacks the
+        // memberRoutine, e.g. an Atomic / lock-flag field) and is semantically wrong for opaque /
+        // container types whose logical value is not their field tuple. Auto eq / hash is
+        // reserved for tuple / choice / flags (simple, unambiguous tag/element compare). The
+        // stdlib's equatable/hashable struct records (Complex, Integer, Decimal, C32/64/128)
+        // already hand-write these. store (below) + represent / diagnose stay auto-derived.
+
+        // `assign` (Assignable) / `copy` (Copyable) are now registered by the declaration-driven
+        // everywhere-derive loop (RegisterEverywhereDeriveMembers) — the `needs P everywhere` rule
+        // read straight from the protocol, opt-in via `obeys P`, replacing this per-protocol
+        // hardcode. A type that must be assignable/copyable declares `obeys Assignable`/`Copyable`.
+
+        // `eq` (Equatable) is now registered by the declaration-driven everywhere-derive loop
+        // (RegisterEverywhereDeriveMembers) — the `needs Equatable everywhere` rule read straight
+        // from the protocol, opt-in + all-members-Equatable, replacing this per-protocol hardcode.
+        // `hash` (Hashable) stays below: its keyed `hash(k0, k1)` form is not a field-walk derive.
+
+        // `Hashable` requires ONLY the keyed `hash(k0, k1)` (what Set/Dict use); there is no
+        // 0-arg `hash()` on value types (scalars supply only the keyed form), so field-walking
+        // a 0-arg field hash would be undefined. Register just the keyed hash.
+        if (!type.IsNone && !isWrapper && u64Type != null &&
+            ObeysProtocol(type: type, protocolName: "Hashable"))
+        {
+            MaybeRegisterKeyedHash(owner: type, u64Type: u64Type,
+                existingMemberRoutines: existingMemberRoutines);
+        }
+    }
+
+    /// <summary>
+    /// Registers the auto-derived member routines for a <see cref="TypeCategory.Entity"/> type.
+    /// </summary>
+    private void HandleEntityCategory(TypeSymbol type, List<RoutineInfo> existingMemberRoutines)
+    {
+        // DECISION (2026-06-14): entities do NOT auto-derive eq either. An entity is an
+        // identity/reference type whose logical value is rarely its field tuple (e.g. a
+        // collection's value is its elements, not its buffer pointer + counts), so
+        // field-delegated equality is the wrong default. Entities that want equality declare
+        // `eq` explicitly with the right semantics. (No stdlib entity obeys Equatable.)
+
+        // Synthesize create(field1: T1, ...) -> EntityType for field construction.
+        // Always synthesize the all-fields overload unless an exact match already exists,
+        // so field construction inside user-defined create overloads works too.
+        // Skip generic definitions (their resolved instances get synthesis).
+        if (type is EntityTypeInfo entityForCreate &&
+            !type.IsGenericDefinition &&
+            !existingMemberRoutines.Any(predicate: m =>
+                m.Name == CreateMemberRoutineName &&
+                m.Parameters.Count == entityForCreate.MemberVariables.Count &&
+                entityForCreate.MemberVariables.Select(selector: mv => mv.Name)
+                               .SequenceEqual(second: m.Parameters.Select(selector: p => p.Name))))
+        {
+            _registry.RegisterRoutine(routine: new RoutineInfo(name: CreateMemberRoutineName)
+            {
+                Kind = RoutineKind.Creator,
+                OwnerType = type,
+                Parameters = entityForCreate.MemberVariables
+                                            .Select(selector: mv =>
+                                                 new ParameterInfo(name: mv.Name,
+                                                     type: mv.Type))
+                                            .ToList(),
+                ReturnType = type,
+                IsFailable = false,
+                DeclaredMutation = MutationCategory.Readonly,
+                MutationCategory = MutationCategory.Readonly,
+                Visibility = VisibilityModifier.Open,
+                IsSynthesized = true
+            });
+        }
+    }
+
+    /// <summary>
+    /// Registers the auto-derived member routines for a <see cref="TypeCategory.Choice"/> type.
+    /// </summary>
+    private void HandleChoiceCategory(TypeSymbol type, TypeSymbol? u64Type, TypeSymbol? boolType,
+        TypeSymbol? s64Type, TypeSymbol? textType, TypeSymbol? listDef,
+        List<RoutineInfo> existingMemberRoutines)
+    {
+        // Choices/flags get eq/hash unconditionally — equality is unambiguous
+        // tag-compare with no field-selection design choice to make. Stdlib's
+        // ComparisonSign and BuilderQuery enums rely on this for represent /
+        // diagnose / derived comparison operators.
+        if (u64Type != null)
+        {
+            MaybeRegisterWired(owner: type,
+                name: "hash",
+                returnType: u64Type,
+                existingMemberRoutines: existingMemberRoutines);
+            MaybeRegisterKeyedHash(owner: type, u64Type: u64Type,
+                existingMemberRoutines: existingMemberRoutines);
+        }
+
+        if (boolType != null)
+        {
+            MaybeRegisterWiredWithParam(owner: type,
+                name: "eq",
+                paramName: "you",
+                paramType: type,
+                returnType: boolType,
+                existingMemberRoutines: existingMemberRoutines);
+        }
+
+        // Choices auto-derive Assignable (scalar tag layout).
+        MaybeRegisterWired(owner: type,
+            name: "assign",
+            returnType: type,
+            existingMemberRoutines: existingMemberRoutines);
+        MaybeRegisterWired(owner: type,
+            name: "duplicate",
+            returnType: type,
+            existingMemberRoutines: existingMemberRoutines);
+
+        // S64.create(from: ChoiceType) — choice_val.S64() desugars to S64.create(from: choice_val)
+        if (s64Type != null && !type.IsGenericDefinition &&
+            _registry.LookupRoutineOverload(baseName: "S64.create",
+                argTypes: [type]) == null)
+        {
+            _registry.RegisterRoutine(routine: new RoutineInfo(name: CreateMemberRoutineName)
+            {
+                Kind = RoutineKind.Creator,
+                OwnerType = s64Type,
+                Parameters = [new ParameterInfo(name: "from", type: type)],
+                ReturnType = s64Type,
+                IsFailable = false,
+                DeclaredMutation = MutationCategory.Readonly,
+                MutationCategory = MutationCategory.Readonly,
+                Visibility = VisibilityModifier.Open,
+                IsSynthesized = true
+            });
+        }
+
+        if (textType != null)
+        {
+            // name stays bare `create` + IsFailable (set by the helper); the `!` is a
+            // STRUCTURED flag, never baked into the Name. A `.create!(…)` call resolves
+            // against "create" and the `from: Text` param disambiguates.
+            MaybeRegisterWiredFailable(owner: type,
+                name: CreateMemberRoutineName,
+                returnType: type,
+                existingMemberRoutines: existingMemberRoutines,
+                param: ("from", textType),
+                kind: RoutineKind.Creator);
+        }
+
+        if (listDef != null)
+        {
+            TypeSymbol listMeType = _registry.GetOrCreateResolution(
+                genericDef: listDef,
+                typeArguments: [type]);
+            MaybeRegisterWired(owner: type,
+                name: "all_cases",
+                returnType: listMeType,
+                existingMemberRoutines: existingMemberRoutines);
+        }
+    }
+
+    /// <summary>
+    /// Registers the auto-derived member routines for a <see cref="TypeCategory.Crashable"/> type.
+    /// </summary>
+    private void HandleCrashableCategory(TypeSymbol type, TypeSymbol? textType,
+        List<RoutineInfo> existingMemberRoutines)
+    {
+        // crash_title() is @generated — synthesized from type name, overridable
+        if (textType != null)
+        {
+            MaybeRegisterWired(owner: type,
+                name: "crash_title",
+                returnType: textType,
+                existingMemberRoutines: existingMemberRoutines);
+            // crash_message() has a default too — a crashable that declares no explicit
+            // crash_message (e.g. `crashable BareErr`) still needs a concrete body, or the
+            // throw path resolves to the abstract `Crashable.crash_message()` protocol
+            // requirement and codegen over-prunes it ("declared and called but never
+            // defined"). Default body is `return me.crash_title()` (synthesized below).
+            MaybeRegisterWired(owner: type,
+                name: RuntimeContract.CrashMessage,
+                returnType: textType,
+                existingMemberRoutines: existingMemberRoutines);
+        }
+
+        // Synthesize create(field1: T1, ...) -> CrashableType for construction via throw
+        if (type is CrashableTypeInfo crashableForCreate &&
+            !existingMemberRoutines.Any(predicate: m => m.Name == CreateMemberRoutineName))
+        {
+            _registry.RegisterRoutine(routine: new RoutineInfo(name: CreateMemberRoutineName)
+            {
+                Kind = RoutineKind.Creator,
+                OwnerType = type,
+                Parameters = crashableForCreate.MemberVariables
+                                               .Select(selector: mv =>
+                                                    new ParameterInfo(name: mv.Name,
+                                                        type: mv.Type))
+                                               .ToList(),
+                ReturnType = type,
+                IsFailable = false,
+                DeclaredMutation = MutationCategory.Readonly,
+                MutationCategory = MutationCategory.Readonly,
+                Visibility = VisibilityModifier.Open,
+                IsSynthesized = true
+            });
+        }
+
+        // Auto-add Crashable protocol conformance (implicit from the crashable keyword)
+        TypeSymbol? crashableProto = _registry.LookupType(name: "Crashable");
+        if (crashableProto != null && type is CrashableTypeInfo crashableInfo &&
+            crashableInfo.ImplementedProtocols.All(predicate: p =>
+                p.Name != "Crashable"))
+        {
+            var protocols = crashableInfo.ImplementedProtocols.ToList();
+            protocols.Add(item: crashableProto);
+            _registry.UpdateCrashableProtocols(typeName: type.FullName,
+                protocols: protocols);
+        }
+    }
+
+    /// <summary>
+    /// Registers the auto-derived member routines for a <see cref="TypeCategory.Flags"/> type.
+    /// </summary>
+    private void HandleFlagsCategory(TypeSymbol type, TypeSymbol? u64Type, TypeSymbol? boolType,
+        TypeSymbol? listDef, List<RoutineInfo> existingMemberRoutines)
+    {
+        // See Choice case above — equality is unambiguous bit-compare; always-on.
+        if (u64Type != null)
+        {
+            MaybeRegisterWired(owner: type,
+                name: "hash",
+                returnType: u64Type,
+                existingMemberRoutines: existingMemberRoutines);
+            MaybeRegisterKeyedHash(owner: type, u64Type: u64Type,
+                existingMemberRoutines: existingMemberRoutines);
+        }
+
+        if (boolType != null)
+        {
+            MaybeRegisterWiredWithParam(owner: type,
+                name: "eq",
+                paramName: "you",
+                paramType: type,
+                returnType: boolType,
+                existingMemberRoutines: existingMemberRoutines);
+        }
+
+        // Bitwise combinators (`a and b`/`a but b` lower to bitor/bitand; `bitxor` for
+        // symmetry). WiredRoutinePass.HandleFlags synthesizes the bodies as @llvm_ir
+        // intrinsic calls on the underlying i64 repr; OperatorLoweringPass then lowers
+        // `BitwiseOr`/`BitwiseAnd`/`BitwiseXor` on a Flags receiver to these calls.
+        foreach (string bitOp in new[] { "bitand", "bitor", "bitxor" })
+        {
+            MaybeRegisterWiredWithParam(owner: type,
+                name: bitOp,
+                paramName: "you",
+                paramType: type,
+                returnType: type,
+                existingMemberRoutines: existingMemberRoutines);
+        }
+
+        // Flags auto-derive Assignable (scalar bitset layout).
+        MaybeRegisterWired(owner: type,
+            name: "assign",
+            returnType: type,
+            existingMemberRoutines: existingMemberRoutines);
+        MaybeRegisterWired(owner: type,
+            name: "duplicate",
+            returnType: type,
+            existingMemberRoutines: existingMemberRoutines);
+
+        // U64.create(from: FlagsType) — flags_val.U64() desugars to U64.create(from: flags_val)
+        if (u64Type != null && !type.IsGenericDefinition &&
+            _registry.LookupRoutineOverload(baseName: "U64.create",
+                argTypes: [type]) == null)
+        {
+            _registry.RegisterRoutine(routine: new RoutineInfo(name: CreateMemberRoutineName)
+            {
+                Kind = RoutineKind.Creator,
+                OwnerType = u64Type,
+                Parameters = [new ParameterInfo(name: "from", type: type)],
+                ReturnType = u64Type,
+                IsFailable = false,
+                DeclaredMutation = MutationCategory.Readonly,
+                MutationCategory = MutationCategory.Readonly,
+                Visibility = VisibilityModifier.Open,
+                IsSynthesized = true
+            });
+        }
+
+        MaybeRegisterWired(owner: type,
+            name: "all_on",
+            returnType: type,
+            existingMemberRoutines: existingMemberRoutines);
+        MaybeRegisterWired(owner: type,
+            name: "all_off",
+            returnType: type,
+            existingMemberRoutines: existingMemberRoutines);
+        if (listDef != null)
+        {
+            TypeSymbol listMeType = _registry.GetOrCreateResolution(
+                genericDef: listDef,
+                typeArguments: [type]);
+            MaybeRegisterWired(owner: type,
+                name: "all_cases",
+                returnType: listMeType,
+                existingMemberRoutines: existingMemberRoutines);
+        }
+    }
+
+    /// <summary>
+    /// Registers the auto-derived member routines for a <see cref="TypeCategory.Variant"/> type.
+    /// </summary>
+    private void HandleVariantCategory(TypeSymbol type, TypeSymbol? textType,
+        List<RoutineInfo> existingMemberRoutines)
+    {
+        // Variants get auto-synthesized `represent` / `diagnose` so user-defined
+        // tagged unions render in f-strings and `show()` without manual impls.
+        // WiredRoutinePass.HandleVariant builds the bodies from the member list;
+        // registration here makes the stubs visible to overload resolution and the
+        // reachability sweep so the symbols actually get emitted by codegen.
+        if (textType != null && !type.IsGenericDefinition)
+        {
+            MaybeRegisterWired(owner: type,
+                name: RuntimeContract.Display.Represent,
+                returnType: textType,
+                existingMemberRoutines: existingMemberRoutines);
+            MaybeRegisterWired(owner: type,
+                name: RuntimeContract.Display.Diagnose,
+                returnType: textType,
+                existingMemberRoutines: existingMemberRoutines);
+        }
+
+        // A variant with a destructible arm (a heap/managed payload that double-frees on
+        // bitwise alias) gets a synthesized deep `copy` — WiredRoutinePass.BuildVariantCopyBody
+        // reconstructs each such arm with `arm.copy()`. Registering it here makes the symbol
+        // visible to overload resolution + the reachability sweep, and lets GetLifecycle return
+        // it as the variant's retaining Copy so copy-lowering injects it at every copy point.
+        if (!type.IsGenericDefinition && type is VariantTypeInfo variantForCopy &&
+            _registry.VariantHasDestructibleArm(variant: variantForCopy))
+        {
+            MaybeRegisterWired(owner: type,
+                name: "duplicate",
+                returnType: type,
+                existingMemberRoutines: existingMemberRoutines);
+        }
+
+        // A variant whose every arm is Assignable gets a shallow `assign` (arm-walk re-store).
+        // REQUIRED so a variant used as a record member (e.g. `Maybe[S32]` in a struct) resolves
+        // the field-walk `.assign()` its owner's auto-derived `assign` emits — the everywhere-
+        // derive for records/entities is arm-blind, so variants register here. Gate on the
+        // STRUCTURAL `EverywhereObeys` (branchof over THIS instance's concrete arms), NOT the
+        // conferred `obeys` — a monomorphized instance (`Maybe[S32]`) is created AFTER conferral
+        // ran, so it never gained the conferred `obeys Assignable`. Body: the `T.assign() needs T
+        // is VariantType` derive template (branchof re-store).
+        if (!type.IsGenericDefinition && type is VariantTypeInfo &&
+            _registry.EverywhereObeys(type: type, protocol: "Assignable"))
+        {
+            MaybeRegisterWired(owner: type,
+                name: "assign",
+                returnType: type,
+                existingMemberRoutines: existingMemberRoutines);
+        }
+
+        // Bidirectional per-arm constructors, auto-generated for every variant:
+        //   V.create(from: Arm)  -> V    — box a branch value into the variant.
+        //   Arm.create!(from: V) -> Arm  — failable extraction (absent when the active arm
+        //                                   is not this one). The `from:` param type (not the
+        //                                   arm name) carries the overload, so no RF-S770 clash
+        //                                   with a same-named type (e.g. the `List` arm).
+        if (!type.IsGenericDefinition && type is VariantTypeInfo variantForCtor)
+        {
+            RegisterVariantArmConstructors(variant: variantForCtor);
         }
     }
 
@@ -1076,7 +1132,7 @@ internal sealed class AutoWiredRegistrationPass
 
         // @llvm-backed records (numeric primitives, Bool, Character, Byte, Hijacked[T])
         // get equality from the underlying IR instruction.
-        if (type is RecordTypeInfo { HasDirectBackendType: true }) return true;
+        if (type is RecordTypeInfo { BackendType: not null }) return true;
 
         // Cycle guard — recursive record / entity types must not loop here.
         if (!seen.Add(item: type.FullName)) return true;

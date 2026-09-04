@@ -10,7 +10,7 @@ namespace Compiler.Postprocessing.Passes;
 /// temporaries and assignments after verification is complete.
 /// </summary>
 #pragma warning disable CS9113
-internal sealed class BecomesLoweringPass(PostprocessingContext _)
+internal sealed class BecomesLoweringPass(PostprocessingContext _) : AstRewriter
 #pragma warning restore CS9113
 {
     public void Run(Program program)
@@ -21,7 +21,7 @@ internal sealed class BecomesLoweringPass(PostprocessingContext _)
             {
                 case RoutineDeclaration routine:
                 {
-                    Statement lowered = LowerStatement(routine.Body);
+                    Statement lowered = VisitStatement(routine.Body);
                     if (!ReferenceEquals(lowered, routine.Body))
                     {
                         program.Declarations[i] = routine with { Body = lowered };
@@ -54,7 +54,7 @@ internal sealed class BecomesLoweringPass(PostprocessingContext _)
                 continue;
             }
 
-            Statement lowered = LowerStatement(routine.Body);
+            Statement lowered = VisitStatement(routine.Body);
             if (!ReferenceEquals(lowered, routine.Body))
             {
                 members[i] = routine with { Body = lowered };
@@ -62,133 +62,32 @@ internal sealed class BecomesLoweringPass(PostprocessingContext _)
         }
     }
 
-    private Statement LowerStatement(Statement statement)
+    /// <summary>
+    /// The only node this pass rewrites: a block whose statements contain a synthetic `_wres_`
+    /// result-target declaration immediately followed by a statement carrying `becomes` — the
+    /// `becomes` statements in that following statement are rewritten into assignments to the
+    /// target. All structural recursion is supplied by <see cref="AstRewriter"/>; the base rewrites
+    /// the child statements FIRST (matching the original order), then the pairwise scan runs.
+    /// </summary>
+    protected override Statement VisitBlock(BlockStatement block)
     {
-        return statement switch
-        {
-            BlockStatement block => LowerBlock(block),
-            IfStatement ifs => LowerIf(ifs),
-            WhileStatement whileStmt => LowerWhile(whileStmt),
-            LoopStatement loop => LowerLoop(loop),
-            EachStatement eachStmt => LowerEach(eachStmt),
-            WhenStatement whenStmt => LowerWhen(whenStmt),
-            UsingStatement usingStmt => LowerUsing(usingStmt),
-            DangerStatement danger => LowerDanger(danger),
-            _ => statement
-        };
-    }
+        // Recurse into children first (base returns the same reference when nothing changed).
+        var lowered = (BlockStatement)base.VisitBlock(s: block);
 
-    private BlockStatement LowerBlock(BlockStatement block)
-    {
-        var loweredStatements = new List<Statement>(capacity: block.Statements.Count);
-        bool changed = false;
-
-        foreach (Statement statement in block.Statements)
+        List<Statement>? loweredStatements = null;
+        for (int i = 0; i < lowered.Statements.Count - 1; i++)
         {
-            Statement lowered = LowerStatement(statement);
-            loweredStatements.Add(item: lowered);
-            changed |= !ReferenceEquals(lowered, statement);
-        }
-
-        for (int i = 0; i < loweredStatements.Count - 1; i++)
-        {
-            if (TryGetSyntheticWhenResultTarget(loweredStatements[i], out IdentifierExpression? target) &&
-                ContainsBecomes(loweredStatements[i + 1]))
+            if (TryGetSyntheticWhenResultTarget(lowered.Statements[i], out IdentifierExpression? target) &&
+                ContainsBecomes(lowered.Statements[i + 1]))
             {
+                loweredStatements ??= [..lowered.Statements];
                 loweredStatements[i + 1] = RewriteBecomes(loweredStatements[i + 1], target!);
-                changed = true;
             }
         }
 
-        return changed
-            ? block with { Statements = loweredStatements }
-            : block;
-    }
-
-    private IfStatement LowerIf(IfStatement ifs)
-    {
-        Statement thenStatement = LowerStatement(ifs.ThenStatement);
-        Statement? elseStatement = ifs.ElseStatement != null
-            ? LowerStatement(ifs.ElseStatement)
-            : null;
-
-        return !ReferenceEquals(thenStatement, ifs.ThenStatement) ||
-               !ReferenceEquals(elseStatement, ifs.ElseStatement)
-            ? ifs with { ThenStatement = thenStatement, ElseStatement = elseStatement }
-            : ifs;
-    }
-
-    private WhileStatement LowerWhile(WhileStatement whileStmt)
-    {
-        Statement body = LowerStatement(whileStmt.Body);
-        Statement? elseBranch = whileStmt.ElseBranch != null
-            ? LowerStatement(whileStmt.ElseBranch)
-            : null;
-
-        return !ReferenceEquals(body, whileStmt.Body) ||
-               !ReferenceEquals(elseBranch, whileStmt.ElseBranch)
-            ? whileStmt with { Body = body, ElseBranch = elseBranch }
-            : whileStmt;
-    }
-
-    private LoopStatement LowerLoop(LoopStatement loop)
-    {
-        Statement body = LowerStatement(loop.Body);
-        return !ReferenceEquals(body, loop.Body)
-            ? loop with { Body = body }
-            : loop;
-    }
-
-    private EachStatement LowerEach(EachStatement eachStmt)
-    {
-        Statement body = LowerStatement(eachStmt.Body);
-        Statement? elseBranch = eachStmt.ElseBranch != null
-            ? LowerStatement(eachStmt.ElseBranch)
-            : null;
-
-        return !ReferenceEquals(body, eachStmt.Body) ||
-               !ReferenceEquals(elseBranch, eachStmt.ElseBranch)
-            ? eachStmt with { Body = body, ElseBranch = elseBranch }
-            : eachStmt;
-    }
-
-    private WhenStatement LowerWhen(WhenStatement whenStmt)
-    {
-        bool changed = false;
-        var clauses = new List<WhenClause>(capacity: whenStmt.Clauses.Count);
-
-        foreach (WhenClause clause in whenStmt.Clauses)
-        {
-            Statement loweredBody = LowerStatement(clause.Body);
-            clauses.Add(item: !ReferenceEquals(loweredBody, clause.Body)
-                ? clause with { Body = loweredBody }
-                : clause);
-            changed |= !ReferenceEquals(loweredBody, clause.Body);
-        }
-
-        return changed
-            ? whenStmt with { Clauses = clauses }
-            : whenStmt;
-    }
-
-    private UsingStatement LowerUsing(UsingStatement usingStmt)
-    {
-        Statement body = LowerStatement(usingStmt.Body);
-        Statement? fb = usingStmt.FallbackBody != null
-            ? LowerStatement(usingStmt.FallbackBody)
-            : null;
-        return !ReferenceEquals(body, usingStmt.Body)
-               || !ReferenceEquals(fb, usingStmt.FallbackBody)
-            ? usingStmt with { Body = body, FallbackBody = fb }
-            : usingStmt;
-    }
-
-    private DangerStatement LowerDanger(DangerStatement danger)
-    {
-        var body = (BlockStatement)LowerStatement(danger.Body);
-        return !ReferenceEquals(body, danger.Body)
-            ? danger with { Body = body }
-            : danger;
+        return loweredStatements != null
+            ? lowered with { Statements = loweredStatements }
+            : lowered;
     }
 
     private static bool TryGetSyntheticWhenResultTarget(Statement statement,

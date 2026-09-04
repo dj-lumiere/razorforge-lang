@@ -126,7 +126,6 @@ public sealed class DebugOptions
     public bool ShowBuildStages { get; set; }
 
     /// <summary>Survey unresolved marker-protocol conformances (<c>marker-survey</c>).</summary>
-    public bool MarkerSurvey { get; set; }
 
     /// <summary>Print codegen DCE prune statistics (<c>prune-stats</c>).</summary>
     public bool PruneStats { get; set; }

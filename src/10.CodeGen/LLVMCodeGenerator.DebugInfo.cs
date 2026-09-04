@@ -208,6 +208,19 @@ public partial class LlvmCodeGenerator
         }
 
         int flagsId = nextId++;
+        AppendDebugMetadataTrailer(outSb: outSb, meta: meta, cuId: cuId, cuFileId: cuFileId,
+            flagsId: flagsId);
+        return outSb.ToString();
+    }
+
+    /// <summary>
+    /// Appends the module's debug-info trailer to <paramref name="outSb"/>: the
+    /// <c>!llvm.dbg.cu</c> / <c>!llvm.module.flags</c> named metadata, the DICompileUnit and Debug
+    /// Info Version flag, and the accumulated per-descriptor <paramref name="meta"/> block.
+    /// </summary>
+    private static void AppendDebugMetadataTrailer(StringBuilder outSb, StringBuilder meta,
+        int cuId, int cuFileId, int flagsId)
+    {
         outSb.Append(value: $"\n!llvm.dbg.cu = !{{!{cuId}}}\n");
         outSb.Append(value: $"!llvm.module.flags = !{{!{flagsId}}}\n");
         outSb.Append(value:
@@ -215,7 +228,6 @@ public partial class LlvmCodeGenerator
             "producer: \"RazorForge\", isOptimized: false, runtimeVersion: 0, emissionKind: LineTablesOnly)\n");
         outSb.Append(value: $"!{flagsId} = !{{i32 2, !\"Debug Info Version\", i32 3}}\n");
         outSb.Append(value: meta);
-        return outSb.ToString();
     }
 
     // ---- helpers -------------------------------------------------------------------------------

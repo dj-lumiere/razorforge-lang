@@ -84,6 +84,7 @@ routine Real.assign() -> Real
   return Real(handle: me.handle, ctrl: me.ctrl)
 
 ### Releases this reference; frees the handle when this was the last live ref.
+@override
 dangerous routine Real.destroy()
   if me.ctrl.is_none()
     return
@@ -644,7 +645,7 @@ routine Real.to_f64() -> F64
 
 ### Formats this value as base-10 decimal text.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine Real.represent() -> Text
   var CStr = rf_real_to_str(handle: me.handle)
   var text = Text(from: CStr)

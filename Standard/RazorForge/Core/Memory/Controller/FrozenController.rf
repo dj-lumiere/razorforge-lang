@@ -48,6 +48,7 @@ dangerous routine FrozenController.unhold() -> U64
 dangerous routine FrozenController.strong_count() -> U64
   return LLVM::atomic_load[U64](ptr: me.strong_count.hijack())
 
+@override
 dangerous routine FrozenController.destroy()
   if me.strong_count() == 0
     me.hijack().invalidate()

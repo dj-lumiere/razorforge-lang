@@ -1,48 +1,24 @@
 module Tests/Stdlib/SoaSplitArrayApi
 import IO/Console
 import BuilderExpansion
-import Collections
+import Collections.SplitArray
 
 # Exercises decl-position `expand m in allmemvarof(T)` (struct-of-arrays): `SplitArray[T, N]` turns each
 # field of the element record `T` into its own `Array[fieldType, N]` column. Indexing a column inside a
 # monomorphized SoA method — `me.$nameof(m)[index]` (get/setitem) and `me.$nameof(m).count()` — must
 # resolve the concrete column accessor post-monomorphization (the type-clobber + late-liveness fixes).
 
-record Point
+record Point obeys Splittable
   x: S64
   y: S64
 
-record SplitArray[T, N] obeys Sized
-needs T is SplittableType
-needs N is U64
-  expand m in allmemvarof(T)
-    secret $nameof(m): Array[$typeof(m), N]
-
-@readonly
-routine SplitArray[T, N].count() -> U64
-  return N
-
-routine SplitArray[T, N].set(index: U64, value: T)
-  expand m in allmemvarof(T)
-    danger
-      me.$nameof(m)[index] = value.$nameof(m)
-  return
-
-@readonly
-routine SplitArray[T, N].get(index: U64) -> T
-  var result = blank[T]()
-  expand m in allmemvarof(T)
-    danger
-      result.$nameof(m) = me.$nameof(m)[index]
-  return result
-
 routine start()
-  var s = blank[SplitArray[Point, 4]]()
+  var s = SplitArray[Point, 4].blank()
   show(f"count={s.count()}")
-  s.set(index: 0u64, value: Point(x: 10_s64, y: 20_s64))
-  s.set(index: 3u64, value: Point(x: 30_s64, y: 40_s64))
-  var a = s.get(index: 0u64)
-  var b = s.get(index: 3u64)
+  s[0] = Point(x: 10, y: 20)
+  s[3] = Point(x: 30, y: 40)
+  var a = s[0]
+  var b = s[3]
   show(f"a: x={a.x} y={a.y}")
   show(f"b: x={b.x} y={b.y}")
   show("DONE")

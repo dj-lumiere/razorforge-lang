@@ -8,22 +8,22 @@ public enum ConstraintKind
     /// <summary>Protocol/interface implementation (T obeys Comparable)</summary>
     Obeys,
 
-    /// <summary>Value type constraint (where T is record)</summary>
-    ValueType,
+    /// <summary>Value type constraint (where T is RecordType)</summary>
+    RecordType,
 
-    /// <summary>Reference type constraint (where T is entity)</summary>
-    ReferenceType,
+    /// <summary>Reference type constraint (where T is EntityType)</summary>
+    EntityType,
 
-    /// <summary>Routine/function type constraint (where T is routine)</summary>
+    /// <summary>Routine/function type constraint (where T is RoutineType)</summary>
     RoutineType,
 
-    /// <summary>Choice type constraint (where T is choice)</summary>
+    /// <summary>Choice type constraint (where T is ChoiceType)</summary>
     ChoiceType,
 
-    /// <summary>Flags type constraint (where T is flags)</summary>
+    /// <summary>Flags type constraint (where T is FlagsType)</summary>
     FlagsType,
 
-    /// <summary>Variant type constraint (where T is variant)</summary>
+    /// <summary>Variant type constraint (where T is VariantType)</summary>
     VariantType,
 
     /// <summary>Tuple type constraint (where T is TupleType)</summary>
@@ -34,20 +34,22 @@ public enum ConstraintKind
     /// member variables. Lets a derive specialize the degenerate empty-field-walk case.</summary>
     ZeroMemvarType,
 
-    /// <summary>Splittable constraint (where T is SplittableType) — a trivially-destructible element
-    /// type whose footprint reduces to `@llvm` primitives + raw pointers with no custom store/destroy,
-    /// so its member-variable columns are memcpy-movable with no per-element teardown. The eligibility
-    /// gate for the SoA collections `SplitArray[T, N]` / `SplitList[T]`.</summary>
-    Splittable,
-
     /// <summary>Const generic type constraint (where N is Address)</summary>
     ConstGeneric,
 
-    /// <summary>Type equality constraint (where T in [s32, u8])</summary>
+    /// <summary>Type equality constraint (where T in [S32, U8])</summary>
     TypeEquality,
 
-    /// <summary>Crashable type constraint (where T is crashable).</summary>
+    /// <summary>Crashable type constraint (where T is Crashable).</summary>
     Crashable,
+
+    /// <summary>Type-parameter DECLARATION (<c>needs T is TypeName</c>): declares the named identifier as
+    /// an unconstrained generic type parameter of the routine/type — the explicit alternative to the
+    /// bracket form <c>[T]</c>. Satisfied by ANY type. Used by the universal derive templates
+    /// (<c>@overridable routine T.represent() needs T is TypeName</c>) so the placeholder <c>T</c> is a
+    /// structurally-declared parameter (distinguishing a template from a concrete-type override) rather
+    /// than an owner that merely happens to not resolve.</summary>
+    AnyType,
 
     /// <summary>Standard-implementation eligibility constraint (<c>needs P everywhere</c>): the owner
     /// <c>Me</c> obeys protocol <c>P</c> IFF every member (allmemvarof/branchof/caseof, per kind) obeys it.

@@ -1,18 +1,19 @@
 module Core
 
 ### A zero-initialized value of type `T` — every field/element set to zero (a null pointer for raw
-### pointer fields). The comptime footprint primitive behind the SoA collections: `SplitList`/
-### `SplitArray` start from `blank[T]()` and fill their columns. Sound only when `T is SplittableType`
+### pointer fields). The buildtime footprint primitive behind the SoA collections: `SplitList`/
+### `SplitArray` start from `blank[T]()` and fill their columns. Sound only when `T obeys Splittable`
 ### (a trivially-destructible footprint), so a zeroed instance owns nothing that needs teardown.
 ### :returns: A `T` with every byte zero.
-routine blank[T]() -> T
+common routine T.blank() -> T
+needs T is TypeName
   return LLVM::zeroed[T]()
 
 ### A freshly heap-allocated `T` entity whose whole footprint is zeroed — the reference-type analog of
 ### `blank[T]()`. Sizes the allocation from the entity's STRUCT footprint (not the 8-byte reference), so it
 ### is the construction primitive behind SoA ENTITY collections (a growable `SplitList`): the columns land
 ### null (`hijacked_none`) and scalar counts land zero, giving a valid empty container with no per-field
-### `$create` args. `dangerous` because it BYPASSES the memberwise `$create`: sound only when the element
+### `$create` args. `dangerous` because it BYPASSES the memberwise `create`: sound only when the element
 ### type's zero state is a valid empty instance (every field defaults to null/zero, no invariant to establish).
 ### :returns: A newly allocated, zero-initialized `T` entity.
 @innate

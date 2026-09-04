@@ -433,6 +433,7 @@ routine F512.to_f256a() -> F256
   return me.to_uf().to_f256a()
 
 ### Returns the decimal text (narrowed to binary256 precision for display).
+@override
 routine F512.represent() -> Text
   if me.is_nan()
     return "NaN"
@@ -441,5 +442,6 @@ routine F512.represent() -> Text
   return me.to_f256a().represent()
 
 ### Returns a diagnostic representation tagged with the type name.
+@override
 routine F512.diagnose() -> Text
   return "F512(" + me.represent() + ")"

@@ -227,6 +227,11 @@ public enum SemanticDiagnosticCode
     /// <summary>Type parameter in constraint is not declared on the type or function.</summary>
     UnknownTypeParameterInConstraint = 163,
 
+    /// <summary>A concrete type defines a routine (e.g. <c>represent</c>) that collides with a universal
+    /// <c>@overridable</c> auto-derive template but is not marked <c>@override</c> — it would silently be
+    /// shadowed by the auto-derive. Mark it <c>@override</c> to replace the derive, or remove it.</summary>
+    OverridableDeriveNeedsOverrideMarker = 164,
+
     // ═══════════════════════════════════════════════════════════════════════════
     // STATEMENT ERRORS (RF-S200 - RF-S249)
     // ═══════════════════════════════════════════════════════════════════════════

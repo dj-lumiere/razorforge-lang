@@ -263,6 +263,7 @@ dangerous routine Agent[T].reap()
 ### `List[Agent]` element read as a temporary) tearing down frees NOTHING → no double-free even when the
 ### same worker/coroutine is aliased across copies. A container of Agents dropped WITHOUT being consumed
 ### leaks its children (rare — structured-concurrency scopes always race/gather them).
+@override
 dangerous routine Agent[T].destroy()
   return
 

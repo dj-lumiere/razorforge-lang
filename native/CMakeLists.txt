@@ -94,9 +94,6 @@ include(cmake/libco.cmake)
 # https://github.com/libuv/libuv (MIT)
 include(cmake/libuv.cmake)
 
-# Boehm GC - Conservative garbage collector (Suflae runtime)
-# https://github.com/ivmai/bdwgc (MIT-style)
-include(cmake/bdwgc.cmake)
 
 # ============================================================================
 # Compiler-RT shim for 128-bit integer operations (Windows)
@@ -246,11 +243,6 @@ if(HAVE_LIBUV)
     target_link_libraries(razorforge_runtime uv_a)
 endif()
 
-# Link Boehm GC if available
-if(HAVE_BDWGC)
-    target_compile_definitions(razorforge_runtime PRIVATE HAVE_BDWGC)
-    target_link_libraries(razorforge_runtime gc)
-endif()
 
 # Set output directory
 set_target_properties(razorforge_runtime PROPERTIES
@@ -330,7 +322,6 @@ message(STATUS "  tomlc99 (TOML):                   ${HAVE_TOMLC99}")
 message(STATUS "  minicsv (CSV):                    ${HAVE_MINICSV}")
 message(STATUS "  libco (green-thread contexts):    ${HAVE_LIBCO}")
 message(STATUS "  libuv (async I/O loop):           ${HAVE_LIBUV}")
-message(STATUS "  Boehm GC (Suflae GC):             ${HAVE_BDWGC}")
 message(STATUS "  ── Platform ──")
 message(STATUS "  Platform: ${CMAKE_SYSTEM_NAME}")
 message(STATUS "  Compiler: ${CMAKE_C_COMPILER_ID} ${CMAKE_C_COMPILER_VERSION}")

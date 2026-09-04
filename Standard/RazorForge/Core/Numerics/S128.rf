@@ -8,7 +8,7 @@ module Core
 ### values that can't fit in `S64`. Note that `S128` does not implement `AtomicType`
 ### because hardware atomic operations on 128-bit values are not universally available.
 @llvm("i128")
-record S128 obeys SignedIntegral, Ordered, ConstCompatible, Assignable, Copyable
+record S128 obeys SignedIntegral, Ordered, ConstCompatible, Assignable, Copyable, Splittable
   pass
 
 # Constants for S128 limits
@@ -693,6 +693,7 @@ routine S128.signum() -> S128
 
 ### Returns the human-readable text of this value.
 ### :returns: The value rendered as `Text`.
+@override
 routine S128.represent() -> Text
   if me == 0s128
     return "0"
@@ -705,6 +706,7 @@ routine S128.represent() -> Text
 
 ### Returns a type-tagged debug rendering of this value.
 ### :returns: A diagnostic `Text` rendering, e.g. `Type(value)`.
+@override
 routine S128.diagnose() -> Text
   return "S128(" + me.represent() + ")"
 

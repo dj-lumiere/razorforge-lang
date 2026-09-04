@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using DebugUtils.Repr;
 using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;
@@ -344,22 +345,14 @@ public partial class LlvmCodeGenerator
     /// name aliases a fresh stack slot of the same kind (ptr). Returns null for any line
     /// that isn't a struct -> ptr bitcast.
     /// </summary>
-    private static (string StructType, string Value, string ResultName)?
-        TryDetectStructToPtrBitcast(string line)
+    /// <summary>
+    /// Splits a bitcast operand string <c>"&lt;Type&gt; &lt;Value&gt;"</c> into its type and value.
+    /// Most types are space-free, but inline-array aggregates (<c>[N x T]</c>, possibly nested) contain
+    /// spaces — split after the balanced closing bracket in that case; otherwise split on the first
+    /// space. Returns null when the operand is malformed.
+    /// </summary>
+    private static (string FromType, string Val)? SplitBitcastOperand(string operand)
     {
-        int eqIdx = line.IndexOf(value: " = bitcast ", comparisonType: StringComparison.Ordinal);
-        if (eqIdx < 0) return null;
-        string resultName = line.Substring(startIndex: 0, length: eqIdx);
-        int valueStart = eqIdx + " = bitcast ".Length;
-        int toIdx = line.IndexOf(value: " to ", startIndex: valueStart,
-            comparisonType: StringComparison.Ordinal);
-        if (toIdx < 0) return null;
-        string operand = line.Substring(startIndex: valueStart, length: toIdx - valueStart);
-        // operand is "<Type> <Value>". Most types are space-free, but inline-array aggregates
-        // (`[N x T]`, possibly nested) contain spaces — split after the balanced closing bracket
-        // in that case; otherwise split on the first space.
-        string fromType;
-        string val;
         if (operand.StartsWith(value: '['))
         {
             int depth = 0;
@@ -374,16 +367,32 @@ public partial class LlvmCodeGenerator
                 }
             }
             if (close < 0 || close + 1 >= operand.Length) return null;
-            fromType = operand.Substring(startIndex: 0, length: close + 1);
-            val = operand.Substring(startIndex: close + 1).Trim();
+            return (operand.Substring(startIndex: 0, length: close + 1),
+                operand.Substring(startIndex: close + 1).Trim());
         }
-        else
+
+        int sep = operand.IndexOf(value: ' ');
+        if (sep < 0) return null;
+        return (operand.Substring(startIndex: 0, length: sep),
+            operand.Substring(startIndex: sep + 1));
+    }
+
+    private static (string StructType, string Value, string ResultName)?
+        TryDetectStructToPtrBitcast(string line)
+    {
+        int eqIdx = line.IndexOf(value: " = bitcast ", comparisonType: StringComparison.Ordinal);
+        if (eqIdx < 0) return null;
+        string resultName = line.Substring(startIndex: 0, length: eqIdx);
+        int valueStart = eqIdx + " = bitcast ".Length;
+        int toIdx = line.IndexOf(value: " to ", startIndex: valueStart,
+            comparisonType: StringComparison.Ordinal);
+        if (toIdx < 0) return null;
+        string operand = line.Substring(startIndex: valueStart, length: toIdx - valueStart);
+        if (SplitBitcastOperand(operand: operand) is not { } split)
         {
-            int sep = operand.IndexOf(value: ' ');
-            if (sep < 0) return null;
-            fromType = operand.Substring(startIndex: 0, length: sep);
-            val = operand.Substring(startIndex: sep + 1);
+            return null;
         }
+        (string fromType, string val) = split;
         string toType = line.Substring(startIndex: toIdx + 4).Trim();
         if (toType != "ptr") return null;
         // Struct types in our IR are named %"Record.X" or %"Entity.X" or anonymous %Record.X.
@@ -442,52 +451,9 @@ public partial class LlvmCodeGenerator
             string currentResult = NextTemp();
             bool hasResult = line.Contains(value: "{result}");
 
-            string substituted = line;
-            substituted = substituted.Replace(oldValue: "{result}", newValue: currentResult);
-
-            if (prevResult != null)
-                substituted = substituted.Replace(oldValue: "{prev}", newValue: prevResult);
-
-            if (firstResult != null)
-                substituted = substituted.Replace(oldValue: "{first}", newValue: firstResult);
-
-            // {T}, {From}, {To}, etc. — named generic parameters -> LLVM types
-            List<string>? genericParameters =
-                memberRoutine.GenericParameters ?? memberRoutine.GenericDefinition?.GenericParameters;
-            if (genericParameters != null)
-            {
-                for (int i = 0; i < genericParameters.Count && i < llvmTypeArgs.Count; i++)
-                {
-                    string paramName = genericParameters[index: i];
-                    substituted = substituted.Replace(oldValue: $"{{{paramName}}}",
-                        newValue: llvmTypeArgs[index: i]);
-
-                    string sizeofPattern = $"{{sizeof {paramName}}}";
-                    if (substituted.Contains(value: sizeofPattern))
-                    {
-                        substituted = substituted.Replace(oldValue: sizeofPattern,
-                            newValue: (GetTypeBitWidth(llvmType: llvmTypeArgs[index: i]) / 8)
-                                      .ToString());
-                    }
-                }
-            }
-
-            // {paramName} -> emitted arg value (positional by parameter list order)
-            for (int i = 0; i < memberRoutine.Parameters.Count && i < args.Count; i++)
-            {
-                string paramName = memberRoutine.Parameters[index: i].Name;
-                substituted = substituted.Replace(oldValue: $"{{{paramName}}}",
-                    newValue: args[index: i]);
-            }
-
-            // Arithmetic holes over const generic params: {(N+7)//8}, {N*2}, etc.
-            // BackendType templates (resolved in RecordTypeInfo.CreateInstance) handle these
-            // already; @llvm_ir templates need the same support so e.g. BitArray[N]'s
-            // byte_at_bits intrinsic emits `[1 x i8]` for N=8 instead of `[{(N+7)//8} x i8]`.
-            substituted = ResolveArithmeticHoles(template: substituted, memberRoutine: memberRoutine,
-                llvmTypeArgs: llvmTypeArgs);
-
-            substituted = FixIntPtrBitcast(line: substituted);
+            string substituted = SubstituteTemplateLine(line: line, memberRoutine: memberRoutine,
+                llvmTypeArgs: llvmTypeArgs, args: args, currentResult: currentResult,
+                prevResult: prevResult, firstResult: firstResult);
 
             // `bitcast %Record.Foo %val to ptr` is illegal in LLVM (struct -> ptr bitcasts
             // are forbidden). Routines like the universal `T.get_address()` use
@@ -529,26 +495,96 @@ public partial class LlvmCodeGenerator
         // so the caller receives the named LLVM type (%"Record.Tuple[...]").
         if (lastResult != null && memberRoutine.ReturnType is TupleTypeInfo tupleReturn)
         {
-            string namedType = GetLlvmType(type: tupleReturn);
-            string anonType =
-                $"{{ {string.Join(separator: ", ", values: tupleReturn.ElementTypes.Select(selector: GetLlvmType))} }}";
-            string tupleVal = "undef";
-            for (int i = 0; i < tupleReturn.ElementTypes.Count; i++)
-            {
-                string elem = NextTemp();
-                EmitLine(sb: sb, line: $"  {elem} = extractvalue {anonType} {lastResult}, {i}");
-                // The named tuple stores a Bool element as i8 — zext the i1 from the anon result.
-                TypeInfo elemType = tupleReturn.ElementTypes[index: i];
-                elem = CoerceBoolToStorage(sb: sb, value: elem, fieldType: elemType);
-                string ins = NextTemp();
-                EmitLine(sb: sb,
-                    line: $"  {ins} = insertvalue {namedType} {tupleVal}, {GetFieldStorageLlvmType(type: elemType)} {elem}, {i}");
-                tupleVal = ins;
-            }
-            return tupleVal;
+            return CoerceAnonStructToNamedTuple(sb: sb, tupleReturn: tupleReturn,
+                lastResult: lastResult);
         }
 
         return lastResult ?? (args.Count > 0 ? args[index: 0] : "undef");
+    }
+
+    /// <summary>
+    /// Performs all <c>{hole}</c> substitutions on one template line: the <c>{result}</c>/<c>{prev}</c>/
+    /// <c>{first}</c> temporaries, named generic-parameter types (and their <c>{sizeof T}</c> byte
+    /// widths), positional <c>{paramName}</c> argument values, arithmetic const-generic holes, and the
+    /// int↔ptr bitcast fixup.
+    /// </summary>
+    private string SubstituteTemplateLine(string line, RoutineInfo memberRoutine,
+        List<string> llvmTypeArgs, List<string> args, string currentResult,
+        string? prevResult, string? firstResult)
+    {
+        string substituted = line;
+        substituted = substituted.Replace(oldValue: "{result}", newValue: currentResult);
+
+        if (prevResult != null)
+            substituted = substituted.Replace(oldValue: "{prev}", newValue: prevResult);
+
+        if (firstResult != null)
+            substituted = substituted.Replace(oldValue: "{first}", newValue: firstResult);
+
+        // {T}, {From}, {To}, etc. — named generic parameters -> LLVM types
+        List<string>? genericParameters =
+            memberRoutine.GenericParameters ?? memberRoutine.GenericDefinition?.GenericParameters;
+        if (genericParameters != null)
+        {
+            for (int i = 0; i < genericParameters.Count && i < llvmTypeArgs.Count; i++)
+            {
+                string paramName = genericParameters[index: i];
+                substituted = substituted.Replace(oldValue: $"{{{paramName}}}",
+                    newValue: llvmTypeArgs[index: i]);
+
+                string sizeofPattern = $"{{sizeof {paramName}}}";
+                if (substituted.Contains(value: sizeofPattern))
+                {
+                    substituted = substituted.Replace(oldValue: sizeofPattern,
+                        newValue: (GetTypeBitWidth(llvmType: llvmTypeArgs[index: i]) / 8)
+                                  .ToString());
+                }
+            }
+        }
+
+        // {paramName} -> emitted arg value (positional by parameter list order)
+        for (int i = 0; i < memberRoutine.Parameters.Count && i < args.Count; i++)
+        {
+            string paramName = memberRoutine.Parameters[index: i].Name;
+            substituted = substituted.Replace(oldValue: $"{{{paramName}}}",
+                newValue: args[index: i]);
+        }
+
+        // Arithmetic holes over const generic params: {(N+7)//8}, {N*2}, etc.
+        // BackendType templates (resolved in RecordTypeInfo.CreateInstance) handle these
+        // already; @llvm_ir templates need the same support so e.g. BitArray[N]'s
+        // byte_at_bits intrinsic emits `[1 x i8]` for N=8 instead of `[{(N+7)//8} x i8]`.
+        substituted = ResolveArithmeticHoles(template: substituted, memberRoutine: memberRoutine,
+            llvmTypeArgs: llvmTypeArgs);
+
+        return FixIntPtrBitcast(line: substituted);
+    }
+
+    /// <summary>
+    /// Coerces an anonymous-struct intrinsic result (e.g. overflow intrinsics returning
+    /// <c>{ i128, i1 }</c>) into the named tuple LLVM type via per-element extractvalue/insertvalue,
+    /// Bool-zext'ing each element to its i8 storage form. Returns the built named-tuple SSA value.
+    /// </summary>
+    private string CoerceAnonStructToNamedTuple(StringBuilder sb, TupleTypeInfo tupleReturn,
+        string lastResult)
+    {
+        string namedType = GetLlvmType(type: tupleReturn);
+        string anonType =
+            $"{{ {string.Join(separator: ", ", values: tupleReturn.ElementTypes.Select(selector: GetLlvmType))} }}";
+        string tupleVal = "undef";
+        for (int i = 0; i < tupleReturn.ElementTypes.Count; i++)
+        {
+            string elem = NextTemp();
+            EmitLine(sb: sb, line: $"  {elem} = extractvalue {anonType} {lastResult}, {i}");
+            // The named tuple stores a Bool element as i8 — zext the i1 from the anon result.
+            TypeInfo elemType = tupleReturn.ElementTypes[index: i];
+            elem = CoerceBoolToStorage(sb: sb, value: elem, fieldType: elemType);
+            string ins = NextTemp();
+            EmitLine(sb: sb,
+                line: $"  {ins} = insertvalue {namedType} {tupleVal}, {GetFieldStorageLlvmType(type: elemType)} {elem}, {i}");
+            tupleVal = ins;
+        }
+        return tupleVal;
     }
 
     /// <summary>
@@ -626,9 +662,14 @@ public partial class LlvmCodeGenerator
                 resolvedReturnType: gmc.ResolvedType);
 
         string objectDesc = gmc.Object is IdentifierExpression id2 ? id2.Name : gmc.Object.GetType().Name;
+        string typeArgDesc = (gmc.TypeArguments?.Select(
+            t => $"{t.Name}(resolved={t.ResolvedType?.FullName ?? "null"})").ToList() ?? []).Repr();
+        string routineDesc = gmc.ResolvedRoutine is { } rr
+            ? $"key={rr.RegistryKey} isGenDef={rr.IsGenericDefinition} hasGenDef={rr.GenericDefinition != null} typeArgs={(rr.TypeArguments?.Select(t => t.FullName).ToList() ?? []).Repr()}"
+            : "ResolvedRoutine=NULL";
         throw new InvalidOperationException(
             $"GenericMemberRoutineCallExpression reached codegen — GenericCallLoweringPass must lower all GMCEs to CallExpression before codegen. " +
-            $"GMCE: {objectDesc}.{gmc.MemberRoutineName}[{string.Join(", ", gmc.TypeArguments?.Select(t => t.Name) ?? [])}], " +
+            $"GMCE: {objectDesc}.{gmc.MemberRoutineName}[{typeArgDesc}] ({routineDesc}), " +
             $"in routine: {_currentEmittingRoutine?.Name ?? "<unknown>"} (owner: {_currentEmittingRoutine?.OwnerType?.Name ?? "none"})");
     }
 }

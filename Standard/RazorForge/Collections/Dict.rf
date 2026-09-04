@@ -33,7 +33,7 @@ secret preset ENTRY_LIVE: U8 = 1_u8
 ### :typeparam K: The key type. Must obey {Hashable} and {Equatable}.
 ### :typeparam V: The value type associated with each key.
 ### :see: {Set[T]} for the set counterpart.
-entity Dict[K, V] obeys Iterable[DictEntry[K, V]], KeyFindable, Container, Copyable, DictLiteral[K, V]
+entity Dict[K, V] obeys Iterable[DictEntry[K, V]], KeyFindable, Container, Copyable onlyif (K obeys Copyable, V obeys Copyable), DictLiteral[K, V]
 needs K obeys Hashable, Equatable
 relates DictEmittable[K, V] as Iter
 relates K as Key
@@ -130,6 +130,7 @@ routine Dict[K, V](key: SecureHashKey, capacity: U64) -> Dict[K, V]
 
 ### Frees the heap buffers owned by this dictionary. The element/key/value contents are
 ### not recursed into — only the backing arrays are released.
+@override
 dangerous routine Dict[K, V].destroy()
   # Tear down each live key and value before freeing the buffers (mirrors the live-entry scan
   # in DictEmittable.emit!). No-op for value types; frees owned entity keys/values.
@@ -453,12 +454,12 @@ routine DictEmittable[K, V].emit!() -> DictEntry[K, V]
 ### bump their refcount; aggregate values are duplicated recursively). This is the deep-copy point
 ### the compiler inserts when a `Dict[K, V]` is an owned arm of a value being copied.
 ### :returns: A new `Dict[K, V]` owning independent copies of every entry.
-routine Dict[K, V].copy() -> Dict[K, V]
+routine Dict[K, V].duplicate() -> Dict[K, V]
 needs K obeys Copyable
 needs V obeys Copyable
   var result = Dict[K, V]()
   each entry in me
-    discard result.add(key: entry.key.copy(), value: entry.value.copy())
+    discard result.add(key: entry.key.duplicate(), value: entry.value.duplicate())
   return steal result
 
 # ============================================================================

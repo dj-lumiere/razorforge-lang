@@ -70,7 +70,7 @@ routine Consulting[T, P].access() -> T
 
 ### Returns the display form of the consulted entity.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine Consulting[T, P].represent() -> Text
   danger
     var ctrl = Hijacked[GuardController[T, P]](me).as_entity()
@@ -78,7 +78,7 @@ routine Consulting[T, P].represent() -> Text
 
 ### Returns the diagnostic form of the consulted entity.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine Consulting[T, P].diagnose() -> Text
   danger
     var ctrl = Hijacked[GuardController[T, P]](me).as_entity()
@@ -86,5 +86,6 @@ routine Consulting[T, P].diagnose() -> Text
 
 ### No-op: the token owns no heap (it only aliases the controller), and the reader hold is
 ### released by `exit`. Releasing here too would double-release the lock.
+@override
 dangerous routine Consulting[T, P].destroy()
   return

@@ -30,6 +30,25 @@ public static class BuilderInfoProvider
         return PerTypeRoutines.Contains(item: name);
     }
 
+    /// <summary>
+    /// Per-type CONSTANT list-returning BuilderQuery reflection routines: 0 runtime params, value is a
+    /// compile-time-constant <c>List[Text]</c> of the owner type. These are NOT synthesized as routine
+    /// bodies (see <c>WiredRoutinePass.TryHandleBuilderQueryConstant</c>); they are folded at the call site
+    /// to an inline analyzed list literal by <c>SemanticVerifier.FoldListBuilderQueryReflection</c> BEFORE
+    /// reachability — the list analogue of the scalar <see cref="IsFoldable"/> foldables, so BuilderQuery
+    /// never survives desugaring as an emitted routine (which the non-pruned resident-JIT base would emit
+    /// dead, dangling an unmaterialized <c>from_literal(Array[Text,N])</c>).
+    /// </summary>
+    public static readonly IReadOnlySet<string> ListReturningConstantRoutines =
+        new HashSet<string>(comparer: StringComparer.Ordinal)
+        {
+            "routine_names", "protocols", "generic_args", "annotations", "dependencies"
+        };
+
+    /// <summary>Returns true if the routine name is a constant list-returning BuilderQuery reflection routine.</summary>
+    public static bool IsListReturningConstantRoutine(string name) =>
+        ListReturningConstantRoutines.Contains(item: name);
+
     /// <summary>Returns true if the routine name is a standalone BuilderQuery routine.</summary>
     public static bool IsBuilderQueryStandalone(string name)
     {
@@ -45,6 +64,35 @@ public static class BuilderInfoProvider
         TypeSymbol? listFieldInfoType, TypeSymbol? listProtocolInfoType,
         TypeSymbol? listRoutineInfoType,
         TypeSymbol? byteSizeType = null)
+    {
+        RegisterScalarReturningRoutines(type: type, existingMemberRoutines: existingMemberRoutines,
+            registry: registry, textType: textType, boolType: boolType, u64Type: u64Type,
+            s64Type: s64Type, byteSizeType: byteSizeType);
+
+        RegisterListReturningRoutines(type: type, existingMemberRoutines: existingMemberRoutines,
+            registry: registry, listTextType: listTextType, listFieldInfoType: listFieldInfoType,
+            listProtocolInfoType: listProtocolInfoType, listRoutineInfoType: listRoutineInfoType);
+
+        // member_type_id(member_name: Text) -> U64
+        if (u64Type != null && textType != null)
+        {
+            MaybeRegisterWithParam(owner: type,
+                name: "member_type_id",
+                paramName: "member_name",
+                paramType: textType,
+                returnType: u64Type,
+                existingMemberRoutines: existingMemberRoutines,
+                registry: registry);
+        }
+    }
+
+    /// <summary>
+    /// Registers the per-type BuilderQuery routines whose return type is a scalar/choice
+    /// (Text/U64/ByteSize/S64/TypeKind/Bool), gated on the availability of each carrier type.
+    /// </summary>
+    private static void RegisterScalarReturningRoutines(TypeSymbol type,
+        List<RoutineInfo> existingMemberRoutines, TypeRegistry registry, TypeSymbol? textType,
+        TypeSymbol? boolType, TypeSymbol? u64Type, TypeSymbol? s64Type, TypeSymbol? byteSizeType)
     {
         // Text-returning routines
         if (textType != null)
@@ -98,15 +146,16 @@ public static class BuilderInfoProvider
 
         // type_kind returns the declared TypeKind choice only (module-qualified: TypeKind lives in
         // `module BuilderQuery`, so a bare lookup depended on the cross-module short-name scan).
-            TypeSymbol? typeKindType = registry.LookupType(name: "BuilderQuery.TypeKind");
-            if (typeKindType != null)
-            {
-                MaybeRegister(owner: type,
-                    name: "type_kind",
-                    returnType: typeKindType,
-                    existingMemberRoutines: existingMemberRoutines,
-                    registry: registry);
-            }
+        TypeSymbol? typeKindType = registry.LookupType(name: "BuilderQuery.TypeKind");
+        if (typeKindType != null)
+        {
+            MaybeRegister(owner: type,
+                name: "type_kind",
+                returnType: typeKindType,
+                existingMemberRoutines: existingMemberRoutines,
+                registry: registry);
+        }
+
         // Bool-returning routines
         if (boolType != null)
         {
@@ -121,7 +170,17 @@ public static class BuilderInfoProvider
                 existingMemberRoutines: existingMemberRoutines,
                 registry: registry);
         }
+    }
 
+    /// <summary>
+    /// Registers the per-type BuilderQuery routines whose return type is a list carrier
+    /// (List[Text]/List[FieldInfo]/List[ProtocolInfo]/List[RoutineInfo]), gated on the
+    /// availability of each carrier type.
+    /// </summary>
+    private static void RegisterListReturningRoutines(TypeSymbol type,
+        List<RoutineInfo> existingMemberRoutines, TypeRegistry registry, TypeSymbol? listTextType,
+        TypeSymbol? listFieldInfoType, TypeSymbol? listProtocolInfoType, TypeSymbol? listRoutineInfoType)
+    {
         // List[Text]-returning routines
         if (listTextType != null)
         {
@@ -178,18 +237,6 @@ public static class BuilderInfoProvider
             MaybeRegister(owner: type,
                 name: "routine_info",
                 returnType: listRoutineInfoType,
-                existingMemberRoutines: existingMemberRoutines,
-                registry: registry);
-        }
-
-        // member_type_id(member_name: Text) -> U64
-        if (u64Type != null && textType != null)
-        {
-            MaybeRegisterWithParam(owner: type,
-                name: "member_type_id",
-                paramName: "member_name",
-                paramType: textType,
-                returnType: u64Type,
                 existingMemberRoutines: existingMemberRoutines,
                 registry: registry);
         }

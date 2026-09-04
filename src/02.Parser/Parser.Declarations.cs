@@ -419,60 +419,8 @@ public partial class Parser
             // e.g., "List[T].get[I]" - the [I] belongs to the member routine
             if (Match(type: TokenType.LeftBracket))
             {
-                if (HasNestedBrackets())
-                {
-                    // Nested generics in member-routine-level params
-                    var typeArgs = new List<string>();
-                    do
-                    {
-                        TypeExpression typeArg = ParseTypeOrConstGeneric();
-                        typeArgs.Add(item: SerializeTypeExpression(type: typeArg));
-                    } while (Match(type: TokenType.Comma));
-
-                    if (genericParams is { Count: > 0 })
-                    {
-                        genericParams = new List<string>(collection: genericParams);
-                        genericParams.AddRange(collection: typeArgs);
-                    }
-                    else
-                    {
-                        genericParams = typeArgs;
-                    }
-
-                    Consume(type: TokenType.RightBracket,
-                        errorMessage: ExpectedRightBracketAfterGenericParameters);
-                }
-                else
-                {
-                    (List<string> genericParams, List<GenericConstraintDeclaration>?
-                        inlineConstraints) result = ParseGenericParametersWithConstraints();
-
-                    // Merge type-level and member-routine-level generic parameters
-                    if (genericParams is { Count: > 0 })
-                    {
-                        genericParams = new List<string>(collection: genericParams);
-                        genericParams.AddRange(collection: result.genericParams);
-                        if (inlineConstraints != null && result.inlineConstraints != null)
-                        {
-                            inlineConstraints =
-                                new List<GenericConstraintDeclaration>(
-                                    collection: inlineConstraints);
-                            inlineConstraints.AddRange(collection: result.inlineConstraints);
-                        }
-                        else if (result.inlineConstraints != null)
-                        {
-                            inlineConstraints = result.inlineConstraints;
-                        }
-                    }
-                    else
-                    {
-                        genericParams = result.genericParams;
-                        inlineConstraints = result.inlineConstraints;
-                    }
-
-                    Consume(type: TokenType.RightBracket,
-                        errorMessage: ExpectedRightBracketAfterGenericParameters);
-                }
+                ParseMemberRoutineGenericParams(genericParams: ref genericParams,
+                    inlineConstraints: ref inlineConstraints);
             }
         }
 
@@ -505,57 +453,7 @@ public partial class Parser
         // PHASE 3: PARAMETERS
         // ===============================================================================
         Consume(type: TokenType.LeftParen, errorMessage: "Expected '(' after routine name");
-        var parameters = new List<Parameter>();
-
-        if (!Check(type: TokenType.RightParen))
-        {
-            do
-            {
-                // Handle 'me' parameter (self-reference for member routines)
-                if (Check(type: TokenType.Me))
-                {
-                    Token selfToken = Advance();
-                    TypeExpression? selfType = null;
-                    if (Match(type: TokenType.Colon))
-                    {
-                        selfType = ParseType();
-                    }
-
-                    parameters.Add(item: new Parameter(Name: "me",
-                        Type: selfType,
-                        DefaultValue: null,
-                        Location: GetLocation(token: selfToken)));
-                }
-                else
-                {
-                    // Regular parameter: name: Type = default
-                    // Varargs parameter: name...: Type
-                    // allowKeywords=true lets us use 'from', 'to', etc. as param names
-                    string paramName = ConsumeIdentifier(errorMessage: "Expected parameter name",
-                        allowKeywords: true);
-                    bool isVariadic = Match(type: TokenType.DotDotDot);
-                    TypeExpression? paramType = null;
-                    Expression? defaultValue = null;
-
-                    if (Match(type: TokenType.Colon))
-                    {
-                        paramType = ParseType();
-                    }
-
-                    if (Match(type: TokenType.Assign))
-                    {
-                        defaultValue = ParseExpression();
-                    }
-
-                    parameters.Add(item: new Parameter(Name: paramName,
-                        Type: paramType,
-                        DefaultValue: defaultValue,
-                        Location: GetLocation(),
-                        IsVariadic: isVariadic));
-                }
-            } while (Match(type: TokenType.Comma));
-        }
-
+        List<Parameter> parameters = ParseRoutineParameters();
         Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after parameters");
 
         // ===============================================================================
@@ -634,6 +532,132 @@ public partial class Parser
                     Location: location)
                 : null
         };
+    }
+
+    /// <summary>
+    /// Parses a routine's parameter list (the opening <c>(</c> is already consumed, the closing <c>)</c>
+    /// is NOT): a <c>me</c> self-parameter or a regular parameter (<c>name: Type = default</c>, including
+    /// variadic <c>name...: Type</c> and keyword-named params).
+    /// </summary>
+    private List<Parameter> ParseRoutineParameters()
+    {
+        var parameters = new List<Parameter>();
+
+        if (!Check(type: TokenType.RightParen))
+        {
+            do
+            {
+                // Handle 'me' parameter (self-reference for member routines)
+                if (Check(type: TokenType.Me))
+                {
+                    Token selfToken = Advance();
+                    TypeExpression? selfType = null;
+                    if (Match(type: TokenType.Colon))
+                    {
+                        selfType = ParseType();
+                    }
+
+                    parameters.Add(item: new Parameter(Name: "me",
+                        Type: selfType,
+                        DefaultValue: null,
+                        Location: GetLocation(token: selfToken)));
+                }
+                else
+                {
+                    // Regular parameter: name: Type = default
+                    // Varargs parameter: name...: Type
+                    // allowKeywords=true lets us use 'from', 'to', etc. as param names
+                    string paramName = ConsumeIdentifier(errorMessage: "Expected parameter name",
+                        allowKeywords: true);
+                    bool isVariadic = Match(type: TokenType.DotDotDot);
+                    TypeExpression? paramType = null;
+                    Expression? defaultValue = null;
+
+                    if (Match(type: TokenType.Colon))
+                    {
+                        paramType = ParseType();
+                    }
+
+                    if (Match(type: TokenType.Assign))
+                    {
+                        defaultValue = ParseExpression();
+                    }
+
+                    parameters.Add(item: new Parameter(Name: paramName,
+                        Type: paramType,
+                        DefaultValue: defaultValue,
+                        Location: GetLocation(),
+                        IsVariadic: isVariadic));
+                }
+            } while (Match(type: TokenType.Comma));
+        }
+
+        return parameters;
+    }
+
+    /// <summary>
+    /// Parses member-routine-level generic parameters after the routine name (the opening <c>[</c> is
+    /// already consumed): e.g. the <c>[I]</c> in <c>List[T].get[I]</c>. Merges the parsed params (and any
+    /// inline constraints, in the non-nested case) into the existing type-level lists. Consumes the
+    /// closing <c>]</c>.
+    /// </summary>
+    private void ParseMemberRoutineGenericParams(ref List<string>? genericParams,
+        ref List<GenericConstraintDeclaration>? inlineConstraints)
+    {
+        if (HasNestedBrackets())
+        {
+            // Nested generics in member-routine-level params
+            var typeArgs = new List<string>();
+            do
+            {
+                TypeExpression typeArg = ParseTypeOrConstGeneric();
+                typeArgs.Add(item: SerializeTypeExpression(type: typeArg));
+            } while (Match(type: TokenType.Comma));
+
+            if (genericParams is { Count: > 0 })
+            {
+                genericParams = new List<string>(collection: genericParams);
+                genericParams.AddRange(collection: typeArgs);
+            }
+            else
+            {
+                genericParams = typeArgs;
+            }
+
+            Consume(type: TokenType.RightBracket,
+                errorMessage: ExpectedRightBracketAfterGenericParameters);
+        }
+        else
+        {
+            (List<string> genericParams, List<GenericConstraintDeclaration>?
+                inlineConstraints) result = ParseGenericParametersWithConstraints();
+
+            // Merge type-level and member-routine-level generic parameters
+            if (genericParams is { Count: > 0 })
+            {
+                genericParams = new List<string>(collection: genericParams);
+                genericParams.AddRange(collection: result.genericParams);
+                if (inlineConstraints != null && result.inlineConstraints != null)
+                {
+                    inlineConstraints =
+                        new List<GenericConstraintDeclaration>(
+                            collection: inlineConstraints);
+                    inlineConstraints.AddRange(collection: result.inlineConstraints);
+                }
+                else if (result.inlineConstraints != null)
+                {
+                    inlineConstraints = result.inlineConstraints;
+                }
+            }
+            else
+            {
+                genericParams = result.genericParams;
+                inlineConstraints = result.inlineConstraints;
+            }
+
+            Consume(type: TokenType.RightBracket,
+                errorMessage: ExpectedRightBracketAfterGenericParameters);
+        }
     }
 
     // Entity declaration parsing lives in Parser.Declarations.Types.cs.

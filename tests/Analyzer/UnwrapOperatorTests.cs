@@ -27,9 +27,13 @@ public class UnwrapOperatorTests
                           if flag
                             absent
                           return 42
+
+                        routine trigger_variants(flag: Bool) -> S64?
+                          return try_get(flag: flag)
                         """;
 
         AnalysisResult result = AnalyzeSa(source: source);
+        // Variant is synthesized ON DEMAND — the trigger call above generates try_get.
         RoutineInfo? tryVariant = result.Registry.GetRoutine(name: "try_get");
         Assert.NotNull(@object: tryVariant);
         Assert.IsType<RecordTypeInfo>(@object: tryVariant.ReturnType);

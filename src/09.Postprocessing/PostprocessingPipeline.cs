@@ -34,15 +34,20 @@ public sealed class PostprocessingPipeline(PostprocessingContext ctx)
         // when lowering WhenStatement -> IfStatement chains; ELP must see those new nodes.
         // OLP runs after ELP so chained comparisons are already split into BinaryExpressions.
         new PatternLoweringPass(ctx).Run(program);
-        new ExpressionLoweringPass(ctx).Run(program);
+        var elp = new ExpressionLoweringPass(ctx);
+        elp.Run(program);
         // ExpressionLoweringPass synthesizes WhenStatements with NonePattern / TypePattern("None")
-        // when lowering `??` and `?.` (see MakeAbsencePattern in ExpressionLoweringPass). Those
-        // would-be-lowered patterns are inserted AFTER the first PatternLoweringPass run, so
-        // re-run PLP here to fold them into the if/else chains codegen expects. The second PLP
-        // run can introduce UnaryExpression(Not) (e.g. `not present`) on Maybe[T record] absence
-        // checks, so re-run ELP after it to lower those into ConditionalExpression form.
-        new PatternLoweringPass(ctx).Run(program);
-        new ExpressionLoweringPass(ctx).Run(program);
+        // when lowering `??` and `?.` (see MakeAbsencePattern), and hoists when-expressions into
+        // WhenStatements. Those are inserted AFTER the first PatternLoweringPass run, so re-run PLP
+        // to fold them into the if/else chains codegen expects. That second PLP run can introduce
+        // UnaryExpression(Not) (e.g. `not present`) on Maybe[T record] absence checks, so re-run ELP
+        // after it to lower those into ConditionalExpression form. When the first ELP produced NO
+        // WhenStatement, this whole round is a pure no-op re-walk — skip it.
+        if (elp.ProducedWhenStatement)
+        {
+            new PatternLoweringPass(ctx).Run(program);
+            new ExpressionLoweringPass(ctx).Run(program);
+        }
         new OperatorLoweringPass(ctx).Run(program);
         // RoamedProjectionLoweringPass runs after OperatorLoweringPass and FStringLoweringPass so it
         // sees the operator/f-string-lowered Roamed receiver calls; it rewrites the codegen-side
@@ -89,12 +94,17 @@ public sealed class PostprocessingPipeline(PostprocessingContext ctx)
         // ChainedComparison patterns are converted to IfStatement chains first, allowing
         // ExpressionLowering to correctly lower And/Or in the resulting if-conditions.
         new PatternLoweringPass(ctx).RunOnVariantBodies();
-        new ExpressionLoweringPass(ctx).RunOnVariantBodies();
-        // Second pass to fold NonePattern/None-TypePattern WhenStatements that
-        // ExpressionLoweringPass synthesized for `??` / `?.`. PLP's lowering may
-        // introduce UnaryExpression(Not), so re-run ELP afterwards.
-        new PatternLoweringPass(ctx).RunOnVariantBodies();
-        new ExpressionLoweringPass(ctx).RunOnVariantBodies();
+        var elp = new ExpressionLoweringPass(ctx);
+        elp.RunOnVariantBodies();
+        // Second pass to fold NonePattern/None-TypePattern WhenStatements that ExpressionLoweringPass
+        // synthesized for `??` / `?.` (or hoisted when-expressions). PLP's lowering may introduce
+        // UnaryExpression(Not), so re-run ELP afterwards. Skip the round when no variant body produced
+        // a WhenStatement — it would be a pure no-op re-walk over the whole variant-body map.
+        if (elp.ProducedWhenStatement)
+        {
+            new PatternLoweringPass(ctx).RunOnVariantBodies();
+            new ExpressionLoweringPass(ctx).RunOnVariantBodies();
+        }
         new FStringLoweringPass(ctx).RunOnVariantBodies();
         new OperatorLoweringPass(ctx).RunOnVariantBodies();
         // See the per-program Run(): rewrite the Roamed raw_inner() projection into a real AST call

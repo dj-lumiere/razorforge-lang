@@ -365,6 +365,7 @@ routine Duration.cmp(you: Duration) -> ComparisonSign
 
 ### Returns the textual representation of this value.
 ### :returns: The resulting `Text` value.
+@override
 routine Duration.represent() -> Text
   if me.is_zero()
     return "0s"
@@ -400,6 +401,7 @@ routine Duration.represent() -> Text
 
 ### Returns the textual representation of this value.
 ### :returns: The resulting `Text` value.
+@override
 routine Duration.diagnose() -> Text
   return "Duration(seconds: " + me.seconds.represent() + ", nanoseconds: " + me.nanoseconds.represent() + ")"
 

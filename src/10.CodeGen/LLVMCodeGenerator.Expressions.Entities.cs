@@ -252,7 +252,7 @@ public partial class LlvmCodeGenerator
         CreatorExpression expr)
     {
         // Backend-annotated or single-member-variable wrapper: just return the inner value.
-        if (record.HasDirectBackendType && expr.MemberVariables.Count <= 1)
+        if (record.BackendType != null && expr.MemberVariables.Count <= 1)
         {
             return EmitWrapperRecordConstruction(sb: sb, record: record, expr: expr);
         }
@@ -415,11 +415,11 @@ public partial class LlvmCodeGenerator
         List<Expression> arguments)
     {
         // Backend-annotated or single-member-variable wrapper: just return the inner value
-        if (record.HasDirectBackendType &&
+        if (record.BackendType != null &&
             arguments.Count <= 1)
         {
             string argValue = EmitExpression(sb: sb, expr: arguments[index: 0]);
-            if (record.HasDirectBackendType)
+            if (record.BackendType != null)
             {
                 string targetLlvm = GetLlvmType(type: record);
                 TypeInfo? argType = GetExpressionType(expr: arguments[index: 0]);
@@ -584,8 +584,9 @@ public partial class LlvmCodeGenerator
                 message: "Cannot determine type of member variable access target");
         }
 
-        TryGetTransparentProtocolTarget(type: targetType, targetType: out TypeInfo? lookupType);
-        targetType = lookupType ?? targetType;
+        targetType = MarkerProtocolInner(type: targetType) ?? targetType;
+
+        // A marker borrow protocol receiver (Accessing[X]/Controlling[X]) is transparent to its inner X.
 
         // Wrapper-of-record field read: Modifying[Record], Viewing[Record], etc. The wrapper is
         // `@llvm("ptr")` and the pointer addresses a record value. GEP at the field index and
@@ -593,31 +594,15 @@ public partial class LlvmCodeGenerator
         if (targetType is RecordTypeInfo wrapperRecOfRec &&
             GetGenericBaseName(type: wrapperRecOfRec) is { } wrapRecBaseName &&
             WrapperTypeNames.Contains(item: wrapRecBaseName) &&
-            wrapperRecOfRec is { HasDirectBackendType: true, TypeArguments.Count: > 0 } &&
+            wrapperRecOfRec is { BackendType: not null, TypeArguments.Count: > 0 } &&
             wrapperRecOfRec.TypeArguments[index: 0] is RecordTypeInfo innerRecord &&
             !wrapperRecOfRec.MemberVariables.Any(predicate: mv => mv.Name == memberName))
         {
-            int fieldIndex = -1;
-            MemberVariableInfo? fieldInfo = null;
-            for (int i = 0; i < innerRecord.MemberVariables.Count; i++)
+            string? wrapperRecordFieldRead = TryEmitWrapperRecordFieldRead(sb: sb, target: target,
+                innerRecord: innerRecord, memberName: memberName);
+            if (wrapperRecordFieldRead != null)
             {
-                if (innerRecord.MemberVariables[index: i].Name == memberName)
-                {
-                    fieldIndex = i;
-                    fieldInfo = innerRecord.MemberVariables[index: i];
-                    break;
-                }
-            }
-            if (fieldIndex >= 0 && fieldInfo != null)
-            {
-                string innerRecordTypeName = GetRecordTypeName(record: innerRecord);
-                string fieldPtr = NextTemp();
-                EmitLine(sb: sb,
-                    line: $"  {fieldPtr} = getelementptr {innerRecordTypeName}, ptr {target}, i32 0, i32 {fieldIndex}");
-                string loaded = NextTemp();
-                EmitLine(sb: sb,
-                    line: $"  {loaded} = load {GetLlvmType(type: fieldInfo.Type)}, ptr {fieldPtr}");
-                return loaded;
+                return wrapperRecordFieldRead;
             }
             // Field not on inner record — fall through to entity branch below in case the
             // wrapper has a memberRoutine forwarder for this name.
@@ -632,106 +617,9 @@ public partial class LlvmCodeGenerator
             wrapperRecord.TypeArguments[index: 0] is EntityTypeInfo innerEntity &&
             !wrapperRecord.MemberVariables.Any(predicate: mv => mv.Name == memberName))
         {
-            // For @llvm("ptr") wrappers, the value IS the pointer directly
-            // For struct wrappers, extract the inner Hijacked[T] (ptr) from field 0
-            string innerPtr;
-            // Retained[T] / Tracked[T] are `@llvm("ptr")` but the pointer targets a
-            // RetainController[T] struct, NOT the entity directly. The entity ptr lives in the
-            // controller's `data` field. Reading the wrapped entity's field requires
-            // dereferencing the controller first; otherwise `ra.value` reads
-            // controller.strong_count (offset 0) instead of the actual field.
-            if (wrapperRecord.HasDirectBackendType &&
-                (wrapBaseName == Resolution.RuntimeContract.Retained || wrapBaseName == Resolution.RuntimeContract.Tracked))
-            {
-                TypeInfo? controllerType = _registry.LookupType(
-                    name: $"RetainController[{innerEntity.FullName}]")
-                    ?? _registry.LookupType(name: $"Core.RetainController[{innerEntity.FullName}]");
-                if (controllerType is EntityTypeInfo controllerEntity)
-                {
-                    innerPtr = EmitEntityMemberVariableRead(sb: sb,
-                        entityPtr: target,
-                        entity: controllerEntity,
-                        memberVariableName: "data");
-                }
-                else
-                {
-                    // Controller type not yet emitted — fall back to direct (still wrong but
-                    // avoids a null reference; SA should have ensured the controller exists).
-                    innerPtr = target;
-                }
-            }
-            else if (wrapperRecord.HasDirectBackendType &&
-                (wrapBaseName == Resolution.RuntimeContract.Consulting || wrapBaseName == Resolution.RuntimeContract.Amending) &&
-                wrapperRecord.TypeArguments is { Count: > 1 })
-            {
-                // Consulting[T, P] / Amending[T, P] are `@llvm("ptr")` tokens whose pointer targets
-                // the shared GuardController[T, P], NOT the entity. The entity ptr lives in the
-                // controller's `data` field (offset after the two atomic counts). Project through it,
-                // exactly like Retained/Tracked, so `v.value` reads the guarded entity rather than
-                // controller.strong_count (offset 0).
-                string policyName = wrapperRecord.TypeArguments[index: 1].FullName;
-                TypeInfo? controllerType = _registry.LookupType(
-                    name: $"GuardController[{innerEntity.FullName}, {policyName}]")
-                    ?? _registry.LookupType(
-                        name: $"Core.GuardController[{innerEntity.FullName}, {policyName}]");
-                if (controllerType is EntityTypeInfo controllerEntity)
-                {
-                    innerPtr = EmitEntityMemberVariableRead(sb: sb,
-                        entityPtr: target,
-                        entity: controllerEntity,
-                        memberVariableName: "data");
-                }
-                else
-                {
-                    innerPtr = target;
-                }
-            }
-            else if (wrapperRecord.HasDirectBackendType &&
-                wrapBaseName == Resolution.RuntimeContract.Roamed)
-            {
-                // Roamed[T] is an `@llvm("ptr")` handle targeting RoamController[T], NOT the entity.
-                // Project the read through the controller's `data` field. The access-lock bracket
-                // (lock_enter/lock_exit) is inserted as real AST calls around the enclosing statement
-                // by RoamedLockBracketLoweringPass — codegen just projects + loads here.
-                TypeInfo? controllerType = _registry.LookupType(
-                    name: $"RoamController[{innerEntity.FullName}]")
-                    ?? _registry.LookupType(name: $"Core.RoamController[{innerEntity.FullName}]");
-                string roamEntPtr = controllerType is EntityTypeInfo controllerEntity
-                    ? EmitEntityMemberVariableRead(sb: sb, entityPtr: target, entity: controllerEntity, memberVariableName: "data")
-                    : target;
-                return EmitEntityMemberVariableRead(sb: sb, entityPtr: roamEntPtr, entity: innerEntity, memberVariableName: memberName);
-            }
-            else if (wrapperRecord.HasDirectBackendType)
-            {
-                innerPtr = target;
-            }
-            else
-            {
-                string recordTypeName = GetRecordTypeName(record: wrapperRecord);
-                innerPtr = NextTemp();
-                // Find the index of the Hijacked[T] field that holds the inner entity pointer.
-                // (e.g. Retained[T] has controller=0, data=1; Consulting[T] has ptr=0)
-                int dataFieldIndex = 0;
-                for (int fi = 0; fi < wrapperRecord.MemberVariables.Count; fi++)
-                {
-                    if (wrapperRecord.MemberVariables[index: fi].Type is WrapperTypeInfo
-                        { Name: Resolution.RuntimeContract.Hijacked, TypeArguments.Count: > 0
-                        } hijacked
-                        && hijacked.TypeArguments![index: 0] is EntityTypeInfo fieldInner
-                        && fieldInner.FullName == innerEntity.FullName)
-                    {
-                        dataFieldIndex = fi;
-                        break;
-                    }
-                }
-                EmitLine(sb: sb,
-                    line: $"  {innerPtr} = extractvalue {recordTypeName} {target}, {dataFieldIndex}");
-            }
-
-            return EmitEntityMemberVariableRead(sb: sb,
-                entityPtr: innerPtr,
-                entity: innerEntity,
-                memberVariableName: memberName);
+            return EmitWrapperEntityMemberVariableRead(sb: sb, target: target,
+                wrapperRecord: wrapperRecord, wrapBaseName: wrapBaseName,
+                innerEntity: innerEntity, memberName: memberName);
         }
 
         // Most-derived-first: Crashable (an Entity) and Variant (a Record) precede their bases.
@@ -759,6 +647,149 @@ public partial class LlvmCodeGenerator
             _ => throw new InvalidOperationException(
                 message: $"Cannot access member variable '{memberName}' on type: {targetType.Name} (category: {targetType.Category}), in routine: {_currentEmittingRoutine?.RegistryKey ?? "<unknown>"}")
         };
+    }
+
+    /// <summary>
+    /// Reads a field of a record wrapped by a `@llvm("ptr")` wrapper-of-record token (Modifying[Record],
+    /// Viewing[Record], etc.) via GEP + load. Returns null when the field is not on the inner record
+    /// (so the caller falls through to the entity-wrapper branch).
+    /// </summary>
+    private string? TryEmitWrapperRecordFieldRead(StringBuilder sb, string target,
+        RecordTypeInfo innerRecord, string memberName)
+    {
+        int fieldIndex = -1;
+        MemberVariableInfo? fieldInfo = null;
+        for (int i = 0; i < innerRecord.MemberVariables.Count; i++)
+        {
+            if (innerRecord.MemberVariables[index: i].Name == memberName)
+            {
+                fieldIndex = i;
+                fieldInfo = innerRecord.MemberVariables[index: i];
+                break;
+            }
+        }
+        if (fieldIndex < 0 || fieldInfo == null)
+        {
+            return null;
+        }
+
+        string innerRecordTypeName = GetRecordTypeName(record: innerRecord);
+        string fieldPtr = NextTemp();
+        EmitLine(sb: sb,
+            line: $"  {fieldPtr} = getelementptr {innerRecordTypeName}, ptr {target}, i32 0, i32 {fieldIndex}");
+        string loaded = NextTemp();
+        EmitLine(sb: sb,
+            line: $"  {loaded} = load {GetLlvmType(type: fieldInfo.Type)}, ptr {fieldPtr}");
+        return loaded;
+    }
+
+    /// <summary>
+    /// Forwards a member-variable read through an entity-wrapping token (Viewing[T], Modifying[T],
+    /// Retained[T], Consulting[T,P], Roamed[T], …) to the inner entity. Resolves the pointer that
+    /// actually addresses the entity (directly for a plain `@llvm("ptr")` wrapper, or via a controller's
+    /// `data` field for Retained/Tracked/Consulting/Amending/Roamed, or via the Hijacked[T] field for a
+    /// struct wrapper) and reads the requested member off it.
+    /// </summary>
+    private string EmitWrapperEntityMemberVariableRead(StringBuilder sb, string target,
+        RecordTypeInfo wrapperRecord, string wrapBaseName, EntityTypeInfo innerEntity,
+        string memberName)
+    {
+        // For @llvm("ptr") wrappers, the value IS the pointer directly
+        // For struct wrappers, extract the inner Hijacked[T] (ptr) from field 0
+        string innerPtr;
+        // Retained[T] / Tracked[T] are `@llvm("ptr")` but the pointer targets a
+        // RetainController[T] struct, NOT the entity directly. The entity ptr lives in the
+        // controller's `data` field. Reading the wrapped entity's field requires
+        // dereferencing the controller first; otherwise `ra.value` reads
+        // controller.strong_count (offset 0) instead of the actual field.
+        if (wrapperRecord.BackendType != null &&
+            (wrapBaseName == Resolution.RuntimeContract.Retained || wrapBaseName == Resolution.RuntimeContract.Tracked))
+        {
+            innerPtr = ProjectEntityPtrThroughController(sb: sb, target: target,
+                controllerName: $"RetainController[{innerEntity.FullName}]");
+        }
+        else if (wrapperRecord.BackendType != null &&
+            (wrapBaseName == Resolution.RuntimeContract.Consulting || wrapBaseName == Resolution.RuntimeContract.Amending) &&
+            wrapperRecord.TypeArguments is { Count: > 1 })
+        {
+            // Consulting[T, P] / Amending[T, P] are `@llvm("ptr")` tokens whose pointer targets
+            // the shared GuardController[T, P], NOT the entity. The entity ptr lives in the
+            // controller's `data` field (offset after the two atomic counts). Project through it,
+            // exactly like Retained/Tracked, so `v.value` reads the guarded entity rather than
+            // controller.strong_count (offset 0).
+            string policyName = wrapperRecord.TypeArguments[index: 1].FullName;
+            innerPtr = ProjectEntityPtrThroughController(sb: sb, target: target,
+                controllerName: $"GuardController[{innerEntity.FullName}, {policyName}]");
+        }
+        else if (wrapperRecord.BackendType != null &&
+            wrapBaseName == Resolution.RuntimeContract.Roamed)
+        {
+            // Roamed[T] is an `@llvm("ptr")` handle targeting RoamController[T], NOT the entity.
+            // Project the read through the controller's `data` field. The access-lock bracket
+            // (lock_enter/lock_exit) is inserted as real AST calls around the enclosing statement
+            // by RoamedLockBracketLoweringPass — codegen just projects + loads here.
+            string roamEntPtr = ProjectEntityPtrThroughController(sb: sb, target: target,
+                controllerName: $"RoamController[{innerEntity.FullName}]");
+            return EmitEntityMemberVariableRead(sb: sb, entityPtr: roamEntPtr, entity: innerEntity, memberVariableName: memberName);
+        }
+        else if (wrapperRecord.BackendType != null)
+        {
+            innerPtr = target;
+        }
+        else
+        {
+            string recordTypeName = GetRecordTypeName(record: wrapperRecord);
+            innerPtr = NextTemp();
+            int dataFieldIndex = FindHijackedFieldIndex(wrapperRecord: wrapperRecord,
+                innerEntity: innerEntity);
+            EmitLine(sb: sb,
+                line: $"  {innerPtr} = extractvalue {recordTypeName} {target}, {dataFieldIndex}");
+        }
+
+        return EmitEntityMemberVariableRead(sb: sb,
+            entityPtr: innerPtr,
+            entity: innerEntity,
+            memberVariableName: memberName);
+    }
+
+    /// <summary>
+    /// Projects the inner entity pointer out of a controller handle by reading its `data` field.
+    /// Looks the controller entity up by <paramref name="controllerName"/> (bare and Core-qualified);
+    /// when the controller type is not yet emitted, falls back to <paramref name="target"/> directly
+    /// (avoids a null reference — SA should have ensured the controller exists).
+    /// </summary>
+    private string ProjectEntityPtrThroughController(StringBuilder sb, string target,
+        string controllerName)
+    {
+        TypeInfo? controllerType = _registry.LookupType(name: controllerName)
+            ?? _registry.LookupType(name: $"Core.{controllerName}");
+        return controllerType is EntityTypeInfo controllerEntity
+            ? EmitEntityMemberVariableRead(sb: sb,
+                entityPtr: target,
+                entity: controllerEntity,
+                memberVariableName: "data")
+            : target;
+    }
+
+    /// <summary>
+    /// Finds the index of the Hijacked[T] field on a struct wrapper that holds the inner entity
+    /// pointer (e.g. Retained[T] has controller=0, data=1; Consulting[T] has ptr=0). Defaults to 0.
+    /// </summary>
+    private static int FindHijackedFieldIndex(RecordTypeInfo wrapperRecord,
+        EntityTypeInfo innerEntity)
+    {
+        for (int fi = 0; fi < wrapperRecord.MemberVariables.Count; fi++)
+        {
+            if (wrapperRecord.MemberVariables[index: fi].Type is WrapperTypeInfo
+                { Name: Resolution.RuntimeContract.Hijacked, TypeArguments.Count: > 0
+                } hijacked
+                && hijacked.TypeArguments![index: 0] is EntityTypeInfo fieldInner
+                && fieldInner.FullName == innerEntity.FullName)
+            {
+                return fi;
+            }
+        }
+        return 0;
     }
 
     /// <summary>
@@ -867,7 +898,7 @@ public partial class LlvmCodeGenerator
         RecordTypeInfo record, string memberVariableName)
     {
         // Hijacked[T] (@llvm("ptr")): .address -> ptrtoint ptr to i64
-        if (record is { HasDirectBackendType: true, LlvmType: "ptr" } &&
+        if (record is { BackendType: not null, LlvmType: "ptr" } &&
             memberVariableName == "address")
         {
             string addr = NextTemp();
@@ -876,7 +907,7 @@ public partial class LlvmCodeGenerator
         }
 
         // Backend-annotated or single-member-variable wrapper: the value IS the field
-        if (record.HasDirectBackendType)
+        if (record.BackendType != null)
         {
             return recordValue;
         }
@@ -1061,32 +1092,36 @@ public partial class LlvmCodeGenerator
         }
 
         // Try GenericDefinition if available
-        if (entity.GenericDefinition is { MemberVariables.Count: > 0 } genDef)
+        if (entity.GenericDefinition is { MemberVariables.Count: > 0 } genDef &&
+            TryReinstantiateEntity(genericDef: genDef, typeArguments: entity.TypeArguments,
+                memberVariableName: memberVariableName, out EntityTypeInfo? fromGenDef))
         {
-            var refreshed =
-                genDef.CreateInstance(typeArguments: entity.TypeArguments) as EntityTypeInfo;
-            if (refreshed != null &&
-                refreshed.MemberVariables.Any(predicate: mv => mv.Name == memberVariableName))
-            {
-                return refreshed;
-            }
+            return fromGenDef;
         }
 
         // Fallback: look up the generic definition from the registry
         string baseName = GetGenericBaseName(type: entity) ?? entity.Name;
         var lookupDef = LookupTypeInCurrentModule(name: baseName) as EntityTypeInfo;
-        if (lookupDef is { IsGenericDefinition: true, MemberVariables.Count: > 0 })
+        if (lookupDef is { IsGenericDefinition: true, MemberVariables.Count: > 0 } &&
+            TryReinstantiateEntity(genericDef: lookupDef, typeArguments: entity.TypeArguments,
+                memberVariableName: memberVariableName, out EntityTypeInfo? fromLookup))
         {
-            var refreshed =
-                lookupDef.CreateInstance(typeArguments: entity.TypeArguments) as EntityTypeInfo;
-            if (refreshed != null &&
-                refreshed.MemberVariables.Any(predicate: mv => mv.Name == memberVariableName))
-            {
-                return refreshed;
-            }
+            return fromLookup;
         }
 
         return entity;
+    }
+
+    /// <summary>
+    /// Re-instantiates <paramref name="genericDef"/> with the given type arguments and returns the
+    /// fresh resolution when it carries the requested member variable. Returns false otherwise.
+    /// </summary>
+    private static bool TryReinstantiateEntity(EntityTypeInfo genericDef,
+        List<TypeInfo> typeArguments, string memberVariableName, out EntityTypeInfo? refreshed)
+    {
+        refreshed = genericDef.CreateInstance(typeArguments: typeArguments) as EntityTypeInfo;
+        return refreshed != null &&
+               refreshed.MemberVariables.Any(predicate: mv => mv.Name == memberVariableName);
     }
 
     private bool TryRebuildEntityMembersFromAst(EntityTypeInfo entity)

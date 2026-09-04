@@ -75,54 +75,67 @@ public sealed class TargetConfig
 
         return RuntimeInformation.OSArchitecture switch
         {
-            Architecture.X64 when isWindows => new TargetConfig(
-                triple: "x86_64-pc-windows-msvc",
-                dataLayout:
-                "e-m:w-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128",
-                pointerBitWidth: 64,
-                pageSize: 4096,
-                cacheLineSize: 64,
-                targetOS: "windows",
-                targetArch: "x86_64"),
+            Architecture.X64 when isWindows => X64WindowsConfig(),
             // Intel Macs use Mach-O mangling (m:o) — without this case they fell through
             // to the Linux triple and produced ELF-flavored IR.
-            Architecture.X64 when isMacOS => new TargetConfig(
-                triple: "x86_64-apple-darwin",
-                dataLayout:
-                "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128",
-                pointerBitWidth: 64,
-                pageSize: 4096,
-                cacheLineSize: 64,
-                targetOS: "macos",
-                targetArch: "x86_64"),
-            Architecture.X64 => new TargetConfig(
-                triple: "x86_64-unknown-linux-gnu",
-                dataLayout:
-                "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128",
-                pointerBitWidth: 64,
-                pageSize: 4096,
-                cacheLineSize: 64,
-                targetOS: os,
-                targetArch: "x86_64"),
-            Architecture.Arm64 when isMacOS => new TargetConfig(
-                triple: "aarch64-apple-darwin",
-                dataLayout: "e-m:o-i64:64-i128:128-n32:64-S128",
-                pointerBitWidth: 64,
-                pageSize: 16384,
-                cacheLineSize: 128,
-                targetOS: "macos",
-                targetArch: "aarch64"),
-            Architecture.Arm64 => new TargetConfig(
-                triple: "aarch64-unknown-linux-gnu",
-                dataLayout: "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128",
-                pointerBitWidth: 64,
-                pageSize: 4096,
-                cacheLineSize: 64,
-                targetOS: os,
-                targetArch: "aarch64"),
-            _ => throw new PlatformNotSupportedException(
-                $"Unsupported host platform: OS='{os}', Architecture='{RuntimeInformation.OSArchitecture}'. " +
-                "RazorForge supports x86_64 (Windows/Linux) and AArch64 (macOS/Linux).")
+            Architecture.X64 when isMacOS => X64MacOSConfig(),
+            Architecture.X64 => X64LinuxConfig(os: os),
+            Architecture.Arm64 when isMacOS => Arm64MacOSConfig(),
+            Architecture.Arm64 => Arm64LinuxConfig(os: os),
+            _ => throw UnsupportedHost(os: os)
         };
     }
+
+    private static TargetConfig X64WindowsConfig() => new TargetConfig(
+        triple: "x86_64-pc-windows-msvc",
+        dataLayout:
+        "e-m:w-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128",
+        pointerBitWidth: 64,
+        pageSize: 4096,
+        cacheLineSize: 64,
+        targetOS: "windows",
+        targetArch: "x86_64");
+
+    private static TargetConfig X64MacOSConfig() => new TargetConfig(
+        triple: "x86_64-apple-darwin",
+        dataLayout:
+        "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128",
+        pointerBitWidth: 64,
+        pageSize: 4096,
+        cacheLineSize: 64,
+        targetOS: "macos",
+        targetArch: "x86_64");
+
+    private static TargetConfig X64LinuxConfig(string os) => new TargetConfig(
+        triple: "x86_64-unknown-linux-gnu",
+        dataLayout:
+        "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128",
+        pointerBitWidth: 64,
+        pageSize: 4096,
+        cacheLineSize: 64,
+        targetOS: os,
+        targetArch: "x86_64");
+
+    private static TargetConfig Arm64MacOSConfig() => new TargetConfig(
+        triple: "aarch64-apple-darwin",
+        dataLayout: "e-m:o-i64:64-i128:128-n32:64-S128",
+        pointerBitWidth: 64,
+        pageSize: 16384,
+        cacheLineSize: 128,
+        targetOS: "macos",
+        targetArch: "aarch64");
+
+    private static TargetConfig Arm64LinuxConfig(string os) => new TargetConfig(
+        triple: "aarch64-unknown-linux-gnu",
+        dataLayout: "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128",
+        pointerBitWidth: 64,
+        pageSize: 4096,
+        cacheLineSize: 64,
+        targetOS: os,
+        targetArch: "aarch64");
+
+    private static PlatformNotSupportedException UnsupportedHost(string os) =>
+        new PlatformNotSupportedException(
+            $"Unsupported host platform: OS='{os}', Architecture='{RuntimeInformation.OSArchitecture}'. " +
+            "RazorForge supports x86_64 (Windows/Linux) and AArch64 (macOS/Linux).");
 }

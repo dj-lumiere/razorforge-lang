@@ -4,7 +4,7 @@ import Collections
 
 # Nested `serialize() -> SerialValue` across record shapes. Regression cover for the entity-arm
 # double-free (0xC0000374): a SerialValue whose Dict/List arm holds a heap value used to be
-# bitwise-aliased (not deep-copied) in SerialValue.copy() / represent / arm extraction, so the
+# bitwise-aliased (not deep-copied) in SerialValue.duplicate() / represent / arm extraction, so the
 # shared heap arm freed twice. Every arm is now deep-copied at the copy point.
 # Dict iteration is insertion-order deterministic, so serialized record output is stable.
 

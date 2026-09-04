@@ -429,6 +429,7 @@ routine C32.is_imaginary() -> Bool
 ### spelling matches the imaginary literal suffixes, so output is valid
 ### literal syntax. Standard `represent` shape (no args) for f-string dispatch.
 ### :returns: The resulting `Text` value.
+@override
 routine C32.represent() -> Text
   var real_text = me.real.represent()
   var imag_abs = me.imag.abs().represent()
@@ -449,6 +450,7 @@ routine C32.imag_part() -> F32
 ### Returns a diagnostic string wrapping the value with its type name (e.g. `C32(1.5+2j)`).
 ### Standard `diagnose` shape (no args) for f-string dispatch.
 ### :returns: The resulting `Text` value.
+@override
 routine C32.diagnose() -> Text
   return "C32(" + me.represent() + ")"
 

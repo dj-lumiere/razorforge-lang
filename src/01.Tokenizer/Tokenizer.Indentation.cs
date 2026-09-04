@@ -43,39 +43,9 @@ public partial class Tokenizer
     /// <exception cref="GrammarException">
     /// Thrown when indentation is misaligned (not a multiple of 2).
     /// </exception>
-    private void HandleIndentation() // NOSONAR S3776
+    private void HandleIndentation()
     {
-        int spaces = 0;
-        bool hasSpaces = false;
-        bool hasTabs = false;
-
-        // Count leading whitespace
-        while (Peek() == ' ' || Peek() == '\t')
-        {
-            if (Peek() == ' ')
-            {
-                spaces += 1;
-                hasSpaces = true;
-            }
-            else // Tab counts as 2 spaces
-            {
-                spaces += 2;
-                hasTabs = true;
-            }
-
-            Advance();
-        }
-
-        // Reject mixed tabs and spaces
-        if (hasTabs && hasSpaces)
-        {
-            throw new GrammarException(code: GrammarDiagnosticCode.MixedTabsAndSpaces,
-                message: "Indentation mixes tabs and spaces; use one or the other",
-                fileName: _fileName,
-                line: _line,
-                column: _column,
-                language: _language);
-        }
+        int spaces = CountLeadingWhitespace();
 
         // Skip empty lines (don't change indentation state)
         // Note: Check for \r to handle CRLF line endings on Windows
@@ -84,36 +54,11 @@ public partial class Tokenizer
             return;
         }
 
-        // Skip lines with only comments (don't change indentation state).
-        // Exception: if a doc comment (###) opens a new block (indentation increases), still
-        // emit the Indent token so the parser can enter the block. This handles ### doc comments
-        // as the first content in entity/record/choice/etc. bodies.
-        // Regular comments (# or ##) are never treated as block openers.
+        // Skip lines with only comments (don't change indentation state), with a doc-comment
+        // block-opener/closer exception (see HandleCommentLineIndentation).
         if (Peek() == '#')
         {
-            bool isDocComment = Peek(offset: 1) == '#' && Peek(offset: 2) == '#';
-            if (isDocComment && spaces > _indentStack.Peek())
-            {
-                if (_tokens.Count == 0 || _tokens[^1].Type != TokenType.Newline)
-                {
-                    AddToken(type: TokenType.Newline, text: "\\n");
-                }
-                AddToken(type: TokenType.Indent, text: "");
-                _indentStack.Push(spaces);
-            }
-            else if (isDocComment && spaces < _indentStack.Peek())
-            {
-                // A dedented doc comment CLOSES the blocks it dropped out of, so it attaches to the
-                // OUTER declaration it precedes rather than being swallowed by the inner body it
-                // visually trails (e.g. a `###` between a record body and the next `routine`). Regular
-                // (# / ##) comments still never change indentation state — they are inert.
-                while (spaces < _indentStack.Peek())
-                {
-                    _indentStack.Pop();
-                    AddToken(type: TokenType.Dedent, text: "");
-                }
-            }
-
+            HandleCommentLineIndentation(spaces: spaces);
             return;
         }
 
@@ -156,20 +101,99 @@ public partial class Tokenizer
         // Using a stack of actual space counts ensures each Indent matches exactly one Dedent.
         if (spaces > _indentStack.Peek())
         {
-            // Ensure a Newline precedes the Indent token
-            // (some tokens like > suppress newlines as continuation,
-            //  but an indent always starts a new logical line)
-            if (_tokens.Count == 0 || _tokens[^1].Type != TokenType.Newline)
-            {
-                AddToken(type: TokenType.Newline, text: "\\n");
-            }
-
-            AddToken(type: TokenType.Indent, text: "");
-            _indentStack.Push(spaces);
+            EmitIndent(spaces: spaces);
             return;
         }
 
         // Handle dedents when indentation decreases: pop until stack top matches current spaces.
+        EmitDedents(spaces: spaces);
+    }
+
+    /// <summary>
+    /// Counts the leading whitespace on the current line (tabs count as 2 spaces) and consumes it.
+    /// </summary>
+    /// <exception cref="GrammarException">Thrown when tabs and spaces are mixed.</exception>
+    private int CountLeadingWhitespace()
+    {
+        int spaces = 0;
+        bool hasSpaces = false;
+        bool hasTabs = false;
+
+        // Count leading whitespace
+        while (Peek() == ' ' || Peek() == '\t')
+        {
+            if (Peek() == ' ')
+            {
+                spaces += 1;
+                hasSpaces = true;
+            }
+            else // Tab counts as 2 spaces
+            {
+                spaces += 2;
+                hasTabs = true;
+            }
+
+            Advance();
+        }
+
+        // Reject mixed tabs and spaces
+        if (hasTabs && hasSpaces)
+        {
+            throw new GrammarException(code: GrammarDiagnosticCode.MixedTabsAndSpaces,
+                message: "Indentation mixes tabs and spaces; use one or the other",
+                fileName: _fileName,
+                line: _line,
+                column: _column,
+                language: _language);
+        }
+
+        return spaces;
+    }
+
+    /// <summary>
+    /// Handles indentation state for a comment-only line. Regular comments (# / ##) are inert.
+    /// A doc comment (###) opens a new block when indentation increases (so the parser can enter
+    /// bodies whose first content is a ### comment) and closes blocks when indentation decreases.
+    /// </summary>
+    private void HandleCommentLineIndentation(int spaces)
+    {
+        bool isDocComment = Peek(offset: 1) == '#' && Peek(offset: 2) == '#';
+        if (isDocComment && spaces > _indentStack.Peek())
+        {
+            EmitIndent(spaces: spaces);
+        }
+        else if (isDocComment && spaces < _indentStack.Peek())
+        {
+            // A dedented doc comment CLOSES the blocks it dropped out of, so it attaches to the
+            // OUTER declaration it precedes rather than being swallowed by the inner body it
+            // visually trails (e.g. a `###` between a record body and the next `routine`). Regular
+            // (# / ##) comments still never change indentation state — they are inert.
+            EmitDedents(spaces: spaces);
+        }
+    }
+
+    /// <summary>
+    /// Emits an Indent token (preceded by a Newline if needed) and pushes the new indentation level.
+    /// </summary>
+    private void EmitIndent(int spaces)
+    {
+        // Ensure a Newline precedes the Indent token
+        // (some tokens like > suppress newlines as continuation,
+        //  but an indent always starts a new logical line)
+        if (_tokens.Count == 0 || _tokens[^1].Type != TokenType.Newline)
+        {
+            AddToken(type: TokenType.Newline, text: "\\n");
+        }
+
+        AddToken(type: TokenType.Indent, text: "");
+        _indentStack.Push(spaces);
+    }
+
+    /// <summary>
+    /// Pops the indent stack and emits Dedent tokens until the stack top matches the current spaces.
+    /// </summary>
+    private void EmitDedents(int spaces)
+    {
         while (spaces < _indentStack.Peek())
         {
             _indentStack.Pop();

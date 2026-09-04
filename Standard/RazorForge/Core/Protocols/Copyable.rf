@@ -1,15 +1,16 @@
 module Core
 
-### The protocol for values that can produce an independent DEEP copy of themselves — a new object
-### with its own lifetime, sharing no externally visible mutable state. `Copyable` and `Assignable` are
-### ORTHOGONAL capabilities, NOT a hierarchy: a value record obeys both; an RC handle is `Assignable`
-### (share) but not `Copyable` (a shared handle's referent cannot be deep-duplicated); an `entity` is
-### `Copyable` (heap deep-clone) but not `Assignable` (single-owner, moved via `steal`, never implicitly
-### bound). `copy` is inserted wherever an independent duplicate is required — at assignment and at
-### every materialization point (e.g. building a value into a collection).
+### The protocol for values that can produce an independent duplicate of themselves via `duplicate`.
+### `Copyable` is the BROADER capability; `Assignable obeys Copyable` is the STRONGER, narrower one:
+### every assignable value is duplicate-able, with `duplicate` DEFAULTING to `assign` (for a managed leaf
+### the refcount-share IS the independent copy — the buffer is immutable, shared safely). The reverse
+### does NOT hold: an aggregate `entity` (List/Dict) is `Copyable` (heap deep-clone) but NOT `Assignable`
+### (single-owner, cannot be shallow-shared — moved via `steal`, never implicitly bound). `duplicate` is
+### inserted wherever an independent duplicate is required (e.g. building a value into a collection).
 protocol Copyable
 needs Copyable everywhere
-  ### Returns a deep, independent copy of this value.
-  ### :returns: A copy of this value with its own valid lifetime and invariants.
+  ### Returns an independent duplicate of this value (a deep copy for an aggregate; the refcount-share
+  ### `assign` for an Assignable managed leaf, which is independent since the buffer is immutable).
+  ### :returns: A duplicate of this value with its own valid lifetime and invariants.
   @readonly
-  routine Me.copy() -> Me
+  routine Me.duplicate() -> Me

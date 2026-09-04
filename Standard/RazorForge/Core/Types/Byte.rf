@@ -130,7 +130,7 @@ routine Byte.hex_value!() -> U8
 ### Raw bytes are rendered as `\\xHH` so output remains unambiguous regardless of
 ### encoding context.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine Byte.represent() -> Text
   var digits = List[Character]()
   digits.add_last(Character(0x005Cu32))  # \
@@ -152,7 +152,7 @@ routine Byte.represent() -> Text
 ### The diagnostic form includes both the unsigned numeric value and the escaped
 ### byte representation.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine Byte.diagnose() -> Text
   return "Byte(" + U8(me).represent() + ", " + me.represent() + ")"
 

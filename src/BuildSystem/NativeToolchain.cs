@@ -541,6 +541,91 @@ internal static class NativeToolchain
         return sb.ToString();
     }
 
+    // MSVC-target clang needs the CRT and kernel32 import libraries named explicitly when
+    // linking from LLVM IR. The mingw-target clang (bundled self-contained toolchain) links
+    // its own CRT and the Win32 import libraries automatically.
+    private static string WindowsThreadingLibsFragment() =>
+        OperatingSystem.IsWindows() && !ClangIsMingw.Value
+            ? " -lucrt -lmsvcrt -lkernel32"
+            : "";
+
+    // On Linux/macOS the LLVM IR emits direct calls into libm (floor, exp, pow, …) and the
+    // pthread/dl runtime. Modern ld defaults to --as-needed, so libm must be named explicitly
+    // on the command line or linking fails with "DSO missing from command line". We also embed
+    // an rpath pointing at the runtime library directory so the produced executable can locate
+    // librazorforge_runtime.so at load time without requiring LD_LIBRARY_PATH.
+    private static string UnixRuntimeLibsFragment(string runtimeLibDir) =>
+        OperatingSystem.IsWindows()
+            ? ""
+            : $" -lm -lpthread -ldl -Wl,-rpath,\"{runtimeLibDir}\"";
+
+    // Compiler-RT builtins resolve softfloat/softint symbols that LLVM emits for types
+    // without direct hardware support:
+    //   fp128 arithmetic: __addtf3, __subtf3, __multf3, __divtf3, __negtf2, __eqtf2, etc.
+    //   f16 conversions:  __extendhfsf2, __truncsfhf2
+    //   i128 arithmetic:  __divti3, __modti3, __udivti3, __umodti3
+    //
+    // On Windows, neither MSVC link.exe nor lld-link automatically searches for the clang
+    // compiler-rt builtins library when linking an .ll/.obj that was generated from LLVM IR
+    // (rather than from a C/C++ source file). We locate the library explicitly via
+    //   clang --print-libgcc-file-name --rtlib=compiler-rt
+    // and add it directly to the linker command line. Returns false (with a printed error) only
+    // when the Windows compiler-rt library can't be located.
+    private static bool TryBuildCompilerRtArg(out string compilerRtArg)
+    {
+        if (OperatingSystem.IsWindows() && !ClangIsMingw.Value)
+        {
+            string? compilerRtLib = GetCompilerRtBuiltinsLib();
+            if (string.IsNullOrWhiteSpace(value: compilerRtLib))
+            {
+                Console.WriteLine(
+                    value: "Failed to locate clang compiler-rt builtins library on Windows.");
+                compilerRtArg = "";
+                return false;
+            }
+
+            compilerRtArg = $" \"{compilerRtLib}\"";
+        }
+        else
+        {
+            compilerRtArg = " --rtlib=compiler-rt";
+        }
+
+        return true;
+    }
+
+    // Windows always links via lld. On Linux/macOS the system linker is fine for dev
+    // setups, but when clang came from a bundled/explicit toolchain the host may have
+    // no binutils at all — use that toolchain's own ld.lld (clang searches its own
+    // bin directory for it first).
+    private static string LldFlagFragment()
+    {
+        bool clangIsBundled = ClangTool.Value != "clang";
+        return OperatingSystem.IsWindows() || clangIsBundled ? " -fuse-ld=lld" : "";
+    }
+
+    // lld-link-only flag (MSVC-target clang). The mingw toolchain's GNU-flavored ld.lld rejects
+    // /slash-style options. /errorlimit:0 surfaces every undefined-symbol error instead of
+    // capping at ~20.
+    private static string LinkerErrorLimitFragment() =>
+        OperatingSystem.IsWindows() && !ClangIsMingw.Value ? " -Wl,/errorlimit:0" : "";
+
+    // lld-link-only flag (MSVC-target clang). The embedded asInvoker manifest stops Windows'
+    // Application Information Service from heuristically requesting UAC elevation for exe names
+    // containing "install"/"update"/"setup"/"patch"/"test_dispatch"/… (it never inspects the
+    // binary itself).
+    private static string ManifestUacFragment() =>
+        OperatingSystem.IsWindows() && !ClangIsMingw.Value
+            ? " -Wl,\"/MANIFESTUAC:level='asInvoker' uiAccess='false'\" -Wl,/MANIFEST:EMBED"
+            : "";
+
+    // The macOS system libraries (-lm/-lSystem/...) only exist as SDK stubs; point the driver at
+    // the Command Line Tools SDK explicitly (see MacSdkPath).
+    private static string MacSysrootFragment() =>
+        OperatingSystem.IsMacOS() && !string.IsNullOrWhiteSpace(value: MacSdkPath.Value)
+            ? $" -isysroot \"{MacSdkPath.Value}\""
+            : "";
+
     internal static int LinkExecutable(string optFile, string exeFile, string runtimeLibDir,
         RfBuildMode buildMode, IReadOnlyList<string>? cLibraries = null,
         IReadOnlyList<string>? libraryPaths = null)
@@ -552,71 +637,17 @@ internal static class NativeToolchain
         string framePointerFlag = buildMode is RfBuildMode.Debug or RfBuildMode.Release
             ? " -fno-omit-frame-pointer"
             : "";
-        // MSVC-target clang needs the CRT and kernel32 import libraries named explicitly when
-        // linking from LLVM IR. The mingw-target clang (bundled self-contained toolchain) links
-        // its own CRT and the Win32 import libraries automatically.
-        string windowsThreadingLibs = OperatingSystem.IsWindows() && !ClangIsMingw.Value
-            ? " -lucrt -lmsvcrt -lkernel32"
-            : "";
-        // On Linux/macOS the LLVM IR emits direct calls into libm (floor, exp, pow, …) and the
-        // pthread/dl runtime. Modern ld defaults to --as-needed, so libm must be named explicitly
-        // on the command line or linking fails with "DSO missing from command line". We also embed
-        // an rpath pointing at the runtime library directory so the produced executable can locate
-        // librazorforge_runtime.so at load time without requiring LD_LIBRARY_PATH.
-        string unixRuntimeLibs = OperatingSystem.IsWindows()
-            ? ""
-            : $" -lm -lpthread -ldl -Wl,-rpath,\"{runtimeLibDir}\"";
-        // Compiler-RT builtins resolve softfloat/softint symbols that LLVM emits for types
-        // without direct hardware support:
-        //   fp128 arithmetic: __addtf3, __subtf3, __multf3, __divtf3, __negtf2, __eqtf2, etc.
-        //   f16 conversions:  __extendhfsf2, __truncsfhf2
-        //   i128 arithmetic:  __divti3, __modti3, __udivti3, __umodti3
-        //
-        // On Windows, neither MSVC link.exe nor lld-link automatically searches for the clang
-        // compiler-rt builtins library when linking an .ll/.obj that was generated from LLVM IR
-        // (rather than from a C/C++ source file). We locate the library explicitly via
-        //   clang --print-libgcc-file-name --rtlib=compiler-rt
-        // and add it directly to the linker command line.
-        string compilerRtArg;
-        if (OperatingSystem.IsWindows() && !ClangIsMingw.Value)
+        string windowsThreadingLibs = WindowsThreadingLibsFragment();
+        string unixRuntimeLibs = UnixRuntimeLibsFragment(runtimeLibDir: runtimeLibDir);
+        if (!TryBuildCompilerRtArg(compilerRtArg: out string compilerRtArg))
         {
-            string? compilerRtLib = GetCompilerRtBuiltinsLib();
-            if (string.IsNullOrWhiteSpace(value: compilerRtLib))
-            {
-                Console.WriteLine(
-                    value: "Failed to locate clang compiler-rt builtins library on Windows.");
-                return 1;
-            }
+            return 1;
+        }
 
-            compilerRtArg = $" \"{compilerRtLib}\"";
-        }
-        else
-        {
-            compilerRtArg = " --rtlib=compiler-rt";
-        }
-        // Windows always links via lld. On Linux/macOS the system linker is fine for dev
-        // setups, but when clang came from a bundled/explicit toolchain the host may have
-        // no binutils at all — use that toolchain's own ld.lld (clang searches its own
-        // bin directory for it first).
-        bool clangIsBundled = ClangTool.Value != "clang";
-        string lldFlag = OperatingSystem.IsWindows() || clangIsBundled ? " -fuse-ld=lld" : "";
-        // lld-link-only flags (MSVC-target clang). The mingw toolchain's GNU-flavored ld.lld
-        // rejects /slash-style options:
-        //  - /errorlimit:0 surfaces every undefined-symbol error instead of capping at ~20.
-        //  - The embedded asInvoker manifest stops Windows' Application Information Service from
-        //    heuristically requesting UAC elevation for exe names containing "install"/"update"/
-        //    "setup"/"patch"/"test_dispatch"/… (it never inspects the binary itself).
-        string linkerErrorLimitFlag =
-            OperatingSystem.IsWindows() && !ClangIsMingw.Value ? " -Wl,/errorlimit:0" : "";
-        string manifestUacFlag = OperatingSystem.IsWindows() && !ClangIsMingw.Value
-            ? " -Wl,\"/MANIFESTUAC:level='asInvoker' uiAccess='false'\" -Wl,/MANIFEST:EMBED"
-            : "";
-        // The macOS system libraries (-lm/-lSystem/...) only exist as SDK stubs; point
-        // the driver at the Command Line Tools SDK explicitly (see MacSdkPath).
-        string macSysrootArg = OperatingSystem.IsMacOS() &&
-                               !string.IsNullOrWhiteSpace(value: MacSdkPath.Value)
-            ? $" -isysroot \"{MacSdkPath.Value}\""
-            : "";
+        string lldFlag = LldFlagFragment();
+        string linkerErrorLimitFlag = LinkerErrorLimitFragment();
+        string manifestUacFlag = ManifestUacFragment();
+        string macSysrootArg = MacSysrootFragment();
         // User-declared C libraries (config.toml [target] c_libraries / library_paths). Placed
         // after the user object + runtime so `-l` symbol resolution sees the referencing objects first.
         string userLibArgs = BuildUserLibraryArgs(cLibraries: cLibraries, libraryPaths: libraryPaths);

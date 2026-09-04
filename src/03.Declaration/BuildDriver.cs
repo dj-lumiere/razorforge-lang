@@ -169,15 +169,10 @@ public sealed class BuildDriver
         // Skip if already built
         if (_compiledUnits.ContainsKey(key: filePath))
         {
-            // Even if already built, validate the `/`-form import path against the file's actual module.
-            if (fromFile != null && importPathString != null && importLocation != null
-                && _compiledUnits.TryGetValue(key: filePath, value: out FileBuildUnit? existing))
-            {
-                ValidateSlashFormImport(
-                    importPathString: importPathString,
-                    actualModule: existing.Module ?? Path.GetFileNameWithoutExtension(path: filePath),
-                    importLocation: importLocation);
-            }
+            HandleAlreadyBuiltFile(filePath: filePath,
+                fromFile: fromFile,
+                importLocation: importLocation,
+                importPathString: importPathString);
             return;
         }
 
@@ -213,28 +208,14 @@ public sealed class BuildDriver
                     importLocation: importLocation);
             }
 
-            // Track dependencies from imports.
-            // Skip self-dependencies for member imports (`.` form) and Core auto-imports — they're no-ops.
-            if (fromFile != null && importLocation != null)
+            // Track dependencies from imports. Returns false when a circular dependency is
+            // detected, in which case processing must stop.
+            if (!TrackImportDependency(modulePath: modulePath,
+                    fromFile: fromFile,
+                    importLocation: importLocation,
+                    importPathString: importPathString))
             {
-                string fromModule = GetModuleForFile(filePath: fromFile);
-
-                bool isMemberImport = importPathString != null && importPathString.Contains(value: '.');
-                bool isSelfMemberImport = isMemberImport && fromModule == modulePath;
-                bool isCoreAutoImport = modulePath == "Core";
-
-                if (!isSelfMemberImport && !isCoreAutoImport)
-                {
-                    bool success = _dependencyGraph.AddDependency(fromModule: fromModule,
-                        toModule: modulePath,
-                        importLocation: importLocation);
-
-                    if (!success)
-                    {
-                        // Circular dependency detected - don't continue processing
-                        return;
-                    }
-                }
+                return;
             }
 
             // Store the unit
@@ -256,59 +237,122 @@ public sealed class BuildDriver
             // Process imports recursively
             foreach (ImportDeclaration import in unit.Imports)
             {
-                string? resolvedPath = _resolver.TryResolveImport(importPath: import.ModulePath);
-
-                if (resolvedPath != null)
-                {
-                    ProcessFile(filePath: resolvedPath,
-                        fromFile: filePath,
-                        importLocation: import.Location,
-                        importPathString: import.ModulePath);
-                    continue;
-                }
-
-                // No single file matched. Try the directory-as-module case: a bare/slash import
-                // (`import Fun2` / `import Fun2.[A, B]`) naming a directory whose files all declare
-                // the same `module Fun2`. Gather and process every such file so the whole module
-                // is available, not just one arbitrary anchor file.
-                if (ProcessDirectoryModule(moduleName: import.ModulePath,
-                        fromFile: filePath,
-                        importLocation: import.Location))
-                {
-                    continue;
-                }
-
-                // Prefix/package import: `import A/B` pulls in every submodule declaring `module A/B/...`
-                // (keyed by DECLARED module path, not directory — a file's path need not mirror its
-                // module). Process each submodule's file into the graph so SA sees them all.
-                IReadOnlyList<string> submodules =
-                    _resolver.EnumerateSubmodulePaths(prefix: import.ModulePath);
-                if (submodules.Count > 0)
-                {
-                    foreach (string submodule in submodules)
-                    {
-                        string? subPath = _resolver.TryResolveImport(importPath: submodule);
-                        if (subPath != null)
-                            ProcessFile(filePath: subPath,
-                                fromFile: filePath,
-                                importLocation: import.Location,
-                                importPathString: submodule);
-                    }
-                    continue;
-                }
-
-                // Truly unresolved — report it (TryResolveImport, unlike ResolveImport, records
-                // no error of its own).
-                _errors.Add(item: new SemanticError(
-                    Code: SemanticDiagnosticCode.ModuleNotFound,
-                    Message: $"Cannot resolve import '{import.ModulePath}'. Module not found.",
-                    Location: import.Location));
+                ProcessImport(import: import, filePath: filePath);
             }
         }
         finally
         {
             _processingFiles.Remove(item: filePath);
         }
+    }
+
+    /// <summary>
+    /// Handles a file that was already built: re-validates the `/`-form import path against the
+    /// file's actual module (the only remaining work when the unit already exists).
+    /// </summary>
+    private void HandleAlreadyBuiltFile(string filePath, string? fromFile,
+        SourceLocation? importLocation, string? importPathString)
+    {
+        // Even if already built, validate the `/`-form import path against the file's actual module.
+        if (fromFile != null && importPathString != null && importLocation != null
+            && _compiledUnits.TryGetValue(key: filePath, value: out FileBuildUnit? existing))
+        {
+            ValidateSlashFormImport(
+                importPathString: importPathString,
+                actualModule: existing.Module ?? Path.GetFileNameWithoutExtension(path: filePath),
+                importLocation: importLocation);
+        }
+    }
+
+    /// <summary>
+    /// Records the import dependency edge for the just-parsed file. Skips self-dependencies for
+    /// member imports (`.` form) and Core auto-imports — they're no-ops. Returns false when the
+    /// edge creates a circular dependency (the caller must then stop processing), true otherwise.
+    /// </summary>
+    private bool TrackImportDependency(string modulePath, string? fromFile,
+        SourceLocation? importLocation, string? importPathString)
+    {
+        // Track dependencies from imports.
+        // Skip self-dependencies for member imports (`.` form) and Core auto-imports — they're no-ops.
+        if (fromFile != null && importLocation != null)
+        {
+            string fromModule = GetModuleForFile(filePath: fromFile);
+
+            bool isMemberImport = importPathString != null && importPathString.Contains(value: '.');
+            bool isSelfMemberImport = isMemberImport && fromModule == modulePath;
+            bool isCoreAutoImport = modulePath == "Core";
+
+            if (!isSelfMemberImport && !isCoreAutoImport)
+            {
+                bool success = _dependencyGraph.AddDependency(fromModule: fromModule,
+                    toModule: modulePath,
+                    importLocation: importLocation);
+
+                if (!success)
+                {
+                    // Circular dependency detected - don't continue processing
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Resolves and recursively processes a single import declaration, trying single-file resolution
+    /// first, then the directory-as-module case, then the prefix/package case, and finally reporting
+    /// the import as unresolved.
+    /// </summary>
+    private void ProcessImport(ImportDeclaration import, string filePath)
+    {
+        string? resolvedPath = _resolver.TryResolveImport(importPath: import.ModulePath);
+
+        if (resolvedPath != null)
+        {
+            ProcessFile(filePath: resolvedPath,
+                fromFile: filePath,
+                importLocation: import.Location,
+                importPathString: import.ModulePath);
+            return;
+        }
+
+        // No single file matched. Try the directory-as-module case: a bare/slash import
+        // (`import Fun2` / `import Fun2.[A, B]`) naming a directory whose files all declare
+        // the same `module Fun2`. Gather and process every such file so the whole module
+        // is available, not just one arbitrary anchor file.
+        if (ProcessDirectoryModule(moduleName: import.ModulePath,
+                fromFile: filePath,
+                importLocation: import.Location))
+        {
+            return;
+        }
+
+        // Prefix/package import: `import A/B` pulls in every submodule declaring `module A/B/...`
+        // (keyed by DECLARED module path, not directory — a file's path need not mirror its
+        // module). Process each submodule's file into the graph so SA sees them all.
+        IReadOnlyList<string> submodules =
+            _resolver.EnumerateSubmodulePaths(prefix: import.ModulePath);
+        if (submodules.Count > 0)
+        {
+            foreach (string submodule in submodules)
+            {
+                string? subPath = _resolver.TryResolveImport(importPath: submodule);
+                if (subPath != null)
+                    ProcessFile(filePath: subPath,
+                        fromFile: filePath,
+                        importLocation: import.Location,
+                        importPathString: submodule);
+            }
+            return;
+        }
+
+        // Truly unresolved — report it (TryResolveImport, unlike ResolveImport, records
+        // no error of its own).
+        _errors.Add(item: new SemanticError(
+            Code: SemanticDiagnosticCode.ModuleNotFound,
+            Message: $"Cannot resolve import '{import.ModulePath}'. Module not found.",
+            Location: import.Location));
     }
 
     /// <summary>
@@ -460,72 +504,14 @@ public sealed class BuildDriver
             Program ast = parser.Parse();
             List<BuildWarning> warnings = parser.GetWarnings();
 
-            // Extract module and imports
-            string? modulePath = null;
-            var imports = new List<ImportDeclaration>();
+            // Extract module and imports (deriving + inserting a synthetic module header when absent).
+            string modulePath = ExtractModuleAndImports(ast: ast, filePath: filePath,
+                imports: out List<ImportDeclaration> imports);
 
-            foreach (ISyntaxTreeNode decl in ast.Declarations)
-            {
-                if (decl is ModuleDeclaration ns)
-                {
-                    modulePath = ns.Path;
-                }
-                else if (decl is ImportDeclaration import)
-                {
-                    imports.Add(item: import);
-                }
-            }
-
-            // A file with no `module` header gets one DERIVED from its path relative to the project
-            // root (the config.toml directory): each path segment is PascalCased (spaces removed),
-            // '.'/'..' segments dropped, the extension stripped, joined with '/'. E.g.
-            // `../SomeFolder/SomeMoreFolder/file a.rf` -> `SomeFolder/SomeMoreFolder/FileA`. A synthetic
-            // ModuleDeclaration is inserted at the top of the AST so every downstream reader (type/
-            // routine registration, protocol conformance) sees the same module uniformly.
-            if (modulePath == null)
-            {
-                modulePath = DeriveModuleFromPath(filePath: filePath);
-                ast.Declarations.Insert(index: 0, item: new ModuleDeclaration(
-                    Path: modulePath,
-                    Location: new SourceLocation(FileName: filePath, Line: 0, Column: 0, Position: 0)));
-            }
-
-            // Suflae prelude: modules an SF USER file gets for free (no explicit `import`). These are
-            // injected into BOTH the extracted imports (so their files load) and the AST right after the
-            // module declaration (so SA adds them to _importedModules AND the top-of-file import order
-            // holds), each only if not already present. Stdlib `.rf` files are excluded — they're RF
-            // source. Members:
-            //   - `Numerics` — SF's unsuffixed integer literals default to `Integer` (RF defaults to S64),
-            //     and Integer/Real/Complex live in `Numerics` (NOT Core), so a bare `6` fails to resolve
-            //     (RF-S002) without it. (Real/Complex riding along relaxes #1's "import-only" for now;
-            //     TODO: narrow to Integer.)
-            //   - `IO/Console`, `IO/File` — always-available I/O in SF, so `show(...)` / file access need
-            //     no ceremony import.
-            // (Historical: a `Suflae` overlay module was prelude-injected here so a bare `List` shadowed
-            // `Core.List` with a hand-written roam-boundary wrapper. Removed 2026-08-14 — the world-line
-            // model makes SF's bare `List` resolve to the REAL `Core.List` (full API), which an SF `entity`
-            // slot roams directly, so the wrapper is obsolete. See [[realm-scoped-core]] pivot.)
+            // Suflae prelude: inject the always-available SF modules (no explicit `import` needed).
             if (isSuflae && !isStdlibFile)
             {
-                // (module, specificSymbols|null). `Numerics` is brought in as the SPECIFIC symbol `Integer`
-                // ONLY — Suflae's bare numeric vocabulary is Integer/Decimal (Decimal is in Core), so bare
-                // `6` defaults to Integer and bare `Integer` resolves, WITHOUT opening the whole Numerics
-                // module. The fixed-width / complex / quaternion zoo (and Real/Complex) stay behind an
-                // explicit whole-module `import Numerics` — which the prelude skips injecting when present,
-                // so a whole-module import is the distinguishable "unlock" signal for the number gate
-                // (see TypeResolver.EnforceSuflaeNumberGate). I/O stays whole-module for `show(...)`.
-                (string Module, string[]? Symbols)[] preludeModules =
-                    [("Numerics", ["Integer"]), ("IO/Console", null), ("IO/File", null)];
-                int insertAt = 1; // Module declaration is guaranteed at index 0 by now.
-                foreach ((string preludeModule, string[]? symbols) in preludeModules)
-                {
-                    if (imports.Any(predicate: i => i.ModulePath == preludeModule)) continue;
-                    var preludeImport = new ImportDeclaration(ModulePath: preludeModule, Alias: null,
-                        SpecificImports: symbols?.ToList(),
-                        Location: new SourceLocation(FileName: filePath, Line: 1, Column: 1, Position: 0));
-                    imports.Add(item: preludeImport);
-                    ast.Declarations.Insert(index: insertAt++, item: preludeImport);
-                }
+                InjectSuflaePrelude(ast: ast, filePath: filePath, imports: imports);
             }
 
             return new FileBuildUnit(FilePath: filePath,
@@ -556,6 +542,85 @@ public sealed class BuildDriver
                     Column: 1,
                     Position: 0)));
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Extracts the declared module path and import declarations from a parsed AST. A file with no
+    /// <c>module</c> header gets one DERIVED from its path relative to the project root (the config.toml
+    /// directory): each path segment is PascalCased (spaces removed), '.'/'..' segments dropped, the
+    /// extension stripped, joined with '/'. E.g. <c>../SomeFolder/SomeMoreFolder/file a.rf</c> ->
+    /// <c>SomeFolder/SomeMoreFolder/FileA</c>. A synthetic ModuleDeclaration is inserted at the top of
+    /// the AST so every downstream reader (type/routine registration, protocol conformance) sees the
+    /// same module uniformly.
+    /// </summary>
+    private string ExtractModuleAndImports(Program ast, string filePath,
+        out List<ImportDeclaration> imports)
+    {
+        string? modulePath = null;
+        imports = new List<ImportDeclaration>();
+
+        foreach (ISyntaxTreeNode decl in ast.Declarations)
+        {
+            if (decl is ModuleDeclaration ns)
+            {
+                modulePath = ns.Path;
+            }
+            else if (decl is ImportDeclaration import)
+            {
+                imports.Add(item: import);
+            }
+        }
+
+        if (modulePath == null)
+        {
+            modulePath = DeriveModuleFromPath(filePath: filePath);
+            ast.Declarations.Insert(index: 0, item: new ModuleDeclaration(
+                Path: modulePath,
+                Location: new SourceLocation(FileName: filePath, Line: 0, Column: 0, Position: 0)));
+        }
+
+        return modulePath;
+    }
+
+    /// <summary>
+    /// Injects the Suflae prelude: modules an SF USER file gets for free (no explicit <c>import</c>).
+    /// These are injected into BOTH the extracted imports (so their files load) and the AST right after
+    /// the module declaration (so SA adds them to _importedModules AND the top-of-file import order
+    /// holds), each only if not already present. Stdlib `.rf` files are excluded — they're RF source.
+    /// Members:
+    ///   - `Numerics` — SF's unsuffixed integer literals default to `Integer` (RF defaults to S64),
+    ///     and Integer/Real/Complex live in `Numerics` (NOT Core), so a bare `6` fails to resolve
+    ///     (RF-S002) without it. (Real/Complex riding along relaxes #1's "import-only" for now;
+    ///     TODO: narrow to Integer.)
+    ///   - `IO/Console`, `IO/File` — always-available I/O in SF, so `show(...)` / file access need
+    ///     no ceremony import.
+    /// (Historical: a `Suflae` overlay module was prelude-injected here so a bare `List` shadowed
+    /// `Core.List` with a hand-written roam-boundary wrapper. Removed 2026-08-14 — the world-line
+    /// model makes SF's bare `List` resolve to the REAL `Core.List` (full API), which an SF `entity`
+    /// slot roams directly, so the wrapper is obsolete. See [[realm-scoped-core]] pivot.)
+    /// </summary>
+    private static void InjectSuflaePrelude(Program ast, string filePath,
+        List<ImportDeclaration> imports)
+    {
+        // (module, specificSymbols|null). `Numerics` is brought in as the SPECIFIC symbol `Integer`
+        // ONLY — Suflae's bare numeric vocabulary is Integer/Decimal (Decimal is in Core), so bare
+        // `6` defaults to Integer and bare `Integer` resolves, WITHOUT opening the whole Numerics
+        // module. The fixed-width / complex / quaternion zoo (and Real/Complex) stay behind an
+        // explicit whole-module `import Numerics` — which the prelude skips injecting when present,
+        // so a whole-module import is the distinguishable "unlock" signal for the number gate
+        // (see TypeResolver.EnforceSuflaeNumberGate). I/O stays whole-module for `show(...)`.
+        (string Module, string[]? Symbols)[] preludeModules =
+            [("Numerics", ["Integer"]), ("IO/Console", null), ("IO/File", null)];
+        int insertAt = 1; // Module declaration is guaranteed at index 0 by now.
+        foreach ((string preludeModule, string[]? symbols) in preludeModules)
+        {
+            if (imports.Any(predicate: i => i.ModulePath == preludeModule)) continue;
+            var preludeImport = new ImportDeclaration(ModulePath: preludeModule, Alias: null,
+                SpecificImports: symbols?.ToList(),
+                Location: new SourceLocation(FileName: filePath, Line: 1, Column: 1, Position: 0));
+            imports.Add(item: preludeImport);
+            ast.Declarations.Insert(index: insertAt++, item: preludeImport);
         }
     }
 

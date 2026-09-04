@@ -422,40 +422,51 @@ _ => GrammarDiagnosticCode.UnexpectedToken
                 continue;
             }
 
-            if (!first && depth == 0)
+            if (!first && depth == 0 && IsTopLevelSynchronizationPoint(t: t))
             {
-                if (PeekToken(offset: -1)
-                       .Type is TokenType.Newline or TokenType.Dedent)
-                {
-                    return;
-                }
-
-                switch (t)
-                {
-                    case TokenType.Entity:
-                    case TokenType.Record:
-                    case TokenType.Choice:
-                    case TokenType.Flags:
-                    case TokenType.Variant:
-                    case TokenType.Protocol:
-                    case TokenType.Routine:
-                    case TokenType.Var:
-                    case TokenType.Preset:
-                    case TokenType.If:
-                    case TokenType.Unless:
-                    case TokenType.While:
-                    case TokenType.Each:
-                    case TokenType.Return:
-                    case TokenType.Throw:
-                    case TokenType.Pierce:
-                    case TokenType.Absent:
-                        return;
-                }
+                return;
             }
 
             Advance();
             first = false;
         }
+    }
+
+    /// <summary>
+    /// Decides whether the token <paramref name="t"/> at base indentation depth is a top-level
+    /// synchronization point where <see cref="Synchronize"/> can safely resume parsing — either the
+    /// previous token ended a statement (Newline/Dedent) or <paramref name="t"/> begins a top-level
+    /// declaration/statement keyword.
+    /// </summary>
+    private bool IsTopLevelSynchronizationPoint(TokenType t)
+    {
+        if (PeekToken(offset: -1)
+               .Type is TokenType.Newline or TokenType.Dedent)
+        {
+            return true;
+        }
+
+        return t switch
+        {
+            TokenType.Entity => true,
+            TokenType.Record => true,
+            TokenType.Choice => true,
+            TokenType.Flags => true,
+            TokenType.Variant => true,
+            TokenType.Protocol => true,
+            TokenType.Routine => true,
+            TokenType.Var => true,
+            TokenType.Preset => true,
+            TokenType.If => true,
+            TokenType.Unless => true,
+            TokenType.While => true,
+            TokenType.Each => true,
+            TokenType.Return => true,
+            TokenType.Throw => true,
+            TokenType.Pierce => true,
+            TokenType.Absent => true,
+            _ => false
+        };
     }
 
     /// <summary>

@@ -166,94 +166,13 @@ public partial class Parser
         // Note: 'me' is tokenized as TokenType.Me, so we need to handle it explicitly
         if (Match(TokenType.Identifier, TokenType.Me))
         {
-            string text = PeekToken(offset: -1)
-               .Text;
-            if (text == "me")
-            {
-                return new IdentifierExpression(Name: "me", Location: location);
-            }
-
-            // Single-hole `_` lambda: `_` in expression position is the placeholder for the sole
-            // parameter of an implicit lambda. Parse it as a reference to the reserved hole name and
-            // flag it; ParseArgument wraps the enclosing argument into `LambdaExpression([<hole>], …)`.
-            // A stray `_` that no ParseArgument wraps stays an unknown-identifier reference (an error),
-            // exactly as before. Pattern/discard `_` is handled by their own parse paths, not here.
-            if (text == "_")
-            {
-                _sawHole = true;
-                return new IdentifierExpression(Name: HoleParamName, Location: location);
-            }
-
-            // Realm-qualified reference in expression position: `RF::Core.List` (e.g. a
-            // `RF::Core.List[S64]()` constructor call inside a Suflae wrapper). The leading ident is the
-            // realm tag; consume the `.`/`/`-segmented qualified name and carry the realm so SA resolves
-            // it in the RazorForge/bare realm. Postfix `[..]` / `(..)` then apply as usual.
-            if (Check(type: TokenType.DoubleColon))
-            {
-                Advance();
-                var realmSb = new System.Text.StringBuilder(
-                    ConsumeIdentifier(errorMessage: "Expected name after realm qualifier '::'"));
-                while (Check(type: TokenType.Dot) || Check(type: TokenType.Slash))
-                {
-                    realmSb.Append(Match(type: TokenType.Dot) ? '.'
-                        : (Match(type: TokenType.Slash) ? '/' : '.'));
-                    realmSb.Append(ConsumeIdentifier(
-                        errorMessage: "Expected name component after '.'/'/' in realm-qualified reference"));
-                }
-                return new IdentifierExpression(Name: realmSb.ToString(), Location: location, Realm: text);
-            }
-
-            return new IdentifierExpression(Name: text, Location: location);
+            return ParseIdentifierPrimary(location: location);
         }
 
         // Parenthesized expression, tuple literal, or arrow lambda with parenthesized params
         if (Match(type: TokenType.LeftParen))
         {
-            // Parentheses re-enable bare lambdas inside a when-arm condition.
-            bool savedConditionContext = _inWhenConditionContext;
-            _inWhenConditionContext = false;
-            try
-            {
-                if (IsArrowLambdaParameters())
-                {
-                    return ParseParenthesizedArrowLambda(location: location);
-                }
-
-                // Parse first expression
-                Expression firstExpr = ParseExpression();
-
-                // Check if this is a tuple (has comma) or just parenthesized expression
-                if (Match(type: TokenType.Comma))
-                {
-                    // It's a tuple
-                    var elements = new List<Expression> { firstExpr };
-
-                    // Check for single-element tuple: (expr,)
-                    if (Check(type: TokenType.RightParen))
-                    {
-                        Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after tuple");
-                        return new TupleLiteralExpression(Elements: elements, Location: location);
-                    }
-
-                    // Multi-element tuple: (expr1, expr2, ...)
-                    do
-                    {
-                        elements.Add(item: ParseExpression());
-                    } while (Match(type: TokenType.Comma) && !Check(type: TokenType.RightParen));
-
-                    Consume(type: TokenType.RightParen,
-                        errorMessage: "Expected ')' after tuple elements");
-                    return new TupleLiteralExpression(Elements: elements, Location: location);
-                }
-
-                // Just a parenthesized expression
-                Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after expression");
-                return firstExpr;
-            }
-            finally
-            {
-                _inWhenConditionContext = savedConditionContext;
-            }
+            return ParseParenthesizedPrimary(location: location);
         }
 
         // When expression: when x { pattern => expr, ... }
@@ -279,26 +198,118 @@ public partial class Parser
             message: $"Unexpected token: {CurrentToken.Type}");
     }
 
+    /// <summary>
+    /// Parses a primary starting with an identifier / <c>me</c> token that has already been consumed:
+    /// the <c>me</c> receiver, a single-hole <c>_</c> lambda placeholder, a realm-qualified reference
+    /// (<c>RF::Core.List</c>), or a plain identifier.
+    /// </summary>
+    private Expression ParseIdentifierPrimary(SourceLocation location)
+    {
+        string text = PeekToken(offset: -1)
+           .Text;
+        if (text == "me")
+        {
+            return new IdentifierExpression(Name: "me", Location: location);
+        }
+
+        // Single-hole `_` lambda: `_` in expression position is the placeholder for the sole
+        // parameter of an implicit lambda. Parse it as a reference to the reserved hole name and
+        // flag it; ParseArgument wraps the enclosing argument into `LambdaExpression([<hole>], …)`.
+        // A stray `_` that no ParseArgument wraps stays an unknown-identifier reference (an error),
+        // exactly as before. Pattern/discard `_` is handled by their own parse paths, not here.
+        if (text == "_")
+        {
+            _sawHole = true;
+            return new IdentifierExpression(Name: HoleParamName, Location: location);
+        }
+
+        // Realm-qualified reference in expression position: `RF::Core.List` (e.g. a
+        // `RF::Core.List[S64]()` constructor call inside a Suflae wrapper). The leading ident is the
+        // realm tag; consume the `.`/`/`-segmented qualified name and carry the realm so SA resolves
+        // it in the RazorForge/bare realm. Postfix `[..]` / `(..)` then apply as usual.
+        if (Check(type: TokenType.DoubleColon))
+        {
+            Advance();
+            var realmSb = new System.Text.StringBuilder(
+                ConsumeIdentifier(errorMessage: "Expected name after realm qualifier '::'"));
+            while (Check(type: TokenType.Dot) || Check(type: TokenType.Slash))
+            {
+                realmSb.Append(Match(type: TokenType.Dot) ? '.'
+                    : (Match(type: TokenType.Slash) ? '/' : '.'));
+                realmSb.Append(ConsumeIdentifier(
+                    errorMessage: "Expected name component after '.'/'/' in realm-qualified reference"));
+            }
+            return new IdentifierExpression(Name: realmSb.ToString(), Location: location, Realm: text);
+        }
+
+        return new IdentifierExpression(Name: text, Location: location);
+    }
+
+    /// <summary>
+    /// Parses a primary starting with <c>(</c> that has already been consumed: an arrow lambda with
+    /// parenthesized parameters, a tuple literal, or a plain parenthesized expression. Suspends the
+    /// when-arm condition context so bare lambdas inside the parentheses still parse.
+    /// </summary>
+    private Expression ParseParenthesizedPrimary(SourceLocation location)
+    {
+        // Parentheses re-enable bare lambdas inside a when-arm condition.
+        bool savedConditionContext = _inWhenConditionContext;
+        _inWhenConditionContext = false;
+        try
+        {
+            if (IsArrowLambdaParameters())
+            {
+                return ParseParenthesizedArrowLambda(location: location);
+            }
+
+            // Parse first expression
+            Expression firstExpr = ParseExpression();
+
+            // Check if this is a tuple (has comma) or just parenthesized expression
+            if (Match(type: TokenType.Comma))
+            {
+                return ParseTupleLiteralTail(firstExpr: firstExpr, location: location);
+            }
+
+            // Just a parenthesized expression
+            Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after expression");
+            return firstExpr;
+        }
+        finally
+        {
+            _inWhenConditionContext = savedConditionContext;
+        }
+    }
+
+    /// <summary>
+    /// Parses the remainder of a tuple literal after the first element and its trailing comma have been
+    /// consumed: a single-element tuple (<c>(expr,)</c>) or a multi-element tuple.
+    /// </summary>
+    private TupleLiteralExpression ParseTupleLiteralTail(Expression firstExpr, SourceLocation location)
+    {
+        var elements = new List<Expression> { firstExpr };
+
+        // Check for single-element tuple: (expr,)
+        if (Check(type: TokenType.RightParen))
+        {
+            Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after tuple");
+            return new TupleLiteralExpression(Elements: elements, Location: location);
+        }
+
+        // Multi-element tuple: (expr1, expr2, ...)
+        do
+        {
+            elements.Add(item: ParseExpression());
+        } while (Match(type: TokenType.Comma) && !Check(type: TokenType.RightParen));
+
+        Consume(type: TokenType.RightParen,
+            errorMessage: "Expected ')' after tuple elements");
+        return new TupleLiteralExpression(Elements: elements, Location: location);
+    }
+
     private WhenExpression ParseWhenExpression(SourceLocation location)
     {
-        bool isConditionBased = false;
-        Expression? subject;
-
-        if (Check(type: TokenType.Newline))
-        {
-            isConditionBased = true;
-            subject = null;
-        }
-        else if (Check(type: TokenType.True) && PeekToken(offset: 1).Type == TokenType.Newline)
-        {
-            isConditionBased = true;
-            Advance();
-            subject = null;
-        }
-        else
-        {
-            subject = ParseExpression();
-        }
+        Expression? subject = ParseWhenExpressionSubject(isConditionBased: out bool isConditionBased);
 
         Consume(type: TokenType.Newline, errorMessage: "Expected newline after when expression");
 
@@ -319,115 +330,11 @@ public partial class Parser
                 continue;
             }
 
-            Pattern pattern;
             SourceLocation clauseLocation = GetLocation();
+            Pattern pattern = ParseWhenExpressionPattern(isConditionBased: isConditionBased,
+                clauseLocation: clauseLocation);
+            Statement body = ParseWhenExpressionArmBody();
 
-            if (Match(type: TokenType.Else))
-            {
-                if (Check(type: TokenType.Identifier))
-                {
-                    TokenType nextAfterIdent = PeekToken(offset: 1).Type;
-                    if (nextAfterIdent is TokenType.FatArrow or TokenType.Newline)
-                    {
-                        string varName = ConsumeIdentifier(errorMessage: "Expected variable name after 'else'");
-                        pattern = new ElsePattern(VariableName: varName, Location: clauseLocation);
-                    }
-                    else
-                    {
-                        pattern = new ElsePattern(VariableName: null, Location: clauseLocation);
-                    }
-                }
-                else
-                {
-                    pattern = new ElsePattern(VariableName: null, Location: clauseLocation);
-                }
-            }
-            else if (isConditionBased)
-            {
-                bool savedConditionContext = _inWhenConditionContext;
-                _inWhenConditionContext = true;
-                Expression condExpr;
-                try
-                {
-                    condExpr = ParseExpression();
-                }
-                finally
-                {
-                    _inWhenConditionContext = savedConditionContext;
-                }
-
-                pattern = new ExpressionPattern(Expression: condExpr, Location: clauseLocation);
-            }
-            else if (Match(type: TokenType.Is))
-            {
-                _inWhenPatternContext = true;
-                if (Check(type: TokenType.Identifier) && PeekToken(offset: 1).Type is TokenType.And or TokenType.Or or TokenType.But)
-                {
-                    pattern = ParseFlagsIsWhenPattern();
-                }
-                else if (Check(type: TokenType.None) || Check(type: TokenType.Identifier))
-                {
-                    pattern = ParseTypePattern();
-                }
-                else
-                {
-                    throw ThrowParseError(code: GrammarDiagnosticCode.InvalidPattern,
-                        message: $"'is' must be followed by a type name. For value comparisons, use '== {CurrentToken.Text}' instead of 'is {CurrentToken.Text}'.");
-                }
-
-                _inWhenPatternContext = false;
-            }
-            else if (Match(type: TokenType.IsNot))
-            {
-                _inWhenPatternContext = true;
-                if (Check(type: TokenType.None) || Check(type: TokenType.Identifier))
-                {
-                    TypeExpression type = ParseType();
-                    pattern = new NegatedTypePattern(Type: type, Location: clauseLocation);
-                }
-                else
-                {
-                    throw ThrowParseError(code: GrammarDiagnosticCode.InvalidPattern,
-                        message: "'isnot' must be followed by a type name.");
-                }
-
-                _inWhenPatternContext = false;
-            }
-            else if (IsComparisonOperator(tokenType: CurrentToken.Type))
-            {
-                pattern = ParseComparisonPattern();
-            }
-            else
-            {
-                _inWhenPatternContext = true;
-                pattern = ParsePattern();
-                _inWhenPatternContext = false;
-            }
-
-            Statement body;
-            _inWhenClauseBody = true;
-
-            if (Match(type: TokenType.FatArrow))
-            {
-                if (Check(type: TokenType.Newline) && PeekToken(offset: 1).Type == TokenType.Indent)
-                {
-                    Advance();
-                    body = ParseIndentedBlock();
-                }
-                else
-                {
-                    Expression armExpr = ParseExpression();
-                    body = new ExpressionStatement(Expression: armExpr, Location: armExpr.Location);
-                }
-            }
-            else
-            {
-                Consume(type: TokenType.FatArrow, errorMessage: "Expected '=>' after when pattern");
-                Expression armExpr = ParseExpression();
-                body = new ExpressionStatement(Expression: armExpr, Location: armExpr.Location);
-            }
-
-            _inWhenClauseBody = false;
             clauses.Add(item: new WhenClause(Pattern: pattern, Body: body, Location: GetLocation()));
             Match(TokenType.Comma, TokenType.Newline);
         }
@@ -443,6 +350,165 @@ public partial class Parser
         }
 
         return new WhenExpression(Expression: subject, Clauses: clauses, Location: location);
+    }
+
+    /// <summary>
+    /// Parses the subject of a when-expression: a bare/`true` newline form is condition-based (no
+    /// subject); anything else is the subject expression. Reports which form via
+    /// <paramref name="isConditionBased"/>.
+    /// </summary>
+    private Expression? ParseWhenExpressionSubject(out bool isConditionBased)
+    {
+        if (Check(type: TokenType.Newline))
+        {
+            isConditionBased = true;
+            return null;
+        }
+
+        if (Check(type: TokenType.True) && PeekToken(offset: 1).Type == TokenType.Newline)
+        {
+            isConditionBased = true;
+            Advance();
+            return null;
+        }
+
+        isConditionBased = false;
+        return ParseExpression();
+    }
+
+    /// <summary>
+    /// Parses a single when-expression clause pattern: <c>else</c>/<c>else name</c>, a condition-based
+    /// expression pattern, an <c>is</c>/<c>isnot</c> type or flags pattern, a comparison pattern, or a
+    /// general pattern.
+    /// </summary>
+    private Pattern ParseWhenExpressionPattern(bool isConditionBased, SourceLocation clauseLocation)
+    {
+        if (Match(type: TokenType.Else))
+        {
+            return ParseElseClausePattern(clauseLocation: clauseLocation);
+        }
+
+        if (isConditionBased)
+        {
+            bool savedConditionContext = _inWhenConditionContext;
+            _inWhenConditionContext = true;
+            Expression condExpr;
+            try
+            {
+                condExpr = ParseExpression();
+            }
+            finally
+            {
+                _inWhenConditionContext = savedConditionContext;
+            }
+
+            return new ExpressionPattern(Expression: condExpr, Location: clauseLocation);
+        }
+
+        if (Match(type: TokenType.Is))
+        {
+            _inWhenPatternContext = true;
+            Pattern pattern;
+            if (Check(type: TokenType.Identifier) && PeekToken(offset: 1).Type is TokenType.And or TokenType.Or or TokenType.But)
+            {
+                pattern = ParseFlagsIsWhenPattern();
+            }
+            else if (Check(type: TokenType.None) || Check(type: TokenType.Identifier))
+            {
+                pattern = ParseTypePattern();
+            }
+            else
+            {
+                throw ThrowParseError(code: GrammarDiagnosticCode.InvalidPattern,
+                    message: $"'is' must be followed by a type name. For value comparisons, use '== {CurrentToken.Text}' instead of 'is {CurrentToken.Text}'.");
+            }
+
+            _inWhenPatternContext = false;
+            return pattern;
+        }
+
+        if (Match(type: TokenType.IsNot))
+        {
+            _inWhenPatternContext = true;
+            Pattern pattern;
+            if (Check(type: TokenType.None) || Check(type: TokenType.Identifier))
+            {
+                TypeExpression type = ParseType();
+                pattern = new NegatedTypePattern(Type: type, Location: clauseLocation);
+            }
+            else
+            {
+                throw ThrowParseError(code: GrammarDiagnosticCode.InvalidPattern,
+                    message: "'isnot' must be followed by a type name.");
+            }
+
+            _inWhenPatternContext = false;
+            return pattern;
+        }
+
+        if (IsComparisonOperator(tokenType: CurrentToken.Type))
+        {
+            return ParseComparisonPattern();
+        }
+
+        _inWhenPatternContext = true;
+        Pattern generalPattern = ParsePattern();
+        _inWhenPatternContext = false;
+        return generalPattern;
+    }
+
+    /// <summary>
+    /// Parses an <c>else</c> clause pattern after the <c>else</c> keyword has been consumed, with an
+    /// optional variable binding (<c>else name</c>).
+    /// </summary>
+    private ElsePattern ParseElseClausePattern(SourceLocation clauseLocation)
+    {
+        if (Check(type: TokenType.Identifier))
+        {
+            TokenType nextAfterIdent = PeekToken(offset: 1).Type;
+            if (nextAfterIdent is TokenType.FatArrow or TokenType.Newline)
+            {
+                string varName = ConsumeIdentifier(errorMessage: "Expected variable name after 'else'");
+                return new ElsePattern(VariableName: varName, Location: clauseLocation);
+            }
+
+            return new ElsePattern(VariableName: null, Location: clauseLocation);
+        }
+
+        return new ElsePattern(VariableName: null, Location: clauseLocation);
+    }
+
+    /// <summary>
+    /// Parses a when-expression arm body after its pattern: <c>=&gt;</c> followed by either an indented
+    /// block or a single-expression statement.
+    /// </summary>
+    private Statement ParseWhenExpressionArmBody()
+    {
+        Statement body;
+        _inWhenClauseBody = true;
+
+        if (Match(type: TokenType.FatArrow))
+        {
+            if (Check(type: TokenType.Newline) && PeekToken(offset: 1).Type == TokenType.Indent)
+            {
+                Advance();
+                body = ParseIndentedBlock();
+            }
+            else
+            {
+                Expression armExpr = ParseExpression();
+                body = new ExpressionStatement(Expression: armExpr, Location: armExpr.Location);
+            }
+        }
+        else
+        {
+            Consume(type: TokenType.FatArrow, errorMessage: "Expected '=>' after when pattern");
+            Expression armExpr = ParseExpression();
+            body = new ExpressionStatement(Expression: armExpr, Location: armExpr.Location);
+        }
+
+        _inWhenClauseBody = false;
+        return body;
     }
 
 }

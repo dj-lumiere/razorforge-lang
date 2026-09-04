@@ -35,6 +35,26 @@ public static class RuntimeContractCheck
         // 1. Every bare routine name declared anywhere in the stdlib ASTs. Using the declaration
         //    ground truth (not the liveness-filtered GetAllRoutines) so the check is independent of
         //    which routines a user program happens to reach — validate-stdlib has no user program.
+        HashSet<string> declaredRoutines = CollectDeclaredRoutineNames(registry: registry);
+
+        // 2. Routine-name contracts must each resolve to a declared stdlib routine.
+        CheckRoutineContracts(declaredRoutines: declaredRoutines, errors: errors);
+
+        // 3. Wrapper / marker-protocol TYPE-name contracts must each resolve to a registered type.
+        CheckTypeContracts(registry: registry, errors: errors);
+
+        // 4. Carrier-field contracts must exist as member variables on the Maybe record.
+        CheckCarrierFieldContracts(registry: registry, errors: errors);
+
+        return errors;
+    }
+
+    /// <summary>
+    /// Collects every bare routine name declared across all stdlib ASTs (declaration ground truth,
+    /// not the liveness-filtered routine set).
+    /// </summary>
+    private static HashSet<string> CollectDeclaredRoutineNames(TypeRegistry registry)
+    {
         var declaredRoutines = new HashSet<string>(comparer: StringComparer.Ordinal);
         foreach ((Program program, _, _) in registry.StdlibPrograms)
         {
@@ -51,7 +71,15 @@ public static class RuntimeContractCheck
             });
         }
 
-        // 2. Routine-name contracts must each resolve to a declared stdlib routine.
+        return declaredRoutines;
+    }
+
+    /// <summary>
+    /// Asserts every routine-name contract resolves to a declared stdlib routine, appending a
+    /// description for each broken one.
+    /// </summary>
+    private static void CheckRoutineContracts(HashSet<string> declaredRoutines, List<string> errors)
+    {
         foreach (string name in RuntimeContract.StdlibRoutineContracts)
         {
             if (!declaredRoutines.Contains(item: name))
@@ -60,8 +88,13 @@ public static class RuntimeContractCheck
                                  + "(renamed in stdlib without updating RuntimeContract?)");
             }
         }
+    }
 
-        // 3. Wrapper / marker-protocol TYPE-name contracts must each resolve to a registered type.
+    /// <summary>
+    /// Asserts every wrapper / marker-protocol type-name contract resolves to a registered type.
+    /// </summary>
+    private static void CheckTypeContracts(TypeRegistry registry, List<string> errors)
+    {
         foreach (string typeName in RuntimeContract.WrapperTypes.Concat(second: RuntimeContract.StdlibTypeContracts))
         {
             if (registry.LookupType(name: typeName) is null)
@@ -69,27 +102,30 @@ public static class RuntimeContractCheck
                 errors.Add(item: $"type contract '{typeName}' resolves to NO registered type");
             }
         }
+    }
 
-        // 4. Carrier-field contracts must exist as member variables on the Maybe record.
+    /// <summary>
+    /// Asserts the <c>present</c>/<c>value</c> carrier fields exist as member variables on the Maybe
+    /// record.
+    /// </summary>
+    private static void CheckCarrierFieldContracts(TypeRegistry registry, List<string> errors)
+    {
         TypeInfo? carrier = registry.LookupType(name: CarrierTypeName);
         if (carrier is null)
         {
             errors.Add(item: $"carrier type '{CarrierTypeName}' is not registered "
                              + "(cannot verify the present/value field contracts)");
-        }
-        else
-        {
-            HashSet<string> fields = MemberVariableNames(type: carrier);
-            foreach (string field in new[] { RuntimeContract.Carrier.PresentField, RuntimeContract.Carrier.ValueField })
-            {
-                if (!fields.Contains(item: field))
-                {
-                    errors.Add(item: $"carrier-field contract '{CarrierTypeName}.{field}' resolves to NO member variable");
-                }
-            }
+            return;
         }
 
-        return errors;
+        HashSet<string> fields = MemberVariableNames(type: carrier);
+        foreach (string field in new[] { RuntimeContract.Carrier.PresentField, RuntimeContract.Carrier.ValueField })
+        {
+            if (!fields.Contains(item: field))
+            {
+                errors.Add(item: $"carrier-field contract '{CarrierTypeName}.{field}' resolves to NO member variable");
+            }
+        }
     }
 
     private static HashSet<string> MemberVariableNames(TypeInfo type)

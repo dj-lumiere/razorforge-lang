@@ -52,153 +52,7 @@ public sealed partial class SemanticVerifier
                 break;
 
             case TypePattern typePat:
-                // None is a keyword, not a registered type — handle it directly
-                if (typePat.Type.Name == "None")
-                {
-                    bool allowsNone = matchedType is ErrorTypeInfo
-                        || IsMaybeType(type: matchedType)
-                        || GetCarrierBaseName(type: matchedType) == "Lookup"
-                        || matchedType is VariantTypeInfo
-                        // A `Result[None]` (void-success crashable) is matched on its None success arm
-                        // by `is None` — Ok(None) | Crashable. None is the void success value.
-                        // Only valid when the success type argument is itself None — `Result[S32]`'s
-                        // success arm is S32, so `is None` there is still a mismatch.
-                        || matchedType is CrashableTypeInfo
-                        || (GetCarrierBaseName(type: matchedType) == "Result"
-                            && matchedType is RecordTypeInfo { TypeArguments: [{ Name: "None" }, ..] })
-                        // Suflae: a nullable entity reference (`E?`) is a Roamed[E] handle that may be a
-                        // null/none handle, so `is None` / `isnot None` is a legal none-check on it.
-                        || (_registry.Language == Language.Suflae
-                            && matchedType is RecordTypeInfo
-                                { GenericDefinition.Name: Compiler.Resolution.RuntimeContract.Roamed });
-                    if (!allowsNone)
-                    {
-                        ReportError(code: SemanticDiagnosticCode.PatternTypeMismatch,
-                            message:
-                            $"Type pattern 'is None' can only match Maybe[T], Lookup[T], or a variant type — not '{matchedType.Name}'.",
-                            location: typePat.Location);
-                    }
-
-                    break;
-                }
-
-                // Choice case pattern: 'is NORTH' or 'is Direction.NORTH'
-                // When the matched type is a choice, check if the identifier is a case name
-                // before attempting type resolution (which would fail for case names).
-                if (matchedType is ChoiceTypeInfo choiceForIs)
-                {
-                    string? choiceCaseName = ExtractChoiceCaseFromTypePattern(
-                        typePat: typePat,
-                        choice: choiceForIs);
-                    if (choiceCaseName != null)
-                    {
-                        // Valid choice case match via 'is' — no type resolution needed
-                        if (typePat.VariableName != null)
-                        {
-                            ReportError(code: SemanticDiagnosticCode.PatternTypeMismatch,
-                                message: "Choice case patterns cannot bind variables.",
-                                location: typePat.Location);
-                        }
-
-                        if (typePat.Bindings is { Count: > 0 })
-                        {
-                            ReportError(code: SemanticDiagnosticCode.PatternTypeMismatch,
-                                message: "Choice case patterns cannot destructure.",
-                                location: typePat.Location);
-                        }
-
-                        break;
-                    }
-
-                    // Not a valid case name — report specific error
-                    ReportError(code: SemanticDiagnosticCode.ChoiceCaseNotFound,
-                        message:
-                        $"Choice type '{choiceForIs.Name}' does not have a case named '{typePat.Type.Name}'.",
-                        location: typePat.Location);
-                    break;
-                }
-
-                // Flags member pattern: 'is READ' when matched type is a flags type.
-                // Single-flag tests are parsed as TypePattern by the parser.
-                if (matchedType is FlagsTypeInfo flagsForIs)
-                {
-                    string flagName = typePat.Type.Name;
-                    if (flagsForIs.Members.Any(predicate: m => m.Name == flagName))
-                    {
-                        if (typePat.VariableName != null)
-                        {
-                            ReportError(code: SemanticDiagnosticCode.PatternTypeMismatch,
-                                message: "Flags member patterns cannot bind variables.",
-                                location: typePat.Location);
-                        }
-
-                        if (typePat.Bindings is { Count: > 0 })
-                        {
-                            ReportError(code: SemanticDiagnosticCode.PatternTypeMismatch,
-                                message: "Flags member patterns cannot destructure.",
-                                location: typePat.Location);
-                        }
-
-                        break;
-                    }
-
-                    // Option A: `subj is <name>` where <name> is a variable of the same
-                    // flags type — lowered to subset check `(subj & rhs) == rhs`.
-                    var flagVar = _registry.CurrentScope.LookupVariable(name: flagName);
-                    if (flagVar?.Type is FlagsTypeInfo varFlagsType &&
-                        varFlagsType.Name == flagsForIs.Name)
-                    {
-                        break;
-                    }
-
-                    ReportError(code: SemanticDiagnosticCode.FlagsMemberNotFound,
-                        message:
-                        $"Flags type '{flagsForIs.Name}' does not have a member named '{flagName}'.",
-                        location: typePat.Location);
-                    break;
-                }
-
-                TypeSymbol patternType = ResolveType(typeExpr: typePat.Type);
-
-                // Check type compatibility between matched type and pattern type
-                if (patternType is not ErrorTypeInfo && matchedType is not ErrorTypeInfo &&
-                    !IsTypePatternCompatible(matchedType: matchedType, patternType: patternType))
-                {
-                    ReportError(code: SemanticDiagnosticCode.PatternTypeMismatch,
-                        message:
-                        $"Type pattern 'is {patternType.Name}' can never match a value of type '{matchedType.Name}'.",
-                        location: typePat.Location);
-                }
-
-                if (typePat.VariableName != null)
-                {
-                    DeclarePatternVariable(name: typePat.VariableName,
-                        type: patternType,
-                        location: typePat.Location);
-                }
-
-                // Process destructuring bindings if present
-                if (typePat.Bindings is { Count: > 0 })
-                {
-                    foreach (DestructuringBinding binding in typePat.Bindings)
-                    {
-                        TypeSymbol memberVariableType = LookupMemberVariableType(type: patternType,
-                            memberVariableName: binding.MemberVariableName);
-
-                        if (binding.NestedPattern != null)
-                        {
-                            AnalyzePattern(pattern: binding.NestedPattern,
-                                matchedType: memberVariableType);
-                        }
-                        else if (binding.BindingName != null)
-                        {
-                            DeclarePatternVariable(name: binding.BindingName,
-                                type: memberVariableType,
-                                location: binding.Location);
-                        }
-                    }
-                }
-
+                HandleTypePattern(typePat: typePat, matchedType: matchedType);
                 break;
 
             case WildcardPattern:
@@ -211,17 +65,7 @@ public sealed partial class SemanticVerifier
                 break;
 
             case GuardPattern guard:
-                // First analyze the inner pattern
-                AnalyzePattern(pattern: guard.InnerPattern, matchedType: matchedType);
-                // Then analyze the guard expression (must be bool)
-                TypeSymbol guardType = AnalyzeExpression(expression: guard.Guard);
-                if (!IsBoolType(type: guardType))
-                {
-                    ReportError(code: SemanticDiagnosticCode.PatternGuardNotBool,
-                        message: "Guard expression must be boolean.",
-                        location: guard.Guard.Location);
-                }
-
+                HandleGuardPattern(guard: guard, matchedType: matchedType);
                 break;
 
             case ElsePattern elsePat:
@@ -248,57 +92,11 @@ public sealed partial class SemanticVerifier
                 break;
 
             case ExpressionPattern exprPat:
-                TypeSymbol exprType = AnalyzeExpression(expression: exprPat.Expression);
-                if (!IsBoolType(type: exprType))
-                {
-                    ReportError(code: SemanticDiagnosticCode.ExpressionPatternNotBool,
-                        message: "Expression pattern must be boolean.",
-                        location: exprPat.Location);
-                }
-
+                HandleExpressionPattern(exprPat: exprPat);
                 break;
 
             case FlagsPattern flagsPat:
-                if (matchedType is not FlagsTypeInfo flagsTypeForPat)
-                {
-                    if (matchedType.Category != TypeCategory.Error)
-                    {
-                        ReportError(code: SemanticDiagnosticCode.FlagsTypeMismatch,
-                            message:
-                            $"Flags pattern requires a flags type, but got '{matchedType.Name}'.",
-                            location: flagsPat.Location);
-                    }
-
-                    break;
-                }
-
-                // Validate each flag name exists
-                foreach (string flagName in flagsPat.FlagNames)
-                {
-                    if (flagsTypeForPat.Members.All(predicate: m => m.Name != flagName))
-                    {
-                        ReportError(code: SemanticDiagnosticCode.FlagsMemberNotFound,
-                            message:
-                            $"Flags type '{flagsTypeForPat.Name}' does not have a member named '{flagName}'.",
-                            location: flagsPat.Location);
-                    }
-                }
-
-                // Validate excluded flags
-                if (flagsPat.ExcludedFlags != null)
-                {
-                    foreach (string flagName in flagsPat.ExcludedFlags)
-                    {
-                        if (flagsTypeForPat.Members.All(predicate: m => m.Name != flagName))
-                        {
-                            ReportError(code: SemanticDiagnosticCode.FlagsMemberNotFound,
-                                message:
-                                $"Flags type '{flagsTypeForPat.Name}' does not have a member named '{flagName}'.",
-                                location: flagsPat.Location);
-                        }
-                    }
-                }
-
+                HandleFlagsPattern(flagsPat: flagsPat, matchedType: matchedType);
                 break;
 
             case ComparisonPattern cmp when matchedType is ChoiceTypeInfo:
@@ -307,6 +105,264 @@ public sealed partial class SemanticVerifier
                     message: "Use 'is' instead of comparison operators for choice case matching.",
                     location: cmp.Location);
                 break;
+        }
+    }
+
+    /// <summary>
+    /// Analyzes a <see cref="TypePattern"/> ('is None' / 'is CASE' / 'is Type'), dispatching to the
+    /// None, choice-case, and flags-member special cases before the general type-compatibility path.
+    /// </summary>
+    private void HandleTypePattern(TypePattern typePat, TypeSymbol matchedType)
+    {
+        // None is a keyword, not a registered type — handle it directly
+        if (typePat.Type.Name == "None")
+        {
+            HandleNoneTypePattern(typePat: typePat, matchedType: matchedType);
+            return;
+        }
+
+        // Choice case pattern: 'is NORTH' or 'is Direction.NORTH'
+        // When the matched type is a choice, check if the identifier is a case name
+        // before attempting type resolution (which would fail for case names).
+        if (matchedType is ChoiceTypeInfo choiceForIs)
+        {
+            HandleChoiceCaseTypePattern(typePat: typePat, choiceForIs: choiceForIs);
+            return;
+        }
+
+        // Flags member pattern: 'is READ' when matched type is a flags type.
+        // Single-flag tests are parsed as TypePattern by the parser.
+        if (matchedType is FlagsTypeInfo flagsForIs)
+        {
+            HandleFlagsMemberTypePattern(typePat: typePat, flagsForIs: flagsForIs);
+            return;
+        }
+
+        TypeSymbol patternType = ResolveType(typeExpr: typePat.Type);
+
+        // Check type compatibility between matched type and pattern type
+        if (patternType is not ErrorTypeInfo && matchedType is not ErrorTypeInfo &&
+            !IsTypePatternCompatible(matchedType: matchedType, patternType: patternType))
+        {
+            ReportError(code: SemanticDiagnosticCode.PatternTypeMismatch,
+                message:
+                $"Type pattern 'is {patternType.Name}' can never match a value of type '{matchedType.Name}'.",
+                location: typePat.Location);
+        }
+
+        if (typePat.VariableName != null)
+        {
+            DeclarePatternVariable(name: typePat.VariableName,
+                type: patternType,
+                location: typePat.Location);
+        }
+
+        // Process destructuring bindings if present
+        if (typePat.Bindings is { Count: > 0 })
+        {
+            foreach (DestructuringBinding binding in typePat.Bindings)
+            {
+                TypeSymbol memberVariableType = LookupMemberVariableType(type: patternType,
+                    memberVariableName: binding.MemberVariableName);
+
+                if (binding.NestedPattern != null)
+                {
+                    AnalyzePattern(pattern: binding.NestedPattern,
+                        matchedType: memberVariableType);
+                }
+                else if (binding.BindingName != null)
+                {
+                    DeclarePatternVariable(name: binding.BindingName,
+                        type: memberVariableType,
+                        location: binding.Location);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Validates an 'is None' type pattern against the matched type — legal only on carrier/variant/
+    /// nullable-entity types.
+    /// </summary>
+    private void HandleNoneTypePattern(TypePattern typePat, TypeSymbol matchedType)
+    {
+        bool allowsNone = matchedType is ErrorTypeInfo
+            || IsMaybeType(type: matchedType)
+            || GetCarrierBaseName(type: matchedType) == "Lookup"
+            || matchedType is VariantTypeInfo
+            // A `Result[None]` (void-success crashable) is matched on its None success arm
+            // by `is None` — Ok(None) | Crashable. None is the void success value.
+            // Only valid when the success type argument is itself None — `Result[S32]`'s
+            // success arm is S32, so `is None` there is still a mismatch.
+            || matchedType is CrashableTypeInfo
+            || (GetCarrierBaseName(type: matchedType) == "Result"
+                && matchedType is RecordTypeInfo { TypeArguments: [{ Name: "None" }, ..] })
+            // Suflae: a nullable entity reference (`E?`) is a Roamed[E] handle that may be a
+            // null/none handle, so `is None` / `isnot None` is a legal none-check on it.
+            || (_registry.Language == Language.Suflae
+                && matchedType is RecordTypeInfo
+                    { GenericDefinition.Name: Compiler.Resolution.RuntimeContract.Roamed });
+        if (!allowsNone)
+        {
+            ReportError(code: SemanticDiagnosticCode.PatternTypeMismatch,
+                message:
+                $"Type pattern 'is None' can only match Maybe[T], Lookup[T], or a variant type — not '{matchedType.Name}'.",
+                location: typePat.Location);
+        }
+    }
+
+    /// <summary>
+    /// Validates an 'is CASE' type pattern against a choice type — the case must exist and may not
+    /// bind variables or destructure.
+    /// </summary>
+    private void HandleChoiceCaseTypePattern(TypePattern typePat, ChoiceTypeInfo choiceForIs)
+    {
+        string? choiceCaseName = ExtractChoiceCaseFromTypePattern(
+            typePat: typePat,
+            choice: choiceForIs);
+        if (choiceCaseName != null)
+        {
+            // Valid choice case match via 'is' — no type resolution needed
+            if (typePat.VariableName != null)
+            {
+                ReportError(code: SemanticDiagnosticCode.PatternTypeMismatch,
+                    message: "Choice case patterns cannot bind variables.",
+                    location: typePat.Location);
+            }
+
+            if (typePat.Bindings is { Count: > 0 })
+            {
+                ReportError(code: SemanticDiagnosticCode.PatternTypeMismatch,
+                    message: "Choice case patterns cannot destructure.",
+                    location: typePat.Location);
+            }
+
+            return;
+        }
+
+        // Not a valid case name — report specific error
+        ReportError(code: SemanticDiagnosticCode.ChoiceCaseNotFound,
+            message:
+            $"Choice type '{choiceForIs.Name}' does not have a case named '{typePat.Type.Name}'.",
+            location: typePat.Location);
+    }
+
+    /// <summary>
+    /// Validates an 'is FLAG' type pattern against a flags type — the flag must be a member or a
+    /// same-flags-typed variable (subset check); it may not bind variables or destructure.
+    /// </summary>
+    private void HandleFlagsMemberTypePattern(TypePattern typePat, FlagsTypeInfo flagsForIs)
+    {
+        string flagName = typePat.Type.Name;
+        if (flagsForIs.Members.Any(predicate: m => m.Name == flagName))
+        {
+            if (typePat.VariableName != null)
+            {
+                ReportError(code: SemanticDiagnosticCode.PatternTypeMismatch,
+                    message: "Flags member patterns cannot bind variables.",
+                    location: typePat.Location);
+            }
+
+            if (typePat.Bindings is { Count: > 0 })
+            {
+                ReportError(code: SemanticDiagnosticCode.PatternTypeMismatch,
+                    message: "Flags member patterns cannot destructure.",
+                    location: typePat.Location);
+            }
+
+            return;
+        }
+
+        // Option A: `subj is <name>` where <name> is a variable of the same
+        // flags type — lowered to subset check `(subj & rhs) == rhs`.
+        var flagVar = _registry.CurrentScope.LookupVariable(name: flagName);
+        if (flagVar?.Type is FlagsTypeInfo varFlagsType &&
+            varFlagsType.Name == flagsForIs.Name)
+        {
+            return;
+        }
+
+        ReportError(code: SemanticDiagnosticCode.FlagsMemberNotFound,
+            message:
+            $"Flags type '{flagsForIs.Name}' does not have a member named '{flagName}'.",
+            location: typePat.Location);
+    }
+
+    /// <summary>
+    /// Analyzes a guard pattern: the inner pattern, then the guard expression (which must be bool).
+    /// </summary>
+    private void HandleGuardPattern(GuardPattern guard, TypeSymbol matchedType)
+    {
+        // First analyze the inner pattern
+        AnalyzePattern(pattern: guard.InnerPattern, matchedType: matchedType);
+        // Then analyze the guard expression (must be bool)
+        TypeSymbol guardType = AnalyzeExpression(expression: guard.Guard);
+        if (!IsBoolType(type: guardType))
+        {
+            ReportError(code: SemanticDiagnosticCode.PatternGuardNotBool,
+                message: "Guard expression must be boolean.",
+                location: guard.Guard.Location);
+        }
+    }
+
+    /// <summary>
+    /// Analyzes an expression pattern — the expression must be boolean.
+    /// </summary>
+    private void HandleExpressionPattern(ExpressionPattern exprPat)
+    {
+        TypeSymbol exprType = AnalyzeExpression(expression: exprPat.Expression);
+        if (!IsBoolType(type: exprType))
+        {
+            ReportError(code: SemanticDiagnosticCode.ExpressionPatternNotBool,
+                message: "Expression pattern must be boolean.",
+                location: exprPat.Location);
+        }
+    }
+
+    /// <summary>
+    /// Analyzes a flags pattern — the matched type must be a flags type and every named / excluded
+    /// flag must exist on it.
+    /// </summary>
+    private void HandleFlagsPattern(FlagsPattern flagsPat, TypeSymbol matchedType)
+    {
+        if (matchedType is not FlagsTypeInfo flagsTypeForPat)
+        {
+            if (matchedType.Category != TypeCategory.Error)
+            {
+                ReportError(code: SemanticDiagnosticCode.FlagsTypeMismatch,
+                    message:
+                    $"Flags pattern requires a flags type, but got '{matchedType.Name}'.",
+                    location: flagsPat.Location);
+            }
+
+            return;
+        }
+
+        // Validate each flag name exists
+        foreach (string flagName in flagsPat.FlagNames)
+        {
+            if (flagsTypeForPat.Members.All(predicate: m => m.Name != flagName))
+            {
+                ReportError(code: SemanticDiagnosticCode.FlagsMemberNotFound,
+                    message:
+                    $"Flags type '{flagsTypeForPat.Name}' does not have a member named '{flagName}'.",
+                    location: flagsPat.Location);
+            }
+        }
+
+        // Validate excluded flags
+        if (flagsPat.ExcludedFlags != null)
+        {
+            foreach (string flagName in flagsPat.ExcludedFlags)
+            {
+                if (flagsTypeForPat.Members.All(predicate: m => m.Name != flagName))
+                {
+                    ReportError(code: SemanticDiagnosticCode.FlagsMemberNotFound,
+                        message:
+                        $"Flags type '{flagsTypeForPat.Name}' does not have a member named '{flagName}'.",
+                        location: flagsPat.Location);
+                }
+            }
         }
     }
 
@@ -351,7 +407,7 @@ public sealed partial class SemanticVerifier
     /// </summary>
     /// <param name="pattern">The variant pattern to analyze.</param>
     /// <param name="matchedType">The type being matched against.</param>
-    private void AnalyzeVariantPattern(VariantPattern pattern, TypeSymbol matchedType) // NOSONAR S3776
+    private void AnalyzeVariantPattern(VariantPattern pattern, TypeSymbol matchedType)
     {
         // Get the members from the matched type
         List<VariantMemberInfo>? members = matchedType switch
@@ -398,9 +454,15 @@ public sealed partial class SemanticVerifier
             return;
         }
 
-        // Variant members have their type as the payload
-        TypeSymbol payloadType = matchedMember.Type!;
+        BindVariantPayload(pattern: pattern, payloadType: matchedMember.Type!);
+    }
 
+    /// <summary>
+    /// Binds a variant pattern's payload: a single anonymous binding binds directly to the payload
+    /// type, while multiple / named bindings destructure it via member-variable lookup.
+    /// </summary>
+    private void BindVariantPayload(VariantPattern pattern, TypeSymbol payloadType)
+    {
         // For a single binding without member variable name, bind directly to the payload
         if (pattern.Bindings.Count == 1 && pattern.Bindings[index: 0].MemberVariableName == null)
         {
@@ -780,7 +842,7 @@ public sealed partial class SemanticVerifier
     /// Checks whether Maybe/Result/Lookup error handling types are exhaustively matched.
     /// </summary>
     private static ExhaustivenessResult CheckErrorHandlingExhaustiveness(
-        List<WhenClause> clauses, TypeSymbol carrierType) // NOSONAR S3776
+        List<WhenClause> clauses, TypeSymbol carrierType)
     {
         bool hasAbsent = false;
         bool hasCrashableCatchAll = false;
@@ -804,8 +866,23 @@ public sealed partial class SemanticVerifier
             }
         }
 
+        List<string> missing = CollectCarrierMissingCases(
+            carrierBaseName: GetCarrierBaseName(type: carrierType),
+            hasAbsent: hasAbsent,
+            hasCrashableCatchAll: hasCrashableCatchAll,
+            hasValue: hasValue);
+
+        return new ExhaustivenessResult(IsExhaustive: missing.Count == 0, MissingCases: missing);
+    }
+
+    /// <summary>
+    /// Computes the missing arms for a carrier type given which arm kinds were seen: Maybe needs
+    /// None + value, Result needs Crashable + value, Lookup needs None + Crashable + value.
+    /// </summary>
+    private static List<string> CollectCarrierMissingCases(string? carrierBaseName,
+        bool hasAbsent, bool hasCrashableCatchAll, bool hasValue)
+    {
         var missing = new List<string>();
-        string? carrierBaseName = GetCarrierBaseName(type: carrierType);
 
         switch (carrierBaseName)
         {
@@ -852,7 +929,7 @@ public sealed partial class SemanticVerifier
                 break;
         }
 
-        return new ExhaustivenessResult(IsExhaustive: missing.Count == 0, MissingCases: missing);
+        return missing;
     }
 
     /// <summary>

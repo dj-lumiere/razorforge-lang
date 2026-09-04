@@ -469,10 +469,8 @@ public sealed partial class SemanticVerifier
             // foreign param. A future build-time analysis (RF has no nested routines, so a value can be
             // traced to its source routine) could recover more cases statically.
             bool isCapturingLambdaLiteral = argExpr is LambdaExpression { Captures.Count: > 0 };
-            if (routine.IsForeign
-                && argType is RoutineTypeInfo
-                && (paramType is RoutineTypeInfo || paramType.Name == "CPtr")
-                && isCapturingLambdaLiteral)
+            if (IsForeignCapturingCallbackArg(routine: routine, paramType: paramType,
+                    argType: argType, isCapturingLambdaLiteral: isCapturingLambdaLiteral))
             {
                 ReportError(code: SemanticDiagnosticCode.ForeignCallbackMustBeNonCapturing,
                     message:
@@ -482,15 +480,10 @@ public sealed partial class SemanticVerifier
                     "callback and thread any state through an explicit userdata parameter.",
                     location: argExpr.Location);
             }
-            else
-            {
-                // Implicit refer/control coercion for marker-protocol params.
-                // Wraps the argument expression as `arg.refer()` / `arg.control()` so
-                // codegen, reachability, and call-classification all see a fully resolved
-                // routine reference. The wrapper's refer/control memberRoutine returns T (the
-                // inner entity), which matches the rewritten signature post-Phase 8.
-                TryInjectMarkerCoercion(routine, arguments, binding.Key, paramType, argType);
-            }
+            // (No marker-protocol call-site coercion: a marker param is now a generic bound
+            // `V obeys Accessing[X]`, so the caller's token/value argument binds V directly — the old
+            // `arg.refer()`/`arg.control()` rewrite, which only fired for a bare `Accessing[X]` param type
+            // that no longer exists, is gone.)
 
             // Phase 1: warn when a borrowed reference is passed where the parameter type is not
             // trivially copyable. Mirrors the var-decl / assignment rule — the same explicit
@@ -498,52 +491,100 @@ public sealed partial class SemanticVerifier
             Expression argValue = argExpr is NamedArgumentExpression namedArg
                 ? namedArg.Value
                 : argExpr;
-            // Borrow protocols (Accessing[T] / Controlling[T]) accept the source by reference —
-            // no copy/move is happening at the call site, so no verb is required.
-            string paramBase = paramType.BareName;
-            bool paramIsBorrow = paramType.Category == TypeCategory.Protocol &&
-                                 paramBase is Compiler.Resolution.RuntimeContract.Accessing or Compiler.Resolution.RuntimeContract.Controlling;
-            if (_registry.Language == Language.RazorForge &&
-                argValue is IdentifierExpression or MemberExpression &&
-                !IsTriviallyAssignable(type: argType) &&
-                !paramIsBorrow)
-            {
-                var hint = FindNonTriviallyAssignableWrapper(type: argType);
-                if (hint != null)
-                {
-                    string verb = NonTriviallyAssignableWrappers[key: hint.Value.Wrapper];
-                    string fieldNote = hint.Value.Path == "<value>"
-                        ? $"argument of type '{argType.Name}' is a '{hint.Value.Wrapper}[…]' wrapper"
-                        : $"field '{hint.Value.Path}' of type '{hint.Value.Wrapper}[…]'";
-                    ReportError(code: SemanticDiagnosticCode.ImplicitWrapperCopy,
-                        message:
-                        $"Implicit copy in call to '{routine.Name}': {fieldNote} requires an explicit copy verb. " +
-                        $"Spell out '{verb}' at the call site, or reconstruct the record with each field's verb.",
-                        location: argExpr.Location);
-                }
-            }
+
+            ValidateImplicitWrapperCopyArg(routine: routine, param: param, paramType: paramType,
+                argExpr: argExpr, argValue: argValue, argType: argType);
 
             // Bare entity passed to a CONSUMING parameter needs an explicit `steal` (RF-S413).
-            // The old check false-positived because it looked at a stripped type; the reliable
-            // signal is STRUCTURAL and read here at Phase 4, BEFORE MarkerProtocolDesugarPass strips
-            // borrow params to their inner `T`: a consuming param is bare `EntityTypeInfo`, while
-            // every borrow is a Protocol (`Accessing`/`Controlling`) or a Record wrapper
-            // (`Viewing`/`Modifying`/…) — never bare `EntityTypeInfo`. So gating on
-            // `paramType is EntityTypeInfo` excludes all borrow forms with no name list. Verb-wrapped
-            // arguments (`steal x`, `x.copy()`, `x.share()`) are Steal/Call expressions, not
-            // Identifier/Member, so they are excluded automatically. Safety comes from move tracking;
-            // this check makes the destructive transfer visible in source.
-            if (_registry.Language == Language.RazorForge
-                && argValue is IdentifierExpression or MemberExpression
-                && argType is EntityTypeInfo
-                && paramType is EntityTypeInfo)
+            ValidateBareEntityConsumingArg(routine: routine, param: param, paramType: paramType,
+                argValue: argValue, argType: argType);
+        }
+    }
+
+    /// <summary>
+    /// Reports RF-S420 (implicit wrapper copy) when a non-trivially-copyable argument is passed by
+    /// reference into a non-borrow parameter without an explicit copy verb. Extracted from
+    /// <see cref="AnalyzeCallArguments"/>.
+    /// </summary>
+    private void ValidateImplicitWrapperCopyArg(RoutineInfo routine, ParameterInfo param,
+        TypeSymbol paramType, Expression argExpr, Expression argValue, TypeSymbol argType)
+    {
+        // Borrow protocols (Accessing[T] / Controlling[T]) accept the source by reference —
+        // no copy/move is happening at the call site, so no verb is required.
+        string paramBase = paramType.BareName;
+        // Detect the marker bound on the ORIGINAL param type (`param.Type`, the generic `V`), not the
+        // post-inference `paramType` which may already be substituted to the concrete token
+        // (Viewing/Modifying) and would no longer look like a generic-param bound.
+        bool paramIsBorrow = (paramType.Category == TypeCategory.Protocol &&
+                             Compiler.Resolution.RuntimeContract.IsMarkerProtocol(baseName: paramBase))
+                             || IsMarkerBoundParam(paramType: param.Type, routine: routine);
+        if (_registry.Language == Language.RazorForge &&
+            argValue is IdentifierExpression or MemberExpression &&
+            !IsTriviallyAssignable(type: argType) &&
+            !paramIsBorrow)
+        {
+            var hint = FindNonTriviallyAssignableWrapper(type: argType);
+            if (hint != null)
             {
-                ReportError(code: SemanticDiagnosticCode.BareEntityAssignment,
+                string verb = NonTriviallyAssignableWrappers[key: hint.Value.Wrapper];
+                // A scoped access token (Viewing/Modifying/Consulting/Amending) has NO copy verb —
+                // it is a can't-escape borrow. Passing one as a call argument is always a by-reference
+                // borrow (into a marker-bound / token param), never an implicit copy, so there is
+                // nothing to force. Emitting RF-S420 here would ask the user to "spell out (none)".
+                if (verb == ScopedNoEscapeHint)
+                    return;
+                string fieldNote = hint.Value.Path == "<value>"
+                    ? $"argument of type '{argType.Name}' is a '{hint.Value.Wrapper}[…]' wrapper"
+                    : $"field '{hint.Value.Path}' of type '{hint.Value.Wrapper}[…]'";
+                ReportError(code: SemanticDiagnosticCode.ImplicitWrapperCopy,
                     message:
-                    $"Cannot pass entity '{argType.Name}' to consuming parameter '{param.Name}' of " +
-                    $"'{routine.Name}' directly. Use 'steal' for ownership transfer, or pass a borrow.",
-                    location: argValue.Location);
+                    $"Implicit copy in call to '{routine.Name}': {fieldNote} requires an explicit copy verb. " +
+                    $"Spell out '{verb}' at the call site, or reconstruct the record with each field's verb.",
+                    location: argExpr.Location);
             }
+        }
+    }
+
+    /// <summary>
+    /// True when a routine argument is a CAPTURING lambda literal handed to a foreign (C::/LLVM::)
+    /// routine's routine/CPtr parameter — a statically-certain C-boundary capture violation. Extracted
+    /// from <see cref="AnalyzeCallArguments"/>.
+    /// </summary>
+    private static bool IsForeignCapturingCallbackArg(RoutineInfo routine, TypeSymbol paramType,
+        TypeSymbol argType, bool isCapturingLambdaLiteral)
+    {
+        return routine.IsForeign
+            && argType is RoutineTypeInfo
+            && (paramType is RoutineTypeInfo || paramType.Name == "CPtr")
+            && isCapturingLambdaLiteral;
+    }
+
+    /// <summary>
+    /// Reports RF-S413 when a bare entity is passed to a consuming (bare-entity) parameter without an
+    /// explicit <c>steal</c>. Extracted from <see cref="AnalyzeCallArguments"/>.
+    /// </summary>
+    private void ValidateBareEntityConsumingArg(RoutineInfo routine, ParameterInfo param,
+        TypeSymbol paramType, Expression argValue, TypeSymbol argType)
+    {
+        // The old check false-positived because it looked at a stripped type; the reliable
+        // signal is STRUCTURAL and read here at Phase 4, BEFORE MarkerProtocolDesugarPass strips
+        // borrow params to their inner `T`: a consuming param is bare `EntityTypeInfo`, while
+        // every borrow is a Protocol (`Accessing`/`Controlling`) or a Record wrapper
+        // (`Viewing`/`Modifying`/…) — never bare `EntityTypeInfo`. So gating on
+        // `paramType is EntityTypeInfo` excludes all borrow forms with no name list. Verb-wrapped
+        // arguments (`steal x`, `x.copy()`, `x.share()`) are Steal/Call expressions, not
+        // Identifier/Member, so they are excluded automatically. Safety comes from move tracking;
+        // this check makes the destructive transfer visible in source.
+        if (_registry.Language == Language.RazorForge
+            && argValue is IdentifierExpression or MemberExpression
+            && argType is EntityTypeInfo
+            && paramType is EntityTypeInfo)
+        {
+            ReportError(code: SemanticDiagnosticCode.BareEntityAssignment,
+                message:
+                $"Cannot pass entity '{argType.Name}' to consuming parameter '{param.Name}' of " +
+                $"'{routine.Name}' directly. Use 'steal' for ownership transfer, or pass a borrow.",
+                location: argValue.Location);
         }
     }
 
@@ -797,32 +838,10 @@ public sealed partial class SemanticVerifier
         if (target.Category == TypeCategory.Protocol)
         {
             // Borrow protocols (Accessing[T] / Controlling[T]) accept an ownership-carrying or
-            // bare source whose inner type matches T. Retained/Modifying are accepted by
-            // both; Viewing is readonly so accepted only by Accessing; Hijacked needs explicit
-            // .as_entity() — never accepted by implicit borrow coercion.
-            string targetBase = target.BareName;
-            if ((targetBase == Compiler.Resolution.RuntimeContract.Accessing || targetBase == Compiler.Resolution.RuntimeContract.Controlling) &&
-                target.TypeArguments is { Count: 1 } borrowArgs)
+            // bare source whose inner type matches T.
+            if (IsAssignableToBorrowProtocol(source: source, target: target))
             {
-                TypeSymbol borrowInner = borrowArgs[index: 0];
-                if (TryGetOwnershipWrapperInner(type: source, wrapperBase: out string? srcWrapper,
-                        inner: out TypeSymbol? srcInner))
-                {
-                    bool wrapperAllowed = targetBase == Compiler.Resolution.RuntimeContract.Accessing
-                        ? srcWrapper is Compiler.Resolution.RuntimeContract.Retained or Compiler.Resolution.RuntimeContract.Modifying or Compiler.Resolution.RuntimeContract.Viewing
-                            or Compiler.Resolution.RuntimeContract.Controlling or Compiler.Resolution.RuntimeContract.Accessing
-                        : srcWrapper is Compiler.Resolution.RuntimeContract.Retained or Compiler.Resolution.RuntimeContract.Modifying or Compiler.Resolution.RuntimeContract.Controlling;
-                    if (wrapperAllowed && srcInner != null &&
-                        (srcInner.FullName == borrowInner.FullName ||
-                         srcInner.Name == borrowInner.Name))
-                        return true;
-                }
-                // Bare entity T: accepted by both Accessing[T] and Controlling[T].
-                if (source.Category == TypeCategory.Entity &&
-                    (source.FullName == borrowInner.FullName ||
-                     source.Name == borrowInner.Name ||
-                     source.BareName == borrowInner.BareName))
-                    return true;
+                return true;
             }
 
             return ImplementsProtocol(type: source, protocolName: target.Name);
@@ -846,23 +865,10 @@ public sealed partial class SemanticVerifier
         // Covers: entity fields, RC wrappers (Retained[T], Tracked[T] -> Maybe[Retained[T]]).
         if ((source.Category == TypeCategory.Entity || source.Category == TypeCategory.Record ||
              source.Category == TypeCategory.Wrapper) &&
-            IsMaybeType(type: target) && target.TypeArguments is { Count: 1 })
+            IsMaybeType(type: target) && target.TypeArguments is { Count: 1 } &&
+            IsAssignableToMaybeInner(source: source, maybeTarget: target))
         {
-            TypeSymbol typeArg = target.TypeArguments[0];
-            if (source.Name == typeArg.Name ||
-                source.FullName == typeArg.FullName ||
-                source.FullName == typeArg.Name ||
-                source.Name == typeArg.FullName)
-                return true;
-            // Raw entity E -> Maybe[E]: rvalue entity auto-wraps into Owned, then carrier.
-            // T is declared as `record T` in stdlib, so it surfaces as
-            // RecordTypeInfo (not WrapperTypeInfo) at runtime — match by name + arity instead
-            // of pattern-matching the runtime kind.
-            if (source.Category == TypeCategory.Entity &&
-                IsOwnedOf(type: typeArg, out TypeSymbol? ownedInnerOfMaybe) &&
-                (source.Name == ownedInnerOfMaybe.Name ||
-                 source.FullName == ownedInnerOfMaybe.FullName))
-                return true;
+            return true;
         }
 
         // Raw entity E (rvalue) -> E: a freshly produced entity transfers ownership.
@@ -873,6 +879,72 @@ public sealed partial class SemanticVerifier
             return true;
 
         // No implicit conversions - all type conversions must be explicit via creator syntax
+        return false;
+    }
+
+    /// <summary>
+    /// Handles the <c>Maybe[T]</c> auto-wrap case of <see cref="IsAssignableTo"/>: an entity/record/
+    /// wrapper source is assignable to <c>Maybe[SameType]</c> (and a raw entity E to <c>Maybe[Owned[E]]</c>).
+    /// The caller has already verified the source category and that <paramref name="maybeTarget"/> is a
+    /// single-arg Maybe.
+    /// </summary>
+    private static bool IsAssignableToMaybeInner(TypeSymbol source, TypeSymbol maybeTarget)
+    {
+        TypeSymbol typeArg = maybeTarget.TypeArguments![0];
+        if (source.Name == typeArg.Name ||
+            source.FullName == typeArg.FullName ||
+            source.FullName == typeArg.Name ||
+            source.Name == typeArg.FullName)
+            return true;
+        // Raw entity E -> Maybe[E]: rvalue entity auto-wraps into Owned, then carrier.
+        // T is declared as `record T` in stdlib, so it surfaces as
+        // RecordTypeInfo (not WrapperTypeInfo) at runtime — match by name + arity instead
+        // of pattern-matching the runtime kind.
+        if (source.Category == TypeCategory.Entity &&
+            IsOwnedOf(type: typeArg, out TypeSymbol? ownedInnerOfMaybe) &&
+            (source.Name == ownedInnerOfMaybe.Name ||
+             source.FullName == ownedInnerOfMaybe.FullName))
+            return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// Handles the borrow-protocol case of <see cref="IsAssignableTo"/>: an <c>Accessing[T]</c> /
+    /// <c>Controlling[T]</c> target accepts an ownership-carrying or bare source whose inner type
+    /// matches T. Retained/Modifying are accepted by both; Viewing is readonly so accepted only by
+    /// Accessing; Hijacked needs explicit .as_entity() — never accepted by implicit borrow coercion.
+    /// Returns false when the target is not a borrow protocol or no match applies.
+    /// </summary>
+    private static bool IsAssignableToBorrowProtocol(TypeSymbol source, TypeSymbol target)
+    {
+        string targetBase = target.BareName;
+        if ((targetBase != Compiler.Resolution.RuntimeContract.Accessing && targetBase != Compiler.Resolution.RuntimeContract.Controlling) ||
+            target.TypeArguments is not { Count: 1 } borrowArgs)
+        {
+            return false;
+        }
+
+        TypeSymbol borrowInner = borrowArgs[index: 0];
+        if (TryGetOwnershipWrapperInner(type: source, wrapperBase: out string? srcWrapper,
+                inner: out TypeSymbol? srcInner))
+        {
+            bool wrapperAllowed = targetBase == Compiler.Resolution.RuntimeContract.Accessing
+                ? srcWrapper is Compiler.Resolution.RuntimeContract.Retained or Compiler.Resolution.RuntimeContract.Modifying or Compiler.Resolution.RuntimeContract.Viewing
+                    or Compiler.Resolution.RuntimeContract.Controlling or Compiler.Resolution.RuntimeContract.Accessing
+                : srcWrapper is Compiler.Resolution.RuntimeContract.Retained or Compiler.Resolution.RuntimeContract.Modifying or Compiler.Resolution.RuntimeContract.Controlling;
+            if (wrapperAllowed && srcInner != null &&
+                (srcInner.FullName == borrowInner.FullName ||
+                 srcInner.Name == borrowInner.Name))
+                return true;
+        }
+        // Bare entity T: accepted by both Accessing[T] and Controlling[T].
+        if (source.Category == TypeCategory.Entity &&
+            (source.FullName == borrowInner.FullName ||
+             source.Name == borrowInner.Name ||
+             source.BareName == borrowInner.BareName))
+            return true;
+
         return false;
     }
 
@@ -1046,7 +1118,7 @@ public sealed partial class SemanticVerifier
     private static TypeSymbol UnwrapBorrowProtocol(TypeSymbol type)
     {
         if (type.Category == TypeCategory.Protocol &&
-            type.BareName is Compiler.Resolution.RuntimeContract.Accessing or Compiler.Resolution.RuntimeContract.Controlling &&
+            Compiler.Resolution.RuntimeContract.IsMarkerProtocol(baseName: type.BareName) &&
             type.TypeArguments is { Count: > 0 } args)
         {
             return args[index: 0];
@@ -1094,29 +1166,43 @@ public sealed partial class SemanticVerifier
         // For generic parameters, check if any constrained protocol declares the memberRoutine.
         if (type is GenericParameterTypeInfo)
         {
-            foreach (GenericConstraintDeclaration c in ActiveConstraintsFor(paramName: type.Name))
+            return GenericParamConstraintSupportsMemberRoutine(paramName: type.Name,
+                memberRoutineName: memberRoutineName);
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Returns true when an active constraint on the named generic parameter grants support for
+    /// <paramref name="memberRoutineName"/>: an <c>obeys P</c> whose protocol declares the routine, or
+    /// a <c>needs N is U64</c> const-generic whose underlying value type has it. Extracted from
+    /// <see cref="SupportsOperator"/>.
+    /// </summary>
+    private bool GenericParamConstraintSupportsMemberRoutine(string paramName, string memberRoutineName)
+    {
+        foreach (GenericConstraintDeclaration c in ActiveConstraintsFor(paramName: paramName))
+        {
+            if (c is { ConstraintType: ConstraintKind.Obeys, ConstraintTypes: not null })
             {
-                if (c is { ConstraintType: ConstraintKind.Obeys, ConstraintTypes: not null })
+                foreach (TypeExpression protocolExpr in c.ConstraintTypes)
                 {
-                    foreach (TypeExpression protocolExpr in c.ConstraintTypes)
-                    {
-                        TypeSymbol? proto = _registry.LookupType(name: protocolExpr.Name);
-                        if (proto is ProtocolTypeInfo &&
-                            ProtocolDeclaresMemberRoutine(proto: proto, memberRoutineName: memberRoutineName))
-                            return true;
-                    }
+                    TypeSymbol? proto = _registry.LookupType(name: protocolExpr.Name);
+                    if (proto is ProtocolTypeInfo &&
+                        ProtocolDeclaresMemberRoutine(proto: proto, memberRoutineName: memberRoutineName))
+                        return true;
                 }
-                // `needs N is U64` — operator support follows the underlying value type.
-                else if (c is { ConstraintType: ConstraintKind.ConstGeneric, ConstraintTypes: not null })
+            }
+            // `needs N is U64` — operator support follows the underlying value type.
+            else if (c is { ConstraintType: ConstraintKind.ConstGeneric, ConstraintTypes: not null })
+            {
+                foreach (TypeExpression ct in c.ConstraintTypes)
                 {
-                    foreach (TypeExpression ct in c.ConstraintTypes)
-                    {
-                        TypeSymbol? underlying = _registry.LookupType(name: ct.Name);
-                        if (underlying != null &&
-                            underlying.Category != TypeCategory.Protocol &&
-                            _registry.LookupMemberRoutine(type: underlying, memberRoutineName: memberRoutineName) != null)
-                            return true;
-                    }
+                    TypeSymbol? underlying = _registry.LookupType(name: ct.Name);
+                    if (underlying != null &&
+                        underlying.Category != TypeCategory.Protocol &&
+                        _registry.LookupMemberRoutine(type: underlying, memberRoutineName: memberRoutineName) != null)
+                        return true;
                 }
             }
         }
@@ -1158,6 +1244,30 @@ public sealed partial class SemanticVerifier
     /// Yields all active generic constraints for the named parameter from the current routine
     /// and its owner type.
     /// </summary>
+    /// <summary>
+    /// True if <paramref name="paramType"/> is a generic parameter of <paramref name="routine"/> whose
+    /// Obeys-constraint is a marker protocol (<c>Accessing[X]</c>/<c>Controlling[X]</c>) — i.e. a param
+    /// desugared from `p: Accessing[X]` to `[V obeys Accessing[X]](p: V)`. Such a param is a borrow slot:
+    /// a token/value argument binds it by reference, so no copy verb (RF-S420) is required and a bare
+    /// entity is not a consuming transfer (RF-S413).
+    /// </summary>
+    private static bool IsMarkerBoundParam(TypeSymbol paramType, RoutineInfo routine)
+    {
+        if (paramType is not GenericParameterTypeInfo gp || routine.GenericConstraints == null)
+            return false;
+        foreach (GenericConstraintDeclaration c in routine.GenericConstraints)
+        {
+            if (c.ParameterName != gp.Name || c.ConstraintType != ConstraintKind.Obeys ||
+                c.ConstraintTypes == null)
+                continue;
+            foreach (TypeExpression pe in c.ConstraintTypes)
+                if (pe.Name is Compiler.Resolution.RuntimeContract.Accessing
+                    or Compiler.Resolution.RuntimeContract.Controlling)
+                    return true;
+        }
+        return false;
+    }
+
     private IEnumerable<GenericConstraintDeclaration> ActiveConstraintsFor(string paramName)
     {
         if (_currentRoutine?.GenericConstraints != null)
@@ -1319,7 +1429,7 @@ public sealed partial class SemanticVerifier
     /// Invalid: mixing ascending and descending (a &lt; b &gt; c)
     /// </summary>
     private void ValidateComparisonChain(ChainedComparisonExpression chain,
-        SourceLocation location) // NOSONAR S3776
+        SourceLocation location)
     {
         if (chain.Operators.Count < 2)
         {
@@ -1345,36 +1455,52 @@ public sealed partial class SemanticVerifier
                 return;
             }
 
-            bool opIsAscending = op is BinaryOperator.Less or BinaryOperator.LessEqual;
-            bool opIsDescending = op is BinaryOperator.Greater or BinaryOperator.GreaterEqual;
-
-            if (opIsAscending)
+            if (!TryTrackComparisonDirection(op: op, isAscending: ref isAscending, location: location))
             {
-                if (isAscending == false)
-                {
-                    ReportError(code: SemanticDiagnosticCode.MixedComparisonChainDirection,
-                        message:
-                        "Cannot mix ascending (<, <=) and descending (>, >=) operators in a comparison chain.",
-                        location: location);
-                    return;
-                }
-
-                isAscending = true;
-            }
-            else if (opIsDescending)
-            {
-                if (isAscending == true)
-                {
-                    ReportError(code: SemanticDiagnosticCode.MixedComparisonChainDirection,
-                        message:
-                        "Cannot mix ascending (<, <=) and descending (>, >=) operators in a comparison chain.",
-                        location: location);
-                    return;
-                }
-
-                isAscending = false;
+                return;
             }
         }
+    }
+
+    /// <summary>
+    /// Folds one directional comparison operator into the running <paramref name="isAscending"/>
+    /// state, reporting a mixed-direction error if it conflicts. Returns false when a conflict was
+    /// reported (the caller must stop). Extracted from <see cref="ValidateComparisonChain"/>.
+    /// </summary>
+    private bool TryTrackComparisonDirection(BinaryOperator op, ref bool? isAscending,
+        SourceLocation location)
+    {
+        bool opIsAscending = op is BinaryOperator.Less or BinaryOperator.LessEqual;
+        bool opIsDescending = op is BinaryOperator.Greater or BinaryOperator.GreaterEqual;
+
+        if (opIsAscending)
+        {
+            if (isAscending == false)
+            {
+                ReportError(code: SemanticDiagnosticCode.MixedComparisonChainDirection,
+                    message:
+                    "Cannot mix ascending (<, <=) and descending (>, >=) operators in a comparison chain.",
+                    location: location);
+                return false;
+            }
+
+            isAscending = true;
+        }
+        else if (opIsDescending)
+        {
+            if (isAscending == true)
+            {
+                ReportError(code: SemanticDiagnosticCode.MixedComparisonChainDirection,
+                    message:
+                    "Cannot mix ascending (<, <=) and descending (>, >=) operators in a comparison chain.",
+                    location: location);
+                return false;
+            }
+
+            isAscending = false;
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -1453,51 +1579,10 @@ public sealed partial class SemanticVerifier
 
         // Strategy 1: Extract element type from Iterable[X] protocol conformance.
         // This correctly handles chained generics like EnumerateIterator[T] obeys Iterable[Tuple[S64, T]]
-        List<TypeSymbol>? protocols = iterableType switch
+        TypeSymbol? fromProtocols = TryGetElementFromIterableProtocols(iterableType: iterableType);
+        if (fromProtocols != null)
         {
-            RecordTypeInfo record => record.ImplementedProtocols,
-            EntityTypeInfo entity => entity.ImplementedProtocols,
-            _ => null
-        };
-
-        if (protocols != null)
-        {
-            foreach (TypeSymbol proto in protocols)
-            {
-                if (proto.BareName == "Iterable" &&
-                    proto.TypeArguments is { Count: > 0 })
-                {
-                    TypeInfo elementType = proto.TypeArguments[index: 0];
-
-                    // Resolve generic parameters if the iterable is a generic resolution
-                    if (iterableType is { IsGenericResolution: true, TypeArguments: not null })
-                    {
-                        TypeInfo? genericDef = iterableType switch
-                        {
-                            RecordTypeInfo r => r.GenericDefinition,
-                            EntityTypeInfo e => e.GenericDefinition,
-                            _ => null
-                        };
-                        if (genericDef?.GenericParameters != null)
-                        {
-                            var substitution = new Dictionary<string, TypeInfo>();
-                            for (int i = 0;
-                                 i < genericDef.GenericParameters.Count &&
-                                 i < iterableType.TypeArguments.Count;
-                                 i++)
-                            {
-                                substitution[key: genericDef.GenericParameters[index: i]] =
-                                    iterableType.TypeArguments[index: i];
-                            }
-
-                            elementType = SubstituteTypeParams(type: elementType,
-                                substitution: substitution);
-                        }
-                    }
-
-                    return elementType;
-                }
-            }
+            return fromProtocols;
         }
 
         // Strategy 1.5 (ground truth): the element is exactly what the iterator's `emit!` returns.
@@ -1520,40 +1605,10 @@ public sealed partial class SemanticVerifier
         }
 
         // Strategy 2: Look for iter memberRoutine to get element type from Iterator[T] return type
-        RoutineInfo? seqMemberRoutine2 = _registry.LookupRoutine(fullName: $"{iterableType.Name}.iter");
-
-        // Generic fallback: Range[S64].iter -> Range.iter via LookupMemberRoutine
-        if (seqMemberRoutine2 == null)
+        TypeSymbol? fromIterReturn = TryGetElementFromIterReturnType(iterableType: iterableType);
+        if (fromIterReturn != null)
         {
-            seqMemberRoutine2 = _registry.LookupMemberRoutine(type: iterableType, memberRoutineName: "iter");
-        }
-
-        if (seqMemberRoutine2?.ReturnType?.TypeArguments is { Count: > 0 })
-        {
-            // Resolve generic type args: if return type arg is T and iterableType is Range[S64], resolve T -> S64
-            TypeInfo returnTypeArg = seqMemberRoutine2.ReturnType.TypeArguments[index: 0];
-            if (returnTypeArg is GenericParameterTypeInfo && iterableType is
-                    { IsGenericResolution: true, TypeArguments: not null })
-            {
-                TypeInfo? genericDef = iterableType switch
-                {
-                    RecordTypeInfo r => r.GenericDefinition,
-                    EntityTypeInfo e => e.GenericDefinition,
-                    _ => null
-                };
-                if (genericDef?.GenericParameters != null)
-                {
-                    int paramIndex = genericDef.GenericParameters
-                                               .ToList()
-                                               .IndexOf(item: returnTypeArg.Name);
-                    if (paramIndex >= 0 && paramIndex < iterableType.TypeArguments.Count)
-                    {
-                        return iterableType.TypeArguments[index: paramIndex];
-                    }
-                }
-            }
-
-            return returnTypeArg;
+            return fromIterReturn;
         }
 
         // Fallback to type arguments if iter memberRoutine not found but protocol is implemented
@@ -1569,99 +1624,113 @@ public sealed partial class SemanticVerifier
         return ErrorTypeInfo.Instance;
     }
 
-    #endregion
-
     /// <summary>
-    /// If <paramref name="paramType"/> is a marker protocol (Accessing[T]/Controlling[T])
-    /// and the argument isn't already an in-flight inner T, wraps the argument expression
-    /// as `arg.refer()` or `arg.control()`. The resulting CallExpression has
-    /// ResolvedRoutine and ResolvedType set so downstream passes (reachability, codegen,
-    /// CallOverloadResolutionPass) treat it as a normal resolved memberRoutine call.
+    /// Strategy 1 of <see cref="GetIterableElementType"/>: extracts the element type from an
+    /// <c>Iterable[X]</c> entry in the type's implemented protocols, substituting generic parameters
+    /// for a generic resolution. Returns null when no <c>Iterable</c> protocol entry is found.
     /// </summary>
-    private void TryInjectMarkerCoercion(RoutineInfo routine, List<Expression> arguments,
-        int paramIndex, TypeSymbol paramType, TypeSymbol argType)
+    private TypeSymbol? TryGetElementFromIterableProtocols(TypeSymbol iterableType)
     {
-        if (paramType is not ProtocolTypeInfo { TypeArguments: { Count: > 0 } } proto)
-            return;
-
-        ProtocolTypeInfo def = proto.GenericDefinition ?? proto;
-        string baseName = def.BareName;
-        string memberRoutineName;
-        if (baseName == Compiler.Resolution.RuntimeContract.Controlling) memberRoutineName = "control";
-        else if (baseName == Compiler.Resolution.RuntimeContract.Accessing) memberRoutineName = "refer";
-        else return;
-
-        // Pass-through: the argument is already typed as the same marker protocol. No
-        // coercion call is needed — Accessing[T] is layout-compatible with inner T, so
-        // the rewritten signature (T param) accepts it directly. Phase 8's expression
-        // ResolvedType sweep retags the argument to inner T so codegen sees no marker.
-        if (argType is ProtocolTypeInfo argProto
-            && ReferenceEquals(argProto.GenericDefinition ?? argProto, def))
+        List<TypeSymbol>? protocols = iterableType switch
         {
-            return;
-        }
-
-        TypeSymbol innerT = proto.TypeArguments![0]!;
-
-        // Locate the argument slot in `arguments`.
-        int slotIndex = -1;
-        Expression slotExpr = null!;
-        for (int i = 0; i < arguments.Count; i++)
-        {
-            Expression a = arguments[i];
-            if (a is NamedArgumentExpression na && na.Name == routine.Parameters[paramIndex].Name)
-            {
-                slotIndex = i;
-                slotExpr = a;
-                break;
-            }
-        }
-        if (slotIndex < 0)
-        {
-            // Positional: argument position equals paramIndex when no named args precede it.
-            // Walk arguments to find the positional slot at paramIndex.
-            int pos = 0;
-            for (int i = 0; i < arguments.Count; i++)
-            {
-                if (arguments[i] is NamedArgumentExpression) continue;
-                if (pos == paramIndex) { slotIndex = i; slotExpr = arguments[i]; break; }
-                pos++;
-            }
-        }
-        if (slotIndex < 0) return;
-
-        Expression inner = slotExpr is NamedArgumentExpression nx ? nx.Value : slotExpr;
-
-        // Skip if already coerced.
-        if (inner is CallExpression { Callee: MemberExpression { MemberName: "access" or "control" } })
-            return;
-
-        // Resolve the memberRoutine on the source argument type.
-        RoutineInfo? coercion = _registry.LookupMemberRoutineOverload(type: argType,
-            memberRoutineName: memberRoutineName, argTypes: []);
-        coercion ??= _registry.LookupMemberRoutine(type: argType, memberRoutineName: memberRoutineName);
-        if (coercion == null) return;
-
-        var memberCallee = new MemberExpression(
-            Object: inner,
-            MemberName: memberRoutineName,
-            Location: inner.Location);
-        var coerced = new CallExpression(
-            Callee: memberCallee,
-            Arguments: [],
-            Location: inner.Location)
-        {
-            ResolvedRoutine = coercion,
-            ResolvedType = innerT,
-            IsInFlight = true,
-            IsSynthesizedLowering = true,
-            LoweringKind = CallClassifier.ClassifyMemberRoutineCall(memberRoutine: coercion)
+            RecordTypeInfo record => record.ImplementedProtocols,
+            EntityTypeInfo entity => entity.ImplementedProtocols,
+            _ => null
         };
 
-        arguments[slotIndex] = slotExpr is NamedArgumentExpression na2
-            ? na2 with { Value = coerced }
-            : coerced;
+        if (protocols == null)
+        {
+            return null;
+        }
+
+        foreach (TypeSymbol proto in protocols)
+        {
+            if (proto.BareName == "Iterable" &&
+                proto.TypeArguments is { Count: > 0 })
+            {
+                TypeInfo elementType = proto.TypeArguments[index: 0];
+
+                // Resolve generic parameters if the iterable is a generic resolution
+                if (iterableType is { IsGenericResolution: true, TypeArguments: not null })
+                {
+                    TypeInfo? genericDef = iterableType switch
+                    {
+                        RecordTypeInfo r => r.GenericDefinition,
+                        EntityTypeInfo e => e.GenericDefinition,
+                        _ => null
+                    };
+                    if (genericDef?.GenericParameters != null)
+                    {
+                        var substitution = new Dictionary<string, TypeInfo>();
+                        for (int i = 0;
+                             i < genericDef.GenericParameters.Count &&
+                             i < iterableType.TypeArguments.Count;
+                             i++)
+                        {
+                            substitution[key: genericDef.GenericParameters[index: i]] =
+                                iterableType.TypeArguments[index: i];
+                        }
+
+                        elementType = SubstituteTypeParams(type: elementType,
+                            substitution: substitution);
+                    }
+                }
+
+                return elementType;
+            }
+        }
+
+        return null;
     }
+
+    /// <summary>
+    /// Strategy 2 of <see cref="GetIterableElementType"/>: derives the element type from the return
+    /// type of the type's <c>iter</c> memberRoutine (<c>Iterator[T]</c>), resolving a generic
+    /// parameter against the iterable's bound type args. Returns null when no usable <c>iter</c>
+    /// return type is found.
+    /// </summary>
+    private TypeSymbol? TryGetElementFromIterReturnType(TypeSymbol iterableType)
+    {
+        RoutineInfo? seqMemberRoutine2 = _registry.LookupRoutine(fullName: $"{iterableType.Name}.iter");
+
+        // Generic fallback: Range[S64].iter -> Range.iter via LookupMemberRoutine
+        if (seqMemberRoutine2 == null)
+        {
+            seqMemberRoutine2 = _registry.LookupMemberRoutine(type: iterableType, memberRoutineName: "iter");
+        }
+
+        if (seqMemberRoutine2?.ReturnType?.TypeArguments is not { Count: > 0 })
+        {
+            return null;
+        }
+
+        // Resolve generic type args: if return type arg is T and iterableType is Range[S64], resolve T -> S64
+        TypeInfo returnTypeArg = seqMemberRoutine2.ReturnType.TypeArguments[index: 0];
+        if (returnTypeArg is GenericParameterTypeInfo && iterableType is
+                { IsGenericResolution: true, TypeArguments: not null })
+        {
+            TypeInfo? genericDef = iterableType switch
+            {
+                RecordTypeInfo r => r.GenericDefinition,
+                EntityTypeInfo e => e.GenericDefinition,
+                _ => null
+            };
+            if (genericDef?.GenericParameters != null)
+            {
+                int paramIndex = genericDef.GenericParameters
+                                           .ToList()
+                                           .IndexOf(item: returnTypeArg.Name);
+                if (paramIndex >= 0 && paramIndex < iterableType.TypeArguments.Count)
+                {
+                    return iterableType.TypeArguments[index: paramIndex];
+                }
+            }
+        }
+
+        return returnTypeArg;
+    }
+
+    #endregion
 
     /// <summary>
     /// True if `type` references any name listed in `genericParameters` via a

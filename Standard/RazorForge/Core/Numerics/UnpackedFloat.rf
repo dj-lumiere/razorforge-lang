@@ -35,6 +35,7 @@ needs W is U64
   fpclass: SignedFpClass
 
 ### No-op teardown: all fields are plain values (no owned entities).
+@override
 dangerous routine UnpackedFloat[M, L, W].destroy()
   return
 

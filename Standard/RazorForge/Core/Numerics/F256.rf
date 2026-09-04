@@ -637,6 +637,7 @@ routine F256.to_f128() -> F128
   return me.to_uf().to_f128()
 
 ### Returns the decimal text (narrowed to binary128 precision for display).
+@override
 routine F256.represent() -> Text
   if me.is_nan()
     return "NaN"
@@ -645,5 +646,6 @@ routine F256.represent() -> Text
   return me.to_f128().represent()
 
 ### Returns a diagnostic representation tagged with the type name.
+@override
 routine F256.diagnose() -> Text
   return "F256(" + me.represent() + ")"

@@ -130,6 +130,7 @@ routine BTreeListNode[T].children_add_last(value: Hijacked[BTreeListNode[T]])
 ### Recursively frees this node's subtree (post-order): destroys each child node, tears down each
 ### stored key, then frees this node's own allocation. Children/keys are visited inline (never bound
 ### to a `var`) so scope-exit teardown doesn't double-free them.
+@override
 dangerous routine BTreeListNode[T].destroy()
   if not me.is_leaf
     var ci = 0u64
@@ -312,6 +313,7 @@ routine SortedList[T].clear()
 ### Frees the entire backing B-tree — every node and each stored element — when the list goes out
 ### of scope. The root node is visited inline (never bound to a `var`) so scope-exit teardown
 ### doesn't double-free it.
+@override
 dangerous routine SortedList[T].destroy()
   if me.root is None
     me.hijack().invalidate()

@@ -9,7 +9,7 @@ import Collections
 # columns + `$typeof(m)` type-arg splices (`hijacked_from[$typeof(m)]`) + `$typeof(m).data_size()` offsets all
 # work through a real reallocating collection.
 
-record Particle obeys Equatable
+record Particle obeys Equatable, Splittable
   id: S64
   mass: F32
 
@@ -17,10 +17,8 @@ routine start()
   var s = SplitList[Particle]()
   show(f"empty: count={s.count()} cap={s.capacity()}")
 
-  var i = 0u64
-  while i < 6u64
+  each i in 0 til 6
     s.add_last(value: Particle(id: i.S64(), mass: i.F32() + 0.5f32))
-    i = i + 1u64
   show(f"filled: count={s.count()} cap={s.capacity()}")
 
   # Indexing (MutableIndexable): read via `s[i]`, write via `s[i] = value`.

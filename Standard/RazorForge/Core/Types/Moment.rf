@@ -316,6 +316,7 @@ routine Moment.cmp(you: Moment) -> ComparisonSign
 
 ### Returns the display form of this moment in a compact UTC civil-time style.
 ### :returns: The resulting `Text` value.
+@override
 routine Moment.represent() -> Text
   var y = me.year()
   var mo = me.month()
@@ -328,6 +329,7 @@ routine Moment.represent() -> Text
 ### Returns the diagnostic form of this moment using its normalized internal
 ### representation.
 ### :returns: The resulting `Text` value.
+@override
 routine Moment.diagnose() -> Text
   return "Moment(seconds: " + me.seconds.represent() + ", nanoseconds: " + me.nanoseconds.represent() + ")"
 

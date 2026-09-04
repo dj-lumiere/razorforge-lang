@@ -5,7 +5,7 @@ module Core
 ### `U8` is the standard byte-sized unsigned integer type in RazorForge, used
 ### for raw byte manipulation, character codes, and compact numeric data.
 @llvm("i8")
-record U8 obeys UnsignedIntegral, Ordered, ConstCompatible, AtomicType, Assignable, Copyable
+record U8 obeys UnsignedIntegral, Ordered, ConstCompatible, AtomicType, Assignable, Copyable, Splittable
   pass
 
 # Constants for U8 limits
@@ -645,11 +645,13 @@ routine U8.is_odd() -> Bool
 
 ### Returns the human-readable text of this value.
 ### :returns: The value rendered as `Text`.
+@override
 routine U8.represent() -> Text
   return U32(me).represent()
 
 ### Returns a type-tagged debug rendering of this value.
 ### :returns: A diagnostic `Text` rendering, e.g. `Type(value)`.
+@override
 routine U8.diagnose() -> Text
   return "U8(" + me.represent() + ")"
 
@@ -681,3 +683,4 @@ routine U8!(from_text: Text) -> U8
 ### :returns: A `U64` keyed hash suitable for denial-of-service-resistant hash tables.
 routine U8.hash(k0: U64, k1: U64) -> U64
   return __secure_hash_u64(v: LLVM::zero_extend[U8, U64](me), k0: k0, k1: k1)
+

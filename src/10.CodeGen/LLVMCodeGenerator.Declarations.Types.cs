@@ -185,7 +185,7 @@ public partial class LlvmCodeGenerator
     /// </summary>
     private bool ShouldSkipRecordTypeGeneration(RecordTypeInfo record)
     {
-        return record.HasDirectBackendType ||
+        return record.BackendType != null ||
             record.IsGenericDefinition ||
             record.TypeArguments?.Any(predicate: t =>
                 ContainsGenericParameter(t) || t is ErrorTypeInfo ||
@@ -256,7 +256,7 @@ public partial class LlvmCodeGenerator
             // every build.
             case RecordTypeInfo
             {
-                IsGenericDefinition: false, HasDirectBackendType: false
+                IsGenericDefinition: false, BackendType: null
             } nestedRecord when !hasUnboundTypeArg:
                 GenerateRecordType(record: nestedRecord);
                 break;

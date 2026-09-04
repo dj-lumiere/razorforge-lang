@@ -54,7 +54,7 @@ public partial class Parser
             {
                 while (Match(type: TokenType.Newline)) { } // NOSONAR S108: intentional newline-consuming loop
 
-                interfaces.Add(item: ParseType());
+                interfaces.Add(item: ParseObeysProtocol());
                 // Newlines between comma-separated protocols are handled by the 'before' skip
             } while (Match(type: TokenType.Comma));
         }
@@ -199,7 +199,7 @@ public partial class Parser
             {
                 while (Match(type: TokenType.Newline)) { } // NOSONAR S108: intentional newline-consuming loop
 
-                interfaces.Add(item: ParseType());
+                interfaces.Add(item: ParseObeysProtocol());
                 // Newlines between comma-separated protocols are handled by the 'before' skip
             } while (Match(type: TokenType.Comma));
         }
@@ -437,7 +437,7 @@ public partial class Parser
     /// field declarations.
     /// </summary>
     private CrashableDeclaration ParseCrashableDeclaration(
-        VisibilityModifier visibility = VisibilityModifier.Open) // NOSONAR S3776
+        VisibilityModifier visibility = VisibilityModifier.Open)
     {
         SourceLocation location = GetLocation(token: PeekToken(offset: -1));
         string name = ConsumeIdentifier(errorMessage: "Expected crashable type name");
@@ -453,32 +453,7 @@ public partial class Parser
 
         if (Check(type: TokenType.Indent))
         {
-            ProcessIndentToken();
-
-            while (!Check(type: TokenType.Dedent) && !IsAtEnd)
-            {
-                if (Match(TokenType.Newline, TokenType.DocComment))
-                    continue;
-
-                if (Match(type: TokenType.Pass))
-                {
-                    Match(type: TokenType.Newline);
-                    continue;
-                }
-
-                ISyntaxTreeNode node = ParseDeclaration();
-                if (node is SyntaxTree.Declaration member)
-                    members.Add(item: member);
-                else
-                    throw ThrowParseError(code: GrammarDiagnosticCode.InvalidDeclarationInBody,
-                        message: $"Expected declaration inside crashable body, got {node.GetType().Name}");
-            }
-
-            if (Check(type: TokenType.Dedent))
-                ProcessDedentTokens();
-            else if (!IsAtEnd)
-                throw ThrowParseError(code: GrammarDiagnosticCode.ExpectedDedentAfterBody,
-                    message: "Expected dedent after crashable body");
+            ParseCrashableBody(members: members);
         }
 
         _parsingTypeBody = wasParsingTypeBody;
@@ -488,6 +463,41 @@ public partial class Parser
             Members: members,
             Visibility: visibility,
             Location: location);
+    }
+
+    /// <summary>
+    /// Parses the indented body of a crashable declaration (the opening indent is confirmed but not yet
+    /// consumed) into <paramref name="members"/>. Skips newlines/doc-comments and <c>pass</c>, collects
+    /// declaration members, and consumes the trailing dedent.
+    /// </summary>
+    private void ParseCrashableBody(List<SyntaxTree.Declaration> members)
+    {
+        ProcessIndentToken();
+
+        while (!Check(type: TokenType.Dedent) && !IsAtEnd)
+        {
+            if (Match(TokenType.Newline, TokenType.DocComment))
+                continue;
+
+            if (Match(type: TokenType.Pass))
+            {
+                Match(type: TokenType.Newline);
+                continue;
+            }
+
+            ISyntaxTreeNode node = ParseDeclaration();
+            if (node is SyntaxTree.Declaration member)
+                members.Add(item: member);
+            else
+                throw ThrowParseError(code: GrammarDiagnosticCode.InvalidDeclarationInBody,
+                    message: $"Expected declaration inside crashable body, got {node.GetType().Name}");
+        }
+
+        if (Check(type: TokenType.Dedent))
+            ProcessDedentTokens();
+        else if (!IsAtEnd)
+            throw ThrowParseError(code: GrammarDiagnosticCode.ExpectedDedentAfterBody,
+                message: "Expected dedent after crashable body");
     }
 
     /// <summary>
@@ -708,19 +718,8 @@ public partial class Parser
             // Associated-type slot declaration inside protocol body: `relates Key` or `relates Key obeys Hashable`
             if (Match(type: TokenType.Relates))
             {
-                SourceLocation relatesLocation = GetLocation();
-                TypeExpression slotNameType = ParseType();
-                TypeExpression? constraint = null;
-                if (Match(type: TokenType.Obeys))
-                {
-                    constraint = ParseType();
-                }
                 associatedTypes ??= [];
-                associatedTypes.Add(item: new AssociatedTypeDeclaration(
-                    Name: slotNameType.Name,
-                    Constraint: constraint,
-                    Binding: null,
-                    Location: relatesLocation));
+                associatedTypes.Add(item: ParseProtocolRelatesSlot());
                 Match(type: TokenType.Newline);
                 continue;
             }
@@ -728,103 +727,10 @@ public partial class Parser
             // Parse routine signature
             if (Match(type: TokenType.Routine))
             {
-                _routineNameWired = false;
-                if (Match(type: TokenType.Dollar))
-                {
-                    _routineNameWired = true;
-                }
-                var memberRoutineNameSb = new System.Text.StringBuilder(
-                    ConsumeIdentifier(errorMessage: "Expected member routine name"));
-
-                // Handle Me.MemberRoutineName syntax for instance member routines
-                // Protocol member routines can be: "routine Me.MemberRoutineName()" or "routine memberRoutineName()"
-                while (Match(type: TokenType.Dot))
-                {
-                    memberRoutineNameSb.Append('.');
-                    memberRoutineNameSb.Append(ConsumeMemberRoutineName(errorMessage: "Expected member routine name after '.'"));
-                }
-
-                string memberRoutineName = memberRoutineNameSb.ToString();
-
-                // Support failable member routines: "routine!". The `!` is a STRUCTURED flag on
-                // the RoutineSignature — the name stays bare.
-                bool memberRoutineIsFailable = Match(type: TokenType.Bang);
-
-                // Parameters
-                Consume(type: TokenType.LeftParen, errorMessage: "Expected '(' after member routine name");
-                var parameters = new List<Parameter>();
-
-                if (!Check(type: TokenType.RightParen))
-                {
-                    do
-                    {
-                        // Handle 'me' parameter (self-reference, optionally typed)
-                        if (Check(type: TokenType.Me))
-                        {
-                            Token selfToken = Advance();
-                            TypeExpression? selfType = null;
-                            if (Match(type: TokenType.Colon))
-                            {
-                                selfType = ParseType();
-                            }
-
-                            parameters.Add(item: new Parameter(Name: "me",
-                                Type: selfType,
-                                DefaultValue: null,
-                                Location: GetLocation(token: selfToken)));
-                        }
-                        else
-                        {
-                            // Regular parameter — supports variadic `name...: T` (a protocol may require a
-                            // variadic member, e.g. `common Me.from_literal(elements...: T)` for the literal
-                            // protocols). Mirrors the routine-declaration param parse.
-                            string paramName =
-                                ConsumeIdentifier(errorMessage: "Expected parameter name");
-                            bool isVariadic = Match(type: TokenType.DotDotDot);
-
-                            TypeExpression? paramType = null;
-                            if (Match(type: TokenType.Colon))
-                            {
-                                paramType = ParseType();
-                            }
-
-                            parameters.Add(item: new Parameter(Name: paramName,
-                                Type: paramType,
-                                DefaultValue: null,
-                                Location: GetLocation(),
-                                IsVariadic: isVariadic));
-                        }
-                    } while (Match(type: TokenType.Comma));
-                }
-
-                Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after parameters");
-
-                // Return type
-                TypeExpression? returnType = null;
-                if (Match(type: TokenType.Arrow))
-                {
-                    returnType = ParseType();
-                }
-
-                if (memberRoutineIsCommon)
-                {
-                    memberRoutineAnnotations.Add(item: "common");
-                }
-                if (memberRoutineIsDangerous)
-                {
-                    memberRoutineAnnotations.Add(item: "dangerous");
-                }
-
-                memberRoutines.Add(item: new RoutineSignature(Name: memberRoutineName,
-                    Parameters: parameters,
-                    ReturnType: returnType,
-                    Annotations: memberRoutineAnnotations.Count > 0
-                        ? memberRoutineAnnotations
-                        : null,
-                    Location: GetLocation())
-                {
-                    IsFailable = memberRoutineIsFailable
-                });
+                memberRoutines.Add(item: ParseProtocolRoutineSignature(
+                    memberRoutineAnnotations: memberRoutineAnnotations,
+                    memberRoutineIsCommon: memberRoutineIsCommon,
+                    memberRoutineIsDangerous: memberRoutineIsDangerous));
                 Match(type: TokenType.Newline);
             }
             else
@@ -855,6 +761,146 @@ public partial class Parser
         {
             AssociatedTypes = associatedTypes
         };
+    }
+
+    /// <summary>
+    /// Parses an associated-type slot declaration inside a protocol body (the leading <c>relates</c>
+    /// keyword is already consumed): <c>relates Key</c> or <c>relates Key obeys Hashable</c>.
+    /// </summary>
+    private AssociatedTypeDeclaration ParseProtocolRelatesSlot()
+    {
+        SourceLocation relatesLocation = GetLocation();
+        TypeExpression slotNameType = ParseType();
+        TypeExpression? constraint = null;
+        if (Match(type: TokenType.Obeys))
+        {
+            constraint = ParseType();
+        }
+
+        return new AssociatedTypeDeclaration(
+            Name: slotNameType.Name,
+            Constraint: constraint,
+            Binding: null,
+            Location: relatesLocation);
+    }
+
+    /// <summary>
+    /// Parses a routine signature inside a protocol body (the leading <c>routine</c> keyword is already
+    /// consumed): the name (optionally <c>Me.</c>-qualified), the optional failable <c>!</c>, the
+    /// parameter list (including a <c>me</c> self-parameter and variadic params), and the return type.
+    /// Appends the pre-parsed <c>common</c>/<c>dangerous</c> qualifier flags to the annotations list.
+    /// </summary>
+    private RoutineSignature ParseProtocolRoutineSignature(List<string> memberRoutineAnnotations,
+        bool memberRoutineIsCommon, bool memberRoutineIsDangerous)
+    {
+        _routineNameWired = false;
+        if (Match(type: TokenType.Dollar))
+        {
+            _routineNameWired = true;
+        }
+        var memberRoutineNameSb = new System.Text.StringBuilder(
+            ConsumeIdentifier(errorMessage: "Expected member routine name"));
+
+        // Handle Me.MemberRoutineName syntax for instance member routines
+        // Protocol member routines can be: "routine Me.MemberRoutineName()" or "routine memberRoutineName()"
+        while (Match(type: TokenType.Dot))
+        {
+            memberRoutineNameSb.Append('.');
+            memberRoutineNameSb.Append(ConsumeMemberRoutineName(errorMessage: "Expected member routine name after '.'"));
+        }
+
+        string memberRoutineName = memberRoutineNameSb.ToString();
+
+        // Support failable member routines: "routine!". The `!` is a STRUCTURED flag on
+        // the RoutineSignature — the name stays bare.
+        bool memberRoutineIsFailable = Match(type: TokenType.Bang);
+
+        // Parameters
+        Consume(type: TokenType.LeftParen, errorMessage: "Expected '(' after member routine name");
+        List<Parameter> parameters = ParseProtocolRoutineParameters();
+
+        // Return type
+        TypeExpression? returnType = null;
+        if (Match(type: TokenType.Arrow))
+        {
+            returnType = ParseType();
+        }
+
+        if (memberRoutineIsCommon)
+        {
+            memberRoutineAnnotations.Add(item: "common");
+        }
+        if (memberRoutineIsDangerous)
+        {
+            memberRoutineAnnotations.Add(item: "dangerous");
+        }
+
+        return new RoutineSignature(Name: memberRoutineName,
+            Parameters: parameters,
+            ReturnType: returnType,
+            Annotations: memberRoutineAnnotations.Count > 0
+                ? memberRoutineAnnotations
+                : null,
+            Location: GetLocation())
+        {
+            IsFailable = memberRoutineIsFailable
+        };
+    }
+
+    /// <summary>
+    /// Parses a protocol routine-signature parameter list (the opening <c>(</c> is already consumed):
+    /// a <c>me</c> self-parameter or a regular parameter (including variadic <c>name...: T</c>).
+    /// Consumes the closing <c>)</c>.
+    /// </summary>
+    private List<Parameter> ParseProtocolRoutineParameters()
+    {
+        var parameters = new List<Parameter>();
+
+        if (!Check(type: TokenType.RightParen))
+        {
+            do
+            {
+                // Handle 'me' parameter (self-reference, optionally typed)
+                if (Check(type: TokenType.Me))
+                {
+                    Token selfToken = Advance();
+                    TypeExpression? selfType = null;
+                    if (Match(type: TokenType.Colon))
+                    {
+                        selfType = ParseType();
+                    }
+
+                    parameters.Add(item: new Parameter(Name: "me",
+                        Type: selfType,
+                        DefaultValue: null,
+                        Location: GetLocation(token: selfToken)));
+                }
+                else
+                {
+                    // Regular parameter — supports variadic `name...: T` (a protocol may require a
+                    // variadic member, e.g. `common Me.from_literal(elements...: T)` for the literal
+                    // protocols). Mirrors the routine-declaration param parse.
+                    string paramName =
+                        ConsumeIdentifier(errorMessage: "Expected parameter name");
+                    bool isVariadic = Match(type: TokenType.DotDotDot);
+
+                    TypeExpression? paramType = null;
+                    if (Match(type: TokenType.Colon))
+                    {
+                        paramType = ParseType();
+                    }
+
+                    parameters.Add(item: new Parameter(Name: paramName,
+                        Type: paramType,
+                        DefaultValue: null,
+                        Location: GetLocation(),
+                        IsVariadic: isVariadic));
+                }
+            } while (Match(type: TokenType.Comma));
+        }
+
+        Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after parameters");
+        return parameters;
     }
 
     /// <summary>
@@ -915,43 +961,9 @@ public partial class Parser
             }
             else if (Match(type: TokenType.Dot))
             {
-                if (Match(type: TokenType.LeftBracket))
-                {
-                    // Selective imports: Module.[A, B, C]
-                    specificImports = [];
-                    do
-                    {
-                        string name =
-                            ConsumeIdentifier(
-                                errorMessage: "Expected type name in selective import");
-                        specificImports.Add(item: name);
-                    } while (Match(type: TokenType.Comma));
-
-                    Consume(type: TokenType.RightBracket,
-                        errorMessage: "Expected ']' after selective imports");
-                }
-                else
-                {
-                    // Single member after the dot. `Core.Bool` selects a type; `Module.C::qsort`
-                    // selects a realm-qualified foreign routine to bring into BARE scope (the `::`
-                    // disambiguates it from a plain type import).
-                    string member = ConsumeIdentifier(errorMessage: "Expected name after '.'");
-                    if (Check(type: TokenType.DoubleColon))
-                    {
-                        Advance();
-                        string routineName = ConsumeIdentifier(
-                            errorMessage: "Expected routine name after realm qualifier '::'");
-                        realmImports ??= [];
-                        realmImports.Add(item: (member, routineName));
-                    }
-                    else
-                    {
-                        // Single type: Core.Bool -> module "Core", type "Bool"
-                        modulePathSb.Append('.');
-                        modulePathSb.Append(member);
-                    }
-                }
-
+                ParseImportDotClause(modulePathSb: modulePathSb,
+                    specificImports: ref specificImports,
+                    realmImports: ref realmImports);
                 break;
             }
             else
@@ -975,6 +987,53 @@ public partial class Parser
             SpecificImports: specificImports,
             Location: location,
             RealmImports: realmImports);
+    }
+
+    /// <summary>
+    /// Parses the clause following a <c>.</c> in an import path (the dot is already consumed): either a
+    /// selective import (<c>Module.[A, B, C]</c>), a realm-qualified foreign routine
+    /// (<c>Module.C::qsort</c>), or a single type (<c>Core.Bool</c>). Mutates the accumulating module
+    /// path and the selective/realm import lists.
+    /// </summary>
+    private void ParseImportDotClause(System.Text.StringBuilder modulePathSb,
+        ref List<string>? specificImports, ref List<(string Realm, string Name)>? realmImports)
+    {
+        if (Match(type: TokenType.LeftBracket))
+        {
+            // Selective imports: Module.[A, B, C]
+            specificImports = [];
+            do
+            {
+                string name =
+                    ConsumeIdentifier(
+                        errorMessage: "Expected type name in selective import");
+                specificImports.Add(item: name);
+            } while (Match(type: TokenType.Comma));
+
+            Consume(type: TokenType.RightBracket,
+                errorMessage: "Expected ']' after selective imports");
+        }
+        else
+        {
+            // Single member after the dot. `Core.Bool` selects a type; `Module.C::qsort`
+            // selects a realm-qualified foreign routine to bring into BARE scope (the `::`
+            // disambiguates it from a plain type import).
+            string member = ConsumeIdentifier(errorMessage: "Expected name after '.'");
+            if (Check(type: TokenType.DoubleColon))
+            {
+                Advance();
+                string routineName = ConsumeIdentifier(
+                    errorMessage: "Expected routine name after realm qualifier '::'");
+                realmImports ??= [];
+                realmImports.Add(item: (member, routineName));
+            }
+            else
+            {
+                // Single type: Core.Bool -> module "Core", type "Bool"
+                modulePathSb.Append('.');
+                modulePathSb.Append(member);
+            }
+        }
     }
 
     /// <summary>

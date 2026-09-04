@@ -114,22 +114,35 @@ public static class ManifestLoader
         // All optional; niche developer tooling.
         if (root.TryGetValue(key: "debug", value: out object? debugObj) && debugObj is TomlTable debugTable)
         {
-            DebugOptions d = manifest.Debug;
-            if (debugTable.TryGetValue(key: "dump-ast", value: out object? da)) d.DumpAst = da is true;
-            if (debugTable.TryGetValue(key: "timing", value: out object? tm)) d.Timing = tm is true;
-            if (debugTable.TryGetValue(key: "show-build-stages", value: out object? sbs)) d.ShowBuildStages = sbs is true;
-            if (debugTable.TryGetValue(key: "marker-survey", value: out object? ms)) d.MarkerSurvey = ms is true;
-            if (debugTable.TryGetValue(key: "prune-stats", value: out object? ps)) d.PruneStats = ps is true;
-            if (debugTable.TryGetValue(key: "jit-trace", value: out object? jt)) d.JitTrace = jt is true;
-            if (debugTable.TryGetValue(key: "reachability-dump", value: out object? rd) &&
-                !string.IsNullOrWhiteSpace(value: rd?.ToString()))
-                d.ReachabilityDump = rd!.ToString();
-            if (debugTable.TryGetValue(key: "maysuspend-dump", value: out object? md) &&
-                !string.IsNullOrWhiteSpace(value: md?.ToString()))
-                d.MaySuspendDump = md!.ToString();
+            ParseDebugOptions(debugTable: debugTable, d: manifest.Debug);
         }
 
         // Resolve external library dependency directories relative to the manifest.
+        ResolveLibraryDependencyDirectories(manifest: manifest, manifestDir: manifestDir);
+
+        return manifest;
+    }
+
+    /// <summary>Reads the optional <c>[debug]</c> flags into <paramref name="d"/>.</summary>
+    private static void ParseDebugOptions(TomlTable debugTable, DebugOptions d)
+    {
+        if (debugTable.TryGetValue(key: "dump-ast", value: out object? da)) d.DumpAst = da is true;
+        if (debugTable.TryGetValue(key: "timing", value: out object? tm)) d.Timing = tm is true;
+        if (debugTable.TryGetValue(key: "show-build-stages", value: out object? sbs)) d.ShowBuildStages = sbs is true;
+        if (debugTable.TryGetValue(key: "prune-stats", value: out object? ps)) d.PruneStats = ps is true;
+        if (debugTable.TryGetValue(key: "jit-trace", value: out object? jt)) d.JitTrace = jt is true;
+        if (debugTable.TryGetValue(key: "reachability-dump", value: out object? rd) &&
+            !string.IsNullOrWhiteSpace(value: rd?.ToString()))
+            d.ReachabilityDump = rd!.ToString();
+        if (debugTable.TryGetValue(key: "maysuspend-dump", value: out object? md) &&
+            !string.IsNullOrWhiteSpace(value: md?.ToString()))
+            d.MaySuspendDump = md!.ToString();
+    }
+
+    /// <summary>Resolves each external library dependency directory relative to the manifest,
+    /// mutating the target's <c>Libraries</c> list in place and validating existence.</summary>
+    private static void ResolveLibraryDependencyDirectories(ProjectManifest manifest, string manifestDir)
+    {
         for (int i = 0; i < manifest.Target.Libraries.Count; i++)
         {
             string rawEntry = manifest.Target.Libraries[index: i];
@@ -145,8 +158,6 @@ public static class ManifestLoader
 
             manifest.Target.Libraries[index: i] = resolved;
         }
-
-        return manifest;
     }
 
     /// <summary>
@@ -246,58 +257,7 @@ public static class ManifestLoader
             target.Executable = executable?.ToString() ?? "";
         }
 
-        // `library` = EXTERNAL dependency directories (requirements.txt-style), relative
-        // to the manifest. Accept a single string or an array of strings.
-        if (table.TryGetValue(key: "library", value: out object? libraryObj))
-        {
-            IEnumerable<string?> rawEntries = libraryObj switch
-            {
-                TomlArray array => array.Select(selector: item => item?.ToString()),
-                _ => [libraryObj?.ToString()]
-            };
-            foreach (string? rawEntry in rawEntries)
-            {
-                if (string.IsNullOrWhiteSpace(value: rawEntry))
-                {
-                    continue;
-                }
-
-                target.Libraries.Add(item: rawEntry);
-            }
-        }
-
-        // `c_libraries` = external C libraries to link (the `-l` names, e.g. "SDL2"). Names only.
-        if (table.TryGetValue(key: "c_libraries", value: out object? cLibsObj))
-        {
-            IEnumerable<string?> rawEntries = cLibsObj switch
-            {
-                TomlArray array => array.Select(selector: item => item?.ToString()),
-                _ => [cLibsObj?.ToString()]
-            };
-            foreach (string? rawEntry in rawEntries)
-            {
-                if (!string.IsNullOrWhiteSpace(value: rawEntry))
-                    target.CLibraries.Add(item: rawEntry.Trim());
-            }
-        }
-
-        // `library_paths` = additional `-L` search directories for `c_libraries`, resolved relative
-        // to the manifest directory (absolute entries pass through).
-        if (table.TryGetValue(key: "library_paths", value: out object? libPathsObj))
-        {
-            IEnumerable<string?> rawEntries = libPathsObj switch
-            {
-                TomlArray array => array.Select(selector: item => item?.ToString()),
-                _ => [libPathsObj?.ToString()]
-            };
-            foreach (string? rawEntry in rawEntries)
-            {
-                if (string.IsNullOrWhiteSpace(value: rawEntry))
-                    continue;
-                target.LibraryPaths.Add(item: Path.GetFullPath(
-                    path: Path.Combine(path1: manifestDir, path2: rawEntry.Trim())));
-            }
-        }
+        ParseTargetLibraries(table: table, target: target, manifestDir: manifestDir);
 
         if (table.TryGetValue(key: "mode", value: out object? mode) &&
             !string.IsNullOrWhiteSpace(value: mode?.ToString()))
@@ -320,6 +280,66 @@ public static class ManifestLoader
             return target;
         }
 
+        ResolveExecutableFile(target: target, moduleIndex: moduleIndex, manifestDir: manifestDir);
+        return target;
+    }
+
+    /// <summary>Parses the <c>library</c>, <c>c_libraries</c>, and <c>library_paths</c> entries into
+    /// <paramref name="target"/>. Each accepts a single string or an array of strings.</summary>
+    private static void ParseTargetLibraries(TomlTable table, BuildTarget target, string manifestDir)
+    {
+        // `library` = EXTERNAL dependency directories (requirements.txt-style), relative
+        // to the manifest. Accept a single string or an array of strings.
+        if (table.TryGetValue(key: "library", value: out object? libraryObj))
+        {
+            foreach (string? rawEntry in AsStringEntries(value: libraryObj))
+            {
+                if (string.IsNullOrWhiteSpace(value: rawEntry))
+                {
+                    continue;
+                }
+
+                target.Libraries.Add(item: rawEntry);
+            }
+        }
+
+        // `c_libraries` = external C libraries to link (the `-l` names, e.g. "SDL2"). Names only.
+        if (table.TryGetValue(key: "c_libraries", value: out object? cLibsObj))
+        {
+            foreach (string? rawEntry in AsStringEntries(value: cLibsObj))
+            {
+                if (!string.IsNullOrWhiteSpace(value: rawEntry))
+                    target.CLibraries.Add(item: rawEntry.Trim());
+            }
+        }
+
+        // `library_paths` = additional `-L` search directories for `c_libraries`, resolved relative
+        // to the manifest directory (absolute entries pass through).
+        if (table.TryGetValue(key: "library_paths", value: out object? libPathsObj))
+        {
+            foreach (string? rawEntry in AsStringEntries(value: libPathsObj))
+            {
+                if (string.IsNullOrWhiteSpace(value: rawEntry))
+                    continue;
+                target.LibraryPaths.Add(item: Path.GetFullPath(
+                    path: Path.Combine(path1: manifestDir, path2: rawEntry.Trim())));
+            }
+        }
+    }
+
+    /// <summary>Normalizes a TOML value that may be a single string or an array of strings into a
+    /// sequence of raw string entries.</summary>
+    private static IEnumerable<string?> AsStringEntries(object? value) => value switch
+    {
+        TomlArray array => array.Select(selector: item => item?.ToString()),
+        _ => [value?.ToString()]
+    };
+
+    /// <summary>Resolves <c>target.Executable</c> (a source-file path or a module name) to a concrete
+    /// file path, throwing when the file/module cannot be found.</summary>
+    private static void ResolveExecutableFile(BuildTarget target,
+        Dictionary<string, string> moduleIndex, string manifestDir)
+    {
         // File-based executable (the standard): `executable = "foo.rf"` / a path to an rf/sf file runs
         // that single file directly (module inferred from its path — no `module` declaration needed).
         if (LooksLikeSourceFile(name: target.Executable))
@@ -334,7 +354,7 @@ public static class ManifestLoader
             }
 
             target.Executable = filePath;
-            return target;
+            return;
         }
 
         if (!moduleIndex.TryGetValue(key: target.Executable, value: out string? resolvedFile))
@@ -349,7 +369,6 @@ public static class ManifestLoader
         }
 
         target.Executable = resolvedFile;
-        return target;
     }
 
     /// <summary>True when the manifest <c>executable</c> value names a source FILE (.rf/.sf) rather
@@ -408,57 +427,66 @@ public static class ManifestLoader
                          searchPattern: pattern,
                          searchOption: SearchOption.AllDirectories))
             {
-                // Skip debug AST dump files — they share the module name with the real source
-                if (filePath.EndsWith(value: ".rf.desugared",
-                        comparisonType: StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                // File-granularity conditional compilation: skip a `.rf` file whose leading
-                // `#@target(...)` directive doesn't match the build target (RazorForge-only).
-                if (!Compiler.Targeting.TargetGate.ShouldCompile(filePath: filePath))
-                    continue;
-
-                string? moduleName = ExtractModuleName(filePath: filePath);
-                if (moduleName == null)
-                {
-                    continue;
-                }
-
-                string fullPath = Path.GetFullPath(path: filePath);
-                bool hasEntryPoint = FileDeclaresEntryPoint(filePath: filePath);
-
-                if (!index.ContainsKey(key: moduleName))
-                {
-                    index[key: moduleName] = fullPath;
-                    if (hasEntryPoint)
-                    {
-                        entryModules.Add(item: moduleName);
-                    }
-
-                    continue;
-                }
-
-                // Module name already seen in another file. A library/module file (no entry point)
-                // sharing the name is fine — keep whichever entry candidate we already have.
-                if (!hasEntryPoint)
-                {
-                    continue;
-                }
-
-                if (entryModules.Contains(item: moduleName))
-                {
-                    throw new InvalidOperationException(
-                        message: $"{ManifestFileName}: module '{moduleName}' declares " +
-                                 $"'routine start()' in both '{index[moduleName]}' and '{fullPath}'.");
-                }
-
-                // Promote the entry-bearing file over a previously-indexed library file.
-                index[key: moduleName] = fullPath;
-                entryModules.Add(item: moduleName);
+                IndexSourceFile(filePath: filePath, index: index, entryModules: entryModules);
             }
         }
 
         return index;
+    }
+
+    /// <summary>Indexes one source file into <paramref name="index"/>: extracts its module name,
+    /// records the mapping, and promotes/validates entry-point-bearing files (throwing on a genuine
+    /// two-entry-point ambiguity for one module).</summary>
+    private static void IndexSourceFile(string filePath, Dictionary<string, string> index,
+        HashSet<string> entryModules)
+    {
+        // Skip debug AST dump files — they share the module name with the real source
+        if (filePath.EndsWith(value: ".rf.desugared",
+                comparisonType: StringComparison.OrdinalIgnoreCase))
+            return;
+
+        // File-granularity conditional compilation: skip a `.rf` file whose leading
+        // `#@target(...)` directive doesn't match the build target (RazorForge-only).
+        if (!Compiler.Targeting.TargetGate.ShouldCompile(filePath: filePath))
+            return;
+
+        string? moduleName = ExtractModuleName(filePath: filePath);
+        if (moduleName == null)
+        {
+            return;
+        }
+
+        string fullPath = Path.GetFullPath(path: filePath);
+        bool hasEntryPoint = FileDeclaresEntryPoint(filePath: filePath);
+
+        if (!index.ContainsKey(key: moduleName))
+        {
+            index[key: moduleName] = fullPath;
+            if (hasEntryPoint)
+            {
+                entryModules.Add(item: moduleName);
+            }
+
+            return;
+        }
+
+        // Module name already seen in another file. A library/module file (no entry point)
+        // sharing the name is fine — keep whichever entry candidate we already have.
+        if (!hasEntryPoint)
+        {
+            return;
+        }
+
+        if (entryModules.Contains(item: moduleName))
+        {
+            throw new InvalidOperationException(
+                message: $"{ManifestFileName}: module '{moduleName}' declares " +
+                         $"'routine start()' in both '{index[moduleName]}' and '{fullPath}'.");
+        }
+
+        // Promote the entry-bearing file over a previously-indexed library file.
+        index[key: moduleName] = fullPath;
+        entryModules.Add(item: moduleName);
     }
 
     /// <summary>

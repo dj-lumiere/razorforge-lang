@@ -177,11 +177,14 @@ public class ErrorHandlingValidationTests
                           message: Text
                         routine normal_routine!() -> S32
                           throw MyError(message: "error")
+
+                        routine trigger_variants() -> S32?
+                          return try_normal_routine()
                         """;
 
         AnalysisResult result = AnalyzeSa(source: source);
 
-        // Without @crash_only, variants SHOULD be generated
+        // Without @crash_only, variants are synthesized ON DEMAND — the trigger call above generates it.
         RoutineInfo? tryVariant = result.Registry.GetRoutine(name: "try_normal_routine");
         Assert.NotNull(@object: tryVariant);
     }

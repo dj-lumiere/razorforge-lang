@@ -84,6 +84,7 @@ dangerous routine RetainController[T].drop_data()
   me.data.as_entity().destroy()
   return
 
+@override
 dangerous routine RetainController[T].destroy()
   if me.should_deallocate_controller()
     me.strong_count.destroy()

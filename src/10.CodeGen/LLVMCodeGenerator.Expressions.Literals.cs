@@ -649,29 +649,11 @@ public partial class LlvmCodeGenerator
     {
         // IEEE 754-2008 decimal: bit-pattern combination-field encodes special values.
         // Common-form: top 5 bits 11110 = inf, 11111 = NaN (quiet NaN: payload MSB 0).
-        if (numericValue == "inf" || numericValue == "nan")
+        if ((numericValue == "inf" || numericValue == "nan") &&
+            EmitSpecialDecimalFloatLiteral(isNan: numericValue == "nan",
+                literalType: literalType) is { } special)
         {
-            bool isNan = numericValue == "nan";
-            switch (literalType)
-            {
-                case TokenType.D32Literal:
-                    return (isNan ? 0x7C000000U : 0x78000000U).ToString();
-                case TokenType.D64Literal:
-                    return (isNan ? 0x7C00000000000000UL : 0x7800000000000000UL).ToString();
-                case TokenType.D128Literal:
-                {
-                    // D128 is now @llvm("i128") BID; emit a single i128 constant. The combination
-                    // prefix (0x78.. inf / 0x7C.. nan) lives in the high 64 bits, low bits zero.
-                    ulong hi = isNan ? 0x7C00000000000000UL : 0x7800000000000000UL;
-                    return $"u0x{hi:X16}0000000000000000";
-                }
-                case TokenType.DecimalLiteral:
-                {
-                    // Decimal is @llvm("i256") BID; combination prefix in the top byte, rest zero.
-                    ulong top = isNan ? 0x7C00000000000000UL : 0x7800000000000000UL;
-                    return $"u0x{top:X16}000000000000000000000000000000000000000000000000";
-                }
-            }
+            return special;
         }
         switch (literalType)
         {
@@ -701,6 +683,37 @@ public partial class LlvmCodeGenerator
             }
             default:
                 return numericValue;
+        }
+    }
+
+    /// <summary>
+    /// Emits the raw bit-pattern constant for a decimal inf/NaN special value (combination-field
+    /// encoding: 0x78.. inf, 0x7C.. quiet NaN). Returns null for a non-decimal literal type so the
+    /// caller falls through to normal encoding.
+    /// </summary>
+    private static string? EmitSpecialDecimalFloatLiteral(bool isNan, TokenType literalType)
+    {
+        switch (literalType)
+        {
+            case TokenType.D32Literal:
+                return (isNan ? 0x7C000000U : 0x78000000U).ToString();
+            case TokenType.D64Literal:
+                return (isNan ? 0x7C00000000000000UL : 0x7800000000000000UL).ToString();
+            case TokenType.D128Literal:
+            {
+                // D128 is now @llvm("i128") BID; emit a single i128 constant. The combination
+                // prefix (0x78.. inf / 0x7C.. nan) lives in the high 64 bits, low bits zero.
+                ulong hi = isNan ? 0x7C00000000000000UL : 0x7800000000000000UL;
+                return $"u0x{hi:X16}0000000000000000";
+            }
+            case TokenType.DecimalLiteral:
+            {
+                // Decimal is @llvm("i256") BID; combination prefix in the top byte, rest zero.
+                ulong top = isNan ? 0x7C00000000000000UL : 0x7800000000000000UL;
+                return $"u0x{top:X16}000000000000000000000000000000000000000000000000";
+            }
+            default:
+                return null;
         }
     }
 

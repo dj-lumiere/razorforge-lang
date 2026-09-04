@@ -170,6 +170,13 @@ internal static class GenericAstRewriter
             if (original == null || TypeSubs == null || Registry == null)
                 return null;
 
+            // A marker borrow protocol (Accessing[X]/Controlling[X]) is ABI-transparent to its inner X:
+            // collapse it so no protocol type survives on a monomorphized expression's ResolvedType (the
+            // backend then reads the concrete inner — an entity ptr / a value — never a protocol).
+            if (original is ProtocolTypeInfo { TypeArguments: [{ } markerInner] } markerProto
+                && RuntimeContract.IsMarkerProtocol(baseName: (markerProto.GenericDefinition ?? markerProto).BareName))
+                return ResolveType(original: markerInner) ?? markerInner;
+
             // Protocol self (`Me`/ProtocolSelf) -> the bound implementer (TypeSubs["Me"]).
             if (original is ProtocolSelfTypeInfo &&
                 TypeSubs.TryGetValue(key: "Me", value: out TypeInfo? meBound))
@@ -373,71 +380,34 @@ internal static class GenericAstRewriter
 
             if (resolvedOwner != null)
             {
-                RoutineInfo? resolvedMemberRoutine = ResolveMemberRoutineOnConcreteOwner(ownerType: resolvedOwner,
-                    memberRoutineName: original.Name,
-                    argTypes: resolvedParamTypes,
-                    isFailable: original.IsFailable);
-                if (resolvedMemberRoutine != null)
+                RoutineInfo? onOwner = ResolveRoutineOnOwner(original: original,
+                    resolvedOwner: resolvedOwner,
+                    resolvedParamTypes: resolvedParamTypes,
+                    memberRoutineInferArgTypes: memberRoutineInferArgTypes);
+                if (onOwner != null)
                 {
-                    // If LookupMemberRoutine returned the generic-definition form of a memberRoutine-generic
-                    // routine (e.g., Array[T,N].getitem[I]), monomorphize it using the
-                    // substituted argument types so codegen gets a concrete routine, not a
-                    // generic-def one.
-                    if (resolvedMemberRoutine is { IsGenericDefinition: true, GenericParameters.Count: > 0 })
-                    {
-                        RoutineInfo? memberRoutineResolved = TryResolveMemberRoutineGeneric(
-                            routine: resolvedMemberRoutine,
-                            argTypes: memberRoutineInferArgTypes);
-                        if (memberRoutineResolved != null)
-                        {
-                            return memberRoutineResolved;
-                        }
-                    }
-
-                    if (resolvedMemberRoutine.OwnerType is not { IsGenericDefinition: true })
-                    {
-                        return resolvedMemberRoutine;
-                    }
+                    return onOwner;
                 }
             }
 
             if (original.Name == CreateMemberRoutineName)
             {
-                TypeInfo? resolvedTarget = ResolveTypeForLookup(expressionType);
-                if (resolvedTarget != null)
+                RoutineInfo? creator = ResolveCreateTarget(original: original,
+                    expressionType: expressionType,
+                    resolvedParamTypes: resolvedParamTypes);
+                if (creator != null)
                 {
-                    RoutineInfo? resolvedCreator = ResolveMemberRoutineOnConcreteOwner(ownerType: resolvedTarget,
-                        memberRoutineName: CreateMemberRoutineName,
-                        argTypes: resolvedParamTypes,
-                        isFailable: original.IsFailable);
-                    resolvedCreator ??= Registry.LookupRoutineOverload(
-                        baseName: $"{resolvedTarget.Name}.create",
-                        argTypes: resolvedParamTypes);
-                    if (resolvedCreator?.OwnerType is { IsGenericDefinition: true })
-                    {
-                        resolvedCreator = null;
-                    }
-                    if (resolvedCreator != null)
-                    {
-                        return resolvedCreator;
-                    }
+                    return creator;
                 }
             }
 
             if (original.OwnerType == null)
             {
-                RoutineInfo? instantiatedRoutine = TryInstantiateRoutine(original);
-                if (instantiatedRoutine != null)
+                RoutineInfo? free = ResolveFreeRoutine(original: original,
+                    resolvedParamTypes: resolvedParamTypes);
+                if (free != null)
                 {
-                    return instantiatedRoutine;
-                }
-
-                RoutineInfo? resolvedRoutine =
-                    Registry.LookupRoutineOverload(baseName: original.BaseName,
-                        argTypes: resolvedParamTypes);
-                if (resolvedRoutine != null && resolvedRoutine.IsFailable == original.IsFailable)
-                {
-                    return resolvedRoutine;
+                    return free;
                 }
             }
 
@@ -448,6 +418,97 @@ internal static class GenericAstRewriter
             }
 
             return original;
+        }
+
+        /// <summary>
+        /// Resolves <paramref name="original"/> as a memberRoutine on the (concrete) resolved owner,
+        /// monomorphizing a memberRoutine-generic definition form when needed. Returns null when no
+        /// concrete-owner memberRoutine binds here (the caller then falls through to other strategies).
+        /// </summary>
+        private RoutineInfo? ResolveRoutineOnOwner(RoutineInfo original, TypeInfo resolvedOwner,
+            List<TypeInfo> resolvedParamTypes, List<TypeInfo> memberRoutineInferArgTypes)
+        {
+            RoutineInfo? resolvedMemberRoutine = ResolveMemberRoutineOnConcreteOwner(ownerType: resolvedOwner,
+                memberRoutineName: original.Name,
+                argTypes: resolvedParamTypes,
+                isFailable: original.IsFailable);
+            if (resolvedMemberRoutine == null)
+            {
+                return null;
+            }
+
+            // If LookupMemberRoutine returned the generic-definition form of a memberRoutine-generic
+            // routine (e.g., Array[T,N].getitem[I]), monomorphize it using the
+            // substituted argument types so codegen gets a concrete routine, not a
+            // generic-def one.
+            if (resolvedMemberRoutine is { IsGenericDefinition: true, GenericParameters.Count: > 0 })
+            {
+                RoutineInfo? memberRoutineResolved = TryResolveMemberRoutineGeneric(
+                    routine: resolvedMemberRoutine,
+                    argTypes: memberRoutineInferArgTypes);
+                if (memberRoutineResolved != null)
+                {
+                    return memberRoutineResolved;
+                }
+            }
+
+            if (resolvedMemberRoutine.OwnerType is not { IsGenericDefinition: true })
+            {
+                return resolvedMemberRoutine;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Resolves a <c>create</c> routine on the concrete construction target derived from
+        /// <paramref name="expressionType"/>. Returns null when the target or a concrete creator
+        /// cannot be resolved.
+        /// </summary>
+        private RoutineInfo? ResolveCreateTarget(RoutineInfo original, TypeInfo? expressionType,
+            List<TypeInfo> resolvedParamTypes)
+        {
+            TypeInfo? resolvedTarget = ResolveTypeForLookup(expressionType);
+            if (resolvedTarget == null)
+            {
+                return null;
+            }
+
+            RoutineInfo? resolvedCreator = ResolveMemberRoutineOnConcreteOwner(ownerType: resolvedTarget,
+                memberRoutineName: CreateMemberRoutineName,
+                argTypes: resolvedParamTypes,
+                isFailable: original.IsFailable);
+            resolvedCreator ??= Registry!.LookupRoutineOverload(
+                baseName: $"{resolvedTarget.Name}.create",
+                argTypes: resolvedParamTypes);
+            if (resolvedCreator?.OwnerType is { IsGenericDefinition: true })
+            {
+                resolvedCreator = null;
+            }
+            return resolvedCreator;
+        }
+
+        /// <summary>
+        /// Resolves an owner-less (free) routine: instantiate it if generic, else look up a matching
+        /// overload with the same failability. Returns null when neither strategy binds.
+        /// </summary>
+        private RoutineInfo? ResolveFreeRoutine(RoutineInfo original, List<TypeInfo> resolvedParamTypes)
+        {
+            RoutineInfo? instantiatedRoutine = TryInstantiateRoutine(original);
+            if (instantiatedRoutine != null)
+            {
+                return instantiatedRoutine;
+            }
+
+            RoutineInfo? resolvedRoutine =
+                Registry!.LookupRoutineOverload(baseName: original.BaseName,
+                    argTypes: resolvedParamTypes);
+            if (resolvedRoutine != null && resolvedRoutine.IsFailable == original.IsFailable)
+            {
+                return resolvedRoutine;
+            }
+
+            return null;
         }
 
         // Mirrors OperatorLoweringPass.ResolveMemberRoutineGenericRoutine: infer memberRoutine-level
@@ -1205,6 +1266,20 @@ internal static class GenericAstRewriter
         // on _typeSubstitutions (the mutable global-state fallback).
         if (!ReferenceEquals(result, expr))
         {
+            AnnotateRewrittenExpression(result: result, expr: expr, ctx: ctx);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// After an expression is cloned+substituted, backfills its <see cref="Expression.ResolvedType"/>
+    /// with the concrete type and re-binds any resolved routine / constructed type carried by the node.
+    /// Mutates <paramref name="result"/> in place.
+    /// </summary>
+    private static void AnnotateRewrittenExpression(Expression result, Expression expr, RewriteContext ctx)
+    {
+        {
             TypeInfo? resolvedType = ctx.ResolveType(original: expr.ResolvedType) ?? expr.ResolvedType;
 
             // Const-generic identifiers (e.g. N in Array[T, N]) have ResolvedType=null in the
@@ -1289,132 +1364,7 @@ internal static class GenericAstRewriter
             result.ResolvedType = resolvedType;
 
             TypeInfo? routineResultType = resolvedType ?? result.ResolvedType ?? expr.ResolvedType;
-            switch (result)
-            {
-                case CallExpression { ResolvedRoutine: not null } call:
-                {
-                    call.ConstructedType =
-                        ctx.ResolveType(original: call.ConstructedType) ??
-                        call.ConstructedType ??
-                        (expr is CallExpression originalCallWithRoutine
-                            ? originalCallWithRoutine.ConstructedType
-                            : null);
-                    var callArgTypes = call.Arguments
-                        .Select(selector: a =>
-                            (a is NamedArgumentExpression nae ? nae.Value : a).ResolvedType)
-                        .Where(predicate: t => t != null)
-                        .Cast<TypeInfo>()
-                        .ToList();
-                    RoutineInfo? rewrittenRoutine = ctx.ResolveRoutine(
-                        original: call.ResolvedRoutine,
-                        expressionType: routineResultType,
-                        callArgTypes: callArgTypes);
-                    if (rewrittenRoutine == null ||
-                        CallRoutineNeedsRebinding(routine: rewrittenRoutine))
-                    {
-                        rewrittenRoutine = ctx.ResolveCallRoutine(call: call,
-                            expressionType: routineResultType,
-                            callArgTypes: callArgTypes) ?? rewrittenRoutine;
-                    }
-
-                    // A memberRoutine-generic callee whose type param is supplied by an explicit
-                    // `.MemberRoutine[U]()` type-argument (e.g. `recast_as[T]`) stays generic after
-                    // owner/arg resolution — re-instantiate from the callee's rewritten type args.
-                    rewrittenRoutine = ReinstantiateMemberRoutineGenericCallee(
-                        call: call, resolved: rewrittenRoutine, ctx: ctx);
-
-                    call.ResolvedRoutine = rewrittenRoutine ?? call.ResolvedRoutine;
-                    break;
-                }
-
-                case CallExpression call:
-                {
-                    call.ConstructedType =
-                        ctx.ResolveType(original: call.ConstructedType) ??
-                        call.ConstructedType ??
-                        (expr is CallExpression originalCall
-                            ? originalCall.ConstructedType
-                            : null);
-                    var callArgTypes = call.Arguments
-                        .Select(selector: a =>
-                            (a is NamedArgumentExpression nae ? nae.Value : a).ResolvedType)
-                        .Where(predicate: t => t != null)
-                        .Cast<TypeInfo>()
-                        .ToList();
-                    RoutineInfo? plainResolved = ctx.ResolveCallRoutine(call: call,
-                        expressionType: routineResultType,
-                        callArgTypes: callArgTypes) ?? call.ResolvedRoutine;
-                    call.ResolvedRoutine = ReinstantiateMemberRoutineGenericCallee(
-                        call: call, resolved: plainResolved, ctx: ctx) ?? plainResolved;
-                    break;
-                }
-
-                case CreatorExpression creator:
-                    creator.ConstructedType =
-                        ctx.ResolveType(original: creator.ConstructedType) ??
-                        creator.ConstructedType ??
-                        (expr is CreatorExpression originalCreator
-                            ? originalCreator.ConstructedType
-                            : null);
-                    if (creator.ResolvedCreatorRoutine != null)
-                    {
-                        // Rewriting `List[T](capacity: …)` → `List[S64](capacity: …)` updates
-                        // TypeArguments/ConstructedType above, but `ResolvedCreatorRoutine`
-                        // still points at the generic-def `List[T].create`. Codegen reads
-                        // `creatorRoutine.FullName` directly, so without this resolve the
-                        // emitted call references the unsubstituted symbol and links fail.
-                        creator.ResolvedCreatorRoutine = ctx.ResolveRoutine(
-                            original: creator.ResolvedCreatorRoutine,
-                            expressionType: creator.ConstructedType)
-                            ?? creator.ResolvedCreatorRoutine;
-                    }
-                    break;
-
-                case TypeConversionExpression conversion:
-                    conversion.ConstructedType =
-                        ctx.ResolveType(original: conversion.ConstructedType) ??
-                        conversion.ConstructedType ??
-                        (expr is TypeConversionExpression originalConversion
-                            ? originalConversion.ConstructedType
-                            : null);
-                    break;
-
-                // A type-construction GMC (`WhereIterable[T, Me](...)`) carries a ConstructedType but
-                // NO ResolvedRoutine (it constructs via ConstructedType, not a routine call), so it
-                // must still have its ConstructedType concretized here — otherwise the generic-def
-                // struct name reaches codegen's GEP. Resolve it, falling back to the already-concrete
-                // ResolvedType when the bare def can't be resolved from this position.
-                case GenericMemberRoutineCallExpression { ResolvedRoutine: null } ctorCall
-                    when ctorCall.ConstructedType is { } ctorCt:
-                    ctorCall.ConstructedType = ctx.ResolveType(original: ctorCt)
-                        ?? (ctorCt.IsGenericResolution || ctorCt.IsGenericDefinition
-                            ? ctx.ResolveType(original: ctorCall.ResolvedType) ?? ctorCall.ResolvedType ?? ctorCt
-                            : ctorCt);
-                    break;
-
-                case GenericMemberRoutineCallExpression { ResolvedRoutine: not null } genericCall:
-                    genericCall.ConstructedType =
-                        ctx.ResolveType(original: genericCall.ConstructedType) ??
-                        genericCall.ConstructedType ??
-                        (expr is GenericMemberRoutineCallExpression originalGenericCall
-                            ? originalGenericCall.ConstructedType
-                            : null);
-                    RoutineInfo? gcResolved =
-                        ctx.ResolveRoutine(original: genericCall.ResolvedRoutine,
-                            expressionType: routineResultType);
-                    // If the routine is a memberRoutine-generic (`recast_as[U]`) whose `U` comes from the
-                    // explicit `[U]` type-argument, owner-based resolution can't concretize it —
-                    // re-instantiate from the (rewritten) explicit type-argument expressions.
-                    if (gcResolved is null or { IsGenericDefinition: true }
-                        or { OwnerType.IsGenericDefinition: true })
-                    {
-                        gcResolved = ctx.ResolveMemberRoutineGenericFromTypeArgs(
-                            routine: genericCall.ResolvedRoutine,
-                            typeArgExprs: genericCall.TypeArguments) ?? gcResolved;
-                    }
-                    genericCall.ResolvedRoutine = gcResolved ?? genericCall.ResolvedRoutine;
-                    break;
-            }
+            RebindRewrittenNode(result: result, expr: expr, routineResultType: routineResultType, ctx: ctx);
 
             // Stdlib bodies are processed by SA on the generic definition, so some
             // intermediate call expressions (e.g. me.address() inside cmp or diagnose)
@@ -1428,8 +1378,166 @@ internal static class GenericAstRewriter
                 result.ResolvedType = inferredReturnType;
             }
         }
+    }
 
-        return result;
+    /// <summary>
+    /// Re-binds the resolved routine and constructed type of a cloned node (call / creator /
+    /// conversion / generic memberRoutine call) against the concrete monomorphization context.
+    /// Mutates <paramref name="result"/> in place.
+    /// </summary>
+    private static void RebindRewrittenNode(Expression result, Expression expr,
+        TypeInfo? routineResultType, RewriteContext ctx)
+    {
+        switch (result)
+        {
+            case CallExpression { ResolvedRoutine: not null } call:
+                RebindResolvedCall(call: call, expr: expr, routineResultType: routineResultType, ctx: ctx);
+                break;
+
+            case CallExpression call:
+                RebindPlainCall(call: call, expr: expr, routineResultType: routineResultType, ctx: ctx);
+                break;
+
+            case CreatorExpression creator:
+                RebindCreator(creator: creator, expr: expr, ctx: ctx);
+                break;
+
+            case TypeConversionExpression conversion:
+                conversion.ConstructedType =
+                    ctx.ResolveType(original: conversion.ConstructedType) ??
+                    conversion.ConstructedType ??
+                    (expr is TypeConversionExpression originalConversion
+                        ? originalConversion.ConstructedType
+                        : null);
+                break;
+
+            // A type-construction GMC (`WhereIterable[T, Me](...)`) carries a ConstructedType but
+            // NO ResolvedRoutine (it constructs via ConstructedType, not a routine call), so it
+            // must still have its ConstructedType concretized here — otherwise the generic-def
+            // struct name reaches codegen's GEP. Resolve it, falling back to the already-concrete
+            // ResolvedType when the bare def can't be resolved from this position.
+            case GenericMemberRoutineCallExpression { ResolvedRoutine: null } ctorCall
+                when ctorCall.ConstructedType is { } ctorCt:
+                ctorCall.ConstructedType = ctx.ResolveType(original: ctorCt)
+                    ?? (ctorCt.IsGenericResolution || ctorCt.IsGenericDefinition
+                        ? ctx.ResolveType(original: ctorCall.ResolvedType) ?? ctorCall.ResolvedType ?? ctorCt
+                        : ctorCt);
+                break;
+
+            case GenericMemberRoutineCallExpression { ResolvedRoutine: not null } genericCall:
+                RebindGenericMemberRoutineCall(genericCall: genericCall, expr: expr,
+                    routineResultType: routineResultType, ctx: ctx);
+                break;
+        }
+    }
+
+    /// <summary>Re-binds a cloned <see cref="CallExpression"/> that already carries a resolved routine.</summary>
+    private static void RebindResolvedCall(CallExpression call, Expression expr,
+        TypeInfo? routineResultType, RewriteContext ctx)
+    {
+        call.ConstructedType =
+            ctx.ResolveType(original: call.ConstructedType) ??
+            call.ConstructedType ??
+            (expr is CallExpression originalCallWithRoutine
+                ? originalCallWithRoutine.ConstructedType
+                : null);
+        var callArgTypes = call.Arguments
+            .Select(selector: a =>
+                (a is NamedArgumentExpression nae ? nae.Value : a).ResolvedType)
+            .Where(predicate: t => t != null)
+            .Cast<TypeInfo>()
+            .ToList();
+        RoutineInfo? rewrittenRoutine = ctx.ResolveRoutine(
+            original: call.ResolvedRoutine,
+            expressionType: routineResultType,
+            callArgTypes: callArgTypes);
+        if (rewrittenRoutine == null ||
+            CallRoutineNeedsRebinding(routine: rewrittenRoutine))
+        {
+            rewrittenRoutine = ctx.ResolveCallRoutine(call: call,
+                expressionType: routineResultType,
+                callArgTypes: callArgTypes) ?? rewrittenRoutine;
+        }
+
+        // A memberRoutine-generic callee whose type param is supplied by an explicit
+        // `.MemberRoutine[U]()` type-argument (e.g. `recast_as[T]`) stays generic after
+        // owner/arg resolution — re-instantiate from the callee's rewritten type args.
+        rewrittenRoutine = ReinstantiateMemberRoutineGenericCallee(
+            call: call, resolved: rewrittenRoutine, ctx: ctx);
+
+        call.ResolvedRoutine = rewrittenRoutine ?? call.ResolvedRoutine;
+    }
+
+    /// <summary>Re-binds a cloned <see cref="CallExpression"/> that has no resolved routine yet.</summary>
+    private static void RebindPlainCall(CallExpression call, Expression expr,
+        TypeInfo? routineResultType, RewriteContext ctx)
+    {
+        call.ConstructedType =
+            ctx.ResolveType(original: call.ConstructedType) ??
+            call.ConstructedType ??
+            (expr is CallExpression originalCall
+                ? originalCall.ConstructedType
+                : null);
+        var callArgTypes = call.Arguments
+            .Select(selector: a =>
+                (a is NamedArgumentExpression nae ? nae.Value : a).ResolvedType)
+            .Where(predicate: t => t != null)
+            .Cast<TypeInfo>()
+            .ToList();
+        RoutineInfo? plainResolved = ctx.ResolveCallRoutine(call: call,
+            expressionType: routineResultType,
+            callArgTypes: callArgTypes) ?? call.ResolvedRoutine;
+        call.ResolvedRoutine = ReinstantiateMemberRoutineGenericCallee(
+            call: call, resolved: plainResolved, ctx: ctx) ?? plainResolved;
+    }
+
+    /// <summary>Re-binds a cloned <see cref="CreatorExpression"/>'s constructed type and creator routine.</summary>
+    private static void RebindCreator(CreatorExpression creator, Expression expr, RewriteContext ctx)
+    {
+        creator.ConstructedType =
+            ctx.ResolveType(original: creator.ConstructedType) ??
+            creator.ConstructedType ??
+            (expr is CreatorExpression originalCreator
+                ? originalCreator.ConstructedType
+                : null);
+        if (creator.ResolvedCreatorRoutine != null)
+        {
+            // Rewriting `List[T](capacity: …)` → `List[S64](capacity: …)` updates
+            // TypeArguments/ConstructedType above, but `ResolvedCreatorRoutine`
+            // still points at the generic-def `List[T].create`. Codegen reads
+            // `creatorRoutine.FullName` directly, so without this resolve the
+            // emitted call references the unsubstituted symbol and links fail.
+            creator.ResolvedCreatorRoutine = ctx.ResolveRoutine(
+                original: creator.ResolvedCreatorRoutine,
+                expressionType: creator.ConstructedType)
+                ?? creator.ResolvedCreatorRoutine;
+        }
+    }
+
+    /// <summary>Re-binds a cloned <see cref="GenericMemberRoutineCallExpression"/> that carries a resolved routine.</summary>
+    private static void RebindGenericMemberRoutineCall(GenericMemberRoutineCallExpression genericCall,
+        Expression expr, TypeInfo? routineResultType, RewriteContext ctx)
+    {
+        genericCall.ConstructedType =
+            ctx.ResolveType(original: genericCall.ConstructedType) ??
+            genericCall.ConstructedType ??
+            (expr is GenericMemberRoutineCallExpression originalGenericCall
+                ? originalGenericCall.ConstructedType
+                : null);
+        RoutineInfo? gcResolved =
+            ctx.ResolveRoutine(original: genericCall.ResolvedRoutine,
+                expressionType: routineResultType);
+        // If the routine is a memberRoutine-generic (`recast_as[U]`) whose `U` comes from the
+        // explicit `[U]` type-argument, owner-based resolution can't concretize it —
+        // re-instantiate from the (rewritten) explicit type-argument expressions.
+        if (gcResolved is null or { IsGenericDefinition: true }
+            or { OwnerType.IsGenericDefinition: true })
+        {
+            gcResolved = ctx.ResolveMemberRoutineGenericFromTypeArgs(
+                routine: genericCall.ResolvedRoutine,
+                typeArgExprs: genericCall.TypeArguments) ?? gcResolved;
+        }
+        genericCall.ResolvedRoutine = gcResolved ?? genericCall.ResolvedRoutine;
     }
 
     /// <summary>
@@ -2203,129 +2311,137 @@ internal static class GenericAstRewriter
     private static Expression FoldHandleProjection(string projection, RewriteContext ctx,
         SourceLocation location)
     {
-        if (projection == "name")
+        return projection switch
         {
-            return new LiteralExpression(Value: ctx.ActiveMemberName ?? "",
-                LiteralType: TokenType.TextLiteral,
-                Location: location)
-            {
-                ResolvedType = ctx.Registry?.LookupType(name: "Text")
-            };
-        }
+            "name" => FoldProjectionName(ctx: ctx, location: location),
+            "is_secret" => FoldProjectionIsSecret(ctx: ctx, location: location),
+            "value" => FoldProjectionValue(ctx: ctx, location: location),
+            "type_id" => FoldProjectionTypeId(ctx: ctx, location: location),
+            "is_inert" => FoldProjectionIsInert(ctx: ctx, location: location),
+            "is_retaining" => FoldProjectionIsRetaining(ctx: ctx, location: location),
+            "type" => FoldProjectionType(ctx: ctx, location: location),
+            "is_routine" => FoldProjectionIsRoutine(ctx: ctx, location: location),
+            _ => FoldProjectionId(ctx: ctx, location: location) // "id"
+        };
+    }
 
-        if (projection == "is_secret")
+    private static Expression FoldProjectionName(RewriteContext ctx, SourceLocation location) =>
+        new LiteralExpression(Value: ctx.ActiveMemberName ?? "",
+            LiteralType: TokenType.TextLiteral,
+            Location: location)
         {
-            return new LiteralExpression(Value: ctx.ActiveMemberIsSecret,
-                LiteralType: ctx.ActiveMemberIsSecret ? TokenType.True : TokenType.False,
-                Location: location)
-            {
-                ResolvedType = ctx.Registry?.LookupType(name: "Bool")
-            };
-        }
+            ResolvedType = ctx.Registry?.LookupType(name: "Text")
+        };
 
-        if (projection == "value")
+    private static Expression FoldProjectionIsSecret(RewriteContext ctx, SourceLocation location) =>
+        new LiteralExpression(Value: ctx.ActiveMemberIsSecret,
+            LiteralType: ctx.ActiveMemberIsSecret ? TokenType.True : TokenType.False,
+            Location: location)
         {
-            // caseof `c.value`: a choice's S32 discriminant or a flags member's U64 bit value.
-            return ctx.ActiveCaseIsFlags
-                ? new LiteralExpression(Value: (ulong)ctx.ActiveCaseValue,
-                    LiteralType: TokenType.U64Literal, Location: location)
-                {
-                    ResolvedType = ctx.Registry?.LookupType(name: "U64")
-                }
-                : new LiteralExpression(Value: ctx.ActiveCaseValue,
-                    LiteralType: TokenType.S32Literal, Location: location)
-                {
-                    ResolvedType = ctx.Registry?.LookupType(name: "S32")
-                };
-        }
+            ResolvedType = ctx.Registry?.LookupType(name: "Bool")
+        };
 
-        if (projection == "type_id")
-        {
-            // The current arm/member type's stable type id (branchof `m.type_id`), matching the C#
-            // `TypeIdHelper.ComputeTypeId(FullName)` used by variant `diagnose`.
-            ulong typeId = ctx.ActiveMemberType?.FullName is { } fn
-                ? Compiler.TypeIdHelper.ComputeTypeId(fullName: fn)
-                : 0UL;
-            return new LiteralExpression(Value: typeId,
+    private static Expression FoldProjectionValue(RewriteContext ctx, SourceLocation location)
+    {
+        // caseof `c.value`: a choice's S32 discriminant or a flags member's U64 bit value.
+        return ctx.ActiveCaseIsFlags
+            ? new LiteralExpression(Value: (ulong)ctx.ActiveCaseValue,
                 LiteralType: TokenType.U64Literal, Location: location)
             {
                 ResolvedType = ctx.Registry?.LookupType(name: "U64")
-            };
-        }
-
-        if (projection == "is_inert")
-        {
-            // "뒷끝 없다" — the member's type tears down to nothing (owns no entity / RC / managed leaf /
-            // raw pointer needing release): its `destroy` is a transitive no-op, and may not even be
-            // DEFINED (reachability prunes trivial destroys — e.g. `Hijacked[…].destroy`), so a derive
-            // must SKIP calling `.destroy()` on it, not just for size but for link-correctness.
-            bool inert = ctx.ActiveMemberType != null && ctx.Registry != null &&
-                         ctx.Registry.IsTriviallyDestructible(type: ctx.ActiveMemberType);
-            return new LiteralExpression(Value: inert,
-                LiteralType: inert ? TokenType.True : TokenType.False,
-                Location: location)
+            }
+            : new LiteralExpression(Value: ctx.ActiveCaseValue,
+                LiteralType: TokenType.S32Literal, Location: location)
             {
-                ResolvedType = ctx.Registry?.LookupType(name: "Bool")
+                ResolvedType = ctx.Registry?.LookupType(name: "S32")
             };
-        }
+    }
 
-        if (projection == "is_retaining")
+    private static Expression FoldProjectionTypeId(RewriteContext ctx, SourceLocation location)
+    {
+        // The current arm/member type's stable type id (branchof `m.type_id`), matching the C#
+        // `TypeIdHelper.ComputeTypeId(FullName)` used by variant `diagnose`.
+        ulong typeId = ctx.ActiveMemberType?.FullName is { } fn
+            ? Compiler.TypeIdHelper.ComputeTypeId(fullName: fn)
+            : 0UL;
+        return new LiteralExpression(Value: typeId,
+            LiteralType: TokenType.U64Literal, Location: location)
         {
-            // The member's type has a RETAINING copy hook — a resolvable `store` (the managed-leaf
-            // refcount bump, e.g. Text/Decimal, or a record owning one). A bitwise alias of such a
-            // member would double-free at teardown, so the derived `store` must re-store it. Every
-            // OTHER member (a pure value, or an @llvm-backed aggregate like `Array[T, N]` that has NO
-            // `store` at all — even when its `destroy` walks elements) is copied bitwise and MUST be
-            // skipped: emitting `me.field.assign()` on it would call a `store` that does not exist
-            // (the RoutineTrace `Array[RoutineRecord, 10]` codegen failure). This is the store-side
-            // dual of `is_inert` (which keys off destructibility, the wrong axis for a copy).
-            bool retaining = ctx.ActiveMemberType != null && ctx.Registry != null &&
-                             ctx.Registry.GetLifecycle(type: ctx.ActiveMemberType).Store is not null;
-            return new LiteralExpression(Value: retaining,
-                LiteralType: retaining ? TokenType.True : TokenType.False,
-                Location: location)
-            {
-                ResolvedType = ctx.Registry?.LookupType(name: "Bool")
-            };
-        }
+            ResolvedType = ctx.Registry?.LookupType(name: "U64")
+        };
+    }
 
-        if (projection == "type")
+    private static Expression FoldProjectionIsInert(RewriteContext ctx, SourceLocation location)
+    {
+        // "뒷끝 없다" — the member's type tears down to nothing (owns no entity / RC / managed leaf /
+        // raw pointer needing release): its `destroy` is a transitive no-op, and may not even be
+        // DEFINED (reachability prunes trivial destroys — e.g. `Hijacked[…].destroy`), so a derive
+        // must SKIP calling `.destroy()` on it, not just for size but for link-correctness.
+        bool inert = ctx.ActiveMemberType != null && ctx.Registry != null;
+        return new LiteralExpression(Value: inert,
+            LiteralType: inert ? TokenType.True : TokenType.False,
+            Location: location)
         {
-            // `${m.type}` in EXPRESSION position folds to a TYPEWISE receiver: an identifier naming the
-            // concrete member/arm type, annotated with that type so a following static call
-            // (`.data_size()`, `.type_id()`, …) re-resolves as a universal memberRoutine on it — exactly like a
-            // hand-written `S64.data_size()`. (In TYPE/pattern position `${m.type}` is a different node,
-            // TypeExpression.SpliceHandle / SpliceTypePattern, handled at parse/resolve time.)
-            TypeInfo? memberType = ctx.ActiveMemberType;
-            return new IdentifierExpression(
-                Name: memberType?.Name ?? "None",
-                Location: location)
-            {
-                ResolvedType = memberType
-            };
-        }
+            ResolvedType = ctx.Registry?.LookupType(name: "Bool")
+        };
+    }
 
-        if (projection == "is_routine")
+    private static Expression FoldProjectionIsRetaining(RewriteContext ctx, SourceLocation location)
+    {
+        // The member's type has a RETAINING copy hook — a resolvable `store` (the managed-leaf
+        // refcount bump, e.g. Text/Decimal, or a record owning one). A bitwise alias of such a
+        // member would double-free at teardown, so the derived `store` must re-store it. Every
+        // OTHER member (a pure value, or an @llvm-backed aggregate like `Array[T, N]` that has NO
+        // `store` at all — even when its `destroy` walks elements) is copied bitwise and MUST be
+        // skipped: emitting `me.field.assign()` on it would call a `store` that does not exist
+        // (the RoutineTrace `Array[RoutineRecord, 10]` codegen failure). This is the store-side
+        // dual of `is_inert` (which keys off destructibility, the wrong axis for a copy).
+        bool retaining = ctx.ActiveMemberType != null && ctx.Registry != null &&
+                         ctx.Registry.GetLifecycle(type: ctx.ActiveMemberType).Store is not null;
+        return new LiteralExpression(Value: retaining,
+            LiteralType: retaining ? TokenType.True : TokenType.False,
+            Location: location)
         {
-            // A routine-typed member (only entities may hold one; records are barred by RF-S412) has
-            // neither `serialize` nor `represent`, so a derive skips it (boxes a `<routine>` placeholder).
-            bool isRoutine = ctx.ActiveMemberType is RoutineTypeInfo;
-            return new LiteralExpression(Value: isRoutine,
-                LiteralType: isRoutine ? TokenType.True : TokenType.False,
-                Location: location)
-            {
-                ResolvedType = ctx.Registry?.LookupType(name: "Bool")
-            };
-        }
+            ResolvedType = ctx.Registry?.LookupType(name: "Bool")
+        };
+    }
 
-        // "id"
-        return new LiteralExpression(Value: (ulong)ctx.ActiveMemberIndex,
+    private static Expression FoldProjectionType(RewriteContext ctx, SourceLocation location)
+    {
+        // `${m.type}` in EXPRESSION position folds to a TYPEWISE receiver: an identifier naming the
+        // concrete member/arm type, annotated with that type so a following static call
+        // (`.data_size()`, `.type_id()`, …) re-resolves as a universal memberRoutine on it — exactly like a
+        // hand-written `S64.data_size()`. (In TYPE/pattern position `${m.type}` is a different node,
+        // TypeExpression.SpliceHandle / SpliceTypePattern, handled at parse/resolve time.)
+        TypeInfo? memberType = ctx.ActiveMemberType;
+        return new IdentifierExpression(
+            Name: memberType?.Name ?? "None",
+            Location: location)
+        {
+            ResolvedType = memberType
+        };
+    }
+
+    private static Expression FoldProjectionIsRoutine(RewriteContext ctx, SourceLocation location)
+    {
+        // A routine-typed member (only entities may hold one; records are barred by RF-S412) has
+        // neither `serialize` nor `represent`, so a derive skips it (boxes a `<routine>` placeholder).
+        bool isRoutine = ctx.ActiveMemberType is RoutineTypeInfo;
+        return new LiteralExpression(Value: isRoutine,
+            LiteralType: isRoutine ? TokenType.True : TokenType.False,
+            Location: location)
+        {
+            ResolvedType = ctx.Registry?.LookupType(name: "Bool")
+        };
+    }
+
+    private static Expression FoldProjectionId(RewriteContext ctx, SourceLocation location) =>
+        new LiteralExpression(Value: (ulong)ctx.ActiveMemberIndex,
             LiteralType: TokenType.U64Literal,
             Location: location)
         {
             ResolvedType = ctx.Registry?.LookupType(name: "U64")
         };
-    }
 
     /// <summary>
     /// True when a metadata intrinsic's argument can be folded in the current context: the argument

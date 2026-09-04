@@ -125,6 +125,7 @@ dangerous routine GuardController[T, P].drop_data()
   me.data.as_entity().destroy()
   return
 
+@override
 dangerous routine GuardController[T, P].destroy()
   me.strong_count.destroy()
   me.weak_count.destroy()

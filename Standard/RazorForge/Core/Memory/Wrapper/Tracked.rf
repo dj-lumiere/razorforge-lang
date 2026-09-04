@@ -65,13 +65,13 @@ routine Tracked[T].weak_count() -> U32
 
 ### Returns the textual representation of this value.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine Tracked[T].represent() -> Text
   return me.type_name()
 
 ### Returns the textual representation of this value.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine Tracked[T].diagnose() -> Text
   danger
     var ctrl = hijacked_from[RetainController[T]](me.get_address()).as_entity()
@@ -81,6 +81,7 @@ routine Tracked[T].diagnose() -> Text
 
 ### Decrements the weak count, tearing down the controller when both counts reach zero. This IS the
 ### decrement — no separate `release` verb; `destroy` is the teardown.
+@override
 dangerous routine Tracked[T].destroy()
   var ctrl = hijacked_from[RetainController[T]](me.get_address()).as_entity()
   ctrl.unobserve()

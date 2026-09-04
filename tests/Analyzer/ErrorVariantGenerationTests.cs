@@ -36,11 +36,14 @@ public class ErrorVariantGenerationTests
 
                         routine fetch_user(id: U64) -> User
                           return User(name: "test")
+
+                        routine trigger_variants(id: U64) -> User?
+                          return try_get(id: id)
                         """;
 
         AnalysisResult result = AnalyzeSa(source: source);
 
-        // Should generate try_get variant
+        // Variants are synthesized ON DEMAND — the trigger call above generates try_get.
         RoutineInfo? tryVariant = result.Registry.GetRoutine(name: "try_get");
         Assert.NotNull(@object: tryVariant);
         // Return type should be Maybe[User] / User?
@@ -75,11 +78,15 @@ public class ErrorVariantGenerationTests
                           if value < 0
                             throw ValidationError(message: "negative")
                           return value
+
+                        routine trigger_variants(value: S32) -> S32?
+                          check_validate(value: value)
+                          return try_validate(value: value)
                         """;
 
         AnalysisResult result = AnalyzeSa(source: source);
 
-        // Should generate check_validate variant
+        // Variants are synthesized ON DEMAND — the trigger calls above generate check_/try_validate.
         RoutineInfo? checkVariant = result.Registry.GetRoutine(name: "check_validate");
         Assert.NotNull(@object: checkVariant);
 
@@ -128,11 +135,15 @@ public class ErrorVariantGenerationTests
 
                         routine fetch_user(id: U64) -> User
                           return User(name: "test")
+
+                        routine trigger_variants(id: U64) -> User?
+                          lookup_get_user(id: id)
+                          return try_get_user(id: id)
                         """;
 
         AnalysisResult result = AnalyzeSa(source: source);
 
-        // Should generate lookup_get_user variant
+        // Variants are synthesized ON DEMAND — the trigger calls above generate lookup_/try_get_user.
         RoutineInfo? lookupVariant = result.Registry.GetRoutine(name: "lookup_get_user");
         Assert.NotNull(@object: lookupVariant);
 
@@ -159,11 +170,14 @@ public class ErrorVariantGenerationTests
                           unless me.data.has(key)
                             absent
                           return me.data.get(key)
+
+                        routine Cache.trigger(key: Text) -> S32?
+                          return me.try_get(key: key)
                         """;
 
         AnalysisResult result = AnalyzeSa(source: source);
 
-        // Should generate try_get memberRoutine variant
+        // Variants are synthesized ON DEMAND — the trigger call above generates Cache.try_get.
         RoutineInfo? tryVariant = result.Registry.GetRoutine(name: "Cache.try_get");
         Assert.NotNull(@object: tryVariant);
     }
@@ -306,11 +320,15 @@ public class ErrorVariantGenerationTests
 
                         routine parse_number!(text: Text) -> S32
                           throw SomeError(msg: "parse failed")
+
+                        routine trigger_variants(text: Text) -> S32?
+                          check_parse_number(text: text)
+                          return try_parse_number(text: text)
                         """;
 
         AnalysisResult result = AnalyzeSa(source: source);
 
-        // Verify naming: routine_name! -> try_routine_name, check_routine_name
+        // Variants are synthesized ON DEMAND — the trigger calls above generate check_/try_parse_number.
         RoutineInfo? checkVariant = result.Registry.GetRoutine(name: "check_parse_number");
         RoutineInfo? tryVariant = result.Registry.GetRoutine(name: "try_parse_number");
 

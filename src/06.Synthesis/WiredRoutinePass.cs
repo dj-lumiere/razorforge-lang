@@ -58,7 +58,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         Position: 0);
 
     /// <summary>Synthesizes and registers all wired routines for the current program.</summary>
-    public void RunGlobal() // NOSONAR S3776
+    public void RunGlobal()
     {
         TypeInfo? textType = ctx.Registry.LookupType(name: "Text");
         TypeInfo? boolType = ctx.Registry.LookupType(name: "Bool");
@@ -77,7 +77,9 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         if (textType == null || boolType == null)
             return;
 
-        foreach (RoutineInfo routine in ctx.Registry.GetAllRoutines())
+        // Base build: build derive bodies for ALL concrete types, not just live ones (so the precompiled
+        // stdlib base defines every routine it references). Normal builds keep the liveness filter.
+        foreach (RoutineInfo routine in ctx.Registry.GetAllRoutines(requireLive: !ctx.SynthesizeAllDerives))
         {
             if (!routine.IsSynthesized) continue;
             if (ctx.RoutineBodies.ContainsKey(key: routine.RegistryKey)) continue;
@@ -122,109 +124,16 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                     byteSizeType: byteSizeType))
                 continue;
 
-            switch (routine)
-            {
-                // Unified destructor: synthesize the auto-derived `destroy()` body. Composite
-                // record/entity/crashable types recurse into their owned fields; scalar kinds
-                // (choices, flags, `@llvm`-backed primitives, tuples, variants) are no-ops. The
-                // leaf RC/ptr behaviour (Hijacked → invalidate, Retained/Tracked → controller,
-                // Viewing/Modifying → no-op) lives in hand-written wrapper `destroy`s, so those are
-                // never auto-derived (they already exist).
-                case { Name: "destroy", Parameters.Count: 0 }:
-                {
-                    // Plain records/tuples (field-walk) and entities (field-walk + `hijack().invalidate()`
-                    // self-free via the `is EntityType` override) clone the `@overridable routine
-                    // T.destroy()` derive template. The template skips inert members (`m.is_inert`) — incl.
-                    // raw-pointer `Hijacked[T]` fields, now trivially destructible — so no undefined-symbol
-                    // trivial-destroy call is emitted. @llvm leaves / choice / flags (no owned fields →
-                    // noop) and VARIANTS (tag-dispatch teardown) keep the C# builder.
-                    TypeInfo? dOwner = routine.OwnerType;
-                    bool templatable = dOwner is EntityTypeInfo or VariantTypeInfo
-                        || (dOwner is RecordTypeInfo { HasDirectBackendType: false }
-                            and not (VariantTypeInfo or ChoiceTypeInfo or FlagsTypeInfo));
-                    ctx.VariantBodies[key: routine.RegistryKey] =
-                        (templatable && dOwner != null
-                            ? CloneUniversalDeriveBody(ownerType: dOwner, synthesized: routine,
-                                memberRoutineName: "destroy")
-                            : null)
-                        ?? BuildDestroyBody(owner: dOwner);
-                    continue;
-                }
-                // Cycle-collector per-type hooks (see AutoWiredRegistrationPass.MaybeRegisterRoamHook).
-                case { Name: "roam_trace_impl", Parameters.Count: 0 }:
-                    ctx.VariantBodies[key: routine.RegistryKey] =
-                        BuildRoamTraceBody(owner: routine.OwnerType);
-                    continue;
-                case { Name: "roam_free_impl", Parameters.Count: 0 }:
-                    ctx.VariantBodies[key: routine.RegistryKey] =
-                        BuildRoamFreeBody(owner: routine.OwnerType);
-                    continue;
-                default:
-                    switch (routine.OwnerType)
-                    {
-                        case TupleTypeInfo tuple:
-                            HandleTuple(routine: routine,
-                                tuple: tuple,
-                                textType: textType,
-                                s32Type: s32Type);
-                            break;
-
-                        case ChoiceTypeInfo choice:
-                            HandleChoice(routine: routine,
-                                choice: choice,
-                                textType: textType,
-                                boolType: boolType,
-                                logicBreachedErrorType: logicBreachedErrorType,
-                                u64Type: u64Type,
-                                s64Type: s64Type,
-                                listTypeDef: listTypeDef);
-                            break;
-
-                        case FlagsTypeInfo flags:
-                            HandleFlags(routine: routine,
-                                flags: flags,
-                                textType: textType,
-                                boolType: boolType,
-                                u64Type: u64Type,
-                                listTypeDef: listTypeDef);
-                            break;
-
-                        case VariantTypeInfo variant:
-                            HandleVariant(routine: routine, variant: variant, textType: textType);
-                            break;
-
-                        case RecordTypeInfo record:
-                            HandleRecord(routine: routine,
-                                record: record,
-                                textType: textType,
-                                boolType: boolType,
-                                s32Type: s32Type);
-                            break;
-
-                        case CrashableTypeInfo crashable:
-                            HandleCrashable(routine: routine, crashable: crashable, textType: textType);
-                            break;
-
-                        case EntityTypeInfo entity:
-                            HandleEntity(routine: routine,
-                                entity: entity,
-                                textType: textType,
-                                boolType: boolType);
-                            break;
-
-                        case RoutineTypeInfo routineOwner
-                            when routine.Name == SerializeMemberRoutineName && !routineOwner.IsGenericDefinition:
-                            // A routine VALUE boxes its `represent()` signature Text as its serialize (the
-                            // zero-field path) — a resolved CreatorExpression, unlike the RF template's
-                            // `SerialValue(...)` which doesn't re-resolve when cloned for a structural type.
-                            ctx.VariantBodies[key: routine.RegistryKey] =
-                                BuildSerializeBody(owner: routineOwner, fields: [], textType: textType);
-                            break;
-                    }
-
-                    break;
-            }
-
+            // Cycle-collector per-type hooks + unified destructor + owner-type dispatch.
+            if (TrySynthesizeHookOrDispatch(routine: routine,
+                    textType: textType,
+                    boolType: boolType,
+                    u64Type: u64Type,
+                    s32Type: s32Type,
+                    s64Type: s64Type,
+                    logicBreachedErrorType: logicBreachedErrorType,
+                    listTypeDef: listTypeDef))
+                continue;
         }
 
         // Tuple types appear only as local variable / expression types and never as routine
@@ -283,6 +192,121 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         RunForGenericDefWiredRoutines(textType: textType, boolType: boolType, s32Type: s32Type);
     }
 
+    /// <summary>
+    /// Handles the cycle-collector per-type hooks (<c>roam_trace_impl</c>/<c>roam_free_impl</c>), the
+    /// unified <c>destroy</c> destructor, and — for anything else — the owner-type dispatch to the
+    /// per-kind <c>HandleX</c> synthesizers. Always returns <c>true</c> (the caller should advance to
+    /// the next routine).
+    /// </summary>
+    private bool TrySynthesizeHookOrDispatch(RoutineInfo routine, TypeInfo textType, TypeInfo boolType,
+        TypeInfo? u64Type, TypeInfo? s32Type, TypeInfo? s64Type, TypeInfo? logicBreachedErrorType,
+        TypeInfo? listTypeDef)
+    {
+        switch (routine)
+        {
+            // Cycle-collector per-type hooks (see AutoWiredRegistrationPass.MaybeRegisterRoamHook).
+            case { Name: "roam_trace_impl", Parameters.Count: 0 }:
+                ctx.VariantBodies[key: routine.RegistryKey] =
+                    BuildRoamTraceBody(owner: routine.OwnerType);
+                return true;
+            case { Name: "roam_free_impl", Parameters.Count: 0 }:
+                ctx.VariantBodies[key: routine.RegistryKey] =
+                    BuildRoamFreeBody(owner: routine.OwnerType);
+                return true;
+            // Unified destructor: clone the `@overridable T.destroy()` derive (the `expand allmemvarof`
+            // field-walk from DeriveText, kind-specialized for entity/variant). Applies to every concrete
+            // type; the per-type body comes entirely from the template.
+            case { Name: "destroy", Parameters.Count: 0 } when routine.OwnerType is { } destroyOwner:
+                ctx.VariantBodies[key: routine.RegistryKey] =
+                    CloneUniversalDeriveBody(ownerType: destroyOwner, synthesized: routine,
+                        memberRoutineName: "destroy")
+                    ?? throw new System.InvalidOperationException(
+                        message: $"destroy derive could not be cloned for '{destroyOwner.FullName}'.");
+                return true;
+            default:
+                DispatchByOwnerType(routine: routine,
+                    textType: textType,
+                    boolType: boolType,
+                    u64Type: u64Type,
+                    s32Type: s32Type,
+                    s64Type: s64Type,
+                    logicBreachedErrorType: logicBreachedErrorType,
+                    listTypeDef: listTypeDef);
+                return true;
+        }
+    }
+
+    /// <summary>
+    /// Dispatches a synthesized routine to the appropriate per-kind <c>HandleX</c> synthesizer based
+    /// on the concrete owner type (tuple/choice/flags/variant/record/crashable/entity/routine-value).
+    /// </summary>
+    private void DispatchByOwnerType(RoutineInfo routine, TypeInfo textType, TypeInfo boolType,
+        TypeInfo? u64Type, TypeInfo? s32Type, TypeInfo? s64Type, TypeInfo? logicBreachedErrorType,
+        TypeInfo? listTypeDef)
+    {
+        switch (routine.OwnerType)
+        {
+            case TupleTypeInfo tuple:
+                HandleTuple(routine: routine,
+                    tuple: tuple,
+                    textType: textType,
+                    s32Type: s32Type);
+                break;
+
+            case ChoiceTypeInfo choice:
+                HandleChoice(routine: routine,
+                    choice: choice,
+                    textType: textType,
+                    boolType: boolType,
+                    logicBreachedErrorType: logicBreachedErrorType,
+                    u64Type: u64Type,
+                    s64Type: s64Type,
+                    listTypeDef: listTypeDef);
+                break;
+
+            case FlagsTypeInfo flags:
+                HandleFlags(routine: routine,
+                    flags: flags,
+                    textType: textType,
+                    boolType: boolType,
+                    u64Type: u64Type,
+                    listTypeDef: listTypeDef);
+                break;
+
+            case VariantTypeInfo variant:
+                HandleVariant(routine: routine, variant: variant, textType: textType);
+                break;
+
+            case RecordTypeInfo record:
+                HandleRecord(routine: routine,
+                    record: record,
+                    textType: textType,
+                    boolType: boolType,
+                    s32Type: s32Type);
+                break;
+
+            case CrashableTypeInfo crashable:
+                HandleCrashable(routine: routine, crashable: crashable, textType: textType);
+                break;
+
+            case EntityTypeInfo entity:
+                HandleEntity(routine: routine,
+                    entity: entity,
+                    textType: textType,
+                    boolType: boolType);
+                break;
+
+            case RoutineTypeInfo routineOwner
+                when routine.Name == SerializeMemberRoutineName && !routineOwner.IsGenericDefinition:
+                // A routine VALUE boxes its `represent()` signature Text as its serialize (the
+                // zero-field path) — a resolved CreatorExpression, unlike the RF template's
+                // `SerialValue(...)` which doesn't re-resolve when cloned for a structural type.
+                ctx.VariantBodies[key: routine.RegistryKey] =
+                    BuildSerializeBody(owner: routineOwner, fields: [], textType: textType);
+                break;
+        }
+    }
+
     private void RunForGenericDefBuilderQueryRoutines(TypeInfo textType, TypeInfo? u64Type,
         TypeInfo? s64Type, TypeInfo? boolType, TypeInfo? typeKindType,
         TypeInfo? listTextType, TypeInfo? byteSizeType)
@@ -333,7 +357,10 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 if (routine is { Name: "destroy", Parameters.Count: 0 })
                 {
                     ctx.VariantBodies[key: routine.RegistryKey] =
-                        BuildDestroyBody(owner: routine.OwnerType);
+                        CloneUniversalDeriveBody(ownerType: routine.OwnerType!, synthesized: routine,
+                            memberRoutineName: "destroy")
+                        ?? throw new System.InvalidOperationException(
+                            message: $"destroy derive could not be cloned for '{routine.OwnerType?.FullName}'.");
                     continue;
                 }
 
@@ -360,7 +387,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                             boolType: boolType,
                             u64Type: u64Type);
                         break;
-                    case RecordTypeInfo { HasDirectBackendType: false } record:
+                    case RecordTypeInfo { BackendType: null } record:
                         HandleRecordGenericDefWired(routine: routine,
                             record: record,
                             textType: textType,
@@ -461,7 +488,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             // each concrete instance (`Maybe[S32].assign`); without it an auto-derived carrier assign/copy was
             // declared+called but never defined (over-prune). Mirrors how eq/cmp/hash/represent above emit.
             case "assign":
-            case "copy":
+            case "duplicate":
                 ctx.VariantBodies[key: routine.RegistryKey] = BuildRecordCopyBody(record: record);
                 break;
         }
@@ -470,11 +497,35 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     //  Per-type handlers
 
     private void HandleRecord(RoutineInfo routine, RecordTypeInfo record, TypeInfo textType,
-        TypeInfo boolType, TypeInfo? s32Type) // NOSONAR S3776
+        TypeInfo boolType, TypeInfo? s32Type)
     {
         // Numeric create bodies for @llvm-typed primitive records.
         // S64.create(from: Choice) -> sign_extend; U64.create(from: Flags) -> reinterpret_bits.
         // Must be checked before the HasDirectBackendType guard because these live on S64/U64.
+        if (TryHandleNumericCreate(routine: routine, record: record))
+            return;
+
+        // `store` / `clone` bodies are field-independent (`return me` / `return me.assign()`), so
+        // synthesize them BEFORE the opaque-backend skip — @llvm primitives (S64, Bool, …) need real
+        // (trivial, LLVM-inlined) bodies so explicit `clone()`/`store()` calls link. Only synth stubs
+        // reach here; user-written copies (e.g. Text.store, which retains) keep their own body.
+        if (TryHandleRecordCopyOrSerialize(routine: routine, record: record, textType: textType))
+            return;
+
+        if (record.BackendType != null) return;
+
+        HandleRecordFieldWiredRoutine(routine: routine, record: record, textType: textType,
+            boolType: boolType, s32Type: s32Type);
+    }
+
+    /// <summary>
+    /// Numeric create bodies for @llvm-typed primitive records.
+    /// <c>S64.create(from: Choice)</c> → sign_extend; <c>U64.create(from: Flags)</c> → reinterpret_bits.
+    /// Must be checked before the HasDirectBackendType guard because these live on S64/U64.
+    /// Returns <c>true</c> if a body was synthesized.
+    /// </summary>
+    private bool TryHandleNumericCreate(RoutineInfo routine, RecordTypeInfo record)
+    {
         if (routine is { Name: "create", Parameters.Count: 1 })
         {
             TypeInfo paramType = routine.Parameters[index: 0].Type;
@@ -488,7 +539,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                     fromType: paramType,
                     toType: s64Type,
                     paramName: paramName);
-                return;
+                return true;
             }
 
             if (paramType is FlagsTypeInfo && record.Name == "U64" && u64Type != null)
@@ -498,14 +549,20 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                     fromType: paramType,
                     toType: u64Type,
                     paramName: paramName);
-                return;
+                return true;
             }
         }
+        return false;
+    }
 
-        // `store` / `clone` bodies are field-independent (`return me` / `return me.assign()`), so
-        // synthesize them BEFORE the opaque-backend skip — @llvm primitives (S64, Bool, …) need real
-        // (trivial, LLVM-inlined) bodies so explicit `clone()`/`store()` calls link. Only synth stubs
-        // reach here; user-written copies (e.g. Text.store, which retains) keep their own body.
+    /// <summary>
+    /// Synthesizes the field-independent <c>assign</c>/<c>duplicate</c> copy bodies and the composite
+    /// <c>serialize</c> body BEFORE the opaque-backend skip, so @llvm primitives get real (trivial,
+    /// LLVM-inlined) bodies. Returns <c>true</c> if a body was synthesized (or the case was consumed).
+    /// </summary>
+    private bool TryHandleRecordCopyOrSerialize(RoutineInfo routine, RecordTypeInfo record,
+        TypeInfo textType)
+    {
         switch (routine.Name)
         {
             case "assign":
@@ -515,15 +572,15 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                         : CloneUniversalDeriveBody(ownerType: record, synthesized: routine,
                             memberRoutineName: "assign"))
                     ?? BuildRecordCopyBody(record: record);
-                return;
-            case "copy":
+                return true;
+            case "duplicate":
                 // Deep `copy` forwards to `store` — cloned from the `@overridable routine T.copy()`
                 // derive template (`return me.assign()`); falls back to the C# builder.
                 ctx.VariantBodies[key: routine.RegistryKey] =
                     CloneUniversalDeriveBody(ownerType: record, synthesized: routine,
-                        memberRoutineName: "copy")
+                        memberRoutineName: "duplicate")
                     ?? BuildCloneViaCopyBody(ownerType: record);
-                return;
+                return true;
             case SerializeMemberRoutineName when !record.IsGenericDefinition:
                 // A COMPOSITE record clones the universal `@overridable routine T.serialize()` derive
                 // template (comptime `expand` field-walk into a `Dict[Text, SerialValue]` arm). A type
@@ -531,7 +588,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 // (S8..U64/F32/F64/Bool/Moment/Bytes/Text — a matching scalar arm) and zero-field opaque
                 // @llvm records self-box, not field-walk (an empty `expand` would wrongly yield `{}`).
                 // "Composite" = has RF fields, no direct @llvm backend, AND no scalar arm of its own.
-                bool serializeComposite = !record.HasDirectBackendType &&
+                bool serializeComposite = record.BackendType == null &&
                     record.MemberVariables.Count > 0 &&
                     ctx.Registry.LookupType(name: "SerialValue") is VariantTypeInfo serialValueDef &&
                     FindScalarArm(serialValue: serialValueDef, fieldType: record) == null;
@@ -543,11 +600,20 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                     ?? BuildSerializeBody(owner: record, fields: record.MemberVariables,
                         textType: textType);
                 if (recSer != null) ctx.VariantBodies[key: routine.RegistryKey] = recSer;
-                return;
+                return true;
+            default:
+                return false;
         }
+    }
 
-        if (record.HasDirectBackendType) return;
-
+    /// <summary>
+    /// Synthesizes the field-dependent wired bodies for a concrete (non-opaque-backend) record:
+    /// eq/cmp/represent/serialize/diagnose/hash. Cloned from the universal derive templates with a
+    /// C# builder fallback.
+    /// </summary>
+    private void HandleRecordFieldWiredRoutine(RoutineInfo routine, RecordTypeInfo record,
+        TypeInfo textType, TypeInfo boolType, TypeInfo? s32Type)
+    {
         switch (routine.Name)
         {
             case "eq":
@@ -860,7 +926,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 ctx.VariantBodies[key: routine.RegistryKey] = BuildReturnMeBody(ownerType: choice);
                 break;
 
-            case "copy":
+            case "duplicate":
                 ctx.VariantBodies[key: routine.RegistryKey] =
                     BuildCloneViaCopyBody(ownerType: choice);
                 break;
@@ -989,7 +1055,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     private ReturnStatement BuildRecordCopyBody(RecordTypeInfo record)
     {
         // @llvm-backed primitives (S64, Bool, …) have no composite fields to recurse into.
-        if (record.HasDirectBackendType || record.MemberVariables is null or { Count: 0 })
+        if (record.BackendType != null || record.MemberVariables is null or { Count: 0 })
             return BuildReturnMeBody(ownerType: record);
 
         // Only reconstruct when at least one field genuinely needs a retaining copy.
@@ -1529,10 +1595,25 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         if (picked is not { } t) return null;
         Statement body = t.Body;
 
+        // Self-apply a generic-definition owner to its own parameters before substituting the template
+        // param into the body. The template binds `T -> ownerType`; if ownerType is the BARE generic def
+        // (e.g. `RangeEmittable`, no `[T]`), a body reference that re-wraps `T` — the entity self-free
+        // `me.hijack().invalidate()` yields `Hijacked[T]` -> `Hijacked[RangeEmittable]` — is malformed
+        // (RangeEmittable is arity-1, used with no argument) and later resolves to junk like
+        // `RangeEmittable[RangeEmittable]`, cascading into an unbounded monomorphization regress and an
+        // over-prune of the real `Hijacked[RangeEmittable[T]].invalidate`. Binding to the SELF-APPLIED
+        // form `RangeEmittable[T]` (T = the def's own parameter) keeps every wrap well-formed; the concrete
+        // frame's reachability walk then substitutes that T to the real argument. Concrete owners are not
+        // generic definitions, so this is a no-op for them.
+        TypeInfo boundOwner = ownerType;
+        if (ownerType.IsGenericDefinition && ownerType.GenericParameters is { Count: > 0 } ownParams)
+            boundOwner = ctx.Registry.GetOrCreateResolution(genericDef: ownerType,
+                typeArguments: ownParams.Select(selector: p => (TypeInfo)new GenericParameterTypeInfo(name: p)).ToList());
+
         var typeSubs = new Dictionary<string, TypeInfo>
         {
-            [t.OwnerParam] = ownerType,
-            ["Me"] = ownerType
+            [t.OwnerParam] = boundOwner,
+            ["Me"] = boundOwner
         };
         var stringSubs = typeSubs.ToDictionary(keySelector: kv => kv.Key,
             elementSelector: kv => kv.Value.FullName);
@@ -1544,7 +1625,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         AstWalker.WalkExpressions(root: cloned, visit: expr =>
         {
             if (expr is IdentifierExpression { Name: "me", ResolvedType: null } id)
-                id.ResolvedType = ownerType;
+                id.ResolvedType = boundOwner;
         });
         return cloned;
     }
@@ -1745,7 +1826,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         // Aggregate with a REAL synthesized serialize() (not an @llvm primitive record) -> recurse.
         bool recurse = field.Type switch
         {
-            RecordTypeInfo r => !r.HasDirectBackendType && TypeHasSerialize(type: r),
+            RecordTypeInfo r => r.BackendType == null && TypeHasSerialize(type: r),
             EntityTypeInfo e => TypeHasSerialize(type: e),
             _ => false,
         };
@@ -1974,7 +2055,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 ctx.VariantBodies[key: routine.RegistryKey] = BuildReturnMeBody(ownerType: flags);
                 break;
 
-            case "copy":
+            case "duplicate":
                 ctx.VariantBodies[key: routine.RegistryKey] =
                     BuildCloneViaCopyBody(ownerType: flags);
                 break;
@@ -2454,7 +2535,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     private bool TryHandleBuilderQueryConstant(RoutineInfo routine, TypeInfo textType,
         TypeInfo? u64Type, TypeInfo? s64Type, TypeInfo? boolType,
         TypeInfo? typeKindType, TypeInfo? listTextType,
-        TypeInfo? byteSizeType = null) // NOSONAR S3776
+        TypeInfo? byteSizeType = null)
     {
         if (routine.OwnerType == null) return false;
         TypeInfo owner = routine.OwnerType;
@@ -2474,61 +2555,24 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         if (BuilderQueryInliningPass.IsFoldable(routineName: routine.Name))
             return true;
 
+        // List-returning per-type CONSTANT reflection (routine_names/protocols/generic_args/annotations/
+        // dependencies): 0 runtime params, value is a compile-time-constant List[Text] of the owner type.
+        // Do NOT synthesize a routine body — like the scalar foldables above, these are folded at the call
+        // site (SemanticVerifier.FoldListBuilderQueryReflection, before reachability) to an inline analyzed
+        // list literal. A synthesized `return List.from_literal([...])` body would otherwise survive as a
+        // DEAD routine that the non-pruned resident-JIT base emits, dangling an unmaterialized
+        // from_literal(Array[Text,N]) (RESIDENT-JIT-INCREMENTAL-V0.5.md ★ / dj-lumiere: BuilderQuery must
+        // not survive desugaring as routines). Non-constant BuilderQuery members (member_type_id/
+        // protocol_info/routine_info/… — runtime params or entity-list builders) keep their real bodies below.
+        if (BuilderInfoProvider.IsListReturningConstantRoutine(name: routine.Name))
+            return true;
+
         switch (routine.Name)
         {
             case "member_type_id" when u64Type != null && boolType != null:
-            {
-                List<MemberVariableInfo>? fields = owner switch
-                {
-                    RecordTypeInfo r => r.MemberVariables,
-                    EntityTypeInfo e => e.MemberVariables,
-                    _ => null
-                };
-                fields ??= [];
-
-                // Build if-elseif chain from last field to first, wrapping each around the
-                // previous so the outermost IfStatement checks field[0].
-                // `0UL` (not `0L`) so the fallback literal is U64, matching the U64 return type — the
-                // long overload would emit an S64 literal in a U64 routine.
-                Statement body = MakeLiteralReturn(value: 0UL, returnType: u64Type);
-                var memberNameRef =
-                    new IdentifierExpression(Name: "member_name", Location: _synthLoc)
-                    {
-                        ResolvedType = textType
-                    };
-
-                for (int i = fields.Count - 1; i >= 0; i--)
-                {
-                    MemberVariableInfo field = fields[i];
-                    ulong typeId = TypeIdHelper.ComputeTypeId(fullName: field.Type.FullName);
-
-                    Expression cond = new CallExpression(
-                        Callee: new MemberExpression(Object: memberNameRef,
-                            MemberName: "eq",
-                            Location: _synthLoc),
-                        Arguments:
-                        [
-                            new NamedArgumentExpression(Name: OtherParamName,
-                                Value: new LiteralExpression(Value: field.Name,
-                                    LiteralType: TokenType.TextLiteral,
-                                    Location: _synthLoc) { ResolvedType = textType },
-                                Location: _synthLoc)
-                        ],
-                        Location: _synthLoc) { ResolvedType = boolType };
-
-                    body = new IfStatement(Condition: cond,
-                        ThenStatement: new ReturnStatement(
-                            Value: new LiteralExpression(Value: typeId,
-                                LiteralType: TokenType.U64Literal,
-                                Location: _synthLoc) { ResolvedType = u64Type },
-                            Location: _synthLoc),
-                        ElseStatement: body,
-                        Location: _synthLoc);
-                }
-
-                ctx.VariantBodies[key: routine.RegistryKey] = body;
+                ctx.VariantBodies[key: routine.RegistryKey] = BuildMemberTypeIdBody(owner: owner,
+                    textType: textType, u64Type: u64Type, boolType: boolType);
                 return true;
-            }
 
             case "protocols" when listTextType != null:
             {
@@ -2596,135 +2640,231 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             // entity-creator move-detection (added for exactly this) keeps it from being double-freed.
             case "protocol_info"
                 when owner is RecordTypeInfo or EntityTypeInfo && boolType != null && listTextType != null:
-            {
-                if (ResolveEntityListType(elementTypeName: "ProtocolInfo") is not { } piList)
-                    return false;
-                (TypeInfo protocolInfoType, TypeInfo listProtocolInfo) = piList;
-
-                List<TypeInfo> protocols = owner switch
-                {
-                    RecordTypeInfo r => r.ImplementedProtocols,
-                    EntityTypeInfo e => e.ImplementedProtocols,
-                    _ => []
-                };
-
-                var rows = protocols
-                    .Select(p => new List<(string, Expression)>
-                    {
-                        (Name: "name", MakeTextLit(value: p.Name, textType: textType)),
-                        (Name: "routine_names",
-                            MakeTextListLiteral(
-                                values: p is ProtocolTypeInfo pt
-                                    ? pt.MemberRoutines.Select(m => m.Name)
-                                    : System.Linq.Enumerable.Empty<string>(),
-                                textType: textType, listTextType: listTextType)),
-                        (Name: "is_generated", MakeBoolLit(value: false, boolType: boolType))
-                    })
-                    .ToList();
-
-                ctx.VariantBodies[key: routine.RegistryKey] = MakeEntityInfoListReturn(
-                    entityTypeName: "ProtocolInfo", entityType: protocolInfoType,
-                    listEntityType: listProtocolInfo, rows: rows);
-                return true;
-            }
+                return TryBuildProtocolInfoBody(routine: routine, owner: owner, textType: textType,
+                    boolType: boolType, listTextType: listTextType);
 
             case "routine_info"
                 when owner is RecordTypeInfo or EntityTypeInfo && boolType != null && listTextType != null:
-            {
-                if (ResolveEntityListType(elementTypeName: "RoutineInfo") is not { } riList)
-                    return false;
-                (TypeInfo routineInfoType, TypeInfo listRoutineInfo) = riList;
-
-                var rows = ctx.Registry.GetMemberRoutinesForType(type: owner)
-                    .Select(r => new List<(string, Expression)>
-                    {
-                        (Name: "name", MakeTextLit(value: r.Name, textType: textType)),
-                        (Name: "param_types",
-                            MakeTextListLiteral(values: r.Parameters.Select(p => p.Type.ShortTypeName),
-                                textType: textType, listTextType: listTextType)),
-                        (Name: "param_names",
-                            MakeTextListLiteral(values: r.Parameters.Select(p => p.Name),
-                                textType: textType, listTextType: listTextType)),
-                        (Name: "return_type",
-                            MakeTextLit(value: r.ReturnType?.ShortTypeName ?? "None", textType: textType)),
-                        (Name: "is_crashable", MakeBoolLit(value: r.IsFailable, boolType: boolType)),
-                        (Name: "is_generated", MakeBoolLit(value: r.IsSynthesized, boolType: boolType)),
-                        (Name: "visibility", MakeVisibilityLiteral(visibility: r.Visibility))
-                    })
-                    .ToList();
-
-                ctx.VariantBodies[key: routine.RegistryKey] = MakeEntityInfoListReturn(
-                    entityTypeName: "RoutineInfo", entityType: routineInfoType,
-                    listEntityType: listRoutineInfo, rows: rows);
-                return true;
-            }
+                return TryBuildRoutineInfoBody(routine: routine, owner: owner, textType: textType,
+                    boolType: boolType, listTextType: listTextType);
 
             case "member_variable_info"
                 when owner is RecordTypeInfo or EntityTypeInfo:
-            {
-                if (u64Type == null) return false;
-                if (ResolveEntityListType(elementTypeName: "FieldInfo") is not { } fieldList)
-                    return false;
-                (TypeInfo fieldInfoType, TypeInfo listFieldInfo) = fieldList;
-
-                List<MemberVariableInfo> fields = owner switch
-                {
-                    RecordTypeInfo r => r.MemberVariables,
-                    EntityTypeInfo e => e.MemberVariables,
-                    _ => []
-                };
-
-                // Cumulative C-ABI offsets: align the running cursor to each field's alignment before
-                // placing it, then advance by its size — the layout codegen emits. Layout is not always
-                // computable at synth time (a generic-def owner's field is an unsized parameter T; some
-                // backend types throw in the size walk), so offsets are BEST-EFFORT: any failure zeroes
-                // the remaining offsets rather than aborting the whole build (offset is documented as
-                // "byte offset when available").
-                // @layout("packed") owner: no inter-field padding, so fields sit at the running cursor.
-                bool ownerPacked = owner is RecordTypeInfo { IsPacked: true };
-                var offsets = new ulong[fields.Count];
-                ulong cursor = 0;
-                for (int i = 0; i < fields.Count; i++)
-                {
-                    try
-                    {
-                        var align = ownerPacked
-                            ? 1ul
-                            : (ulong)System.Math.Max(val1: 1,
-                                val2: fields[index: i].Type.Alignment(pointerSize: 8));
-                        cursor = (cursor + align - 1) / align * align;
-                        offsets[i] = cursor;
-                        cursor += (ulong)System.Math.Max(val1: 0,
-                            val2: fields[index: i].Type.SizeBytes(pointerSize: 8));
-                    }
-                    catch
-                    {
-                        offsets[i] = 0;
-                    }
-                }
-
-                var rows = new List<List<(string, Expression)>>(capacity: fields.Count);
-                for (int i = 0; i < fields.Count; i++)
-                {
-                    MemberVariableInfo f = fields[index: i];
-                    rows.Add(item:
-                    [
-                        (Name: "name", MakeTextLit(value: f.Name, textType: textType)),
-                        (Name: "type_name", MakeTextLit(value: f.Type.ShortTypeName, textType: textType)),
-                        (Name: "visibility", MakeVisibilityLiteral(visibility: f.Visibility)),
-                        (Name: "offset", MakeU64Lit(value: offsets[i], u64Type: u64Type))
-                    ]);
-                }
-
-                ctx.VariantBodies[key: routine.RegistryKey] = MakeEntityInfoListReturn(
-                    entityTypeName: "FieldInfo", entityType: fieldInfoType,
-                    listEntityType: listFieldInfo, rows: rows);
-                return true;
-            }
+                return TryBuildMemberVariableInfoBody(routine: routine, owner: owner,
+                    textType: textType, u64Type: u64Type);
 
             default:
                 return false;
         }
+    }
+
+    /// <summary>
+    /// Builds the <c>member_type_id(member_name)</c> body: an if-elseif chain from last field to
+    /// first (so the outermost IfStatement checks field[0]), each arm returning that field's type id;
+    /// the fallback returns <c>0_u64</c>.
+    /// </summary>
+    private Statement BuildMemberTypeIdBody(TypeInfo owner, TypeInfo textType, TypeInfo u64Type,
+        TypeInfo boolType)
+    {
+        List<MemberVariableInfo>? fields = owner switch
+        {
+            RecordTypeInfo r => r.MemberVariables,
+            EntityTypeInfo e => e.MemberVariables,
+            _ => null
+        };
+        fields ??= [];
+
+        // Build if-elseif chain from last field to first, wrapping each around the
+        // previous so the outermost IfStatement checks field[0].
+        // `0UL` (not `0L`) so the fallback literal is U64, matching the U64 return type — the
+        // long overload would emit an S64 literal in a U64 routine.
+        Statement body = MakeLiteralReturn(value: 0UL, returnType: u64Type);
+        var memberNameRef =
+            new IdentifierExpression(Name: "member_name", Location: _synthLoc)
+            {
+                ResolvedType = textType
+            };
+
+        for (int i = fields.Count - 1; i >= 0; i--)
+        {
+            MemberVariableInfo field = fields[i];
+            ulong typeId = TypeIdHelper.ComputeTypeId(fullName: field.Type.FullName);
+
+            Expression cond = new CallExpression(
+                Callee: new MemberExpression(Object: memberNameRef,
+                    MemberName: "eq",
+                    Location: _synthLoc),
+                Arguments:
+                [
+                    new NamedArgumentExpression(Name: OtherParamName,
+                        Value: new LiteralExpression(Value: field.Name,
+                            LiteralType: TokenType.TextLiteral,
+                            Location: _synthLoc) { ResolvedType = textType },
+                        Location: _synthLoc)
+                ],
+                Location: _synthLoc) { ResolvedType = boolType };
+
+            body = new IfStatement(Condition: cond,
+                ThenStatement: new ReturnStatement(
+                    Value: new LiteralExpression(Value: typeId,
+                        LiteralType: TokenType.U64Literal,
+                        Location: _synthLoc) { ResolvedType = u64Type },
+                    Location: _synthLoc),
+                ElseStatement: body,
+                Location: _synthLoc);
+        }
+
+        return body;
+    }
+
+    /// <summary>
+    /// Builds the <c>protocol_info()</c> entity-list body: one <c>ProtocolInfo</c> row per implemented
+    /// protocol (name, its routine names, is_generated). Returns <c>false</c> if the ProtocolInfo
+    /// entity/list types cannot be resolved.
+    /// </summary>
+    private bool TryBuildProtocolInfoBody(RoutineInfo routine, TypeInfo owner, TypeInfo textType,
+        TypeInfo boolType, TypeInfo listTextType)
+    {
+        if (ResolveEntityListType(elementTypeName: "ProtocolInfo") is not { } piList)
+            return false;
+        (TypeInfo protocolInfoType, TypeInfo listProtocolInfo) = piList;
+
+        List<TypeInfo> protocols = owner switch
+        {
+            RecordTypeInfo r => r.ImplementedProtocols,
+            EntityTypeInfo e => e.ImplementedProtocols,
+            _ => []
+        };
+
+        var rows = protocols
+            .Select(p => new List<(string, Expression)>
+            {
+                (Name: "name", MakeTextLit(value: p.Name, textType: textType)),
+                (Name: "routine_names",
+                    MakeTextListLiteral(
+                        values: p is ProtocolTypeInfo pt
+                            ? pt.MemberRoutines.Select(m => m.Name)
+                            : System.Linq.Enumerable.Empty<string>(),
+                        textType: textType, listTextType: listTextType)),
+                (Name: "is_generated", MakeBoolLit(value: false, boolType: boolType))
+            })
+            .ToList();
+
+        ctx.VariantBodies[key: routine.RegistryKey] = MakeEntityInfoListReturn(
+            entityTypeName: "ProtocolInfo", entityType: protocolInfoType,
+            listEntityType: listProtocolInfo, rows: rows);
+        return true;
+    }
+
+    /// <summary>
+    /// Builds the <c>routine_info()</c> entity-list body: one <c>RoutineInfo</c> row per member routine
+    /// of the owner (name, param types/names, return type, crashable/generated flags, visibility).
+    /// Returns <c>false</c> if the RoutineInfo entity/list types cannot be resolved.
+    /// </summary>
+    private bool TryBuildRoutineInfoBody(RoutineInfo routine, TypeInfo owner, TypeInfo textType,
+        TypeInfo boolType, TypeInfo listTextType)
+    {
+        if (ResolveEntityListType(elementTypeName: "RoutineInfo") is not { } riList)
+            return false;
+        (TypeInfo routineInfoType, TypeInfo listRoutineInfo) = riList;
+
+        var rows = ctx.Registry.GetMemberRoutinesForType(type: owner)
+            .Select(r => new List<(string, Expression)>
+            {
+                (Name: "name", MakeTextLit(value: r.Name, textType: textType)),
+                (Name: "param_types",
+                    MakeTextListLiteral(values: r.Parameters.Select(p => p.Type.ShortTypeName),
+                        textType: textType, listTextType: listTextType)),
+                (Name: "param_names",
+                    MakeTextListLiteral(values: r.Parameters.Select(p => p.Name),
+                        textType: textType, listTextType: listTextType)),
+                (Name: "return_type",
+                    MakeTextLit(value: r.ReturnType?.ShortTypeName ?? "None", textType: textType)),
+                (Name: "is_crashable", MakeBoolLit(value: r.IsFailable, boolType: boolType)),
+                (Name: "is_generated", MakeBoolLit(value: r.IsSynthesized, boolType: boolType)),
+                (Name: "visibility", MakeVisibilityLiteral(visibility: r.Visibility))
+            })
+            .ToList();
+
+        ctx.VariantBodies[key: routine.RegistryKey] = MakeEntityInfoListReturn(
+            entityTypeName: "RoutineInfo", entityType: routineInfoType,
+            listEntityType: listRoutineInfo, rows: rows);
+        return true;
+    }
+
+    /// <summary>
+    /// Builds the <c>member_variable_info()</c> entity-list body: one <c>FieldInfo</c> row per field
+    /// (name, type name, visibility, best-effort C-ABI byte offset). Returns <c>false</c> if U64 or the
+    /// FieldInfo entity/list types cannot be resolved.
+    /// </summary>
+    private bool TryBuildMemberVariableInfoBody(RoutineInfo routine, TypeInfo owner, TypeInfo textType,
+        TypeInfo? u64Type)
+    {
+        if (u64Type == null) return false;
+        if (ResolveEntityListType(elementTypeName: "FieldInfo") is not { } fieldList)
+            return false;
+        (TypeInfo fieldInfoType, TypeInfo listFieldInfo) = fieldList;
+
+        List<MemberVariableInfo> fields = owner switch
+        {
+            RecordTypeInfo r => r.MemberVariables,
+            EntityTypeInfo e => e.MemberVariables,
+            _ => []
+        };
+
+        ulong[] offsets = ComputeBestEffortFieldOffsets(owner: owner, fields: fields);
+
+        var rows = new List<List<(string, Expression)>>(capacity: fields.Count);
+        for (int i = 0; i < fields.Count; i++)
+        {
+            MemberVariableInfo f = fields[index: i];
+            rows.Add(item:
+            [
+                (Name: "name", MakeTextLit(value: f.Name, textType: textType)),
+                (Name: "type_name", MakeTextLit(value: f.Type.ShortTypeName, textType: textType)),
+                (Name: "visibility", MakeVisibilityLiteral(visibility: f.Visibility)),
+                (Name: "offset", MakeU64Lit(value: offsets[i], u64Type: u64Type))
+            ]);
+        }
+
+        ctx.VariantBodies[key: routine.RegistryKey] = MakeEntityInfoListReturn(
+            entityTypeName: "FieldInfo", entityType: fieldInfoType,
+            listEntityType: listFieldInfo, rows: rows);
+        return true;
+    }
+
+    /// <summary>
+    /// Computes cumulative C-ABI byte offsets: align the running cursor to each field's alignment
+    /// before placing it, then advance by its size — the layout codegen emits. Layout is not always
+    /// computable at synth time (a generic-def owner's field is an unsized parameter T; some backend
+    /// types throw in the size walk), so offsets are BEST-EFFORT: any failure zeroes the remaining
+    /// offsets rather than aborting the whole build (offset is documented as "byte offset when
+    /// available"). @layout("packed") owner: no inter-field padding, so fields sit at the running cursor.
+    /// </summary>
+    private static ulong[] ComputeBestEffortFieldOffsets(TypeInfo owner, List<MemberVariableInfo> fields)
+    {
+        bool ownerPacked = owner is RecordTypeInfo { IsPacked: true };
+        var offsets = new ulong[fields.Count];
+        ulong cursor = 0;
+        for (int i = 0; i < fields.Count; i++)
+        {
+            try
+            {
+                var align = ownerPacked
+                    ? 1ul
+                    : (ulong)System.Math.Max(val1: 1,
+                        val2: fields[index: i].Type.Alignment(pointerSize: 8));
+                cursor = (cursor + align - 1) / align * align;
+                offsets[i] = cursor;
+                cursor += (ulong)System.Math.Max(val1: 0,
+                    val2: fields[index: i].Type.SizeBytes(pointerSize: 8));
+            }
+            catch
+            {
+                offsets[i] = 0;
+            }
+        }
+        return offsets;
     }
 
     /// <summary>
@@ -3009,8 +3149,6 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         {
             if (IsRoamedField(t: field.Type) || field.Type is not EntityTypeInfo)
                 continue;
-            if (ctx.Registry.IsTriviallyDestructible(type: field.Type))
-                continue;
             var fieldRef = new MemberExpression(
                 Object: new IdentifierExpression(Name: "me", Location: _synthLoc) { ResolvedType = owner },
                 MemberName: field.Name, Location: _synthLoc) { ResolvedType = field.Type };
@@ -3070,14 +3208,6 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                     continue;
                 TypeInfo? inner = HijackedInnerType(t: field.Type);
                 if (inner == null)
-                    continue;
-                // roam_trace_impl is synthesized on the GENERIC container, so an ELEMENT buffer's inner
-                // type is the container's own generic PARAMETER (keys→K, vals→V, slots→T) — always trace
-                // it (whether a concrete instantiation binds it to a value or a Roamed is decided at
-                // monomorphization, where the sparse walk of a value buffer folds to a harmless no-op).
-                // A CONCRETE trivially-destructible inner is a scalar METADATA buffer (`Hijacked[U8]`/
-                // `Hijacked[U64]` ctrl/indices/entry_live) that can never reach a Roamed — skip it.
-                if (inner is not GenericParameterTypeInfo && ctx.Registry.IsTriviallyDestructible(type: inner))
                     continue;
                 MemberExpression MeField(string name, TypeInfo? type) => new(
                     Object: new IdentifierExpression(Name: "me", Location: _synthLoc) { ResolvedType = owner },
@@ -3171,74 +3301,6 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         return new BlockStatement(Statements: statements, Location: _synthLoc);
     }
 
-    private Statement BuildDestroyBody(TypeInfo? owner)
-    {
-        var noop = new ReturnStatement(Value: null, Location: _synthLoc);
-
-        // Variants tear down the *active* arm only: pattern-match the tag and `destroy` the
-        // bound payload. None/void arms (and any non-resource arms) fall through the else no-op.
-        if (owner is VariantTypeInfo variant)
-            return BuildVariantDestroyBody(variant: variant);
-
-        List<MemberVariableInfo>? fields = owner switch
-        {
-            EntityTypeInfo e => e.MemberVariables,
-            // Tuples are RecordTypeInfo subclasses that CAN carry owned references (e.g. a
-            // `Text` element), so recurse into their item0/item1/... fields to tear those down.
-            TupleTypeInfo t => t.MemberVariables,
-            // Choices/flags are RecordTypeInfo subclasses with no owned references — exclude
-            // them; only plain composite records (no @llvm backend) recurse.
-            ChoiceTypeInfo or FlagsTypeInfo => null,
-            RecordTypeInfo { HasDirectBackendType: false } r => r.MemberVariables,
-            _ => null
-        };
-
-        // Entities are heap-allocated (rf_allocate_dynamic); their destructor must free the
-        // entity allocation itself AFTER tearing down fields, exactly as hand-written entity
-        // destructors do (e.g. List[T].destroy ends with `me.hijack().invalidate()`). Without
-        // this the struct leaks on every destroy — auto-derived entities like RangeEmitter[T]
-        // (the iterator behind every `for x in range`) otherwise leak per iteration. Records,
-        // tuples, and crashables are value-typed / managed elsewhere, so they only recurse.
-        bool isEntity = owner is EntityTypeInfo;
-        if (!isEntity && fields is null or { Count: 0 })
-            return noop;
-
-        TypeInfo? noneType = ctx.Registry.LookupType(name: "None");
-        var statements = new List<Statement>(capacity: (fields?.Count ?? 0) + 2);
-        if (fields is { Count: > 0 })
-        {
-            foreach (MemberVariableInfo field in fields)
-            {
-                // A trivially-destructible field's `destroy` is a transitive no-op — skip the call
-                // (it would only emit an unstrippable `ret void` chain). Non-trivial fields (entity,
-                // RC wrapper, managed leaf, user destroy) still tear down.
-                if (ctx.Registry.IsTriviallyDestructible(type: field.Type))
-                    continue;
-                var meRef = new IdentifierExpression(Name: "me", Location: _synthLoc)
-                {
-                    ResolvedType = owner
-                };
-                var fieldRef =
-                    new MemberExpression(Object: meRef,
-                        MemberName: field.Name,
-                        Location: _synthLoc) { ResolvedType = field.Type };
-                var destroyCall = new CallExpression(
-                    Callee: new MemberExpression(Object: fieldRef,
-                        MemberName: "destroy",
-                        Location: _synthLoc) { ResolvedType = noneType },
-                    Arguments: [],
-                    Location: _synthLoc) { ResolvedType = noneType };
-                statements.Add(item: new ExpressionStatement(Expression: destroyCall,
-                    Location: _synthLoc));
-            }
-        }
-
-        if (isEntity)
-            statements.Add(item: BuildEntitySelfFree(owner: owner!, noneType: noneType));
-
-        statements.Add(item: noop);
-        return new BlockStatement(Statements: statements, Location: _synthLoc);
-    }
 
     /// <summary>
     /// Builds <c>me.hijack().invalidate()</c> — frees the heap allocation backing an entity.
@@ -3269,84 +3331,6 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             Arguments: [],
             Location: _synthLoc) { ResolvedType = noneType };
         return new ExpressionStatement(Expression: invalidateCall, Location: _synthLoc);
-    }
-
-    /// <summary>
-    /// Builds the variant <c>destroy()</c>:
-    /// <c>when me { is None => ; is None => ; is T as v => v.destroy(); ... }</c>.
-    /// Only the active arm's payload is torn down. The absent arm is matched with <c>is None</c>
-    /// (variants use <c>None</c> for their empty branch); void (<c>None</c>) and value arms are
-    /// no-ops (a value arm's <c>destroy</c> is itself a no-op, kept for uniformity).
-    /// </summary>
-    private WhenStatement BuildVariantDestroyBody(VariantTypeInfo variant)
-    {
-        TypeInfo? noneType = ctx.Registry.LookupType(name: "None");
-        var meRef = new IdentifierExpression(Name: "me", Location: _synthLoc)
-        {
-            ResolvedType = variant
-        };
-
-        var clauses = new List<WhenClause>(capacity: variant.Members.Count + 1);
-        foreach (VariantMemberInfo member in variant.Members)
-        {
-            string memberName = member.IsNone
-                ? "None"
-                : member.Type!.Name;
-            bool isVoidPayload = member is { IsNone: false, Type.Name: "None" };
-            var typeExpr =
-                new TypeExpression(Name: memberName, GenericArguments: null, Location: _synthLoc)
-                {
-                    ResolvedType = member.Type
-                };
-
-            // A trivially-destructible payload arm's `destroy` is a no-op, so it needs no binding or
-            // teardown — collapse it to the same empty clause as None/None. (Entity arms and unresolved
-            // generic-instance arms are NOT trivial — IsTriviallyDestructible returns false — so they
-            // still bind + tear down, matching the generic-entity-arm rule elsewhere in this pass.)
-            bool trivialPayload = !member.IsNone && !isVoidPayload && member.Type is not null &&
-                                  ctx.Registry.IsTriviallyDestructible(type: member.Type);
-
-            Pattern pattern;
-            Statement clauseBody;
-            if (member.IsNone || isVoidPayload || trivialPayload)
-            {
-                // `is None` / `is None` / trivially-destructible payload — no payload to tear down.
-                pattern = new TypePattern(Type: typeExpr,
-                    VariableName: null,
-                    Bindings: null,
-                    Location: _synthLoc);
-                clauseBody = new ReturnStatement(Value: null, Location: _synthLoc);
-            }
-            else
-            {
-                pattern = new TypePattern(Type: typeExpr,
-                    VariableName: "v",
-                    Bindings: null,
-                    Location: _synthLoc);
-                var vRef = new IdentifierExpression(Name: "v", Location: _synthLoc)
-                {
-                    ResolvedType = member.Type
-                };
-                var destroyCall = new CallExpression(
-                    Callee: new MemberExpression(Object: vRef,
-                        MemberName: "destroy",
-                        Location: _synthLoc) { ResolvedType = noneType },
-                    Arguments: [],
-                    Location: _synthLoc) { ResolvedType = noneType };
-                clauseBody = new ExpressionStatement(Expression: destroyCall, Location: _synthLoc);
-            }
-
-            clauses.Add(item: new WhenClause(Pattern: pattern,
-                Body: clauseBody,
-                Location: _synthLoc));
-        }
-
-        clauses.Add(item: new WhenClause(
-            Pattern: new ElsePattern(VariableName: null, Location: _synthLoc),
-            Body: new ReturnStatement(Value: null, Location: _synthLoc),
-            Location: _synthLoc));
-
-        return new WhenStatement(Expression: meRef, Clauses: clauses, Location: _synthLoc);
     }
 
     private static ReturnStatement MakeLiteralReturn(string value, TypeInfo returnType) =>
@@ -3387,10 +3371,14 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         {
             case "destroy" when routine.Parameters.Count == 0:
                 // Tuples are filtered out of the main routine loop (they never appear in routine
-                // signatures), so the unified `destroy` synthesis at line ~108 never sees them.
-                // Build the field-recursing destructor here so owned elements (e.g. a `Text`) are
-                // torn down — otherwise the call emitted by ScopeTeardownLoweringPass is undefined.
-                ctx.VariantBodies[key: routine.RegistryKey] = BuildDestroyBody(owner: tuple);
+                // signatures), so the unified `destroy` synthesis never sees them. Clone the universal
+                // `T.destroy()` derive (the `expand allmemvarof` field-walk) here so owned elements
+                // (e.g. a `Text`) are torn down — otherwise the ScopeTeardownLoweringPass call is undefined.
+                ctx.VariantBodies[key: routine.RegistryKey] =
+                    CloneUniversalDeriveBody(ownerType: tuple, synthesized: routine,
+                        memberRoutineName: "destroy")
+                    ?? throw new System.InvalidOperationException(
+                        message: $"destroy derive could not be cloned for tuple '{tuple.FullName}'.");
                 break;
 
             // Tuples have a SPECIAL text format — represent `(1, 2)` (no type name / field names),
@@ -3567,12 +3555,12 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                     ?? BuildVariantDiagnoseBody(variant: variant, textType: textType);
                 break;
 
-            case "copy":
+            case "duplicate":
                 // TAG-dispatch deep copy from the `@override … needs T is VariantType` derive
                 // template (arm reconstruction `is ${m.type} v => Me(from: v.copy())`); C# fallback.
                 ctx.VariantBodies[key: routine.RegistryKey] =
                     CloneUniversalDeriveBody(ownerType: variant, synthesized: routine,
-                        memberRoutineName: "copy")
+                        memberRoutineName: "duplicate")
                     ?? BuildVariantCopyBody(variant: variant);
                 break;
         }
@@ -3625,7 +3613,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 ResolvedType = member.Type
             };
             var copyCall = new CallExpression(
-                Callee: new MemberExpression(Object: vRef, MemberName: "copy", Location: _synthLoc)
+                Callee: new MemberExpression(Object: vRef, MemberName: "duplicate", Location: _synthLoc)
                 {
                     ResolvedType = member.Type
                 },
@@ -3716,7 +3704,7 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             // GetLifecycle here because a generic-instance arm (Dict[..]/List[..]) reports a null
             // destructor at synth time (not-yet-live), which is exactly the arm that MUST be copied.
             Expression extracted = new CallExpression(
-                Callee: new MemberExpression(Object: vRef, MemberName: "copy", Location: _synthLoc)
+                Callee: new MemberExpression(Object: vRef, MemberName: "duplicate", Location: _synthLoc)
                 {
                     ResolvedType = armOwner
                 },

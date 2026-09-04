@@ -39,6 +39,16 @@ public sealed partial class StdlibLoader
     /// <summary>Set of already scanned directories to avoid re-scanning.</summary>
     private bool _stdlibScanned;
 
+    /// <summary>True when this loader belongs to a WARM-restore registry whose <c>module Core</c> programs
+    /// were already parsed, analyzed and lowered at snapshot capture (served from the registry's restored
+    /// set). A warm compile still needs the fresh loader to <see cref="ScanStdlibFiles"/> so on-demand
+    /// non-Core imports (e.g. <c>Collections.Deque</c>) resolve from <see cref="_modulePrograms"/> — but that
+    /// scan also re-parses every Core file into <see cref="_corePrograms"/> as UNANALYZED/UNLOWERED ASTs.
+    /// When this flag is set, <see cref="AllLoadedPrograms"/> excludes <see cref="_corePrograms"/> so those
+    /// stale Core copies never re-enter <c>FreshlyLoadedStdlibPrograms</c> and get re-lowered (which throws
+    /// on any never-analyzed node, e.g. a D128 ternary — the warm-restore crash this guards).</summary>
+    public bool CoreResident { get; set; }
+
     /// <summary>Tracks modules that have been loaded on-demand.</summary>
     private readonly HashSet<string> _loadedModules =
         new(comparer: StringComparer.OrdinalIgnoreCase);
@@ -47,12 +57,28 @@ public sealed partial class StdlibLoader
     public List<(Program Program, string FilePath, string Module)> ParsedPrograms =>
         _corePrograms;
 
+    /// <summary>
+    /// Scans the stdlib once and returns every NON-Core module name found (e.g. "Collections.Deque",
+    /// "IO.Console"). Used by the daemon snapshot capture to import — and therefore pre-load into the
+    /// resident snapshot — the entire stdlib, so warm compiles short-circuit on-demand imports instead of
+    /// re-parsing the whole stdlib per run to resolve one import.
+    /// </summary>
+    public IReadOnlyList<string> ScanModuleNames()
+    {
+        ScanStdlibFiles();
+        return _modulePrograms.Keys.ToList();
+    }
+
     /// <summary>Gets all parsed programs (core + loaded modules) for codegen.</summary>
     public List<(Program Program, string FilePath, string Module)> AllLoadedPrograms
     {
         get
         {
-            var all = new List<(Program, string, string)>(collection: _corePrograms);
+            // Warm restore: Core is already lowered in the registry's restored set — exclude the fresh
+            // (unanalyzed) Core re-parse so it is not reported as freshly-loaded and re-lowered.
+            var all = CoreResident
+                ? new List<(Program, string, string)>()
+                : new List<(Program, string, string)>(collection: _corePrograms);
             foreach (string mod in _loadedModules)
             {
                 if (_modulePrograms.TryGetValue(key: mod,
@@ -95,7 +121,7 @@ public sealed partial class StdlibLoader
     /// Scans all stdlib files and loads those declaring "module Core".
     /// </summary>
     /// <param name="registry">The type registry to populate.</param>
-    public void LoadCoreModule(TypeRegistry registry) // NOSONAR S3776
+    public void LoadCoreModule(TypeRegistry registry)
     {
         // Scan all stdlib files and categorize by module
         ScanStdlibFiles();
@@ -107,31 +133,10 @@ public sealed partial class StdlibLoader
 
         // Three-pass registration ensures protocols exist before types reference them in 'obeys' clauses.
         // Pass 1a: Register all protocol type shells first (names + generic params, no memberRoutines yet)
-        foreach ((Program program, string filePath, string ns) in _corePrograms)
-        {
-            _registeringRealm = RealmOf(filePath: filePath);
-            foreach (ISyntaxTreeNode node in program.Declarations)
-            {
-                if (node is ProtocolDeclaration protocol)
-                {
-                    RegisterProtocolTypeShell(registry: registry,
-                        protocol: protocol,
-                        moduleName: ns);
-                }
-            }
-        }
+        RegisterCoreProtocolShells(registry: registry);
 
         // Pass 1a.1: Fill in protocol memberRoutine signatures (all protocols are now registered for cross-refs)
-        foreach ((Program program, string _, string _) in _corePrograms)
-        {
-            foreach (ISyntaxTreeNode node in program.Declarations)
-            {
-                if (node is ProtocolDeclaration protocol)
-                {
-                    FillProtocolMemberRoutines(registry: registry, protocol: protocol);
-                }
-            }
-        }
+        FillCoreProtocolMemberRoutines(registry: registry);
 
         // Pass 1a.2: Resolve parent protocol hierarchies (now that all protocols are registered)
         foreach ((Program program, string _, string _) in _corePrograms)
@@ -148,35 +153,7 @@ public sealed partial class StdlibLoader
 
         // Pass 1b.1: Load modules imported by Core files so their types are available
         // for member variable resolution (e.g., Set imports Collections.SortedSet).
-        var importedModules = new HashSet<string>(comparer: StringComparer.OrdinalIgnoreCase);
-        foreach ((Program program, string _, string _) in _corePrograms)
-        {
-            foreach (ISyntaxTreeNode decl in program.Declarations)
-            {
-                if (decl is ImportDeclaration import)
-                {
-                    // Extract top-level module name (e.g., "Collections" from "Collections.SortedSet")
-                    string moduleName = import.ModulePath.Replace(oldChar: '/', newChar: '.');
-                    int dotIndex = moduleName.IndexOf(value: '.');
-                    if (dotIndex > 0)
-                    {
-                        moduleName = moduleName[..dotIndex];
-                    }
-
-                    if (!moduleName.Equals(value: "Core",
-                            comparisonType: StringComparison.OrdinalIgnoreCase) &&
-                        !_loadedModules.Contains(item: moduleName))
-                    {
-                        importedModules.Add(item: moduleName);
-                    }
-                }
-            }
-        }
-
-        foreach (string mod in importedModules)
-        {
-            LoadModule(registry: registry, moduleName: mod);
-        }
+        LoadCoreImportedModules(registry: registry);
 
         // Pass 1c: Re-resolve member variables now that all types are registered.
         // The initial registration may have empty member lists due to forward references
@@ -233,6 +210,83 @@ public sealed partial class StdlibLoader
 
         // Clear the thread-static realm so it never leaks into a later (on-demand) load pass on this thread.
         _registeringRealm = null;
+    }
+
+    /// <summary>
+    /// Pass 1a: registers every Core program's protocol type shells (names + generic params, no
+    /// memberRoutines yet), realm-stamped per program.
+    /// </summary>
+    private void RegisterCoreProtocolShells(TypeRegistry registry)
+    {
+        foreach ((Program program, string filePath, string ns) in _corePrograms)
+        {
+            _registeringRealm = RealmOf(filePath: filePath);
+            foreach (ISyntaxTreeNode node in program.Declarations)
+            {
+                if (node is ProtocolDeclaration protocol)
+                {
+                    RegisterProtocolTypeShell(registry: registry,
+                        protocol: protocol,
+                        moduleName: ns);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Pass 1a.1: fills in protocol memberRoutine signatures across every Core program (all protocols
+    /// are now registered for cross-refs).
+    /// </summary>
+    private void FillCoreProtocolMemberRoutines(TypeRegistry registry)
+    {
+        foreach ((Program program, string _, string _) in _corePrograms)
+        {
+            foreach (ISyntaxTreeNode node in program.Declarations)
+            {
+                if (node is ProtocolDeclaration protocol)
+                {
+                    FillProtocolMemberRoutines(registry: registry, protocol: protocol);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Pass 1b.1: loads the top-level modules imported by Core files so their types are available for
+    /// member variable resolution (e.g., Set imports Collections.SortedSet). Core and already-loaded
+    /// modules are excluded.
+    /// </summary>
+    private void LoadCoreImportedModules(TypeRegistry registry)
+    {
+        var importedModules = new HashSet<string>(comparer: StringComparer.OrdinalIgnoreCase);
+        foreach ((Program program, string _, string _) in _corePrograms)
+        {
+            foreach (ISyntaxTreeNode decl in program.Declarations)
+            {
+                if (decl is ImportDeclaration import)
+                {
+                    // Extract top-level module name (e.g., "Collections" from "Collections.SortedSet")
+                    string moduleName = import.ModulePath.Replace(oldChar: '/', newChar: '.');
+                    int dotIndex = moduleName.IndexOf(value: '.');
+                    if (dotIndex > 0)
+                    {
+                        moduleName = moduleName[..dotIndex];
+                    }
+
+                    if (!moduleName.Equals(value: "Core",
+                            comparisonType: StringComparison.OrdinalIgnoreCase) &&
+                        !_loadedModules.Contains(item: moduleName))
+                    {
+                        importedModules.Add(item: moduleName);
+                    }
+                }
+            }
+        }
+
+        foreach (string mod in importedModules)
+        {
+            LoadModule(registry: registry, moduleName: mod);
+        }
     }
 
     /// <summary>
@@ -650,55 +704,86 @@ public sealed partial class StdlibLoader
         }
 
         // Const generic literal (e.g., 16, 8u64) used as a type argument (e.g., Array[T, 16])
-        if (long.TryParse(s: typeName, result: out long constValue))
+        TypeInfo? constGeneric = ResolveConstGenericLiteral(typeName: typeName);
+        if (constGeneric != null)
         {
-            return new ConstGenericValueTypeInfo(
-                literalText: typeName, value: constValue, explicitTypeName: null);
-        }
-        {
-            // Check typed suffixes: "16u64", "8s32", etc.
-            (string suffix, string suffixType)[] suffixes =
-                [("u64", "U64"), ("s64", "S64"), ("u32", "U32"), ("s32", "S32"),
-                 ("u16", "U16"), ("s16", "S16"), ("u8", "U8"), ("s8", "S8")];
-            foreach ((string suffix, string suffixType) in suffixes)
-            {
-                if (typeName.EndsWith(value: suffix, comparisonType: StringComparison.OrdinalIgnoreCase) &&
-                    long.TryParse(s: typeName[..^suffix.Length], result: out long suffixVal))
-                {
-                    return new ConstGenericValueTypeInfo(
-                        literalText: typeName, value: suffixVal, explicitTypeName: suffixType);
-                }
-            }
+            return constGeneric;
         }
 
         // Routine type: Routine[(T, T), Bool] -> RoutineTypeInfo
         if (typeName == "Routine" && typeExpr.GenericArguments?.Count == 2)
         {
-            TypeExpression paramTupleExpr = typeExpr.GenericArguments[index: 0];
-            TypeExpression returnTypeExpr = typeExpr.GenericArguments[index: 1];
+            return ResolveRoutineType(registry: registry, typeExpr: typeExpr,
+                genericParams: genericParams, moduleName: moduleName);
+        }
 
-            // Parameter types live in the first arg's GenericArguments (parsed as Tuple)
-            var paramTypes = new List<TypeInfo>();
-            if (paramTupleExpr is { Name: "Tuple", GenericArguments: not null })
+        // Parameterized type like List[Character], Dict[Text, S32]
+        if (typeExpr.GenericArguments is { Count: > 0 })
+        {
+            TypeInfo? parameterized = ResolveParameterizedType(registry: registry, typeExpr: typeExpr,
+                typeName: typeName, genericParams: genericParams, moduleName: moduleName,
+                resolved: out bool handled);
+            if (handled)
             {
-                foreach (TypeExpression paramTypeExpr in paramTupleExpr.GenericArguments)
-                {
-                    TypeInfo? pt = ResolveSimpleType(registry: registry,
-                        typeExpr: paramTypeExpr,
-                        genericParams: genericParams,
-                        moduleName: moduleName);
-                    if (pt == null)
-                    {
-                        return null;
-                    }
-
-                    paramTypes.Add(item: pt);
-                }
+                return parameterized;
             }
-            else
+        }
+
+        // Own-module FIRST, then the bare (auto-import/Core-prefix) lookup — see the generic-def branch
+        // above for why the overlay's same-named types must not collapse to the RazorForge realm.
+        return (moduleName != null
+            ? registry.LookupType(name: $"{moduleName}.{typeName}")
+            : null) ?? registry.LookupType(name: typeName);
+    }
+
+    /// <summary>
+    /// Resolves a const-generic literal type argument: a bare integer (16), or a typed suffix
+    /// ("16u64", "8s32", …). Returns null when <paramref name="typeName"/> is not a numeric literal.
+    /// </summary>
+    private static TypeInfo? ResolveConstGenericLiteral(string typeName)
+    {
+        if (long.TryParse(s: typeName, result: out long constValue))
+        {
+            return new ConstGenericValueTypeInfo(
+                literalText: typeName, value: constValue, explicitTypeName: null);
+        }
+
+        // Check typed suffixes: "16u64", "8s32", etc.
+        (string suffix, string suffixType)[] suffixes =
+            [("u64", "U64"), ("s64", "S64"), ("u32", "U32"), ("s32", "S32"),
+             ("u16", "U16"), ("s16", "S16"), ("u8", "U8"), ("s8", "S8")];
+        foreach ((string suffix, string suffixType) in suffixes)
+        {
+            if (typeName.EndsWith(value: suffix, comparisonType: StringComparison.OrdinalIgnoreCase) &&
+                long.TryParse(s: typeName[..^suffix.Length], result: out long suffixVal))
+            {
+                return new ConstGenericValueTypeInfo(
+                    literalText: typeName, value: suffixVal, explicitTypeName: suffixType);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Resolves a <c>Routine[(T, T), Bool]</c> type expression into a RoutineTypeInfo. Parameter types
+    /// live in the first arg's GenericArguments (parsed as Tuple). Returns null when a parameter type
+    /// fails to resolve.
+    /// </summary>
+    private static TypeInfo? ResolveRoutineType(TypeRegistry registry, TypeExpression typeExpr,
+        List<string>? genericParams, string? moduleName)
+    {
+        TypeExpression paramTupleExpr = typeExpr.GenericArguments![index: 0];
+        TypeExpression returnTypeExpr = typeExpr.GenericArguments[index: 1];
+
+        // Parameter types live in the first arg's GenericArguments (parsed as Tuple)
+        var paramTypes = new List<TypeInfo>();
+        if (paramTupleExpr is { Name: "Tuple", GenericArguments: not null })
+        {
+            foreach (TypeExpression paramTypeExpr in paramTupleExpr.GenericArguments)
             {
                 TypeInfo? pt = ResolveSimpleType(registry: registry,
-                    typeExpr: paramTupleExpr,
+                    typeExpr: paramTypeExpr,
                     genericParams: genericParams,
                     moduleName: moduleName);
                 if (pt == null)
@@ -708,93 +793,115 @@ public sealed partial class StdlibLoader
 
                 paramTypes.Add(item: pt);
             }
-
-            TypeInfo? returnType = ResolveSimpleType(registry: registry,
-                typeExpr: returnTypeExpr,
+        }
+        else
+        {
+            TypeInfo? pt = ResolveSimpleType(registry: registry,
+                typeExpr: paramTupleExpr,
                 genericParams: genericParams,
                 moduleName: moduleName);
-            return registry.GetOrCreateRoutineType(parameterTypes: paramTypes,
-                returnType: returnType,
-                isFailable: false);
+            if (pt == null)
+            {
+                return null;
+            }
+
+            paramTypes.Add(item: pt);
         }
 
-        // Parameterized type like List[Character], Dict[Text, S32]
-        if (typeExpr.GenericArguments is { Count: > 0 })
+        TypeInfo? returnType = ResolveSimpleType(registry: registry,
+            typeExpr: returnTypeExpr,
+            genericParams: genericParams,
+            moduleName: moduleName);
+        return registry.GetOrCreateRoutineType(parameterTypes: paramTypes,
+            returnType: returnType,
+            isFailable: false);
+    }
+
+    /// <summary>
+    /// Resolves a parameterized type expression (<c>List[Character]</c>, <c>Dict[Text, S32]</c>,
+    /// a wrapper token like <c>Hijacked[T]</c>, or a <c>Tuple[..]</c>). Sets <paramref name="resolved"/>
+    /// to true and returns the resolved type (possibly null, e.g. when an argument fails to resolve)
+    /// when this method took responsibility for the expression; sets it to false to signal the caller
+    /// should fall through to the bare/own-module lookup.
+    /// </summary>
+    private static TypeInfo? ResolveParameterizedType(TypeRegistry registry, TypeExpression typeExpr,
+        string typeName, List<string>? genericParams, string? moduleName, out bool resolved)
+    {
+        // Wrapper types (Hijacked, Viewing, Modifying, etc.) are not in _types — create directly
+        if (typeExpr.GenericArguments!.Count == 1 &&
+            typeName is RuntimeContract.Hijacked or RuntimeContract.Viewing or RuntimeContract.Modifying
+                or RuntimeContract.Retained or RuntimeContract.Tracked or RuntimeContract.Guarded or RuntimeContract.Witnessed)
         {
-            // Wrapper types (Hijacked, Viewing, Modifying, etc.) are not in _types — create directly
-            if (typeExpr.GenericArguments.Count == 1 &&
-                typeName is RuntimeContract.Hijacked or RuntimeContract.Viewing or RuntimeContract.Modifying
-                    or RuntimeContract.Retained or RuntimeContract.Tracked or RuntimeContract.Guarded or RuntimeContract.Witnessed)
+            TypeInfo? wrapperInner = ResolveSimpleType(registry: registry,
+                typeExpr: typeExpr.GenericArguments[index: 0],
+                genericParams: genericParams,
+                moduleName: moduleName);
+            if (wrapperInner != null)
             {
-                TypeInfo? wrapperInner = ResolveSimpleType(registry: registry,
-                    typeExpr: typeExpr.GenericArguments[index: 0],
+                bool isReadOnly = typeName is RuntimeContract.Viewing;
+                resolved = true;
+                return registry.GetOrCreateWrapperType(wrapperName: typeName,
+                    innerType: wrapperInner,
+                    isReadOnly: isReadOnly);
+            }
+        }
+
+        // Tuple types are not registered as generic definitions — handle specially
+        if (typeName is "Tuple")
+        {
+            var elemTypes = new List<TypeInfo>();
+            foreach (TypeExpression argExpr in typeExpr.GenericArguments)
+            {
+                TypeInfo? argType = ResolveSimpleType(registry: registry,
+                    typeExpr: argExpr,
                     genericParams: genericParams,
                     moduleName: moduleName);
-                if (wrapperInner != null)
+                if (argType == null)
                 {
-                    bool isReadOnly = typeName is RuntimeContract.Viewing;
-                    return registry.GetOrCreateWrapperType(wrapperName: typeName,
-                        innerType: wrapperInner,
-                        isReadOnly: isReadOnly);
-                }
-            }
-
-            // Tuple types are not registered as generic definitions — handle specially
-            if (typeName is "Tuple")
-            {
-                var elemTypes = new List<TypeInfo>();
-                foreach (TypeExpression argExpr in typeExpr.GenericArguments)
-                {
-                    TypeInfo? argType = ResolveSimpleType(registry: registry,
-                        typeExpr: argExpr,
-                        genericParams: genericParams,
-                        moduleName: moduleName);
-                    if (argType == null)
-                    {
-                        return null;
-                    }
-
-                    elemTypes.Add(item: argType);
+                    resolved = true;
+                    return null;
                 }
 
-                return new TupleTypeInfo(elementTypes: elemTypes);
+                elemTypes.Add(item: argType);
             }
 
-            // Own-module FIRST: a bare `List` in `module Suflae` (e.g. the overlay constructor's
-            // `-> List[T]` return) must resolve to `Suflae.List`, not the auto-imported `Core.List`
-            // (LookupType's Core-prefix fast path). A dotted/RF::-qualified `Core.List` misses the
-            // `Suflae.Core.List` probe and correctly falls back to the RazorForge `Core.List`.
-            TypeInfo? genericDef = (moduleName != null
-                ? registry.LookupType(name: $"{moduleName}.{typeName}")
-                : null) ?? registry.LookupType(name: typeName);
-            if (genericDef is { IsGenericDefinition: true } &&
-                genericDef.GenericParameters!.Count == typeExpr.GenericArguments.Count)
-            {
-                var typeArgs = new List<TypeInfo>();
-                foreach (TypeExpression argExpr in typeExpr.GenericArguments)
-                {
-                    TypeInfo? argType = ResolveSimpleType(registry: registry,
-                        typeExpr: argExpr,
-                        genericParams: genericParams,
-                        moduleName: moduleName);
-                    if (argType == null)
-                    {
-                        return null;
-                    }
-
-                    typeArgs.Add(item: argType);
-                }
-
-                return registry.GetOrCreateResolution(genericDef: genericDef,
-                    typeArguments: typeArgs);
-            }
+            resolved = true;
+            return new TupleTypeInfo(elementTypes: elemTypes);
         }
 
-        // Own-module FIRST, then the bare (auto-import/Core-prefix) lookup — see the generic-def branch
-        // above for why the overlay's same-named types must not collapse to the RazorForge realm.
-        return (moduleName != null
+        // Own-module FIRST: a bare `List` in `module Suflae` (e.g. the overlay constructor's
+        // `-> List[T]` return) must resolve to `Suflae.List`, not the auto-imported `Core.List`
+        // (LookupType's Core-prefix fast path). A dotted/RF::-qualified `Core.List` misses the
+        // `Suflae.Core.List` probe and correctly falls back to the RazorForge `Core.List`.
+        TypeInfo? genericDef = (moduleName != null
             ? registry.LookupType(name: $"{moduleName}.{typeName}")
             : null) ?? registry.LookupType(name: typeName);
+        if (genericDef is { IsGenericDefinition: true } &&
+            genericDef.GenericParameters!.Count == typeExpr.GenericArguments.Count)
+        {
+            var typeArgs = new List<TypeInfo>();
+            foreach (TypeExpression argExpr in typeExpr.GenericArguments)
+            {
+                TypeInfo? argType = ResolveSimpleType(registry: registry,
+                    typeExpr: argExpr,
+                    genericParams: genericParams,
+                    moduleName: moduleName);
+                if (argType == null)
+                {
+                    resolved = true;
+                    return null;
+                }
+
+                typeArgs.Add(item: argType);
+            }
+
+            resolved = true;
+            return registry.GetOrCreateResolution(genericDef: genericDef,
+                typeArguments: typeArgs);
+        }
+
+        resolved = false;
+        return null;
     }
 
     /// <summary>

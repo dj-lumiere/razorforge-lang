@@ -1,0 +1,24 @@
+module Core
+
+### Marker protocol for element types that may back a struct-of-arrays column store
+### (`SplitList[T]` / `SplitArray[T, N]`).
+###
+### A type obeys `Splittable` iff its footprint is trivially destructible and blittable —
+### every field reduces to `@llvm` primitives / raw pointers with no custom `store`/`destroy`,
+### so each field can live in its own flat, reallocatable column with no per-element lifecycle.
+###
+### This is a pure marker (no required routines). The blittable leaves — the fixed-width
+### integers `S8`..`S256`/`U8`..`U256`, the floats `F16`/`F32`/`F64`/`F128`, and `Bool` — opt in
+### directly with `obeys Splittable` (a trust-me assertion at the leaf; the builder does not
+### re-derive that an `i64` is blittable). `needs Splittable everywhere` then confers it
+### structurally: a record whose every field obeys `Splittable` IS `Splittable`, while one holding
+### a managed field (`Text`, `List`, an RC handle, an `entity`) is not — so `needs T obeys
+### Splittable` on the SoA collections rejects a non-blittable element type by construction.
+###
+### Unlike `AtomicType`, splittability composes over fields, which is why this is an `everywhere`
+### structural protocol rather than a leaf-only marker.
+### :see: {SplitList}
+### :see: {SplitArray}
+protocol Splittable
+needs Splittable everywhere
+  pass

@@ -398,7 +398,7 @@ routine Complex.is_imaginary() -> Bool
 ### The `j` spelling matches the imaginary literal suffixes (`2j`, `1.5jn`), so output is valid
 ### literal syntax. Standard `represent` shape (no args) for f-string dispatch.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine Complex.represent() -> Text
   var real_text = me.real.represent()
   var imag_abs = me.imag.abs().represent()
@@ -420,7 +420,7 @@ routine Complex.represent_with_places(decimal_places: S32) -> Text
 ### Returns a diagnostic string that includes the type name wrapper.
 ### Standard `diagnose` shape (no args) for f-string dispatch.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine Complex.diagnose() -> Text
   return me.diagnose_with_places(decimal_places: 10_s32)
 

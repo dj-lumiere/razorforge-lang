@@ -13,13 +13,13 @@ record None obeys Assignable, Copyable
 
 ### Returns the display form of `None`.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine None.represent() -> Text
   return "None"
 
 ### Returns the diagnostic form of `None`.
 ### For this type, the display and diagnostic forms are identical.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine None.diagnose() -> Text
   return "None"

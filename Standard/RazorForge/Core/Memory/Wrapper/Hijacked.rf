@@ -11,7 +11,7 @@ import BuilderQuery
 ### :typeparam T: The pointee type.
 ### :see: {Address}, {Modifying[T]}, {Viewing[T]}, {Memory-Types}
 @llvm("ptr")
-record Hijacked[T] obeys Assignable
+record Hijacked[T] obeys Assignable, Copyable
   pass
 
 ### Returns the raw address carried by this pointer.
@@ -27,6 +27,14 @@ routine Hijacked[T].get_address() -> Address
 ### :returns: A bitwise duplicate of this pointer.
 @readonly
 routine Hijacked[T].assign() -> Hijacked[T]
+  return me
+
+### Returns a bitwise duplicate of this raw pointer (Copyable). A raw pointer is a trivially-copyable
+### value, so `copy` is the same bitwise duplicate as `assign`; the `@llvm("ptr")` type auto-derives
+### neither, so both are trivial opt-in bodies. Aliasing is left to the user, like every `Hijacked` op.
+### :returns: A bitwise duplicate of this pointer.
+@readonly
+routine Hijacked[T].duplicate() -> Hijacked[T]
   return me
 
 ### Returns the raw address of a bare value when it is reinterpreted as a pointer slot.
@@ -239,12 +247,12 @@ routine Hijacked[T].hash(k0: U64, k1: U64) -> U64
 
 ### Returns the textual representation of this value.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine Hijacked[T].represent() -> Text
   return me.type_name()
 
 ### Returns the textual representation of this value.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine Hijacked[T].diagnose() -> Text
   return f"{me.type_name()}(addr: {me.address()}, none: {me.is_none()})"

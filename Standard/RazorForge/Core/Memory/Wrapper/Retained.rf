@@ -88,7 +88,7 @@ routine Retained[T].control() -> T
 
 ### Returns the textual representation of this value.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine Retained[T].represent() -> Text
   danger
     var ctrl = Hijacked[RetainController[T]](me).as_entity()
@@ -96,7 +96,7 @@ routine Retained[T].represent() -> Text
 
 ### Returns the textual representation of this value.
 ### :returns: The resulting `Text` value.
-@readonly
+@[readonly, override]
 routine Retained[T].diagnose() -> Text
   danger
     var ctrl = Hijacked[RetainController[T]](me).as_entity()
@@ -107,6 +107,7 @@ routine Retained[T].diagnose() -> Text
 
 ### Decrements the strong count, tearing down the entity at zero (and the controller when both counts
 ### reach zero). This IS the decrement — there is no separate `release` verb; `destroy` is the teardown.
+@override
 dangerous routine Retained[T].destroy()
   var ctrl = Hijacked[RetainController[T]](me).as_entity()
   ctrl.unhold()

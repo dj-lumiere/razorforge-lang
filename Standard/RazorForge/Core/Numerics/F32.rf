@@ -8,7 +8,7 @@ import Collections
 ### for graphics, simulation, and general-purpose numeric code where 24 bits of
 ### significand precision are acceptable.
 @llvm("float")
-record F32 obeys Numeric, Ordered, Assignable, Copyable
+record F32 obeys Numeric, Ordered, Assignable, Copyable, Splittable
   pass
 
 # IEEE 754 single precision constants
@@ -482,6 +482,7 @@ common routine F32.signaling_nan() -> F32
 
 ### Returns the textual representation of this value.
 ### :returns: The resulting `Text` value.
+@override
 routine F32.represent() -> Text
   if me.is_signaling()
     return "snan"
@@ -490,6 +491,7 @@ routine F32.represent() -> Text
 
 ### Returns the textual representation of this value.
 ### :returns: The resulting `Text` value.
+@override
 routine F32.diagnose() -> Text
   var cstr_result = C::rf_format_F32(me)
   return "F32(" + Text(from: CStr(from_ptr: cstr_result)) + ")"

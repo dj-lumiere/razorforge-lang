@@ -207,6 +207,7 @@ routine ByteSize.cmp(you: ByteSize) -> ComparisonSign
 ### KiB, B) and concatenates the non-zero parts, matching the component-wise
 ### style of `Duration.represent`.
 ### :returns: The resulting `Text` value.
+@override
 routine ByteSize.represent() -> Text
   var raw = LLVM::reinterpret_bits[ByteSize, U64](me)
   if raw == 0u64
@@ -252,6 +253,7 @@ routine ByteSize.represent() -> Text
 
 ### Returns the diagnostic form of this byte size.
 ### :returns: The resulting `Text` value.
+@override
 routine ByteSize.diagnose() -> Text
   return "ByteSize(" + LLVM::reinterpret_bits[ByteSize, U64](me).represent() + ")"
 
@@ -265,3 +267,4 @@ routine ByteSize.diagnose() -> Text
 ### :returns: A `U64` keyed hash suitable for denial-of-service-resistant hash tables.
 routine ByteSize.hash(k0: U64, k1: U64) -> U64
   return __secure_hash_u64(v: LLVM::reinterpret_bits[ByteSize, U64](me), k0: k0, k1: k1)
+

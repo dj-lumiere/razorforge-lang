@@ -434,6 +434,7 @@ routine Set[T].eq(other: Accessing[Set[T]]) -> Bool
       return false
   return true
 
+@override
 dangerous routine Set[T].destroy()
   # Tear down each live element before freeing the buffers (mirrors the live-entry scan in
   # SetEmittable.emit!). For value elements `destroy` is a no-op; for owned entity elements

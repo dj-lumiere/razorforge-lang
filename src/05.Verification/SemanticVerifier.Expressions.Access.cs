@@ -49,6 +49,64 @@ public sealed partial class SemanticVerifier
     }
 
     /// <summary>
+    /// True if the receiver is a generic parameter whose active Obeys-constraint is the read-only
+    /// marker <c>Accessing[X]</c> (not <c>Controlling[X]</c>) — a write through it is rejected, mirroring
+    /// <see cref="IsReadOnlyTransparentProtocol"/> for a direct-protocol receiver.
+    /// </summary>
+    private bool IsReadOnlyMarkerBoundParam(TypeSymbol type)
+    {
+        if (type is not GenericParameterTypeInfo gp) return false;
+        bool sawMarker = false;
+        foreach (GenericConstraintDeclaration c in ActiveConstraintsFor(paramName: gp.Name))
+        {
+            if (c is not { ConstraintType: ConstraintKind.Obeys, ConstraintTypes: not null }) continue;
+            foreach (TypeExpression protoExpr in c.ConstraintTypes)
+            {
+                if (protoExpr.Name == Compiler.Resolution.RuntimeContract.Controlling) return false;
+                if (protoExpr.Name == Compiler.Resolution.RuntimeContract.Accessing) sawMarker = true;
+            }
+        }
+        return sawMarker;
+    }
+
+    /// <summary>
+    /// Unwraps a marker-bound receiver to the inner concrete type for member access. Handles a direct
+    /// <c>Accessing[X]</c>/<c>Controlling[X]</c> receiver (transparent protocol) AND a generic parameter
+    /// desugared from a marker-protocol param (<c>p: Accessing[X]</c> becomes
+    /// <c>[V obeys Accessing[X]](p: V)</c>): scans the param's active Obeys-constraints for the marker
+    /// bound and yields its inner <c>X</c>, so a member/field access on the param resolves against
+    /// <c>X</c> — the concrete <c>Viewing</c>/<c>Modifying</c> token (or a value conformer) forwards
+    /// every member to <c>X</c>.
+    /// </summary>
+    private bool TryUnwrapMarkerReceiver(TypeSymbol type, out TypeSymbol innerType)
+    {
+        if (TryGetTransparentProtocolTarget(type: type, targetType: out innerType))
+            return true;
+        if (type is GenericParameterTypeInfo gp)
+        {
+            foreach (GenericConstraintDeclaration c in ActiveConstraintsFor(paramName: gp.Name))
+            {
+                if (c is not { ConstraintType: ConstraintKind.Obeys, ConstraintTypes: not null }) continue;
+                foreach (TypeExpression protoExpr in c.ConstraintTypes)
+                {
+                    if (protoExpr.Name is not (Compiler.Resolution.RuntimeContract.Accessing
+                            or Compiler.Resolution.RuntimeContract.Controlling))
+                        continue;
+                    if (protoExpr.GenericArguments is not { Count: 1 }) continue;
+                    TypeSymbol resolved = _typeResolver.ResolveType(typeExpr: protoExpr.GenericArguments[index: 0]);
+                    if (resolved is not (null or ErrorTypeInfo))
+                    {
+                        innerType = resolved;
+                        return true;
+                    }
+                }
+            }
+        }
+        innerType = type;
+        return false;
+    }
+
+    /// <summary>
     /// Analyzes a comptime splice-selector member access (<c>x.${m.name}</c>). The receiver and
     /// the selector splice are analyzed for real (surfacing mistakes in either), but the selected
     /// field's concrete type is unknown until monomorphization, so this defers to
@@ -84,6 +142,66 @@ public sealed partial class SemanticVerifier
         return ErrorTypeInfo.Instance;
     }
 
+    /// <summary>
+    /// Types a projection off a comptime <c>expand</c> handle (<c>m.name</c>/<c>m.id</c>/…). The handle
+    /// is a sentinel; projections type leniently so the expand body typechecks before monomorphization.
+    /// Any other projection on the handle is a clear mistake.
+    /// </summary>
+    private TypeSymbol AnalyzeComptimeHandleProjection(MemberExpression member)
+    {
+        switch (member.MemberName)
+        {
+            case "name":
+                return _registry.LookupType(name: "Text") ?? ErrorTypeInfo.Instance;
+            case "id":
+                return _registry.LookupType(name: "U64") ?? ErrorTypeInfo.Instance;
+            case "is_secret":
+            case "is_routine":
+            case "is_inert":
+                return _registry.LookupType(name: "Bool") ?? ErrorTypeInfo.Instance;
+            case "value":
+                // caseof `c.value` — a choice's S32 discriminant / a flags member's U64 bit. Only
+                // ever spliced (`${c.value}`, deferred); type leniently as S32 for a bare reference.
+                return _registry.LookupType(name: "S32") ?? ErrorTypeInfo.Instance;
+            case "type_id":
+                // branchof `m.type_id` — the arm type's stable id (U64), used by variant diagnose.
+                return _registry.LookupType(name: "U64") ?? ErrorTypeInfo.Instance;
+            case "type":
+                // `${m.type}` in EXPRESSION position — the member/arm type as a comptime typewise
+                // receiver (e.g. `${m.type}.data_size()` / `.type_id()`, or a column-buffer size in a
+                // SoA memberRoutine). Deferred like the type/pattern-position splice: the real type only
+                // exists at monomorphization, so a bare projection types leniently and the static
+                // call on it is re-resolved on the folded concrete type post-monomorph.
+                return ErrorTypeInfo.Instance;
+            default:
+                ReportError(code: SemanticDiagnosticCode.MemberNotFound,
+                    message:
+                    $"Comptime expand handle has no projection '{member.MemberName}'. Available: 'name' (Text), 'id' (U64), 'is_secret'/'is_routine' (Bool), 'value' (caseof).",
+                    location: member.Location);
+                return ErrorTypeInfo.Instance;
+        }
+    }
+
+    /// <summary>
+    /// Reports the Suflae RF-S nullable-entity-dereference error for a member access on a possibly-none
+    /// entity receiver, tailoring the receiver description and hint to the receiver expression shape.
+    /// </summary>
+    private void ReportNullableEntityDeref(MemberExpression member)
+    {
+        string receiver = member.Object is IdentifierExpression idRecv
+            ? $"'{idRecv.Name}'"
+            : member.Object is MemberExpression mRecv
+                ? $"'{mRecv.MemberName}'"
+                : "the value";
+        string hint = member.Object is IdentifierExpression idHint
+            ? $"Null-check it first (e.g. 'if {idHint.Name} isnot None' or 'if {idHint.Name} is None: return')."
+            : "Bind it to a local and null-check that local first (e.g. 'var v = …' then 'if v isnot None').";
+        ReportError(code: SemanticDiagnosticCode.NullableEntityDeref,
+            message:
+            $"Cannot access member '{member.MemberName}' on possibly-none entity {receiver}. {hint}",
+            location: member.Location);
+    }
+
     private TypeSymbol AnalyzeMemberExpression(MemberExpression member)
     {
         TypeSymbol objectType = AnalyzeExpression(expression: member.Object);
@@ -93,37 +211,7 @@ public sealed partial class SemanticVerifier
         // before monomorphization. Any other projection on the handle is a clear mistake.
         if (objectType is ComptimeHandleTypeInfo)
         {
-            switch (member.MemberName)
-            {
-                case "name":
-                    return _registry.LookupType(name: "Text") ?? ErrorTypeInfo.Instance;
-                case "id":
-                    return _registry.LookupType(name: "U64") ?? ErrorTypeInfo.Instance;
-                case "is_secret":
-                case "is_routine":
-                case "is_inert":
-                    return _registry.LookupType(name: "Bool") ?? ErrorTypeInfo.Instance;
-                case "value":
-                    // caseof `c.value` — a choice's S32 discriminant / a flags member's U64 bit. Only
-                    // ever spliced (`${c.value}`, deferred); type leniently as S32 for a bare reference.
-                    return _registry.LookupType(name: "S32") ?? ErrorTypeInfo.Instance;
-                case "type_id":
-                    // branchof `m.type_id` — the arm type's stable id (U64), used by variant diagnose.
-                    return _registry.LookupType(name: "U64") ?? ErrorTypeInfo.Instance;
-                case "type":
-                    // `${m.type}` in EXPRESSION position — the member/arm type as a comptime typewise
-                    // receiver (e.g. `${m.type}.data_size()` / `.type_id()`, or a column-buffer size in a
-                    // SoA memberRoutine). Deferred like the type/pattern-position splice: the real type only
-                    // exists at monomorphization, so a bare projection types leniently and the static
-                    // call on it is re-resolved on the folded concrete type post-monomorph.
-                    return ErrorTypeInfo.Instance;
-                default:
-                    ReportError(code: SemanticDiagnosticCode.MemberNotFound,
-                        message:
-                        $"Comptime expand handle has no projection '{member.MemberName}'. Available: 'name' (Text), 'id' (U64), 'is_secret'/'is_routine' (Bool), 'value' (caseof).",
-                        location: member.Location);
-                    return ErrorTypeInfo.Instance;
-            }
+            return AnalyzeComptimeHandleProjection(member: member);
         }
 
         // The receiver already failed to resolve (its own error was reported). A follow-on
@@ -140,22 +228,11 @@ public sealed partial class SemanticVerifier
         // must always be bound to a local and checked there.
         if (_registry.Language == Language.Suflae && IsNullableEntityRead(expr: member.Object))
         {
-            string receiver = member.Object is IdentifierExpression idRecv
-                ? $"'{idRecv.Name}'"
-                : member.Object is MemberExpression mRecv
-                    ? $"'{mRecv.MemberName}'"
-                    : "the value";
-            string hint = member.Object is IdentifierExpression idHint
-                ? $"Null-check it first (e.g. 'if {idHint.Name} isnot None' or 'if {idHint.Name} is None: return')."
-                : "Bind it to a local and null-check that local first (e.g. 'var v = …' then 'if v isnot None').";
-            ReportError(code: SemanticDiagnosticCode.NullableEntityDeref,
-                message:
-                $"Cannot access member '{member.MemberName}' on possibly-none entity {receiver}. {hint}",
-                location: member.Location);
+            ReportNullableEntityDeref(member: member);
         }
 
-        bool hasTransparentTarget = TryGetTransparentProtocolTarget(type: objectType,
-            targetType: out TypeSymbol lookupType);
+        bool hasTransparentTarget = TryUnwrapMarkerReceiver(type: objectType,
+            innerType: out TypeSymbol lookupType);
 
         // Look up the member variable/property on the type
         if (lookupType is RecordTypeInfo record)
@@ -172,33 +249,10 @@ public sealed partial class SemanticVerifier
             }
 
             // Wrapper type forwarding for record-based wrappers (Viewing[T], Modifying[T], etc.)
-            if (IsWrapperType(type: lookupType))
+            if (IsWrapperType(type: lookupType)
+                && TryForwardWrapperMemberAccess(lookupType: lookupType, member: member) is { } forwarded)
             {
-                MemberVariableInfo? innerMemberVariable =
-                    LookupMemberVariableOnWrapperInnerType(wrapperType: lookupType,
-                        memberVariableName: member.MemberName);
-                if (innerMemberVariable != null)
-                {
-                    ValidateMemberVariableAccess(memberVariable: innerMemberVariable,
-                        isWrite: false,
-                        accessLocation: member.Location);
-                    return innerMemberVariable.Type;
-                }
-
-                RoutineInfo? innerMemberRoutine =
-                    TrySynthesizeWrapperForwarder(wrapperType: lookupType,
-                        memberRoutineName: member.MemberName, isFailable: false)
-                    ?? _registry.LookupMemberRoutine(type: lookupType,
-                        memberRoutineName: member.MemberName);
-                if (innerMemberRoutine != null)
-                {
-                    ValidateReadOnlyWrapperMemberRoutineAccess(wrapperType: lookupType,
-                        memberRoutine: innerMemberRoutine,
-                        location: member.Location);
-                    ValidateRoutineAccess(routine: innerMemberRoutine, accessLocation: member.Location);
-                    return innerMemberRoutine.ReturnType ??
-                           _registry.LookupType(name: "None") ?? ErrorTypeInfo.Instance;
-                }
+                return forwarded;
             }
         }
         else if (lookupType is TupleTypeInfo tupleType)
@@ -236,38 +290,10 @@ public sealed partial class SemanticVerifier
             }
         }
         // Wrapper type forwarding: Viewing<T>, Modifying<T>, Guarded<T>, etc.
-        else if (IsWrapperType(type: lookupType))
+        else if (IsWrapperType(type: lookupType)
+                 && TryForwardWrapperMemberAccess(lookupType: lookupType, member: member) is { } forwarded)
         {
-            // Try to forward member variable access to the inner type
-            MemberVariableInfo? innerMemberVariable =
-                LookupMemberVariableOnWrapperInnerType(wrapperType: lookupType,
-                    memberVariableName: member.MemberName);
-            if (innerMemberVariable != null)
-            {
-                // Validate member variable access on the inner type
-                ValidateMemberVariableAccess(memberVariable: innerMemberVariable,
-                    isWrite: false,
-                    accessLocation: member.Location);
-                return innerMemberVariable.Type;
-            }
-
-            // Try to forward memberRoutine access to the inner type via Phase D synthesized forwarders
-            RoutineInfo? innerMemberRoutine =
-                TrySynthesizeWrapperForwarder(wrapperType: lookupType,
-                    memberRoutineName: member.MemberName, isFailable: false)
-                ?? _registry.LookupMemberRoutine(type: lookupType, memberRoutineName: member.MemberName);
-            if (innerMemberRoutine != null)
-            {
-                // Validate read-only wrapper restrictions
-                ValidateReadOnlyWrapperMemberRoutineAccess(wrapperType: lookupType,
-                    memberRoutine: innerMemberRoutine,
-                    location: member.Location);
-                // Validate memberRoutine access
-                ValidateRoutineAccess(routine: innerMemberRoutine, accessLocation: member.Location);
-                // Return type is None if not specified
-                return innerMemberRoutine.ReturnType ??
-                       _registry.LookupType(name: "None") ?? ErrorTypeInfo.Instance;
-            }
+            return forwarded;
         }
 
         // Choice case member access: Color.RED -> ChoiceTypeInfo
@@ -336,6 +362,48 @@ public sealed partial class SemanticVerifier
                 location: member.Location);
         }
         return ErrorTypeInfo.Instance;
+    }
+
+    /// <summary>
+    /// Forwards a read member access on a wrapper type (Viewing[T], Modifying[T], Guarded[T], …) to its
+    /// inner type — first as a member variable, then as a member routine via a Phase-D synthesized
+    /// forwarder (or a directly-registered routine). Returns the resolved access type, or <c>null</c>
+    /// when neither is found (the caller continues with its normal lookup / error path).
+    /// </summary>
+    private TypeSymbol? TryForwardWrapperMemberAccess(TypeSymbol lookupType, MemberExpression member)
+    {
+        // Try to forward member variable access to the inner type
+        MemberVariableInfo? innerMemberVariable =
+            LookupMemberVariableOnWrapperInnerType(wrapperType: lookupType,
+                memberVariableName: member.MemberName);
+        if (innerMemberVariable != null)
+        {
+            // Validate member variable access on the inner type
+            ValidateMemberVariableAccess(memberVariable: innerMemberVariable,
+                isWrite: false,
+                accessLocation: member.Location);
+            return innerMemberVariable.Type;
+        }
+
+        // Try to forward memberRoutine access to the inner type via Phase D synthesized forwarders
+        RoutineInfo? innerMemberRoutine =
+            TrySynthesizeWrapperForwarder(wrapperType: lookupType,
+                memberRoutineName: member.MemberName, isFailable: false)
+            ?? _registry.LookupMemberRoutine(type: lookupType, memberRoutineName: member.MemberName);
+        if (innerMemberRoutine != null)
+        {
+            // Validate read-only wrapper restrictions
+            ValidateReadOnlyWrapperMemberRoutineAccess(wrapperType: lookupType,
+                memberRoutine: innerMemberRoutine,
+                location: member.Location);
+            // Validate memberRoutine access
+            ValidateRoutineAccess(routine: innerMemberRoutine, accessLocation: member.Location);
+            // Return type is None if not specified
+            return innerMemberRoutine.ReturnType ??
+                   _registry.LookupType(name: "None") ?? ErrorTypeInfo.Instance;
+        }
+
+        return null;
     }
 
     private TypeSymbol AnalyzeOptionalMemberExpression(OptionalMemberExpression optMember)
@@ -415,42 +483,53 @@ public sealed partial class SemanticVerifier
             : null;
     }
 
-    private TypeSymbol AnalyzeIndexExpression(IndexExpression index) // NOSONAR S3776
+    /// <summary>
+    /// Type-as-value generic instantiation: when the index object is a bare type name (no shadowing
+    /// variable) referring to a generic type, reinterprets the brackets as generic-arg syntax and returns
+    /// the resolved type (e.g. <c>NumericSumAdd[T]</c>). Returns <c>null</c> when this is not a
+    /// type-instantiation index (the caller falls through to ordinary <c>getitem</c> resolution).
+    /// </summary>
+    private TypeSymbol? TryAnalyzeTypeAsValueInstantiation(IndexExpression index)
     {
-        // Type-as-value generic instantiation: when the object is a bare type name (no
-        // shadowing variable) referring to a generic type, reinterpret the brackets as
-        // generic-arg syntax — `NumericSumAdd[T].identity_lazy()` should produce the
-        // resolved type `NumericSumAdd[T]`, not run getitem on the gen-def.
-        if (index.Object is IdentifierExpression typeRefId &&
-            _registry.LookupVariable(name: typeRefId.Name) == null &&
-            LookupTypeWithImports(name: typeRefId.Name) is { GenericParameters.Count: > 0 } typeRef)
+        if (index.Object is not IdentifierExpression typeRefId ||
+            _registry.LookupVariable(name: typeRefId.Name) != null ||
+            LookupTypeWithImports(name: typeRefId.Name) is not { GenericParameters.Count: > 0 } typeRef)
         {
-            var typeArgs = new List<TypeSymbol>();
-            List<Expression> argExprs = index.Index is TupleLiteralExpression tup
-                ? tup.Elements
-                : [index.Index];
-            foreach (Expression argExpr in argExprs)
-            {
-                TypeSymbol argType = argExpr switch
-                {
-                    IdentifierExpression argId when IsGenericParameter(name: argId.Name)
-                        => new GenericParameterTypeInfo(name: argId.Name),
-                    IdentifierExpression argId when LookupTypeWithImports(name: argId.Name) is { } t
-                        => t,
-                    _ => AnalyzeExpression(expression: argExpr)
-                };
-                typeArgs.Add(item: argType);
-            }
-            if (typeArgs.Count == typeRef.GenericParameters.Count)
-            {
-                return _registry.GetOrCreateResolution(genericDef: typeRef,
-                    typeArguments: typeArgs);
-            }
+            return null;
         }
 
-        TypeSymbol objectType = AnalyzeExpression(expression: index.Object);
-        TryGetTransparentProtocolTarget(type: objectType, targetType: out TypeSymbol lookupType);
+        var typeArgs = new List<TypeSymbol>();
+        List<Expression> argExprs = index.Index is TupleLiteralExpression tup
+            ? tup.Elements
+            : [index.Index];
+        foreach (Expression argExpr in argExprs)
+        {
+            TypeSymbol argType = argExpr switch
+            {
+                IdentifierExpression argId when IsGenericParameter(name: argId.Name)
+                    => new GenericParameterTypeInfo(name: argId.Name),
+                IdentifierExpression argId when LookupTypeWithImports(name: argId.Name) is { } t
+                    => t,
+                _ => AnalyzeExpression(expression: argExpr)
+            };
+            typeArgs.Add(item: argType);
+        }
+        if (typeArgs.Count == typeRef.GenericParameters.Count)
+        {
+            return _registry.GetOrCreateResolution(genericDef: typeRef,
+                typeArguments: typeArgs);
+        }
 
+        return null;
+    }
+
+    /// <summary>
+    /// Resolves the <c>getitem</c> member routine for an index expression on <paramref name="lookupType"/>:
+    /// a slice (RangeExpression) binds the <c>Range[U64]</c> overload, otherwise the scalar overload, with
+    /// a failable fallback and (for wrapper types) a Phase-D synthesized forwarder. May return <c>null</c>.
+    /// </summary>
+    private RoutineInfo? ResolveIndexGetItem(IndexExpression index, TypeSymbol lookupType)
+    {
         // A slice `text[a til b]` — a RangeExpression index — binds to the `getitem(range: Range[U64])`
         // overload (returning the sub-collection), NOT the scalar `getitem(index)`. An index range is
         // ALWAYS U64, so analyze it with `Range[U64]` expected — bare (`s[0 til 5]`) and explicit
@@ -470,6 +549,17 @@ public sealed partial class SemanticVerifier
             }
         }
 
+        // A scalar index `arr[i]` binds the `getitem(index: U64)` overload — an index is ALWAYS U64.
+        // Resolve by that arg type FIRST so a container carrying BOTH a scalar `getitem(index: U64)` and
+        // a slice `getitem(range: Range[U64])` overload picks the scalar unambiguously: a name-only lookup
+        // can't disambiguate >1 same-name overload (no first-wins). Single-overload containers (e.g.
+        // `Dict.getitem(key: K)`) fall through to the name-only lookup below, which stays unique.
+        if (getItem == null && _registry.LookupType(name: "U64") is { } u64IndexType)
+        {
+            getItem = _registry.LookupMemberRoutineOverload(type: lookupType,
+                memberRoutineName: GetItemMemberRoutineName, argTypes: [u64IndexType]);
+        }
+
         // Look for getitem memberRoutine — LookupMemberRoutine handles generic resolutions
         getItem ??= _registry.LookupMemberRoutine(type: lookupType, memberRoutineName: GetItemMemberRoutineName);
         // Try failable variant if non-failable not found
@@ -486,6 +576,72 @@ public sealed partial class SemanticVerifier
                 ?? TrySynthesizeWrapperForwarder(wrapperType: lookupType,
                     memberRoutineName: GetItemMemberRoutineName, isFailable: true);
         }
+
+        return getItem;
+    }
+
+    /// <summary>
+    /// Computes the element type an index expression returns, substituting the owner's generic parameters
+    /// into the resolved <c>getitem</c> return type when it came from the generic definition. Assumes
+    /// <paramref name="getItem"/> has a non-null <see cref="RoutineInfo.ReturnType"/>.
+    /// </summary>
+    private TypeSymbol ResolveIndexReturnType(RoutineInfo getItem, TypeSymbol lookupType)
+    {
+        TypeSymbol returnType = getItem.ReturnType!;
+        List<string>? ownerGenericParams = null;
+        if (lookupType.TypeArguments is { Count: > 0 })
+        {
+            TypeSymbol? lookupGenericDef = GetGenericDefinition(resolution: lookupType);
+            ownerGenericParams = lookupGenericDef?.GenericParameters ??
+                                 getItem.OwnerType?.GenericParameters;
+        }
+
+        // Only substitute when `getitem` came from the GENERIC DEFINITION (its ReturnType is the
+        // bare owner param, e.g. List[T]'s `T`). If it was resolved against the instantiated
+        // owner, its ReturnType is ALREADY expressed in the resolution's type arguments —
+        // re-substituting would double-apply. That double-application is silent for `List[S64]`
+        // (S64 mentions no param) but corrupts `List[Box[T]]`: the owner's formal param name "T"
+        // collides with the routine's own "T" inside the element `Box[T]`, yielding a wrongly
+        // nested `Box[Box[T]]`. Guard on the owner carrying type arguments (= already resolved).
+        bool memberRoutineAlreadyResolved = getItem.OwnerType is { TypeArguments.Count: > 0 };
+
+        if (!memberRoutineAlreadyResolved &&
+            lookupType.TypeArguments is { Count: > 0 } &&
+            ownerGenericParams is { Count: > 0 })
+        {
+            var substitutions = new Dictionary<string, TypeSymbol>();
+            for (int i = 0; i < ownerGenericParams.Count &&
+                            i < lookupType.TypeArguments.Count; i++)
+            {
+                substitutions[key: ownerGenericParams[index: i]] =
+                    lookupType.TypeArguments[index: i];
+            }
+
+            if (substitutions.Count > 0)
+            {
+                returnType = SubstituteWithMapping(type: returnType,
+                    substitutions: substitutions);
+            }
+        }
+
+        return returnType;
+    }
+
+    private TypeSymbol AnalyzeIndexExpression(IndexExpression index)
+    {
+        // Type-as-value generic instantiation: when the object is a bare type name (no
+        // shadowing variable) referring to a generic type, reinterpret the brackets as
+        // generic-arg syntax — `NumericSumAdd[T].identity_lazy()` should produce the
+        // resolved type `NumericSumAdd[T]`, not run getitem on the gen-def.
+        if (TryAnalyzeTypeAsValueInstantiation(index: index) is { } instantiated)
+        {
+            return instantiated;
+        }
+
+        TypeSymbol objectType = AnalyzeExpression(expression: index.Object);
+        TryGetTransparentProtocolTarget(type: objectType, targetType: out TypeSymbol lookupType);
+
+        RoutineInfo? getItem = ResolveIndexGetItem(index: index, lookupType: lookupType);
 
         // Analyze the index expression with the indexer parameter type as expected type so
         // untyped integer literals (`arr[0]`) retype to U64/S64/etc. instead of defaulting to S64
@@ -504,44 +660,7 @@ public sealed partial class SemanticVerifier
 
         if (getItem?.ReturnType != null)
         {
-            TypeSymbol returnType = getItem.ReturnType;
-            List<string>? ownerGenericParams = null;
-            if (lookupType.TypeArguments is { Count: > 0 })
-            {
-                TypeSymbol? lookupGenericDef = GetGenericDefinition(resolution: lookupType);
-                ownerGenericParams = lookupGenericDef?.GenericParameters ??
-                                     getItem.OwnerType?.GenericParameters;
-            }
-
-            // Only substitute when `getitem` came from the GENERIC DEFINITION (its ReturnType is the
-            // bare owner param, e.g. List[T]'s `T`). If it was resolved against the instantiated
-            // owner, its ReturnType is ALREADY expressed in the resolution's type arguments —
-            // re-substituting would double-apply. That double-application is silent for `List[S64]`
-            // (S64 mentions no param) but corrupts `List[Box[T]]`: the owner's formal param name "T"
-            // collides with the routine's own "T" inside the element `Box[T]`, yielding a wrongly
-            // nested `Box[Box[T]]`. Guard on the owner carrying type arguments (= already resolved).
-            bool memberRoutineAlreadyResolved = getItem.OwnerType is { TypeArguments.Count: > 0 };
-
-            if (!memberRoutineAlreadyResolved &&
-                lookupType.TypeArguments is { Count: > 0 } &&
-                ownerGenericParams is { Count: > 0 })
-            {
-                var substitutions = new Dictionary<string, TypeSymbol>();
-                for (int i = 0; i < ownerGenericParams.Count &&
-                                i < lookupType.TypeArguments.Count; i++)
-                {
-                    substitutions[key: ownerGenericParams[index: i]] =
-                        lookupType.TypeArguments[index: i];
-                }
-
-                if (substitutions.Count > 0)
-                {
-                    returnType = SubstituteWithMapping(type: returnType,
-                        substitutions: substitutions);
-                }
-            }
-
-            return returnType;
+            return ResolveIndexReturnType(getItem: getItem, lookupType: lookupType);
         }
 
         // No `getitem` resolved. If the lookup type is fully concrete (no unresolved generic
@@ -712,7 +831,7 @@ public sealed partial class SemanticVerifier
     private void ValidateLambdaCaptures(LambdaExpression lambda,
         IReadOnlyDictionary<string, VariableInfo> enclosingScopeVariables,
         IReadOnlyDictionary<string, VariableInfo> localScopeVariables,
-        HashSet<string> parameterNames) // NOSONAR S3776
+        HashSet<string> parameterNames)
     {
         // Find all identifier expressions in the lambda body
         List<IdentifierExpression> identifiers = CollectIdentifiers(expression: lambda.Body);
@@ -724,49 +843,68 @@ public sealed partial class SemanticVerifier
 
         foreach (IdentifierExpression id in identifiers)
         {
-            // Skip if it's a parameter (not a capture)
-            if (parameterNames.Contains(item: id.Name))
-            {
-                continue;
-            }
+            ValidateLambdaCaptureIdentifier(id: id,
+                enclosingScopeVariables: enclosingScopeVariables,
+                localScopeVariables: localScopeVariables,
+                parameterNames: parameterNames,
+                givenNames: givenNames);
+        }
+    }
 
-            // Skip special identifiers
-            if (id.Name is "me" or "none")
-            {
-                continue;
-            }
+    /// <summary>
+    /// Validates a single identifier referenced in a lambda body as a potential capture: skips parameters
+    /// and special identifiers, validates the captured type, and enforces the 'given' clause for local
+    /// captures (RazorForge only).
+    /// </summary>
+    private void ValidateLambdaCaptureIdentifier(IdentifierExpression id,
+        IReadOnlyDictionary<string, VariableInfo> enclosingScopeVariables,
+        IReadOnlyDictionary<string, VariableInfo> localScopeVariables,
+        HashSet<string> parameterNames,
+        HashSet<string>? givenNames)
+    {
+        // Skip if it's a parameter (not a capture)
+        if (parameterNames.Contains(item: id.Name))
+        {
+            return;
+        }
 
-            // Check if this identifier refers to a captured variable
-            if (enclosingScopeVariables.TryGetValue(key: id.Name,
-                    value: out VariableInfo? varInfo))
+        // Skip special identifiers
+        if (id.Name is "me" or "none")
+        {
+            return;
+        }
+
+        // Check if this identifier refers to a captured variable
+        if (!enclosingScopeVariables.TryGetValue(key: id.Name, value: out VariableInfo? varInfo))
+        {
+            return;
+        }
+
+        // Validate that the captured type is allowed
+        ValidateCapturedType(varName: id.Name,
+            varType: varInfo.Type,
+            location: id.Location);
+
+        // Check 'given' clause enforcement for local captures (RazorForge only)
+        if (_registry.Language == Language.RazorForge &&
+            localScopeVariables.ContainsKey(key: id.Name) && !varInfo.IsPreset)
+        {
+            if (givenNames == null)
             {
-                // Validate that the captured type is allowed
-                ValidateCapturedType(varName: id.Name,
-                    varType: varInfo.Type,
+                // No 'given' clause — implicit capture of local variable
+                ReportError(code: SemanticDiagnosticCode.LambdaCaptureWithoutGiven,
+                    message:
+                    $"Lambda captures local variable '{id.Name}' without declaring it in 'given' clause. " +
+                    "All local captures must be explicit via 'given'.",
                     location: id.Location);
-
-                // Check 'given' clause enforcement for local captures (RazorForge only)
-                if (_registry.Language == Language.RazorForge &&
-                    localScopeVariables.ContainsKey(key: id.Name) && !varInfo.IsPreset)
-                {
-                    if (givenNames == null)
-                    {
-                        // No 'given' clause — implicit capture of local variable
-                        ReportError(code: SemanticDiagnosticCode.LambdaCaptureWithoutGiven,
-                            message:
-                            $"Lambda captures local variable '{id.Name}' without declaring it in 'given' clause. " +
-                            "All local captures must be explicit via 'given'.",
-                            location: id.Location);
-                    }
-                    else if (!givenNames.Contains(item: id.Name))
-                    {
-                        // Has 'given' clause but this variable isn't in it
-                        ReportError(code: SemanticDiagnosticCode.LambdaCaptureWithoutGiven,
-                            message:
-                            $"Lambda captures local variable '{id.Name}' but it is not listed in the 'given' clause.",
-                            location: id.Location);
-                    }
-                }
+            }
+            else if (!givenNames.Contains(item: id.Name))
+            {
+                // Has 'given' clause but this variable isn't in it
+                ReportError(code: SemanticDiagnosticCode.LambdaCaptureWithoutGiven,
+                    message:
+                    $"Lambda captures local variable '{id.Name}' but it is not listed in the 'given' clause.",
+                    location: id.Location);
             }
         }
     }
@@ -827,7 +965,7 @@ public sealed partial class SemanticVerifier
     /// Recursively collects identifier expressions.
     /// </summary>
     private static void CollectIdentifiersRecursive(Expression expression,
-        List<IdentifierExpression> identifiers) // NOSONAR S3776
+        List<IdentifierExpression> identifiers)
     {
         switch (expression)
         {
@@ -836,13 +974,11 @@ public sealed partial class SemanticVerifier
                 break;
 
             case CompoundAssignmentExpression compound:
-                CollectIdentifiersRecursive(expression: compound.Target, identifiers: identifiers);
-                CollectIdentifiersRecursive(expression: compound.Value, identifiers: identifiers);
+                CollectIdentifiersFromAll(identifiers: identifiers, compound.Target, compound.Value);
                 break;
 
             case BinaryExpression binary:
-                CollectIdentifiersRecursive(expression: binary.Left, identifiers: identifiers);
-                CollectIdentifiersRecursive(expression: binary.Right, identifiers: identifiers);
+                CollectIdentifiersFromAll(identifiers: identifiers, binary.Left, binary.Right);
                 break;
 
             case UnaryExpression unary:
@@ -859,11 +995,7 @@ public sealed partial class SemanticVerifier
 
             case CallExpression call:
                 CollectIdentifiersRecursive(expression: call.Callee, identifiers: identifiers);
-                foreach (Expression arg in call.Arguments)
-                {
-                    CollectIdentifiersRecursive(expression: arg, identifiers: identifiers);
-                }
-
+                CollectIdentifiersFromAll(identifiers: identifiers, call.Arguments);
                 break;
 
             case MemberExpression member:
@@ -871,16 +1003,12 @@ public sealed partial class SemanticVerifier
                 break;
 
             case IndexExpression index:
-                CollectIdentifiersRecursive(expression: index.Object, identifiers: identifiers);
-                CollectIdentifiersRecursive(expression: index.Index, identifiers: identifiers);
+                CollectIdentifiersFromAll(identifiers: identifiers, index.Object, index.Index);
                 break;
 
             case ConditionalExpression cond:
-                CollectIdentifiersRecursive(expression: cond.Condition, identifiers: identifiers);
-                CollectIdentifiersRecursive(expression: cond.TrueExpression,
-                    identifiers: identifiers);
-                CollectIdentifiersRecursive(expression: cond.FalseExpression,
-                    identifiers: identifiers);
+                CollectIdentifiersFromAll(identifiers: identifiers,
+                    cond.Condition, cond.TrueExpression, cond.FalseExpression);
                 break;
 
             case LambdaExpression:
@@ -888,54 +1016,28 @@ public sealed partial class SemanticVerifier
                 break;
 
             case RangeExpression range:
-                CollectIdentifiersRecursive(expression: range.Start, identifiers: identifiers);
-                CollectIdentifiersRecursive(expression: range.End, identifiers: identifiers);
-                if (range.Step != null)
-                {
-                    CollectIdentifiersRecursive(expression: range.Step, identifiers: identifiers);
-                }
-
+                CollectIdentifiersFromRange(range: range, identifiers: identifiers);
                 break;
 
             case CreatorExpression creator:
-                foreach ((_, Expression value) in creator.MemberVariables)
-                {
-                    CollectIdentifiersRecursive(expression: value, identifiers: identifiers);
-                }
-
+                CollectIdentifiersFromAll(identifiers: identifiers,
+                    creator.MemberVariables.Select(selector: mv => mv.Value));
                 break;
 
             case ListLiteralExpression list:
-                foreach (Expression elem in list.Elements)
-                {
-                    CollectIdentifiersRecursive(expression: elem, identifiers: identifiers);
-                }
-
+                CollectIdentifiersFromAll(identifiers: identifiers, list.Elements);
                 break;
 
             case SetLiteralExpression set:
-                foreach (Expression elem in set.Elements)
-                {
-                    CollectIdentifiersRecursive(expression: elem, identifiers: identifiers);
-                }
-
+                CollectIdentifiersFromAll(identifiers: identifiers, set.Elements);
                 break;
 
             case DictLiteralExpression dict:
-                foreach ((Expression key, Expression value) in dict.Pairs)
-                {
-                    CollectIdentifiersRecursive(expression: key, identifiers: identifiers);
-                    CollectIdentifiersRecursive(expression: value, identifiers: identifiers);
-                }
-
+                CollectIdentifiersFromPairs(identifiers: identifiers, dict.Pairs);
                 break;
 
             case TupleLiteralExpression tuple:
-                foreach (Expression elem in tuple.Elements)
-                {
-                    CollectIdentifiersRecursive(expression: elem, identifiers: identifiers);
-                }
-
+                CollectIdentifiersFromAll(identifiers: identifiers, tuple.Elements);
                 break;
 
             case BlockExpression block:
@@ -943,17 +1045,7 @@ public sealed partial class SemanticVerifier
                 break;
 
             case WithExpression with:
-                CollectIdentifiersRecursive(expression: with.Base, identifiers: identifiers);
-                foreach ((_, Expression? index, Expression value) in with.Updates)
-                {
-                    if (index != null)
-                    {
-                        CollectIdentifiersRecursive(expression: index, identifiers: identifiers);
-                    }
-
-                    CollectIdentifiersRecursive(expression: value, identifiers: identifiers);
-                }
-
+                CollectIdentifiersFromWith(with: with, identifiers: identifiers);
                 break;
 
             case IsPatternExpression isPat:
@@ -966,17 +1058,12 @@ public sealed partial class SemanticVerifier
                 break;
 
             case DictEntryLiteralExpression dictEntry:
-                CollectIdentifiersRecursive(expression: dictEntry.Key, identifiers: identifiers);
-                CollectIdentifiersRecursive(expression: dictEntry.Value, identifiers: identifiers);
+                CollectIdentifiersFromAll(identifiers: identifiers, dictEntry.Key, dictEntry.Value);
                 break;
 
             case GenericMemberRoutineCallExpression generic:
                 CollectIdentifiersRecursive(expression: generic.Object, identifiers: identifiers);
-                foreach (Expression arg in generic.Arguments)
-                {
-                    CollectIdentifiersRecursive(expression: arg, identifiers: identifiers);
-                }
-
+                CollectIdentifiersFromAll(identifiers: identifiers, generic.Arguments);
                 break;
 
             case GenericMemberExpression genericMember:
@@ -989,17 +1076,72 @@ public sealed partial class SemanticVerifier
                 break;
 
             case ChainedComparisonExpression chain:
-                foreach (Expression operand in chain.Operands)
-                {
-                    CollectIdentifiersRecursive(expression: operand, identifiers: identifiers);
-                }
-
+                CollectIdentifiersFromAll(identifiers: identifiers, chain.Operands);
                 break;
 
             // Literal expressions and type expressions have no identifiers to collect
             case LiteralExpression:
             case TypeExpression:
                 break;
+        }
+    }
+
+    /// <summary>Recurses into each of the given sub-expressions, collecting identifiers.</summary>
+    private static void CollectIdentifiersFromAll(List<IdentifierExpression> identifiers,
+        params Expression[] expressions)
+    {
+        foreach (Expression expression in expressions)
+        {
+            CollectIdentifiersRecursive(expression: expression, identifiers: identifiers);
+        }
+    }
+
+    /// <summary>Recurses into each sub-expression in the sequence, collecting identifiers.</summary>
+    private static void CollectIdentifiersFromAll(List<IdentifierExpression> identifiers,
+        IEnumerable<Expression> expressions)
+    {
+        foreach (Expression expression in expressions)
+        {
+            CollectIdentifiersRecursive(expression: expression, identifiers: identifiers);
+        }
+    }
+
+    /// <summary>Recurses into both sides of each key/value pair, collecting identifiers.</summary>
+    private static void CollectIdentifiersFromPairs(List<IdentifierExpression> identifiers,
+        IEnumerable<(Expression Key, Expression Value)> pairs)
+    {
+        foreach ((Expression key, Expression value) in pairs)
+        {
+            CollectIdentifiersRecursive(expression: key, identifiers: identifiers);
+            CollectIdentifiersRecursive(expression: value, identifiers: identifiers);
+        }
+    }
+
+    /// <summary>Recurses into a range's start/end (and optional step), collecting identifiers.</summary>
+    private static void CollectIdentifiersFromRange(RangeExpression range,
+        List<IdentifierExpression> identifiers)
+    {
+        CollectIdentifiersRecursive(expression: range.Start, identifiers: identifiers);
+        CollectIdentifiersRecursive(expression: range.End, identifiers: identifiers);
+        if (range.Step != null)
+        {
+            CollectIdentifiersRecursive(expression: range.Step, identifiers: identifiers);
+        }
+    }
+
+    /// <summary>Recurses into a `with` expression's base and each update (optional index + value).</summary>
+    private static void CollectIdentifiersFromWith(WithExpression with,
+        List<IdentifierExpression> identifiers)
+    {
+        CollectIdentifiersRecursive(expression: with.Base, identifiers: identifiers);
+        foreach ((_, Expression? index, Expression value) in with.Updates)
+        {
+            if (index != null)
+            {
+                CollectIdentifiersRecursive(expression: index, identifiers: identifiers);
+            }
+
+            CollectIdentifiersRecursive(expression: value, identifiers: identifiers);
         }
     }
 

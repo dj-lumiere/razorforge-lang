@@ -108,23 +108,9 @@ public sealed partial class SemanticVerifier
         // The template is a UNIVERSAL derive when its owner is a bare type-parameter placeholder — no
         // receiver type-args (not `List[T].foo`) AND the owner name doesn't resolve to a real type
         // (it's the `T` placeholder, not a concrete-owner `MyType.eq` override).
-        if (_currentType == null
-            && (routine.Annotations.Contains(item: "overridable")
-                || routine.Annotations.Contains(item: "override"))
-            && routine.MemberRoutineName is { } memberRoutine
-            && routine.OwnerName is { } ownerName
-            && !routine.HasReceiverTypeArgs
-            && LookupTypeWithImports(name: ownerName) == null)
+        if (IsSkippableOptInDeriveTemplate(routine: routine))
         {
-            // Skip SA for an OPT-IN derive template. It isn't registered as a live universal memberRoutine
-            // (see StdlibLoader.Registration), so its bare owner placeholder `T` is unbound during SA —
-            // `expand m in allmemvarof(T)`, a `you: T` param, etc. would spuriously error (RF-S100). The
-            // per-type body instead comes from the derive-template store via CloneUniversalDeriveBody,
-            // which unrolls the `expand` against the concrete type post-monomorph. The auto-conferred
-            // display derives (represent/diagnose) ARE registered universals → `T` is bound → they stay
-            // analyzed. Protocol-grounded via the wired catalog, not a per-memberRoutine name list.
-            if (!Compiler.Resolution.WiredRoutineCatalog.IsAutoConferredDerive(memberRoutine: memberRoutine))
-                return;
+            return;
         }
 
         // A user-defined `destroy` replaces the compiler-generated memory teardown (field
@@ -141,62 +127,7 @@ public sealed partial class SemanticVerifier
         }
 
         // Construct the base name matching how the routine was registered.
-        string baseName;
-        TypeSymbol? routineOwnerType = null;
-        if (_currentType != null)
-        {
-            // Member routine inside type body: OwnerType.Name + "." + routine.Name
-            baseName = $"{RoutineInfo.GetTypeIdentity(type: _currentType)}.{routine.Name}";
-            routineOwnerType = _currentType;
-        }
-        else if (routine.RenderedReceiver is { } typeName)
-        {
-            // Extension memberRoutine syntax (e.g., "List[T].add_last"): member + bare owner come from the
-            // parser's structural fields; `typeName` (owner WITH type-args = the RenderedReceiver) is still
-            // needed for the bracketed protocol-extension registry lookup below — that registry-key string
-            // form is the canonical rendered receiver (ResolveType(ReceiverType) resolves differently here).
-            string memberRoutineName = routine.MemberRoutineName!;
-            TypeSymbol? ownerType = LookupTypeWithImports(name: routine.OwnerName!);
-            // Protocol-extension decls like `Iterable[Text].join` should have `me` typed as the
-            // bracketed owner so the body's `for part in me` resolves `part` from
-            // Iterable[Text]'s try_emit() return. Without this, `me` is the bare gen-def
-            // `Iterable` and body identifiers (parameters, loop vars) get ErrorTypeInfo.
-            // Only override for ProtocolTypeInfo: for records/entities like
-            // `List[PQEntry[TPriority, TElement]]` the gen-param resolution must happen through
-            // routine.GenericParameters, not via a bracketed-cache lookup that strips the params.
-            if (typeName.Contains(value: '[') && ownerType is ProtocolTypeInfo)
-            {
-                TypeSymbol? bracketed = _registry.LookupType(name: typeName);
-                if (bracketed is ProtocolTypeInfo) ownerType = bracketed;
-            }
-
-            // Universal member routine (`routine T.represent()`): a bare owner name that resolves to no
-            // registered type IS the generic parameter itself. Mirror the registration path
-            // (StdlibLoader.Registration: owner → GenericParameterTypeInfo when LookupType misses) so the
-            // body binds to the universal RoutineInfo (whose OwnerType is that generic param) and `T`
-            // inside the body resolves as a parameter — instead of falling through to a first-wins
-            // by-member-name match on some concrete type's same-named routine (e.g. BitArray.represent),
-            // which left `T` resolvable only via the cross-module short-name scan.
-            if (ownerType == null && routine.OwnerName is { } bareOwner
-                && !bareOwner.Contains(value: '['))
-            {
-                ownerType = new GenericParameterTypeInfo(name: bareOwner);
-            }
-
-            routineOwnerType = ownerType;
-
-            baseName = ownerType != null
-                ? $"{RoutineInfo.GetTypeIdentity(type: ownerType)}.{memberRoutineName}"
-                : routine.Name;
-        }
-        else
-        {
-            // Top-level function: Module.Name (if module set), else just Name
-            string? module = GetCurrentModuleName();
-            baseName = string.IsNullOrEmpty(value: module)
-                ? routine.Name
-                : $"{module}.{routine.Name}";
-        }
+        (string baseName, TypeSymbol? routineOwnerType) = ComputeRoutineBaseName(routine: routine);
 
         // CONSTRUCTORS (`routine T(...)`) are the one case the dot-based name-string logic above
         // can't bind: their AST name is the bare type ("U64", "List") with no ".create" to key on,
@@ -218,69 +149,10 @@ public sealed partial class SemanticVerifier
         // Set OwnerType so `Me` in param types resolves to the concrete owner
         // (e.g. `routine SumS64.combine(you: Me) -> Me` needs Me → SumS64 during param-type
         // resolution at line 137, which happens before routineInfo is looked up).
-        RoutineInfo? prevRoutine = _currentRoutine;
-        _currentRoutine = new RoutineInfo(name: baseName)
-        {
-            GenericParameters = routine.GenericParameters,
-            OwnerType = routineOwnerType
-        };
-
-        RoutineInfo? routineInfo = isConstructorDecl ? routine.ResolvedInfo : null;
-        if (routineInfo == null && routine.Parameters.Count > 0)
-        {
-            IEnumerable<string> paramTypeNames = routine.Parameters
-                                                        .Select(selector: p =>
-                                                         {
-                                                             if (p.Type == null)
-                                                             {
-                                                                 return "";
-                                                             }
-
-                                                             TypeSymbol resolved =
-                                                                 ResolveType(
-                                                                     typeExpr: p.Type);
-                                                             if (resolved is ErrorTypeInfo)
-                                                             {
-                                                                 return p.Type.Name ?? "";
-                                                             }
-
-                                                             // Variadic params are desugared to
-                                                             // Array[T, __VarargN] up front (p.Type is
-                                                             // already that Array), so the resolved type
-                                                             // matches the registered signature directly —
-                                                             // no List[T] wrapping.
-
-                                                             return RoutineInfo.GetTypeIdentity(
-                                                                 type: resolved);
-                                                         })
-                                                        .Where(predicate: n =>
-                                                             !string.IsNullOrEmpty(value: n));
-            string paramSig = string.Join(separator: ",", values: paramTypeNames);
-            string registryKey = $"{baseName}#{paramSig}";
-            routineInfo = _registry.LookupRoutine(fullName: registryKey,
-                isFailable: routine.IsFailable);
-
-            // Fallback: extension memberRoutines on concrete generic specializations
-            // (e.g., `List[Byte].create`) register under the concrete owner type,
-            // producing a RegistryKey like `Core.List[Core.Byte].create#Core.Bytes`.
-            // The first lookup above used the generic-def-normalized owner
-            // (`Core.List[T].create`), so it missed. Resolve the concrete owner
-            // type from the routine name and rebuild the canonical key.
-            if (routineInfo == null && routine.HasReceiverTypeArgs
-                && routine.ReceiverType is { } ownerExpr && routine.MemberRoutineName is { } mName)
-            {
-                // Structured receiver from the parser (was: re-parse the owner substring of Name).
-                TypeSymbol resolvedOwner = ResolveType(typeExpr: ownerExpr);
-                if (resolvedOwner is not ErrorTypeInfo)
-                {
-                    string ownerIdentity = RoutineInfo.GetTypeIdentity(type: resolvedOwner);
-                    string concreteKey = $"{ownerIdentity}.{mName}#{paramSig}";
-                    routineInfo = _registry.LookupRoutine(fullName: concreteKey);
-                }
-            }
-        }
-
-        _currentRoutine = prevRoutine;
+        RoutineInfo? routineInfo = ResolveRoutineInfoByRegistryKey(routine: routine,
+            baseName: baseName,
+            routineOwnerType: routineOwnerType,
+            isConstructorDecl: isConstructorDecl);
 
         // Prefer the overload whose failability matches the routine being analyzed, so
         // bodies of failable variants don't get matched against a non-failable first-wins entry.
@@ -315,9 +187,9 @@ public sealed partial class SemanticVerifier
         {
             // @innate routines may be intentionally skipped at registration
             // (e.g., BuilderQuery closure-cascading stubs synthesized per-type).
+            // (_currentRoutine was already restored by ResolveRoutineInfoByRegistryKey.)
             if (routine.Annotations.Contains(item: "innate"))
             {
-                _currentRoutine = prevRoutine;
                 return;
             }
 
@@ -429,6 +301,177 @@ public sealed partial class SemanticVerifier
         _registry.ExitScope();
 
         _currentRoutine = previousRoutine;
+    }
+
+    /// <summary>
+    /// Whether this routine is an OPT-IN capability-default derive template (`@overridable/@override
+    /// routine T.eq/cmp()` on a bare generic-param owner) that must be skipped by SA — such templates
+    /// aren't registered as live universal member routines, so their `T` placeholder is unbound and
+    /// analyzing the raw body would spuriously error. Auto-conferred display derives are excluded.
+    /// </summary>
+    private bool IsSkippableOptInDeriveTemplate(RoutineDeclaration routine)
+    {
+        if (_currentType == null
+            && (routine.Annotations.Contains(item: "overridable")
+                || routine.Annotations.Contains(item: "override"))
+            && routine.MemberRoutineName is { } memberRoutine
+            && routine.OwnerName is { } ownerName
+            && !routine.HasReceiverTypeArgs
+            && LookupTypeWithImports(name: ownerName) == null)
+        {
+            // The auto-conferred display derives (represent/diagnose) ARE registered universals →
+            // `T` is bound → they stay analyzed. Protocol-grounded via the wired catalog, not a
+            // per-memberRoutine name list.
+            return !Compiler.Resolution.WiredRoutineCatalog.IsAutoConferredDerive(
+                memberRoutine: memberRoutine);
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Computes the registry base name and owner type for a routine, mirroring how it was registered:
+    /// member routines key on their owner type, extension/universal member routines resolve their
+    /// (possibly generic-param) owner, and top-level routines qualify by module.
+    /// </summary>
+    private (string baseName, TypeSymbol? routineOwnerType) ComputeRoutineBaseName(
+        RoutineDeclaration routine)
+    {
+        if (_currentType != null)
+        {
+            // Member routine inside type body: OwnerType.Name + "." + routine.Name
+            return ($"{RoutineInfo.GetTypeIdentity(type: _currentType)}.{routine.Name}",
+                _currentType);
+        }
+
+        if (routine.RenderedReceiver is { } typeName)
+        {
+            // Extension memberRoutine syntax (e.g., "List[T].add_last"): member + bare owner come from the
+            // parser's structural fields; `typeName` (owner WITH type-args = the RenderedReceiver) is still
+            // needed for the bracketed protocol-extension registry lookup below — that registry-key string
+            // form is the canonical rendered receiver (ResolveType(ReceiverType) resolves differently here).
+            string memberRoutineName = routine.MemberRoutineName!;
+            TypeSymbol? ownerType = LookupTypeWithImports(name: routine.OwnerName!);
+            // Protocol-extension decls like `Iterable[Text].join` should have `me` typed as the
+            // bracketed owner so the body's `for part in me` resolves `part` from
+            // Iterable[Text]'s try_emit() return. Without this, `me` is the bare gen-def
+            // `Iterable` and body identifiers (parameters, loop vars) get ErrorTypeInfo.
+            // Only override for ProtocolTypeInfo: for records/entities like
+            // `List[PQEntry[TPriority, TElement]]` the gen-param resolution must happen through
+            // routine.GenericParameters, not via a bracketed-cache lookup that strips the params.
+            if (typeName.Contains(value: '[') && ownerType is ProtocolTypeInfo)
+            {
+                TypeSymbol? bracketed = _registry.LookupType(name: typeName);
+                if (bracketed is ProtocolTypeInfo) ownerType = bracketed;
+            }
+
+            // Universal member routine (`routine T.represent()`): a bare owner name that resolves to no
+            // registered type IS the generic parameter itself. Mirror the registration path
+            // (StdlibLoader.Registration: owner → GenericParameterTypeInfo when LookupType misses) so the
+            // body binds to the universal RoutineInfo (whose OwnerType is that generic param) and `T`
+            // inside the body resolves as a parameter — instead of falling through to a first-wins
+            // by-member-name match on some concrete type's same-named routine (e.g. BitArray.represent),
+            // which left `T` resolvable only via the cross-module short-name scan.
+            if (ownerType == null && routine.OwnerName is { } bareOwner
+                && !bareOwner.Contains(value: '['))
+            {
+                ownerType = new GenericParameterTypeInfo(name: bareOwner);
+            }
+
+            string extBaseName = ownerType != null
+                ? $"{RoutineInfo.GetTypeIdentity(type: ownerType)}.{memberRoutineName}"
+                : routine.Name;
+            return (extBaseName, ownerType);
+        }
+
+        // Top-level function: Module.Name (if module set), else just Name
+        string? module = GetCurrentModuleName();
+        string topBaseName = string.IsNullOrEmpty(value: module)
+            ? routine.Name
+            : $"{module}.{routine.Name}";
+        return (topBaseName, null);
+    }
+
+    /// <summary>
+    /// Resolves the routine's <see cref="RoutineInfo"/> via its RegistryKey (base name + param-type
+    /// signature) for overload disambiguation. Temporarily installs a stub <c>_currentRoutine</c> so
+    /// param-type resolution sees the routine's generic parameters and owner (for `Me`), restoring it
+    /// before returning. Returns null when no keyed entry matches (caller falls back to base name).
+    /// </summary>
+    private RoutineInfo? ResolveRoutineInfoByRegistryKey(RoutineDeclaration routine,
+        string baseName, TypeSymbol? routineOwnerType, bool isConstructorDecl)
+    {
+        // Look up by RegistryKey (BaseName + param types) for overload disambiguation,
+        // then fall back to BaseName for the first-overload-wins entry.
+        // Set up generic parameter context so ResolveType recognizes T, U, etc.
+        // (mirrors Phase 4.1 registration in Signatures.cs)
+        // Set OwnerType so `Me` in param types resolves to the concrete owner
+        // (e.g. `routine SumS64.combine(you: Me) -> Me` needs Me → SumS64 during param-type
+        // resolution, which happens before routineInfo is looked up).
+        RoutineInfo? prevRoutine = _currentRoutine;
+        _currentRoutine = new RoutineInfo(name: baseName)
+        {
+            GenericParameters = routine.GenericParameters,
+            OwnerType = routineOwnerType
+        };
+
+        RoutineInfo? routineInfo = isConstructorDecl ? routine.ResolvedInfo : null;
+        if (routineInfo == null && routine.Parameters.Count > 0)
+        {
+            IEnumerable<string> paramTypeNames = routine.Parameters
+                                                        .Select(selector: p =>
+                                                         {
+                                                             if (p.Type == null)
+                                                             {
+                                                                 return "";
+                                                             }
+
+                                                             TypeSymbol resolved =
+                                                                 ResolveType(
+                                                                     typeExpr: p.Type);
+                                                             if (resolved is ErrorTypeInfo)
+                                                             {
+                                                                 return p.Type.Name ?? "";
+                                                             }
+
+                                                             // Variadic params are desugared to
+                                                             // Array[T, __VarargN] up front (p.Type is
+                                                             // already that Array), so the resolved type
+                                                             // matches the registered signature directly —
+                                                             // no List[T] wrapping.
+
+                                                             return RoutineInfo.GetTypeIdentity(
+                                                                 type: resolved);
+                                                         })
+                                                        .Where(predicate: n =>
+                                                             !string.IsNullOrEmpty(value: n));
+            string paramSig = string.Join(separator: ",", values: paramTypeNames);
+            string registryKey = $"{baseName}#{paramSig}";
+            routineInfo = _registry.LookupRoutine(fullName: registryKey,
+                isFailable: routine.IsFailable);
+
+            // Fallback: extension memberRoutines on concrete generic specializations
+            // (e.g., `List[Byte].create`) register under the concrete owner type,
+            // producing a RegistryKey like `Core.List[Core.Byte].create#Core.Bytes`.
+            // The first lookup above used the generic-def-normalized owner
+            // (`Core.List[T].create`), so it missed. Resolve the concrete owner
+            // type from the routine name and rebuild the canonical key.
+            if (routineInfo == null && routine.HasReceiverTypeArgs
+                && routine.ReceiverType is { } ownerExpr && routine.MemberRoutineName is { } mName)
+            {
+                // Structured receiver from the parser (was: re-parse the owner substring of Name).
+                TypeSymbol resolvedOwner = ResolveType(typeExpr: ownerExpr);
+                if (resolvedOwner is not ErrorTypeInfo)
+                {
+                    string ownerIdentity = RoutineInfo.GetTypeIdentity(type: resolvedOwner);
+                    string concreteKey = $"{ownerIdentity}.{mName}#{paramSig}";
+                    routineInfo = _registry.LookupRoutine(fullName: concreteKey);
+                }
+            }
+        }
+
+        _currentRoutine = prevRoutine;
+        return routineInfo;
     }
 
     private void AnalyzeStatement(Statement statement)
@@ -684,6 +727,64 @@ public sealed partial class SemanticVerifier
             }
         }
 
+        CheckVariableCopyRestrictions(varDecl: varDecl, varType: varType);
+
+// Register variable in current scope
+        // A new declaration shadows any prior steal of the same name in this scope.
+        _deadrefVariables.Remove(item: varDecl.Name);
+
+        // Suflae flow typing: a local is nullable when it was annotated `E?`, or (with no annotation)
+        // inferred from a nullable entity read (`var n = a.optField`) or a `none` literal — so member
+        // access on it is gated until a null-check.
+        bool varIsNullable = annotatedNullable ||
+            (varDecl.Type == null && varDecl.Initializer != null &&
+             IsNullableEntityRead(expr: varDecl.Initializer));
+
+        // Suflae: assigning a possibly-none value into a NON-NULL entity variable (`var x: E = <nullable>`
+        // or `var x: E = none`) is rejected — declare the variable optional (`x: E?`) to allow none.
+        if (annotatedNonNullEntity && varDecl.Initializer != null &&
+            IsNullableEntityRead(expr: varDecl.Initializer))
+        {
+            ReportNullableIntoNonNull(target: $"variable '{varDecl.Name}'",
+                value: varDecl.Initializer, optionalHint: $"{varDecl.Name}: <Type>?");
+        }
+
+        bool declared = _registry.DeclareVariable(name: varDecl.Name, type: varType,
+            isNullable: varIsNullable, location: varDecl.Location);
+
+        if (!declared)
+        {
+            ReportError(code: SemanticDiagnosticCode.VariableRedeclaration,
+                message: $"Variable '{varDecl.Name}' is already declared in this scope.",
+                location: varDecl.Location);
+        }
+
+
+        // RF-S630: track the controller identity of a Guarded/Witnessed handle so the
+        // readers-XOR-writer check keys on the shared DATA, not the variable name — a clone
+        // (`var s2 = s.share()`) inherits `s`'s identity and so conflicts with it.
+        if (_registry.Language == Language.RazorForge &&
+            varType.BareName is Compiler.Resolution.RuntimeContract.Guarded or Compiler.Resolution.RuntimeContract.Witnessed)
+        {
+            RecordSharedHandleIdentity(name: varDecl.Name, initializer: varDecl.Initializer);
+        }
+
+        // #161: Track Lookup variables that must be dismantled before scope exit
+        if (GetCarrierBaseName(type: varType) == "Lookup" &&
+            varDecl.Initializer is not IdentifierExpression)
+        {
+            _pendingLookupVars.Add(item: (varDecl.Name, varDecl.Location));
+        }
+    }
+
+    /// <summary>
+    /// Enforces the copy/aliasing restrictions on a variable declaration's initializer: single-owner
+    /// entities cannot be viewed, variants / Result / Lookup cannot be copied variable-to-variable,
+    /// scoped access tokens cannot bind at all, and other non-trivially-copyable wrappers require an
+    /// explicit copy verb.
+    /// </summary>
+    private void CheckVariableCopyRestrictions(VariableDeclaration varDecl, TypeSymbol varType)
+    {
         // RazorForge: keeping a value with NO STORE. The dividing line for an implicit bind is whether
         // the value can be STORED — i.e. whether its type obeys `Assignable` (every value type does: a
         // trivial record via the auto-derived bitwise store, a managed leaf like Text via its retaining
@@ -792,53 +893,6 @@ public sealed partial class SemanticVerifier
                     location: varDecl.Location);
             }
         }
-
-// Register variable in current scope
-        // A new declaration shadows any prior steal of the same name in this scope.
-        _deadrefVariables.Remove(item: varDecl.Name);
-
-        // Suflae flow typing: a local is nullable when it was annotated `E?`, or (with no annotation)
-        // inferred from a nullable entity read (`var n = a.optField`) or a `none` literal — so member
-        // access on it is gated until a null-check.
-        bool varIsNullable = annotatedNullable ||
-            (varDecl.Type == null && varDecl.Initializer != null &&
-             IsNullableEntityRead(expr: varDecl.Initializer));
-
-        // Suflae: assigning a possibly-none value into a NON-NULL entity variable (`var x: E = <nullable>`
-        // or `var x: E = none`) is rejected — declare the variable optional (`x: E?`) to allow none.
-        if (annotatedNonNullEntity && varDecl.Initializer != null &&
-            IsNullableEntityRead(expr: varDecl.Initializer))
-        {
-            ReportNullableIntoNonNull(target: $"variable '{varDecl.Name}'",
-                value: varDecl.Initializer, optionalHint: $"{varDecl.Name}: <Type>?");
-        }
-
-        bool declared = _registry.DeclareVariable(name: varDecl.Name, type: varType,
-            isNullable: varIsNullable, location: varDecl.Location);
-
-        if (!declared)
-        {
-            ReportError(code: SemanticDiagnosticCode.VariableRedeclaration,
-                message: $"Variable '{varDecl.Name}' is already declared in this scope.",
-                location: varDecl.Location);
-        }
-
-
-        // RF-S630: track the controller identity of a Guarded/Witnessed handle so the
-        // readers-XOR-writer check keys on the shared DATA, not the variable name — a clone
-        // (`var s2 = s.share()`) inherits `s`'s identity and so conflicts with it.
-        if (_registry.Language == Language.RazorForge &&
-            varType.BareName is Compiler.Resolution.RuntimeContract.Guarded or Compiler.Resolution.RuntimeContract.Witnessed)
-        {
-            RecordSharedHandleIdentity(name: varDecl.Name, initializer: varDecl.Initializer);
-        }
-
-        // #161: Track Lookup variables that must be dismantled before scope exit
-        if (GetCarrierBaseName(type: varType) == "Lookup" &&
-            varDecl.Initializer is not IdentifierExpression)
-        {
-            _pendingLookupVars.Add(item: (varDecl.Name, varDecl.Location));
-        }
     }
 
     private void AnalyzeExpressionStatement(ExpressionStatement expr)
@@ -895,43 +949,7 @@ public sealed partial class SemanticVerifier
         // #173: Tuple assignment destructuring — (a, b) = (b, a)
         if (assign.Target is TupleLiteralExpression tupleLhs)
         {
-            TypeSymbol rhsType = AnalyzeExpression(expression: assign.Value);
-
-            // Verify all elements of the LHS tuple are assignable targets
-            foreach (Expression element in tupleLhs.Elements)
-            {
-                AnalyzeExpression(expression: element);
-                if (!IsAssignableTarget(target: element))
-                {
-                    ReportError(code: SemanticDiagnosticCode.InvalidAssignmentTarget,
-                        message:
-                        "All elements of tuple destructuring must be assignable targets (variables, member accesses, or indices).",
-                        location: element.Location);
-                }
-
-                // Check modifiability for identifier elements
-                if (element is IdentifierExpression elemId)
-                {
-                    VariableInfo? varInfo = _registry.LookupVariable(name: elemId.Name);
-                    if (varInfo is { IsModifiable: false })
-                    {
-                        ReportError(code: SemanticDiagnosticCode.AssignmentToImmutable,
-                            message: $"Cannot assign to preset variable '{elemId.Name}'.",
-                            location: assign.Location);
-                    }
-                }
-            }
-
-            // Check that RHS is a tuple with matching arity
-            if (rhsType is TupleTypeInfo tupleType &&
-                tupleLhs.Elements.Count != tupleType.ElementTypes.Count)
-            {
-                ReportError(code: SemanticDiagnosticCode.DestructuringArityMismatch,
-                    message:
-                    $"Tuple destructuring has {tupleLhs.Elements.Count} targets but the value has {tupleType.ElementTypes.Count} elements.",
-                    location: assign.Location);
-            }
-
+            AnalyzeTupleDestructuringAssignment(assign: assign, tupleLhs: tupleLhs);
             return;
         }
 
@@ -962,48 +980,7 @@ public sealed partial class SemanticVerifier
         // Validate member variable write access (setter visibility)
         if (assign.Target is MemberExpression member)
         {
-            TypeSymbol objectType = AnalyzeExpression(expression: member.Object);
-
-            // Read-only wrapper types (Viewing, Consulting) cannot be written through
-            if (IsReadOnlyWrapper(type: objectType))
-            {
-                ReportError(code: SemanticDiagnosticCode.WriteThroughReadOnlyWrapper,
-                    message:
-                    $"Cannot write to member '{member.MemberName}' through read-only wrapper '{objectType.Name}'. " +
-                    "Use Modifying[T] for exclusive write access or Amending[T] for locked write access.",
-                    location: assign.Location);
-            }
-
-            ValidateMemberVariableWriteAccess(objectType: objectType,
-                memberVariableName: member.MemberName,
-                location: assign.Location);
-
-            // Preset enforcement: cannot assign to member variables of preset variables
-            if (member.Object is IdentifierExpression memberVariableTarget)
-            {
-                VariableInfo? targetVar =
-                    _registry.LookupVariable(name: memberVariableTarget.Name);
-                if (targetVar is { IsModifiable: false })
-                {
-                    ReportError(code: SemanticDiagnosticCode.MemberVariableAssignmentOnImmutable,
-                        message:
-                        $"Cannot assign to member variable '{member.MemberName}' of preset variable '{memberVariableTarget.Name}'.",
-                        location: assign.Location);
-                }
-            }
-
-            // Check if we're in a @readonly memberRoutine trying to mutate 'me' (RazorForge-only; Suflae
-            // hides @readonly/@reshaping).
-            if (_registry.CompilationLanguage != Language.Suflae &&
-                _currentRoutine is { IsReadOnly: true } &&
-                member.Object is IdentifierExpression { Name: "me" })
-            {
-                ReportError(code: SemanticDiagnosticCode.MutationInReadonlyMemberRoutine,
-                    message:
-                    $"Cannot mutate member variable '{member.MemberName}' in a @readonly member routine. " +
-                    "Use @reshaping to allow mutations.",
-                    location: assign.Location);
-            }
+            ValidateMemberAssignmentTarget(assign: assign, member: member);
         }
 
         // #81: Result/Lookup cannot be copied from variable to variable via assignment
@@ -1022,6 +999,102 @@ public sealed partial class SemanticVerifier
             ReportError(code: SemanticDiagnosticCode.AssignmentTypeMismatch,
                 message:
                 $"Cannot assign value of type '{valueType.Name}' to target of type '{targetType.Name}'.",
+                location: assign.Location);
+        }
+    }
+
+    /// <summary>
+    /// #173: Analyzes a tuple-destructuring assignment `(a, b) = expr` — each LHS element must be an
+    /// assignable, modifiable target, and the RHS tuple arity must match the target count.
+    /// </summary>
+    private void AnalyzeTupleDestructuringAssignment(AssignmentStatement assign,
+        TupleLiteralExpression tupleLhs)
+    {
+        TypeSymbol rhsType = AnalyzeExpression(expression: assign.Value);
+
+        // Verify all elements of the LHS tuple are assignable targets
+        foreach (Expression element in tupleLhs.Elements)
+        {
+            AnalyzeExpression(expression: element);
+            if (!IsAssignableTarget(target: element))
+            {
+                ReportError(code: SemanticDiagnosticCode.InvalidAssignmentTarget,
+                    message:
+                    "All elements of tuple destructuring must be assignable targets (variables, member accesses, or indices).",
+                    location: element.Location);
+            }
+
+            // Check modifiability for identifier elements
+            if (element is IdentifierExpression elemId)
+            {
+                VariableInfo? varInfo = _registry.LookupVariable(name: elemId.Name);
+                if (varInfo is { IsModifiable: false })
+                {
+                    ReportError(code: SemanticDiagnosticCode.AssignmentToImmutable,
+                        message: $"Cannot assign to preset variable '{elemId.Name}'.",
+                        location: assign.Location);
+                }
+            }
+        }
+
+        // Check that RHS is a tuple with matching arity
+        if (rhsType is TupleTypeInfo tupleType &&
+            tupleLhs.Elements.Count != tupleType.ElementTypes.Count)
+        {
+            ReportError(code: SemanticDiagnosticCode.DestructuringArityMismatch,
+                message:
+                $"Tuple destructuring has {tupleLhs.Elements.Count} targets but the value has {tupleType.ElementTypes.Count} elements.",
+                location: assign.Location);
+        }
+    }
+
+    /// <summary>
+    /// Validates writing to a member-access assignment target: rejects writes through a read-only
+    /// wrapper, checks setter visibility, blocks assigning to a member of a preset variable, and
+    /// blocks mutating `me` from a @readonly member routine.
+    /// </summary>
+    private void ValidateMemberAssignmentTarget(AssignmentStatement assign, MemberExpression member)
+    {
+        TypeSymbol objectType = AnalyzeExpression(expression: member.Object);
+
+        // Read-only wrapper types (Viewing, Consulting) cannot be written through
+        if (IsReadOnlyWrapper(type: objectType))
+        {
+            ReportError(code: SemanticDiagnosticCode.WriteThroughReadOnlyWrapper,
+                message:
+                $"Cannot write to member '{member.MemberName}' through read-only wrapper '{objectType.Name}'. " +
+                "Use Modifying[T] for exclusive write access or Amending[T] for locked write access.",
+                location: assign.Location);
+        }
+
+        ValidateMemberVariableWriteAccess(objectType: objectType,
+            memberVariableName: member.MemberName,
+            location: assign.Location);
+
+        // Preset enforcement: cannot assign to member variables of preset variables
+        if (member.Object is IdentifierExpression memberVariableTarget)
+        {
+            VariableInfo? targetVar =
+                _registry.LookupVariable(name: memberVariableTarget.Name);
+            if (targetVar is { IsModifiable: false })
+            {
+                ReportError(code: SemanticDiagnosticCode.MemberVariableAssignmentOnImmutable,
+                    message:
+                    $"Cannot assign to member variable '{member.MemberName}' of preset variable '{memberVariableTarget.Name}'.",
+                    location: assign.Location);
+            }
+        }
+
+        // Check if we're in a @readonly memberRoutine trying to mutate 'me' (RazorForge-only; Suflae
+        // hides @readonly/@reshaping).
+        if (_registry.CompilationLanguage != Language.Suflae &&
+            _currentRoutine is { IsReadOnly: true } &&
+            member.Object is IdentifierExpression { Name: "me" })
+        {
+            ReportError(code: SemanticDiagnosticCode.MutationInReadonlyMemberRoutine,
+                message:
+                $"Cannot mutate member variable '{member.MemberName}' in a @readonly member routine. " +
+                "Use @reshaping to allow mutations.",
                 location: assign.Location);
         }
     }

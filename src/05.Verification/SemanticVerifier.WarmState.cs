@@ -34,6 +34,16 @@ public partial class SemanticVerifier
         public required Dictionary<string, MonomorphizedBody> InstantiatedGenericBodies { get; init; }
         /// <summary>All other stdlib routine bodies keyed by registry key.</summary>
         public required Dictionary<string, Statement> RoutineBodies { get; init; }
+
+        /// <summary>
+        /// Daemon-lifetime cache of per-body reachability scans, keyed by stdlib
+        /// <see cref="RoutineDeclaration"/> reference. Shared by reference across every warm compile that
+        /// restores from this state (the daemon reuses one <see cref="CompiledStdlibState"/>), so it grows
+        /// as successive user programs reach more stdlib bodies and lets <c>RoutineReachabilityPass</c>
+        /// skip re-walking them. Starts empty; safe because stdlib decls are stable across warm compiles.
+        /// </summary>
+        public Dictionary<RoutineDeclaration, Compiler.Instantiation.RoutineBodyScan> BodyScanCache { get; init; }
+            = new();
     }
 
     /// <summary>
@@ -46,8 +56,22 @@ public partial class SemanticVerifier
     /// </summary>
     public static CompiledStdlibState CaptureCompiledStdlib(Language language)
     {
+        // Prime the snapshot with the WHOLE stdlib, not just Core: a daemon should hold the entire
+        // analyzed stdlib resident in RAM. Without this, a warm compile of a program importing any non-Core
+        // module (e.g. Collections.Deque) finds it absent from _loadedModules and triggers a full
+        // ScanStdlibFiles — re-parsing EVERY stdlib file, every run (~0.7 s, the Phase 3 cost). Importing
+        // every module here makes the capture load+analyze+lower them once, so those imports short-circuit
+        // on every warm run. The one-time capture cost grows; per-run latency drops.
+        string stdlibPath = Compiler.Declaration.StdlibLoader.GetDefaultStdlibPath();
+        var probe = new Compiler.Declaration.StdlibLoader(stdlibRoot: stdlibPath, language: language);
+        var source = new System.Text.StringBuilder(value: "module __snapshot__\n");
+        foreach (string moduleName in probe.ScanModuleNames())
+            source.Append(value: "import ")
+                  .Append(value: moduleName.Replace(oldChar: '.', newChar: '/'))
+                  .Append(value: '\n');
+
         var sa = new SemanticVerifier(language: language);
-        var tokens = new Compiler.Tokenizer.Tokenizer(source: "module __snapshot__",
+        var tokens = new Compiler.Tokenizer.Tokenizer(source: source.ToString(),
             fileName: "__snapshot__", language: language).Tokenize();
         var parser = new Compiler.Parser.Parser(tokens: tokens, language: language,
             fileName: "__snapshot__");
@@ -79,6 +103,12 @@ public partial class SemanticVerifier
         _registry = new TypeRegistry(language: language, snapshot: warm.Registry);
         _registry.RestoreStdlibPrograms(programs: warm.StdlibPrograms);
         _registry.SkipStdlibReprocessing = true;
+        // Re-lazy the primed whole-stdlib instance closure so this warm compile re-discovers only what the
+        // USER program reaches (like cold), instead of GMP re-processing all ~638 primed instances (cold
+        // reaches ~378, codegen keeps ~122). User-reachability un-lazies via MaterializeIfLazy.
+        int _relazied = _registry.RelazyStdlibConcreteInstances();
+        if (Compiler.Diagnostics.DiagnosticFlags.PhaseTiming)
+            System.Console.Error.WriteLine(value: $"[warm-restore] re-lazied {_relazied} primed concrete instances");
         _typeResolver = new TypeResolver(sa: this);
         _typeBodyResolver = new TypeBodyResolver(sa: this, typeResolver: _typeResolver);
         _signatureResolver = new SignatureResolver(sa: this, typeResolver: _typeResolver);
@@ -93,11 +123,22 @@ public partial class SemanticVerifier
         // stdlib variant/wired bodies (the 3.6 s AnalyzeVariantBodies cost). CollectStdlibBodiesForVariant-
         // Generation is gated on SkipStdlibReprocessing so stdlib routines stay out of _routineBodies and
         // those passes only process USER routines; the stdlib variant/synthesized bodies come from here.
+        // Keep the captured stdlib routine bodies as a LOOKUP-ONLY source (NOT merged into
+        // `_routineBodies`, which must stay the user-only variant-generation working set). Protocol
+        // default-impl lowering needs the stdlib extension templates (e.g. `Iterable[Text].join`) to
+        // recognize + clone them per implementer; without this a warm compile can't specialize them and
+        // the generic-def reaches codegen unresolved ("Unresolved generic member routine …join").
+        _warmStdlibRoutineBodies = warm.RoutineBodies;
         foreach (var kv in warm.SynthesizedBodies) _synthesizedBodies[kv.Key] = kv.Value;
         _variantBodies = new Dictionary<string, Statement>(warm.VariantBodies);
         _restoredVariantKeys = new HashSet<string>(warm.VariantBodies.Keys, System.StringComparer.Ordinal);
         _instantiatedGenericBodies =
             new Dictionary<string, MonomorphizedBody>(warm.InstantiatedGenericBodies);
+        _restoredInstantiationKeys =
+            new HashSet<string>(warm.InstantiatedGenericBodies.Keys, System.StringComparer.Ordinal);
+        // Share the daemon-lifetime reachability body-scan cache by reference so it persists (and grows)
+        // across every warm compile restored from this snapshot. Cold compiles leave it null → RRP walks.
+        _bodyScanCache = warm.BodyScanCache;
         if (Compiler.Diagnostics.DiagnosticFlags.PhaseTiming)
         {
             System.Console.Error.WriteLine(
@@ -108,4 +149,19 @@ public partial class SemanticVerifier
     /// <summary>Variant-body keys restored from a warm snapshot — already analyzed at capture time, so
     /// <see cref="AnalyzeVariantBodies"/> skips them instead of re-analyzing (the ~3.6 s warm cost).</summary>
     private HashSet<string> _restoredVariantKeys = new(System.StringComparer.Ordinal);
+
+    /// <summary>Monomorphized-instantiation keys restored from a warm snapshot — already lowered to
+    /// backend representation + validated at capture time, so <see cref="RunPhase9PostDesugarChecks"/>
+    /// skips re-running <c>BackendRepresentationPass</c>/validation on them (redundant warm cost).</summary>
+    private HashSet<string> _restoredInstantiationKeys = new(System.StringComparer.Ordinal);
+
+    /// <summary>Daemon-lifetime reachability body-scan cache (see <see cref="CompiledStdlibState.BodyScanCache"/>);
+    /// non-null only on a warm compile. Threaded into <c>InstantiationContext</c> so
+    /// <c>RoutineReachabilityPass</c> can skip re-walking already-scanned stdlib bodies.</summary>
+    private Dictionary<SyntaxTree.RoutineDeclaration, Compiler.Instantiation.RoutineBodyScan>? _bodyScanCache;
+
+    /// <summary>Warm-only stdlib routine template bodies (from the snapshot), threaded into
+    /// <see cref="Compiler.Instantiation.InstantiationContext.StdlibTemplateBodies"/> so protocol
+    /// default-impl lowering can find + clone stdlib extension templates. Null on a cold compile.</summary>
+    private Dictionary<string, Statement>? _warmStdlibRoutineBodies;
 }

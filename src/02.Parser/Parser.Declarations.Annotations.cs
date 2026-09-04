@@ -9,56 +9,26 @@ namespace Compiler.Parser;
 /// </summary>
 public partial class Parser
 {
-    private List<string> ParseAnnotations() // NOSONAR S3776
+    private List<string> ParseAnnotations()
     {
         var annotations = new List<string>();
 
         // Handle @annotation and @[...] compound annotations
         while (Check(type: TokenType.At))
         {
-            string annotName;
-
-            if (Match(type: TokenType.At))
+            if (!Match(type: TokenType.At))
             {
-                // Check for compound annotation syntax: @[attr1, attr2, ...]
-                if (Match(type: TokenType.LeftBracket))
-                {
-                    // Parse comma-separated list of annotation names
-                    do
-                    {
-                        string compoundAnnot = ConsumeIdentifier(
-                            errorMessage: "Expected annotation name in compound annotation");
+                break; // No more annotations
+            }
 
-                        // Check for optional arguments on each annotation
-                        if (Match(type: TokenType.LeftParen))
-                        {
-                            compoundAnnot += "(" + ParseAnnotationArgumentList() + ")";
-                        }
-
-                        annotations.Add(item: compoundAnnot);
-                    } while (Match(type: TokenType.Comma));
-
-                    Consume(type: TokenType.RightBracket,
-                        errorMessage: "Expected ']' after compound annotations");
-                }
-                else
-                {
-                    // Regular annotation: @identifier
-                    annotName =
-                        ConsumeIdentifier(errorMessage: "Expected annotation name after '@'");
-
-                    // Check for annotation arguments: @something("size_of") or @deprecated(message: "text")
-                    if (Match(type: TokenType.LeftParen))
-                    {
-                        annotName += "(" + ParseAnnotationArgumentList() + ")";
-                    }
-
-                    annotations.Add(item: annotName);
-                }
+            // Check for compound annotation syntax: @[attr1, attr2, ...]
+            if (Match(type: TokenType.LeftBracket))
+            {
+                ParseCompoundAnnotation(annotations: annotations);
             }
             else
             {
-                break; // No more annotations
+                ParseRegularAnnotation(annotations: annotations);
             }
 
             // Skip newlines between annotations (allows multiple @attr on separate lines)
@@ -69,6 +39,49 @@ public partial class Parser
         }
 
         return annotations;
+    }
+
+    /// <summary>
+    /// Parses the body of a compound annotation <c>@[attr1, attr2, ...]</c> (the opening <c>@[</c> is
+    /// already consumed) and appends each name (with optional arguments) to <paramref name="annotations"/>.
+    /// </summary>
+    private void ParseCompoundAnnotation(List<string> annotations)
+    {
+        // Parse comma-separated list of annotation names
+        do
+        {
+            string compoundAnnot = ConsumeIdentifier(
+                errorMessage: "Expected annotation name in compound annotation");
+
+            // Check for optional arguments on each annotation
+            if (Match(type: TokenType.LeftParen))
+            {
+                compoundAnnot += "(" + ParseAnnotationArgumentList() + ")";
+            }
+
+            annotations.Add(item: compoundAnnot);
+        } while (Match(type: TokenType.Comma));
+
+        Consume(type: TokenType.RightBracket,
+            errorMessage: "Expected ']' after compound annotations");
+    }
+
+    /// <summary>
+    /// Parses a regular annotation <c>@identifier</c> (the <c>@</c> is already consumed) with optional
+    /// arguments and appends it to <paramref name="annotations"/>.
+    /// </summary>
+    private void ParseRegularAnnotation(List<string> annotations)
+    {
+        // Regular annotation: @identifier
+        string annotName = ConsumeIdentifier(errorMessage: "Expected annotation name after '@'");
+
+        // Check for annotation arguments: @something("size_of") or @deprecated(message: "text")
+        if (Match(type: TokenType.LeftParen))
+        {
+            annotName += "(" + ParseAnnotationArgumentList() + ")";
+        }
+
+        annotations.Add(item: annotName);
     }
 
     /// <summary>

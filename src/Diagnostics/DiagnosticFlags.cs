@@ -16,7 +16,6 @@ public static class DiagnosticFlags
     public static bool PhaseTiming;
 
     /// <summary>Survey unresolved marker-protocol conformances. Was <c>RF_MARKER_SURVEY</c>.</summary>
-    public static bool MarkerSurvey;
 
     /// <summary>Print codegen DCE prune statistics. Was <c>RF_PRUNE_STATS</c>.</summary>
     public static bool PruneStats;
@@ -35,7 +34,6 @@ public static class DiagnosticFlags
     public static void Reset()
     {
         PhaseTiming = false;
-        MarkerSurvey = false;
         PruneStats = false;
         JitTrace = false;
         ReachabilityDump = null;

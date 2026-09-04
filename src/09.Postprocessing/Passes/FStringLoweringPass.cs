@@ -26,47 +26,13 @@ namespace Compiler.Postprocessing.Passes;
 /// bodies via <see cref="RunOnVariantBodies"/>. After both run, no
 /// <see cref="InsertedTextExpression"/> reaches codegen.</para>
 /// </summary>
-internal sealed class FStringLoweringPass(PostprocessingContext ctx)
+internal sealed class FStringLoweringPass(PostprocessingContext ctx) : AstRewriter
 {
     public void Run(Program program)
-    {
-        for (int i = 0; i < program.Declarations.Count; i++)
-        {
-            switch (program.Declarations[i])
-            {
-                case RoutineDeclaration r:
-                {
-                    Statement newBody = LowerStatement(r.Body);
-                    if (!ReferenceEquals(newBody, r.Body))
-                        program.Declarations[i] = r with { Body = newBody };
-                    break;
-                }
-
-                case EntityDeclaration e:
-                    LowerMemberList(e.Members);
-                    break;
-
-                case RecordDeclaration rec:
-                    LowerMemberList(rec.Members);
-                    break;
-
-                case CrashableDeclaration cr:
-                    LowerMemberList(cr.Members);
-                    break;
-            }
-        }
-    }
+        => BodyDispatch.RunOnProgram(program, lower: r => VisitStatement(r.Body));
 
     public void RunOnVariantBodies()
-    {
-        foreach (string key in ctx.VariantBodies.Keys.ToList())
-        {
-            Statement body = ctx.VariantBodies[key];
-            Statement lowered = LowerStatement(body);
-            if (!ReferenceEquals(lowered, body))
-                ctx.VariantBodies[key] = lowered;
-        }
-    }
+        => BodyDispatch.RunOnVariantBodies(ctx.VariantBodies, lower: (_, body) => VisitStatement(body));
 
     /// <summary>
     /// Lowers f-strings in instantiated generic routine bodies. Phase 7's
@@ -78,387 +44,23 @@ internal sealed class FStringLoweringPass(PostprocessingContext ctx)
     /// </summary>
     public void RunOnInstantiatedGenericBodies(
         Dictionary<string, MonomorphizedBody> instantiatedGenericBodies)
-    {
-        foreach (string key in instantiatedGenericBodies.Keys.ToList())
-        {
-            MonomorphizedBody entry = instantiatedGenericBodies[key];
-            if (entry.IsSynthesized) continue;
-            Statement lowered = LowerStatement(entry.Ast.Body);
-            if (!ReferenceEquals(lowered, entry.Ast.Body))
-                instantiatedGenericBodies[key] = entry with
-                {
-                    Ast = entry.Ast with { Body = lowered }
-                };
-        }
-    }
-
-    private void LowerMemberList(List<SyntaxTree.Declaration> members)
-    {
-        for (int j = 0; j < members.Count; j++)
-        {
-            if (members[j] is not RoutineDeclaration m) continue;
-            Statement newBody = LowerStatement(m.Body);
-            if (!ReferenceEquals(newBody, m.Body))
-                members[j] = m with { Body = newBody };
-        }
-    }
-
-    //  Statement lowering
-
-    private Statement LowerStatement(Statement stmt)
-    {
-        switch (stmt)
-        {
-            case BlockStatement b:
-            {
-                List<Statement> stmts = LowerStatementList(b.Statements);
-                return ReferenceEquals(stmts, b.Statements) ? stmt : b with { Statements = stmts };
-            }
-
-            case IfStatement ifs:
-            {
-                Expression cond = LowerExpression(ifs.Condition);
-                Statement then = LowerStatement(ifs.ThenStatement);
-                Statement? elseS = ifs.ElseStatement != null
-                    ? LowerStatement(ifs.ElseStatement)
-                    : null;
-                bool changed = !ReferenceEquals(cond, ifs.Condition)
-                               || !ReferenceEquals(then, ifs.ThenStatement)
-                               || !ReferenceEquals(elseS, ifs.ElseStatement);
-                return changed
-                    ? ifs with { Condition = cond, ThenStatement = then, ElseStatement = elseS }
-                    : stmt;
-            }
-
-            case WhileStatement w:
-            {
-                Expression cond = LowerExpression(w.Condition);
-                Statement body = LowerStatement(w.Body);
-                Statement? elseB = w.ElseBranch != null ? LowerStatement(w.ElseBranch) : null;
-                bool changed = !ReferenceEquals(cond, w.Condition)
-                               || !ReferenceEquals(body, w.Body)
-                               || !ReferenceEquals(elseB, w.ElseBranch);
-                return changed
-                    ? w with { Condition = cond, Body = body, ElseBranch = elseB }
-                    : stmt;
-            }
-
-            case LoopStatement loop:
-            {
-                Statement body = LowerStatement(loop.Body);
-                return ReferenceEquals(body, loop.Body) ? stmt : loop with { Body = body };
-            }
-
-            case WhenStatement w:
-            {
-                Expression subj = LowerExpression(w.Expression);
-                var clauses = new List<WhenClause>(capacity: w.Clauses.Count);
-                bool clauseChanged = false;
-                foreach (WhenClause c in w.Clauses)
-                {
-                    Statement lBody = LowerStatement(c.Body);
-                    if (!ReferenceEquals(lBody, c.Body))
-                    {
-                        clauses.Add(c with { Body = lBody });
-                        clauseChanged = true;
-                    }
-                    else
-                    {
-                        clauses.Add(c);
-                    }
-                }
-
-                bool changed = !ReferenceEquals(subj, w.Expression) || clauseChanged;
-                return changed ? w with { Expression = subj, Clauses = clauses } : stmt;
-            }
-
-            case UsingStatement u:
-            {
-                Expression res = LowerExpression(u.Resource);
-                Statement body = LowerStatement(u.Body);
-                Statement? fb = u.FallbackBody != null ? LowerStatement(u.FallbackBody) : null;
-                bool changed = !ReferenceEquals(res, u.Resource) || !ReferenceEquals(body, u.Body)
-                               || !ReferenceEquals(fb, u.FallbackBody);
-                return changed ? u with { Resource = res, Body = body, FallbackBody = fb } : stmt;
-            }
-
-            case DangerStatement d:
-            {
-                Statement body = LowerStatement(d.Body);
-                return ReferenceEquals(body, d.Body)
-                    ? stmt
-                    : d with { Body = (BlockStatement)body };
-            }
-
-            case AssignmentStatement asgn:
-            {
-                Expression val = LowerExpression(asgn.Value);
-                return ReferenceEquals(val, asgn.Value) ? stmt : asgn with { Value = val };
-            }
-
-            case DeclarationStatement { Declaration: VariableDeclaration { Initializer: not null } vd } decl:
-            {
-                Expression init = LowerExpression(vd.Initializer);
-                return ReferenceEquals(init, vd.Initializer)
-                    ? stmt
-                    : decl with { Declaration = vd with { Initializer = init } };
-            }
-
-            case ReturnStatement { Value: not null } ret:
-            {
-                Expression val = LowerExpression(ret.Value);
-                return ReferenceEquals(val, ret.Value) ? stmt : ret with { Value = val };
-            }
-
-            case ExpressionStatement es:
-            {
-                Expression e = LowerExpression(es.Expression);
-                return ReferenceEquals(e, es.Expression) ? stmt : es with { Expression = e };
-            }
-
-            case DiscardStatement ds:
-            {
-                Expression e = LowerExpression(ds.Expression);
-                return ReferenceEquals(e, ds.Expression) ? stmt : ds with { Expression = e };
-            }
-
-            case BecomesStatement bs:
-            {
-                Expression val = LowerExpression(bs.Value);
-                return ReferenceEquals(val, bs.Value) ? stmt : bs with { Value = val };
-            }
-
-            case ThrowStatement t:
-            {
-                Expression err = LowerExpression(t.Error);
-                return ReferenceEquals(err, t.Error) ? stmt : t with { Error = err };
-            }
-
-            case VariantReturnStatement { Value: not null } vrs:
-            {
-                Expression val = LowerExpression(vrs.Value);
-                return ReferenceEquals(val, vrs.Value) ? stmt : vrs with { Value = val };
-            }
-
-            default:
-                return stmt;
-        }
-    }
-
-    private List<Statement> LowerStatementList(List<Statement> stmts)
-    {
-        var result = new List<Statement>(capacity: stmts.Count);
-        bool anyChanged = false;
-        foreach (Statement stmt in stmts)
-        {
-            Statement lowered = LowerStatement(stmt);
-            result.Add(lowered);
-            if (!ReferenceEquals(lowered, stmt)) anyChanged = true;
-        }
-
-        return anyChanged ? result : stmts;
-    }
-
-    //  Expression lowering
-
-    private Expression LowerExpression(Expression expr)
-    {
-        switch (expr)
-        {
-            case InsertedTextExpression ftext:
-                return LowerFString(ftext);
-
-            case BinaryExpression bin:
-            {
-                Expression left = LowerExpression(bin.Left);
-                Expression right = LowerExpression(bin.Right);
-                return ReferenceEquals(left, bin.Left) && ReferenceEquals(right, bin.Right)
-                    ? expr
-                    : bin with { Left = left, Right = right };
-            }
-
-            case UnaryExpression unary:
-            {
-                Expression operand = LowerExpression(unary.Operand);
-                return ReferenceEquals(operand, unary.Operand)
-                    ? expr
-                    : unary with { Operand = operand };
-            }
-
-            case CallExpression call:
-            {
-                Expression callee = LowerExpression(call.Callee);
-                var args = new List<Expression>(capacity: call.Arguments.Count);
-                bool argsChanged = false;
-                foreach (Expression arg in call.Arguments)
-                {
-                    Expression lowered = LowerExpression(arg);
-                    args.Add(lowered);
-                    if (!ReferenceEquals(lowered, arg)) argsChanged = true;
-                }
-
-                return !argsChanged && ReferenceEquals(callee, call.Callee)
-                    ? expr
-                    : call with { Callee = callee, Arguments = args };
-            }
-
-            case MemberExpression mem:
-            {
-                Expression obj = LowerExpression(mem.Object);
-                return ReferenceEquals(obj, mem.Object) ? expr : mem with { Object = obj };
-            }
-
-            case NamedArgumentExpression named:
-            {
-                Expression val = LowerExpression(named.Value);
-                return ReferenceEquals(val, named.Value) ? expr : named with { Value = val };
-            }
-
-            case IndexExpression idx:
-            {
-                Expression obj = LowerExpression(idx.Object);
-                Expression index = LowerExpression(idx.Index);
-                if (ReferenceEquals(obj, idx.Object) && ReferenceEquals(index, idx.Index))
-                    return expr;
-
-                var rewritten = idx with { Object = obj, Index = index };
-                rewritten.ResolvedType = idx.ResolvedType;
-                rewritten.ResolvedSetItem = idx.ResolvedSetItem;
-                return rewritten;
-            }
-
-            case CreatorExpression creator:
-            {
-                var members = new List<(string Name, Expression Value)>(
-                    capacity: creator.MemberVariables.Count);
-                bool changed = false;
-                foreach ((string name, Expression value) in creator.MemberVariables)
-                {
-                    Expression lowered = LowerExpression(value);
-                    members.Add((name, lowered));
-                    if (!ReferenceEquals(lowered, value)) changed = true;
-                }
-
-                return changed ? creator with { MemberVariables = members } : expr;
-            }
-
-            case WithExpression withExpr:
-            {
-                Expression loweredBase = LowerExpression(withExpr.Base);
-                var updates =
-                    new List<(List<string>? Path, Expression? Index, Expression Value)>(
-                        capacity: withExpr.Updates.Count);
-                bool changed = !ReferenceEquals(loweredBase, withExpr.Base);
-                foreach ((List<string>? path, Expression? index, Expression value) in
-                         withExpr.Updates)
-                {
-                    Expression loweredVal = LowerExpression(value);
-                    updates.Add((path, index, loweredVal));
-                    if (!ReferenceEquals(loweredVal, value)) changed = true;
-                }
-
-                return changed ? withExpr with { Base = loweredBase, Updates = updates } : expr;
-            }
-
-            case GenericMemberRoutineCallExpression gmc:
-            {
-                Expression obj = LowerExpression(gmc.Object);
-                var args = new List<Expression>(capacity: gmc.Arguments.Count);
-                bool argsChanged = false;
-                foreach (Expression arg in gmc.Arguments)
-                {
-                    Expression lowered = LowerExpression(arg);
-                    args.Add(lowered);
-                    if (!ReferenceEquals(lowered, arg)) argsChanged = true;
-                }
-
-                return !argsChanged && ReferenceEquals(obj, gmc.Object)
-                    ? expr
-                    : gmc with { Object = obj, Arguments = args };
-            }
-
-            case GenericMemberExpression gme:
-            {
-                Expression obj = LowerExpression(gme.Object);
-                return ReferenceEquals(obj, gme.Object) ? expr : gme with { Object = obj };
-            }
-
-            case CompoundAssignmentExpression compound:
-            {
-                Expression val = LowerExpression(compound.Value);
-                return ReferenceEquals(val, compound.Value)
-                    ? expr
-                    : compound with { Value = val };
-            }
-
-            case StealExpression steal:
-            {
-                Expression operand = LowerExpression(steal.Operand);
-                return ReferenceEquals(operand, steal.Operand)
-                    ? expr
-                    : steal with { Operand = operand };
-            }
-
-            case ConditionalExpression cond:
-            {
-                Expression condExpr = LowerExpression(cond.Condition);
-                Expression thenExpr = LowerExpression(cond.TrueExpression);
-                Expression elseExpr = LowerExpression(cond.FalseExpression);
-                return ReferenceEquals(condExpr, cond.Condition)
-                       && ReferenceEquals(thenExpr, cond.TrueExpression)
-                       && ReferenceEquals(elseExpr, cond.FalseExpression)
-                    ? expr
-                    : cond with
-                    {
-                        Condition = condExpr,
-                        TrueExpression = thenExpr,
-                        FalseExpression = elseExpr
-                    };
-            }
-
-            case TupleLiteralExpression tuple:
-            {
-                var elems = new List<Expression>(capacity: tuple.Elements.Count);
-                bool changed = false;
-                foreach (Expression el in tuple.Elements)
-                {
-                    Expression lowered = LowerExpression(el);
-                    elems.Add(lowered);
-                    if (!ReferenceEquals(lowered, el)) changed = true;
-                }
-
-                return changed ? tuple with { Elements = elems } : expr;
-            }
-
-            case ListLiteralExpression list:
-            {
-                var elems = new List<Expression>(capacity: list.Elements.Count);
-                bool changed = false;
-                foreach (Expression el in list.Elements)
-                {
-                    Expression lowered = LowerExpression(el);
-                    elems.Add(lowered);
-                    if (!ReferenceEquals(lowered, el)) changed = true;
-                }
-
-                return changed ? list with { Elements = elems } : expr;
-            }
-
-            default:
-                // LiteralExpression, IdentifierExpression, TypeExpression, RangeExpression
-                // (lowered earlier), LambdaExpression, DictLiteralExpression,
-                // SetLiteralExpression, DictEntryLiteralExpression, TypeIdExpression, etc.
-                return expr;
-        }
-    }
+        => BodyDispatch.RunOnInstantiatedGenericBodies(
+            instantiatedGenericBodies, lower: (_, entry) => VisitStatement(entry.Ast.Body));
 
     //  F-string lowering
+
+    /// <summary>
+    /// The only node this pass rewrites: an f-string becomes its <c>represent</c>/<c>diagnose</c> +
+    /// <c>Text.add</c> chain. All structural recursion (statements, other expressions, nested f-strings
+    /// inside parts) is supplied by <see cref="AstRewriter"/>.
+    /// </summary>
+    protected override Expression VisitInsertedText(InsertedTextExpression e) => LowerFString(ftext: e);
 
     /// <summary>
     /// Converts an <see cref="InsertedTextExpression"/> to a left-folded chain of
     /// <c>Text.add</c> calls interleaved with <c>represent</c>/<c>diagnose</c> calls.
     /// </summary>
-    private Expression LowerFString(InsertedTextExpression ftext) // NOSONAR S3776
+    private Expression LowerFString(InsertedTextExpression ftext)
     {
         TypeInfo? textType = ctx.Registry.LookupType(name: "Text");
         SourceLocation loc = ftext.Location;
@@ -476,70 +78,8 @@ internal sealed class FStringLoweringPass(PostprocessingContext ctx)
                     break;
 
                 case ExpressionPart ep:
-                {
-                    Expression loweredInner = LowerExpression(ep.Expression);
-                    string memberRoutineName = ep.FormatSpec is "?" or "=?"
-                        ? Resolution.RuntimeContract.Display.Diagnose
-                        : Resolution.RuntimeContract.Display.Represent;
-
-                    // "=" and "=?" format specs prepend "varName=" as a text literal.
-                    if (ep.FormatSpec is "=" or "=?")
-                    {
-                        string varName = ep.Expression is IdentifierExpression id ? id.Name : "";
-                        if (varName.Length > 0)
-                        {
-                            exprs.Add(new LiteralExpression(
-                                Value: varName + "=",
-                                LiteralType: TokenType.TextLiteral,
-                                Location: ep.Location) { ResolvedType = textType });
-                        }
-                    }
-
-                    Expression renderCall = new CallExpression(
-                        Callee: new MemberExpression(
-                            Object: loweredInner,
-                            MemberName: memberRoutineName,
-                            Location: ep.Location),
-                        Arguments: [],
-                        Location: ep.Location) { ResolvedType = textType };
-
-                    // In-flight entity values (`T`) inject `?` immediately before the
-                    // short type name in the rendered output, so a value of type
-                    // `Module.Counter` renders as `Module.?Counter(...)`. The rendered
-                    // text is post-processed via `Text.replace` because the type-name
-                    // prefix is compile-time known and appears verbatim at the head of
-                    // `diagnose` / `represent` output.
-                    if (ep.Expression is { IsInFlight: true, ResolvedType: EntityTypeInfo entityType })
-                    {
-                        string fullName = entityType.FullName;
-                        int dot = fullName.LastIndexOf('.');
-                        string marked = dot < 0
-                            ? "?" + fullName
-                            : fullName[..(dot + 1)] + "?" + fullName[(dot + 1)..];
-                        renderCall = new CallExpression(
-                            Callee: new MemberExpression(
-                                Object: renderCall,
-                                MemberName: Resolution.RuntimeContract.Collection.Replace,
-                                Location: ep.Location) { ResolvedType = textType },
-                            Arguments:
-                            [
-                                new NamedArgumentExpression(Name: "old",
-                                    Value: new LiteralExpression(Value: fullName,
-                                        LiteralType: TokenType.TextLiteral,
-                                        Location: ep.Location) { ResolvedType = textType },
-                                    Location: ep.Location),
-                                new NamedArgumentExpression(Name: "new",
-                                    Value: new LiteralExpression(Value: marked,
-                                        LiteralType: TokenType.TextLiteral,
-                                        Location: ep.Location) { ResolvedType = textType },
-                                    Location: ep.Location)
-                            ],
-                            Location: ep.Location) { ResolvedType = textType };
-                    }
-
-                    exprs.Add(renderCall);
+                    AppendExpressionPart(exprs: exprs, ep: ep, textType: textType);
                     break;
-                }
             }
         }
 
@@ -570,5 +110,86 @@ internal sealed class FStringLoweringPass(PostprocessingContext ctx)
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Lowers a single <see cref="ExpressionPart"/> of an f-string, appending the resulting Text
+    /// expression(s) to <paramref name="exprs"/>: an optional <c>"name="</c> literal (for the
+    /// <c>=</c>/<c>=?</c> format specs) followed by the <c>represent</c>/<c>diagnose</c> render call.
+    /// </summary>
+    private void AppendExpressionPart(List<Expression> exprs, ExpressionPart ep, TypeInfo? textType)
+    {
+        Expression loweredInner = VisitExpression(ep.Expression);
+        string memberRoutineName = ep.FormatSpec is "?" or "=?"
+            ? Resolution.RuntimeContract.Display.Diagnose
+            : Resolution.RuntimeContract.Display.Represent;
+
+        // "=" and "=?" format specs prepend "varName=" as a text literal.
+        if (ep.FormatSpec is "=" or "=?")
+        {
+            string varName = ep.Expression is IdentifierExpression id ? id.Name : "";
+            if (varName.Length > 0)
+            {
+                exprs.Add(new LiteralExpression(
+                    Value: varName + "=",
+                    LiteralType: TokenType.TextLiteral,
+                    Location: ep.Location) { ResolvedType = textType });
+            }
+        }
+
+        Expression renderCall = new CallExpression(
+            Callee: new MemberExpression(
+                Object: loweredInner,
+                MemberName: memberRoutineName,
+                Location: ep.Location),
+            Arguments: [],
+            Location: ep.Location) { ResolvedType = textType };
+
+        // In-flight entity values (`T`) inject `?` immediately before the
+        // short type name in the rendered output, so a value of type
+        // `Module.Counter` renders as `Module.?Counter(...)`. The rendered
+        // text is post-processed via `Text.replace` because the type-name
+        // prefix is compile-time known and appears verbatim at the head of
+        // `diagnose` / `represent` output.
+        if (ep.Expression is { IsInFlight: true, ResolvedType: EntityTypeInfo entityType })
+        {
+            renderCall = WrapInFlightEntityMarker(renderCall: renderCall, ep: ep,
+                entityType: entityType, textType: textType);
+        }
+
+        exprs.Add(renderCall);
+    }
+
+    /// <summary>
+    /// Post-processes an in-flight entity's rendered text via <c>Text.replace</c>, inserting a
+    /// <c>?</c> immediately before the short type name in the compile-time-known type-name prefix.
+    /// </summary>
+    private static Expression WrapInFlightEntityMarker(Expression renderCall, ExpressionPart ep,
+        EntityTypeInfo entityType, TypeInfo? textType)
+    {
+        string fullName = entityType.FullName;
+        int dot = fullName.LastIndexOf('.');
+        string marked = dot < 0
+            ? "?" + fullName
+            : fullName[..(dot + 1)] + "?" + fullName[(dot + 1)..];
+        return new CallExpression(
+            Callee: new MemberExpression(
+                Object: renderCall,
+                MemberName: Resolution.RuntimeContract.Collection.Replace,
+                Location: ep.Location) { ResolvedType = textType },
+            Arguments:
+            [
+                new NamedArgumentExpression(Name: "old",
+                    Value: new LiteralExpression(Value: fullName,
+                        LiteralType: TokenType.TextLiteral,
+                        Location: ep.Location) { ResolvedType = textType },
+                    Location: ep.Location),
+                new NamedArgumentExpression(Name: "new",
+                    Value: new LiteralExpression(Value: marked,
+                        LiteralType: TokenType.TextLiteral,
+                        Location: ep.Location) { ResolvedType = textType },
+                    Location: ep.Location)
+            ],
+            Location: ep.Location) { ResolvedType = textType };
     }
 }

@@ -71,7 +71,7 @@ namespace Compiler.Postprocessing.Passes;
 /// <item><see cref="DestructuringPattern"/>/<see cref="TypeDestructuringPattern"/> with nested patterns.</item>
 /// </list>
 /// </summary>
-internal sealed class PatternLoweringPass(PostprocessingContext ctx)
+internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewriter
 {
     private const string ValueFieldName = Resolution.RuntimeContract.Carrier.ValueField;
     private const string TypeIdFieldName = "type_id";
@@ -90,33 +90,7 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx)
     /// Runs this compiler phase over its configured input.
     /// </summary>
     public void Run(Program program)
-    {
-        for (int i = 0; i < program.Declarations.Count; i++)
-        {
-            switch (program.Declarations[i])
-            {
-                case RoutineDeclaration r:
-                {
-                    Statement newBody = LowerStatement(stmt: r.Body);
-                    if (!ReferenceEquals(newBody, r.Body))
-                        program.Declarations[i] = r with { Body = newBody };
-                    break;
-                }
-
-                case EntityDeclaration e:
-                    LowerMemberList(members: e.Members);
-                    break;
-
-                case RecordDeclaration rec:
-                    LowerMemberList(members: rec.Members);
-                    break;
-
-                case CrashableDeclaration cr:
-                    LowerMemberList(members: cr.Members);
-                    break;
-            }
-        }
-    }
+        => BodyDispatch.RunOnProgram(program, lower: r => VisitStatement(stmt: r.Body));
 
     /// <summary>
     /// Lowers monomorphized generic bodies that GMP cloned from generic-def ASTs after the
@@ -128,156 +102,34 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx)
     /// </summary>
     public void RunOnInstantiatedGenericBodies(
         Dictionary<string, Instantiation.MonomorphizedBody> instantiatedGenericBodies)
-    {
-        foreach (string key in instantiatedGenericBodies.Keys.ToList())
-        {
-            Instantiation.MonomorphizedBody entry = instantiatedGenericBodies[key];
-            if (entry.IsSynthesized) continue;
-            Statement lowered = LowerStatement(stmt: entry.Ast.Body);
-            if (!ReferenceEquals(lowered, entry.Ast.Body))
-                instantiatedGenericBodies[key] = entry with
-                {
-                    Ast = entry.Ast with { Body = lowered }
-                };
-        }
-    }
+        => BodyDispatch.RunOnInstantiatedGenericBodies(
+            instantiatedGenericBodies, lower: (_, entry) => VisitStatement(stmt: entry.Ast.Body));
 
     /// <summary>
     /// Runs this compiler phase over its configured input.
     /// </summary>
     public void RunOnVariantBodies()
-    {
-        foreach (string key in ctx.VariantBodies.Keys.ToList())
-        {
-            Statement body = ctx.VariantBodies[key];
-            Statement lowered = LowerStatement(stmt: body);
-            if (!ReferenceEquals(lowered, body))
-                ctx.VariantBodies[key] = lowered;
-        }
-    }
-
-    /// <summary>
-    /// Lower member list as part of this compiler phase.
-    /// </summary>
-    private void LowerMemberList(List<SyntaxTree.Declaration> members)
-    {
-        for (int j = 0; j < members.Count; j++)
-        {
-            if (members[j] is not RoutineDeclaration m) continue;
-            Statement newBody = LowerStatement(stmt: m.Body);
-            if (!ReferenceEquals(newBody, m.Body))
-                members[j] = m with { Body = newBody };
-        }
-    }
+        => BodyDispatch.RunOnVariantBodies(
+            ctx.VariantBodies, lower: (_, body) => VisitStatement(stmt: body));
 
     // -----------------------------------------------------------------------------
 
     /// <summary>
-    /// Lower statement as part of this compiler phase.
+    /// The only node this pass rewrites: a lowerable <see cref="WhenStatement"/> becomes a plain
+    /// if/else chain (with hoisted subject temps wrapped in a block). All structural recursion —
+    /// statements and nested expressions — is supplied by <see cref="AstRewriter"/>. Clause bodies
+    /// are recursed here (matching the original order: bodies first, then the when transform) rather
+    /// than via <c>base.VisitWhen</c>, because the transform needs the already-lowered clauses to
+    /// build the chain and a non-lowerable when must keep its rebuilt clause list.
     /// </summary>
-    private Statement LowerStatement(Statement stmt)
-    {
-        switch (stmt)
-        {
-            case WhenStatement w:
-                return LowerWhen(when: w);
-
-            case BlockStatement b:
-            {
-                bool changed = false;
-                var stmts = new List<Statement>(capacity: b.Statements.Count);
-                foreach (Statement s in b.Statements)
-                {
-                    Statement n = LowerStatement(stmt: s);
-                    stmts.Add(item: n);
-                    if (!ReferenceEquals(n, s)) changed = true;
-                }
-
-                return changed ? b with { Statements = stmts } : b;
-            }
-
-            case IfStatement ifs:
-            {
-                Statement then = LowerStatement(stmt: ifs.ThenStatement);
-                Statement? elseS = ifs.ElseStatement != null
-                    ? LowerStatement(stmt: ifs.ElseStatement)
-                    : null;
-                bool changed = !ReferenceEquals(then, ifs.ThenStatement)
-                               || !ReferenceEquals(elseS, ifs.ElseStatement);
-                return changed
-                    ? ifs with { ThenStatement = then, ElseStatement = elseS }
-                    : ifs;
-            }
-
-            case WhileStatement w:
-            {
-                Statement body = LowerStatement(stmt: w.Body);
-                Statement? elseB = w.ElseBranch != null
-                    ? LowerStatement(stmt: w.ElseBranch)
-                    : null;
-                bool changed = !ReferenceEquals(body, w.Body)
-                               || !ReferenceEquals(elseB, w.ElseBranch);
-                return changed
-                    ? w with { Body = body, ElseBranch = elseB }
-                    : w;
-            }
-
-            case LoopStatement loop:
-            {
-                Statement body = LowerStatement(stmt: loop.Body);
-                return ReferenceEquals(body, loop.Body) ? loop : loop with { Body = body };
-            }
-
-            case EachStatement f:
-            {
-                // EachStatements not lowered by ControlFlowLoweringPass (range/tuple/else forms)
-                // pass through; still recurse into their bodies.
-                Statement body = LowerStatement(stmt: f.Body);
-                Statement? elseB = f.ElseBranch != null
-                    ? LowerStatement(stmt: f.ElseBranch)
-                    : null;
-                bool changed = !ReferenceEquals(body, f.Body)
-                               || !ReferenceEquals(elseB, f.ElseBranch);
-                return changed
-                    ? f with { Body = body, ElseBranch = elseB }
-                    : f;
-            }
-
-            case UsingStatement u:
-            {
-                Statement body = LowerStatement(stmt: u.Body);
-                Statement? fb = u.FallbackBody != null ? LowerStatement(stmt: u.FallbackBody) : null;
-                return !ReferenceEquals(body, u.Body) || !ReferenceEquals(fb, u.FallbackBody)
-                    ? u with { Body = body, FallbackBody = fb }
-                    : u;
-            }
-
-            case DangerStatement d:
-            {
-                Statement lowered = LowerStatement(stmt: d.Body);
-                return !ReferenceEquals(lowered, d.Body)
-                    ? d with { Body = (BlockStatement)lowered }
-                    : d;
-            }
-
-            default:
-                return stmt;
-        }
-    }
-
-    // -----------------------------------------------------------------------------
-
-    /// <summary>
-    /// Lower when as part of this compiler phase.
-    /// </summary>
-    private Statement LowerWhen(WhenStatement when)
+    protected override Statement VisitWhen(WhenStatement when)
     {
         // Recurse into clause bodies first (handles nested WhenStatements).
         bool clauseChanged = false;
         var loweredClauses = new List<WhenClause>(capacity: when.Clauses.Count);
         foreach (WhenClause c in when.Clauses)
         {
-            Statement lBody = LowerStatement(stmt: c.Body);
+            Statement lBody = VisitStatement(stmt: c.Body);
             if (!ReferenceEquals(lBody, c.Body))
             {
                 loweredClauses.Add(item: c with { Body = lBody });
@@ -320,10 +172,27 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx)
         }
 
         // Pre-scan: determine if the else arm on a carrier is narrowed to the inner type.
-        // An else arm is narrowed when ALL non-T alternatives are covered by prior clauses.
-        // CrashableExpansionPass has already fanned `is Crashable` into one TypePattern per
-        // concrete crashable type, so coverage is measured by counting those.
-        bool isElseNarrowed = false;
+        bool isElseNarrowed = DetermineElseNarrowed(loweredClauses: loweredClauses,
+            subjectType: subjectType);
+
+        // Build if/else chain via right-fold (last clause to first).
+        Statement? chain = BuildWhenIfChain(loweredClauses: loweredClauses, subject: subject,
+            subjectType: subjectType, isElseNarrowed: isElseNarrowed, loc: loc);
+
+        Statement result = chain ?? new BlockStatement(Statements: [], Location: loc);
+
+        if (hoisted.Count == 0) return result;
+        hoisted.Add(item: result);
+        return new BlockStatement(Statements: hoisted, Location: loc);
+    }
+
+    /// <summary>
+    /// Determines whether a carrier's <c>else</c> arm is narrowed to the inner type — i.e. ALL non-T
+    /// alternatives are covered by prior clauses. CrashableExpansionPass has already fanned
+    /// <c>is Crashable</c> into one TypePattern per concrete crashable type, so coverage is counted.
+    /// </summary>
+    private bool DetermineElseNarrowed(List<WhenClause> loweredClauses, TypeInfo? subjectType)
+    {
         if (IsResultOrLookup(subjectType) && subjectType!.TypeArguments?.Count > 0)
         {
             int totalCrashable = ctx.Registry.GetAllTypes().OfType<CrashableTypeInfo>().Count();
@@ -334,27 +203,34 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx)
             // alone; Lookup additionally requires the None arm.
             if (IsResultType(subjectType))
             {
-                isElseNarrowed = crashableCovered;
+                return crashableCovered;
             }
-            else
-            {
-                // Lookup's absent state is matched by `is None` only
-                // (NonePattern from `??`/`?.` desugar OR parser-emitted TypePattern("None")).
-                bool seenAbsent = loweredClauses.Any(
-                    c => c.Pattern is TypePattern { Type.Name: "None" }
-                      || c.Pattern is NonePattern);
-                isElseNarrowed = seenAbsent && crashableCovered;
-            }
+
+            // Lookup's absent state is matched by `is None` only
+            // (NonePattern from `??`/`?.` desugar OR parser-emitted TypePattern("None")).
+            bool seenAbsent = loweredClauses.Any(
+                c => c.Pattern is TypePattern { Type.Name: "None" }
+                  || c.Pattern is NonePattern);
+            return seenAbsent && crashableCovered;
         }
-        else if (IsMaybeRecord(subjectType) || IsMaybeEntity(subjectType))
+
+        if (IsMaybeRecord(subjectType) || IsMaybeEntity(subjectType))
         {
-            isElseNarrowed = loweredClauses.Any(c => c.Pattern is NonePattern
+            return loweredClauses.Any(c => c.Pattern is NonePattern
                 || c.Pattern is TypePattern { Type.Name: "None" });
         }
 
-        // Build if/else chain via right-fold (last clause to first).
-        // An always-matching clause (null condition) becomes the final else and
-        // discards any chain built from subsequent unreachable clauses.
+        return false;
+    }
+
+    /// <summary>
+    /// Builds the if/else chain for a subject <c>when</c> via right-fold (last clause to first).
+    /// An always-matching clause (null condition) becomes the final else and discards any chain
+    /// built from subsequent unreachable clauses.
+    /// </summary>
+    private Statement? BuildWhenIfChain(List<WhenClause> loweredClauses, Expression subject,
+        TypeInfo? subjectType, bool isElseNarrowed, SourceLocation loc)
+    {
         Statement? chain = null;
         for (int i = loweredClauses.Count - 1; i >= 0; i--)
         {
@@ -405,11 +281,7 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx)
             }
         }
 
-        Statement result = chain ?? new BlockStatement(Statements: [], Location: loc);
-
-        if (hoisted.Count == 0) return result;
-        hoisted.Add(item: result);
-        return new BlockStatement(Statements: hoisted, Location: loc);
+        return chain;
     }
 
     /// <summary>
@@ -586,36 +458,8 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx)
             }
 
             case ElsePattern ep:
-            {
-                Statement? binding = null;
-                if (ep.VariableName != null)
-                {
-                    Expression bindValue;
-                    if (IsMaybeRecord(subjectType) || IsMaybeEntity(subjectType))
-                    {
-                        // Maybe[T] (record or entity): bind to inner .value field. Bound T is
-                        // record-shaped (pointer slot) so both branches read the same way.
-                        bindValue = MakeMemberAccess(subject: subject, field: ValueFieldName,
-                            fieldType: subjectType!.TypeArguments![0], loc: loc);
-                    }
-                    else if (IsResultOrLookup(subjectType) && subjectType!.TypeArguments?.Count > 0
-                             && isElseNarrowed)
-                    {
-                        // Result/Lookup: truly narrowed-to-T else arm -> extract payload.
-                        // Only when all non-T arms (None + all Crashable types) are handled.
-                        TypeInfo innerType = subjectType.TypeArguments[0];
-                        bindValue = MakeCarrierPayload(subject: subject, innerType: innerType,
-                            loc: loc);
-                    }
-                    else
-                    {
-                        bindValue = subject;
-                    }
-                    binding = MakeBinding(name: ep.VariableName, value: bindValue, loc: loc);
-                }
-
-                return (null, binding);
-            }
+                return GetElsePatternCondition(ep: ep, subject: subject, subjectType: subjectType,
+                    isElseNarrowed: isElseNarrowed, loc: loc);
 
             case GuardPattern gp:
             {
@@ -647,46 +491,12 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx)
                 return (MakeNotPresent(subject: subject, loc: loc, boolType: boolType), null);
 
             case TypePattern tp when IsMaybeRecord(subjectType) || IsMaybeEntity(subjectType):
-            {
-                // `is None` on Maybe[T record] tests absence (`not present`); other TypePatterns
-                // test presence. Parser emits `is None` as TypePattern with Type.Name == "None".
-                TypeInfo? innerType = subjectType!.TypeArguments![0];
-                Expression cond = tp.Type.Name == "None"
-                    ? MakeNotPresent(subject: subject, loc: loc, boolType: boolType)
-                    : MakePresentAccess(subject: subject, loc: loc);
-                Statement? binding = tp.VariableName != null
-                    ? MakeBinding(
-                        name: tp.VariableName,
-                        value: MakeMemberAccess(subject: subject, field: ValueFieldName,
-                            fieldType: innerType, loc: loc),
-                        loc: loc)
-                    : null;
-                return (cond, binding);
-            }
+                return GetMaybeTypePatternCondition(tp: tp, subject: subject,
+                    subjectType: subjectType, loc: loc, boolType: boolType);
 
             case NegatedTypePattern negType when subjectType is VariantTypeInfo:
-            {
-                TypeInfo? u64Type = ctx.Registry.LookupType(name: "U64");
-                TypeInfo? targetType = negType.Type.ResolvedType
-                    ?? ctx.Registry.LookupType(name: negType.Type.Name);
-
-                if (targetType == null)
-                    return (null, null); // Unknown type -> always matches negation (optimistic)
-
-                string fullName = targetType.FullName ?? negType.Type.Name;
-                ulong typeId = TypeIdHelper.ComputeTypeId(fullName: fullName);
-                Expression cond = new BinaryExpression(
-                    Left: MakeMemberAccess(subject: subject, field: TypeIdFieldName,
-                        fieldType: u64Type, loc: loc),
-                    Operator: BinaryOperator.NotEqual,
-                    Right: new LiteralExpression(Value: typeId, LiteralType: TokenType.U64Literal,
-                        Location: loc) { ResolvedType = u64Type },
-                    Location: loc)
-                {
-                    ResolvedType = boolType
-                };
-                return (cond, null);
-            }
+                return GetNegatedTypePatternCondition(negType: negType, subject: subject, loc: loc,
+                    boolType: boolType);
 
             case VariantPattern:
                 throw new InvalidOperationException(
@@ -699,60 +509,8 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx)
                     "out by CrashableExpansionPass into per-type TypePattern clauses.");
 
             case TypePattern tp when IsResultOrLookup(subjectType) || subjectType is VariantTypeInfo:
-            {
-                TypeInfo? u64Type = ctx.Registry.LookupType(name: "U64");
-                TypeInfo? targetType = tp.Type.ResolvedType
-                    ?? ctx.Registry.LookupType(name: tp.Type.Name);
-
-                // `is None`  on Lookup/Variant carriers tests type_id == 0.
-                if (tp.Type.Name is "None")
-                    return (MakeTypeIdIsZero(subject: subject, loc: loc, boolType: boolType,
-                        u64Type: u64Type), null);
-
-                // Specific type: type_id == FNV-1a(type.FullName).
-                // GENERIC PARAM (e.g. `is T` in Result[T].represent): a baked FNV("T") literal
-                // would never match after monomorphization (success stores FNV of the concrete type).
-                // The binding already substitutes correctly (CarrierPayloadExpression carries the
-                // type), but a frozen literal does not. Emit `<T>.type_id()` instead — a type-memberRoutine
-                // call GenericAstRewriter folds via the T->concrete substitution map
-                // (TryFoldBsCallViaStringSubs) to ComputeTypeId(concrete.FullName), so the condition
-                // matches the success state once instantiated.
-                Expression typeIdRhs;
-                if (targetType is GenericParameterTypeInfo)
-                {
-                    typeIdRhs = new CallExpression(
-                        Callee: new MemberExpression(
-                            Object: new IdentifierExpression(Name: tp.Type.Name, Location: loc),
-                            MemberName: TypeIdFieldName, Location: loc),
-                        Arguments: [],
-                        Location: loc) { ResolvedType = u64Type };
-                }
-                else
-                {
-                    string fullName = targetType?.FullName ?? tp.Type.Name;
-                    typeIdRhs = new LiteralExpression(
-                        Value: TypeIdHelper.ComputeTypeId(fullName: fullName),
-                        LiteralType: TokenType.U64Literal, Location: loc) { ResolvedType = u64Type };
-                }
-                Expression cond = new BinaryExpression(
-                    Left: MakeMemberAccess(subject: subject, field: TypeIdFieldName,
-                        fieldType: u64Type, loc: loc),
-                    Operator: BinaryOperator.Equal, Right: typeIdRhs, Location: loc)
-                {
-                    ResolvedType = boolType
-                };
-
-                Statement? binding = null;
-                if (tp.VariableName != null && targetType != null)
-                {
-                    binding = MakeBinding(
-                        name: tp.VariableName,
-                        value: MakeCarrierPayload(subject: subject, innerType: targetType,
-                            loc: loc),
-                        loc: loc);
-                }
-                return (cond, binding);
-            }
+                return GetResultLookupTypePatternCondition(tp: tp, subject: subject, loc: loc,
+                    boolType: boolType);
 
             // -----------------------------------------------------------------------------
 
@@ -796,7 +554,161 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx)
         }
     }
 
+    /// <summary>
+    /// Returns the (always-matching) condition and optional binding for an <see cref="ElsePattern"/>.
+    /// Extracted from <see cref="GetPatternCondition"/>.
+    /// </summary>
+    private (Expression? Cond, Statement? Binding) GetElsePatternCondition(
+        ElsePattern ep, Expression subject, TypeInfo? subjectType, bool isElseNarrowed,
+        SourceLocation loc)
+    {
+        Statement? binding = null;
+        if (ep.VariableName != null)
+        {
+            Expression bindValue;
+            if (IsMaybeRecord(subjectType) || IsMaybeEntity(subjectType))
+            {
+                // Maybe[T] (record or entity): bind to inner .value field. Bound T is
+                // record-shaped (pointer slot) so both branches read the same way.
+                bindValue = MakeMemberAccess(subject: subject, field: ValueFieldName,
+                    fieldType: subjectType!.TypeArguments![0], loc: loc);
+            }
+            else if (IsResultOrLookup(subjectType) && subjectType!.TypeArguments?.Count > 0
+                     && isElseNarrowed)
+            {
+                // Result/Lookup: truly narrowed-to-T else arm -> extract payload.
+                // Only when all non-T arms (None + all Crashable types) are handled.
+                TypeInfo innerType = subjectType.TypeArguments[0];
+                bindValue = MakeCarrierPayload(subject: subject, innerType: innerType,
+                    loc: loc);
+            }
+            else
+            {
+                bindValue = subject;
+            }
+            binding = MakeBinding(name: ep.VariableName, value: bindValue, loc: loc);
+        }
+
+        return (null, binding);
+    }
+
+    /// <summary>
+    /// Returns the condition and optional binding for a <see cref="TypePattern"/> over a
+    /// <c>Maybe[T record]</c>/<c>Maybe[T entity]</c> subject. Extracted from
+    /// <see cref="GetPatternCondition"/>.
+    /// </summary>
+    private (Expression? Cond, Statement? Binding) GetMaybeTypePatternCondition(
+        TypePattern tp, Expression subject, TypeInfo? subjectType, SourceLocation loc,
+        TypeInfo? boolType)
+    {
+        // `is None` on Maybe[T record] tests absence (`not present`); other TypePatterns
+        // test presence. Parser emits `is None` as TypePattern with Type.Name == "None".
+        TypeInfo? innerType = subjectType!.TypeArguments![0];
+        Expression cond = tp.Type.Name == "None"
+            ? MakeNotPresent(subject: subject, loc: loc, boolType: boolType)
+            : MakePresentAccess(subject: subject, loc: loc);
+        Statement? binding = tp.VariableName != null
+            ? MakeBinding(
+                name: tp.VariableName,
+                value: MakeMemberAccess(subject: subject, field: ValueFieldName,
+                    fieldType: innerType, loc: loc),
+                loc: loc)
+            : null;
+        return (cond, binding);
+    }
+
+    /// <summary>
+    /// Returns the condition for a <see cref="NegatedTypePattern"/> over a variant subject
+    /// (<c>subject.type_id != FNV-1a(type)</c>). Extracted from <see cref="GetPatternCondition"/>.
+    /// </summary>
+    private (Expression? Cond, Statement? Binding) GetNegatedTypePatternCondition(
+        NegatedTypePattern negType, Expression subject, SourceLocation loc, TypeInfo? boolType)
+    {
+        TypeInfo? u64Type = ctx.Registry.LookupType(name: "U64");
+        TypeInfo? targetType = negType.Type.ResolvedType
+            ?? ctx.Registry.LookupType(name: negType.Type.Name);
+
+        if (targetType == null)
+            return (null, null); // Unknown type -> always matches negation (optimistic)
+
+        string fullName = targetType.FullName ?? negType.Type.Name;
+        ulong typeId = TypeIdHelper.ComputeTypeId(fullName: fullName);
+        Expression cond = new BinaryExpression(
+            Left: MakeMemberAccess(subject: subject, field: TypeIdFieldName,
+                fieldType: u64Type, loc: loc),
+            Operator: BinaryOperator.NotEqual,
+            Right: new LiteralExpression(Value: typeId, LiteralType: TokenType.U64Literal,
+                Location: loc) { ResolvedType = u64Type },
+            Location: loc)
+        {
+            ResolvedType = boolType
+        };
+        return (cond, null);
+    }
+
     // -----------------------------------------------------------------------------
+
+    /// <summary>
+    /// Lowers a <c>TypePattern</c> over a Result/Lookup/Variant carrier to a <c>type_id ==</c> test
+    /// (plus the payload binding, if the pattern binds a name). Extracted from
+    /// <see cref="GetPatternCondition"/>.
+    /// </summary>
+    private (Expression? Cond, Statement? Binding) GetResultLookupTypePatternCondition(
+        TypePattern tp, Expression subject, SourceLocation loc, TypeInfo? boolType)
+    {
+        TypeInfo? u64Type = ctx.Registry.LookupType(name: "U64");
+        TypeInfo? targetType = tp.Type.ResolvedType
+            ?? ctx.Registry.LookupType(name: tp.Type.Name);
+
+        // `is None`  on Lookup/Variant carriers tests type_id == 0.
+        if (tp.Type.Name is "None")
+            return (MakeTypeIdIsZero(subject: subject, loc: loc, boolType: boolType,
+                u64Type: u64Type), null);
+
+        // Specific type: type_id == FNV-1a(type.FullName).
+        // GENERIC PARAM (e.g. `is T` in Result[T].represent): a baked FNV("T") literal
+        // would never match after monomorphization (success stores FNV of the concrete type).
+        // The binding already substitutes correctly (CarrierPayloadExpression carries the
+        // type), but a frozen literal does not. Emit `<T>.type_id()` instead — a type-memberRoutine
+        // call GenericAstRewriter folds via the T->concrete substitution map
+        // (TryFoldBsCallViaStringSubs) to ComputeTypeId(concrete.FullName), so the condition
+        // matches the success state once instantiated.
+        Expression typeIdRhs;
+        if (targetType is GenericParameterTypeInfo)
+        {
+            typeIdRhs = new CallExpression(
+                Callee: new MemberExpression(
+                    Object: new IdentifierExpression(Name: tp.Type.Name, Location: loc),
+                    MemberName: TypeIdFieldName, Location: loc),
+                Arguments: [],
+                Location: loc) { ResolvedType = u64Type };
+        }
+        else
+        {
+            string fullName = targetType?.FullName ?? tp.Type.Name;
+            typeIdRhs = new LiteralExpression(
+                Value: TypeIdHelper.ComputeTypeId(fullName: fullName),
+                LiteralType: TokenType.U64Literal, Location: loc) { ResolvedType = u64Type };
+        }
+        Expression cond = new BinaryExpression(
+            Left: MakeMemberAccess(subject: subject, field: TypeIdFieldName,
+                fieldType: u64Type, loc: loc),
+            Operator: BinaryOperator.Equal, Right: typeIdRhs, Location: loc)
+        {
+            ResolvedType = boolType
+        };
+
+        Statement? binding = null;
+        if (tp.VariableName != null && targetType != null)
+        {
+            binding = MakeBinding(
+                name: tp.VariableName,
+                value: MakeCarrierPayload(subject: subject, innerType: targetType,
+                    loc: loc),
+                loc: loc);
+        }
+        return (cond, binding);
+    }
 
     /// <summary>Builds <c>not subject.present</c> for Maybe absence check.</summary>
     private UnaryExpression MakeNotPresent(Expression subject, SourceLocation loc, TypeInfo? boolType)

@@ -426,6 +426,7 @@ dangerous routine RoamController[T].drop_data()
   me.data.as_entity().destroy()
   return
 
+@override
 dangerous routine RoamController[T].destroy()
   me.hijack().invalidate()
   return

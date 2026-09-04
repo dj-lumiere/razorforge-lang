@@ -173,6 +173,7 @@ routine FileHandle.exit()
 
 ### Closes the file handle at scope exit (RAII), so a handle bound without `using` still releases
 ### its descriptor. Idempotent with `exit`/`close()` via the `is_closed` guard, so no double-close.
+@override
 dangerous routine FileHandle.destroy()
   me.close()
   return

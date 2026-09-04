@@ -31,14 +31,16 @@ public partial class Parser
     {
         ["RoutineType"] = ConstraintKind.RoutineType,
         ["TupleType"] = ConstraintKind.TupleType,
-        ["RecordType"] = ConstraintKind.ValueType,
+        ["RecordType"] = ConstraintKind.RecordType,
         ["ChoiceType"] = ConstraintKind.ChoiceType,
         ["FlagsType"] = ConstraintKind.FlagsType,
         ["VariantType"] = ConstraintKind.VariantType,
-        ["EntityType"] = ConstraintKind.ReferenceType,
+        ["EntityType"] = ConstraintKind.EntityType,
         ["CrashableType"] = ConstraintKind.Crashable,
         ["ZeroMemvarType"] = ConstraintKind.ZeroMemvarType,
-        ["SplittableType"] = ConstraintKind.Splittable
+        // `needs T is TypeName` — declares the named identifier as an unconstrained generic type
+        // parameter (the explicit alternative to `[T]`); satisfied by any type.
+        ["TypeName"] = ConstraintKind.AnyType
     };
 
     /// <summary>Recognizes a <c>T is &lt;Name&gt;Type</c> type-kind constraint. When the identifier after
@@ -49,7 +51,7 @@ public partial class Parser
 
     private const string TypeKindNamesHint =
         "RecordType, VariantType, EntityType, ChoiceType, FlagsType, TupleType, RoutineType, " +
-        "SplittableType, ZeroMemvarType, CrashableType";
+        "ZeroMemvarType, CrashableType, TypeName";
 
     /// <summary>Parses the target of an <c>is</c> generic constraint after the <c>is</c> keyword has
     /// been consumed. A known <c>-Type</c> kind-group name (<c>is RecordType</c>) becomes a
@@ -192,57 +194,72 @@ public partial class Parser
         // ═══════════════════════════════════════════════════════════════════════════
         if (Match(type: TokenType.LeftParen))
         {
-            var elementTypes = new List<TypeExpression>();
+            return ParseTupleOrParenthesizedType(location: location);
+        }
 
-            // Empty tuple type `()` — a zero-element parameter list, the param slot of a no-argument
-            // routine type: `Routine[(), None]`. Kept as a `Tuple` with an empty argument list so the
-            // type resolver produces zero parameter types.
-            if (Check(type: TokenType.RightParen))
-            {
-                Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after tuple type");
-                return new TypeExpression(Name: "Tuple",
-                    GenericArguments: elementTypes,
-                    Location: location);
-            }
+        // ═══════════════════════════════════════════════════════════════════════════
+        // CASE 4/5: Named type - simple or generic
+        // ═══════════════════════════════════════════════════════════════════════════
+        return ParseNamedType(location: location);
+    }
 
-            elementTypes.Add(item: ParseType());
+    /// <summary>
+    /// Parses a tuple type or a single parenthesized type after the opening <c>(</c> has been consumed:
+    /// the empty tuple <c>()</c>, a bare parenthesized <c>(T)</c>, a single-element tuple <c>(T,)</c>, or
+    /// a multi-element tuple <c>(T, U, ...)</c>.
+    /// </summary>
+    private TypeExpression ParseTupleOrParenthesizedType(SourceLocation location)
+    {
+        var elementTypes = new List<TypeExpression>();
 
-            if (!Match(type: TokenType.Comma))
-            {
-                // Single parenthesized type without comma: just (T)
-                Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after type");
-                return elementTypes[index: 0];
-            }
-
-            // Single-element tuple: (T,)
-            if (Check(type: TokenType.RightParen))
-            {
-                Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after tuple type");
-                return new TypeExpression(Name: "Tuple",
-                    GenericArguments: elementTypes,
-                    Location: location);
-            }
-
-            // Multi-element tuple: (T, U, ...)
-            do
-            {
-                elementTypes.Add(item: ParseType());
-            } while (Match(type: TokenType.Comma) && !Check(type: TokenType.RightParen));
-
+        // Empty tuple type `()` — a zero-element parameter list, the param slot of a no-argument
+        // routine type: `Routine[(), None]`. Kept as a `Tuple` with an empty argument list so the
+        // type resolver produces zero parameter types.
+        if (Check(type: TokenType.RightParen))
+        {
             Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after tuple type");
             return new TypeExpression(Name: "Tuple",
                 GenericArguments: elementTypes,
                 Location: location);
         }
 
-        // ═══════════════════════════════════════════════════════════════════════════
-        // CASE 4/5: Named type - simple or generic
-        // ═══════════════════════════════════════════════════════════════════════════
-        // Forms:
-        // User simple type
-        // List[T] generic type
-        // Dict[Text, S32] multi-param generic
-        // FixedBytes[4] const generic (number as type arg)
+        elementTypes.Add(item: ParseType());
+
+        if (!Match(type: TokenType.Comma))
+        {
+            // Single parenthesized type without comma: just (T)
+            Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after type");
+            return elementTypes[index: 0];
+        }
+
+        // Single-element tuple: (T,)
+        if (Check(type: TokenType.RightParen))
+        {
+            Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after tuple type");
+            return new TypeExpression(Name: "Tuple",
+                GenericArguments: elementTypes,
+                Location: location);
+        }
+
+        // Multi-element tuple: (T, U, ...)
+        do
+        {
+            elementTypes.Add(item: ParseType());
+        } while (Match(type: TokenType.Comma) && !Check(type: TokenType.RightParen));
+
+        Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after tuple type");
+        return new TypeExpression(Name: "Tuple",
+            GenericArguments: elementTypes,
+            Location: location);
+    }
+
+    /// <summary>
+    /// Parses a named type (CASE 4/5): a simple, qualified, realm-qualified, or generic type. Forms:
+    /// a user simple type, <c>List[T]</c> generic, <c>Dict[Text, S32]</c> multi-param generic, or
+    /// <c>FixedBytes[4]</c> const generic.
+    /// </summary>
+    private TypeExpression ParseNamedType(SourceLocation location)
+    {
         if (!Match(type: TokenType.Identifier))
         {
             throw ThrowParseError(code: GrammarDiagnosticCode.ExpectedType,
@@ -252,43 +269,11 @@ public partial class Parser
         string name = PeekToken(offset: -1)
            .Text;
 
-        // Realm qualifier: `RF::Core.List` — the identifier before `::` is a realm tag (RF/SF), and the
-        // rest is a qualified type name resolved in that realm. `RF::` reaches the RazorForge/bare realm
-        // from a Suflae file (the resolver skips the entity->Roamed lowering for it). The qualified name
-        // after `::` uses `.`/`/` segment separators (e.g. `RF::Core.List`), consumed here so the general
-        // `/`-path loop below is a no-op.
-        string? realm = null;
-        if (Match(type: TokenType.DoubleColon))
-        {
-            realm = name;
-            var realmSb = new System.Text.StringBuilder(
-                ConsumeIdentifier(errorMessage: "Expected type name after realm qualifier '::'"));
-            while (Check(type: TokenType.Dot) || Check(type: TokenType.Slash))
-            {
-                realmSb.Append(Match(type: TokenType.Dot) ? '.' : (Match(type: TokenType.Slash) ? '/' : '.'));
-                realmSb.Append(ConsumeIdentifier(
-                    errorMessage: "Expected name component after '.'/'/' in realm-qualified type"));
-            }
-            name = realmSb.ToString();
-        }
+        string? realm = ReadRealmQualifier(name: ref name);
 
         // Support qualified type paths like RazorForge/Collections.Dict
         // This allows referencing types from other modules in type annotations
-        var nameSb = new System.Text.StringBuilder(name);
-        while (Match(type: TokenType.Slash))
-        {
-            nameSb.Append('/');
-            nameSb.Append(ConsumeIdentifier(errorMessage: "Expected module path component after '/'"));
-
-            // Dot separates the type name from the slash-based module path: razorforge/Core.Bool
-            if (Match(type: TokenType.Dot))
-            {
-                nameSb.Append('.');
-                nameSb.Append(ConsumeIdentifier(errorMessage: "Expected type name after '.'"));
-                break; // Dot marks the end of the path (rest is the type name)
-            }
-        }
-        name = nameSb.ToString();
+        name = ReadQualifiedTypePath(head: name);
 
         // ─────────────────────────────────────────────────────────────────────
         // Simple type without generics
@@ -311,7 +296,61 @@ public partial class Parser
         Consume(type: TokenType.RightBracket, errorMessage: "Expected ']' after type arguments");
 
         return new TypeExpression(Name: name, GenericArguments: typeArgs, Location: location, Realm: realm);
+    }
 
+    /// <summary>
+    /// Reads an optional realm qualifier (<c>RF::Core.List</c>) starting after the head identifier. When
+    /// a <c>::</c> follows, the head is the realm tag and the <c>.</c>/<c>/</c>-segmented remainder is
+    /// consumed into <paramref name="name"/>; returns the realm tag (or null when absent).
+    /// </summary>
+    private string? ReadRealmQualifier(ref string name)
+    {
+        // Realm qualifier: `RF::Core.List` — the identifier before `::` is a realm tag (RF/SF), and the
+        // rest is a qualified type name resolved in that realm. `RF::` reaches the RazorForge/bare realm
+        // from a Suflae file (the resolver skips the entity->Roamed lowering for it). The qualified name
+        // after `::` uses `.`/`/` segment separators (e.g. `RF::Core.List`), consumed here so the general
+        // `/`-path loop below is a no-op.
+        if (!Match(type: TokenType.DoubleColon))
+        {
+            return null;
+        }
+
+        string realm = name;
+        var realmSb = new System.Text.StringBuilder(
+            ConsumeIdentifier(errorMessage: "Expected type name after realm qualifier '::'"));
+        while (Check(type: TokenType.Dot) || Check(type: TokenType.Slash))
+        {
+            realmSb.Append(Match(type: TokenType.Dot) ? '.' : (Match(type: TokenType.Slash) ? '/' : '.'));
+            realmSb.Append(ConsumeIdentifier(
+                errorMessage: "Expected name component after '.'/'/' in realm-qualified type"));
+        }
+        name = realmSb.ToString();
+        return realm;
+    }
+
+    /// <summary>
+    /// Reads a slash-separated qualified type path (<c>RazorForge/Collections.Dict</c>) starting from an
+    /// already-consumed <paramref name="head"/> identifier, where a <c>.</c> separates the trailing type
+    /// name from the module path and ends the path.
+    /// </summary>
+    private string ReadQualifiedTypePath(string head)
+    {
+        var nameSb = new System.Text.StringBuilder(head);
+        while (Match(type: TokenType.Slash))
+        {
+            nameSb.Append('/');
+            nameSb.Append(ConsumeIdentifier(errorMessage: "Expected module path component after '/'"));
+
+            // Dot separates the type name from the slash-based module path: razorforge/Core.Bool
+            if (Match(type: TokenType.Dot))
+            {
+                nameSb.Append('.');
+                nameSb.Append(ConsumeIdentifier(errorMessage: "Expected type name after '.'"));
+                break; // Dot marks the end of the path (rest is the type name)
+            }
+        }
+
+        return nameSb.ToString();
     }
 
     /// <summary>
@@ -462,22 +501,10 @@ public partial class Parser
             // T obeys Protocol1, Protocol2 (multiple protocols)
             if (Match(type: TokenType.Obeys))
             {
-                var constraintTypes = new List<TypeExpression>();
-                do
-                {
-                    constraintTypes.Add(item: ParseType());
-                    // Continue if comma but next token is NOT an identifier followed by obeys/is/in or greater
-                    // This handles both "T obeys A, B" (multiple protocols) and "T obeys A, U obeys B" (next param)
-                } while (Match(type: TokenType.Comma) && !Check(type: TokenType.RightBracket) &&
-                         !(Check(type: TokenType.Identifier) && (PeekToken(offset: 1)
-                            .Type == TokenType.Obeys || PeekToken(offset: 1)
-                            .Type == TokenType.Is || PeekToken(offset: 1)
-                            .Type == TokenType.In)));
-
                 inlineConstraints.Add(item: new GenericConstraintDeclaration(
                     ParameterName: paramName,
                     ConstraintType: ConstraintKind.Obeys,
-                    ConstraintTypes: constraintTypes,
+                    ConstraintTypes: ParseInlineObeysProtocolList(),
                     Location: location));
             }
             // ─────────────────────────────────────────────────────────────────────
@@ -495,23 +522,8 @@ public partial class Parser
             // Form: T in [S32, S64, F64]
             else if (Match(type: TokenType.In))
             {
-                Consume(type: TokenType.LeftBracket,
-                    errorMessage: "Expected '[' after 'in' for type equality constraint");
-
-                var equalityTypes = new List<TypeExpression>();
-                do
-                {
-                    equalityTypes.Add(item: ParseType());
-                } while (Match(type: TokenType.Comma));
-
-                Consume(type: TokenType.RightBracket,
-                    errorMessage: "Expected ']' after type list");
-
-                inlineConstraints.Add(item: new GenericConstraintDeclaration(
-                    ParameterName: paramName,
-                    ConstraintType: ConstraintKind.TypeEquality,
-                    ConstraintTypes: equalityTypes,
-                    Location: location));
+                inlineConstraints.Add(item: ParseInlineInConstraint(paramName: paramName,
+                    location: location));
             }
             // No constraint for this parameter, continue to next
         } while (Match(type: TokenType.Comma));
@@ -519,6 +531,55 @@ public partial class Parser
         return (genericParams, inlineConstraints.Count > 0
             ? inlineConstraints
             : null);
+    }
+
+    /// <summary>
+    /// Parses the protocol list of an INLINE <c>[T obeys A, B]</c> constraint after <c>obeys</c> has
+    /// been consumed. A trailing comma ends the list when it is followed by <c>]</c> or a new
+    /// <c>Param obeys/is/in</c> parameter constraint (distinguishing <c>[T obeys A, B]</c> —
+    /// multiple protocols — from <c>[T obeys A, U obeys B]</c> — the next parameter).
+    /// </summary>
+    private List<TypeExpression> ParseInlineObeysProtocolList()
+    {
+        var constraintTypes = new List<TypeExpression>();
+        do
+        {
+            constraintTypes.Add(item: ParseType());
+            // Continue if comma but next token is NOT an identifier followed by obeys/is/in or greater
+            // This handles both "T obeys A, B" (multiple protocols) and "T obeys A, U obeys B" (next param)
+        } while (Match(type: TokenType.Comma) && !Check(type: TokenType.RightBracket) &&
+                 !(Check(type: TokenType.Identifier) && (PeekToken(offset: 1)
+                    .Type == TokenType.Obeys || PeekToken(offset: 1)
+                    .Type == TokenType.Is || PeekToken(offset: 1)
+                    .Type == TokenType.In)));
+
+        return constraintTypes;
+    }
+
+    /// <summary>
+    /// Parses an INLINE <c>[T in [S32, S64, F64]]</c> type-equality constraint after <c>in</c> has been
+    /// consumed.
+    /// </summary>
+    private GenericConstraintDeclaration ParseInlineInConstraint(string paramName,
+        SourceLocation location)
+    {
+        Consume(type: TokenType.LeftBracket,
+            errorMessage: "Expected '[' after 'in' for type equality constraint");
+
+        var equalityTypes = new List<TypeExpression>();
+        do
+        {
+            equalityTypes.Add(item: ParseType());
+        } while (Match(type: TokenType.Comma));
+
+        Consume(type: TokenType.RightBracket,
+            errorMessage: "Expected ']' after type list");
+
+        return new GenericConstraintDeclaration(
+            ParameterName: paramName,
+            ConstraintType: ConstraintKind.TypeEquality,
+            ConstraintTypes: equalityTypes,
+            Location: location);
     }
 
     /// <summary>
@@ -542,6 +603,54 @@ public partial class Parser
     /// needs T obeys A needs U obeys B (chained)
     /// needs T obeys A, U obeys B (comma-separated)
     /// </remarks>
+    /// <summary>Parses one protocol in a type header's <c>obeys</c> list, plus an optional trailing
+    /// <c>onlyif (cond, …)</c> conditional-conformance clause attached to that protocol.</summary>
+    private TypeExpression ParseObeysProtocol()
+    {
+        TypeExpression proto = ParseType();
+        if (Match(type: TokenType.OnlyIf))
+            proto.ConformanceConditions = ParseOnlyIfConditions();
+        return proto;
+    }
+
+    /// <summary>Parses an <c>onlyif</c> clause into its AND-list of <c>&lt;param&gt; obeys &lt;protocol&gt;</c>
+    /// conditions. Parens are OPTIONAL: a single condition may be written bare (<c>onlyif T obeys P</c>);
+    /// MULTIPLE conditions need parens (<c>onlyif (T obeys P, U obeys Q)</c>) so their comma separators
+    /// don't collide with the outer obeys-list comma. Comma = AND.</summary>
+    private List<GenericConstraintDeclaration> ParseOnlyIfConditions()
+    {
+        var conds = new List<GenericConstraintDeclaration>();
+        if (Match(type: TokenType.LeftParen))
+        {
+            do
+            {
+                while (Match(type: TokenType.Newline)) { } // NOSONAR S108
+                conds.Add(item: ParseOneOnlyIfCondition());
+            } while (Match(type: TokenType.Comma));
+            Consume(type: TokenType.RightParen, errorMessage: "Expected ')' after 'onlyif' conditions");
+        }
+        else
+        {
+            // Bare single condition — a following comma belongs to the outer obeys list, not here.
+            conds.Add(item: ParseOneOnlyIfCondition());
+        }
+        return conds;
+    }
+
+    /// <summary>Parses one <c>&lt;param&gt; obeys &lt;protocol&gt;</c> condition of an <c>onlyif</c> clause.</summary>
+    private GenericConstraintDeclaration ParseOneOnlyIfCondition()
+    {
+        SourceLocation loc = GetLocation();
+        string paramName =
+            ConsumeIdentifier(errorMessage: "Expected type parameter name in 'onlyif' condition");
+        Consume(type: TokenType.Obeys, errorMessage: "Expected 'obeys' in 'onlyif' condition");
+        return new GenericConstraintDeclaration(
+            ParameterName: paramName,
+            ConstraintType: ConstraintKind.Obeys,
+            ConstraintTypes: [ParseType()],
+            Location: loc);
+    }
+
     private List<GenericConstraintDeclaration>? ParseGenericConstraints(
         List<string>? genericParams,
         List<GenericConstraintDeclaration>? existingConstraints = null)
@@ -590,88 +699,8 @@ public partial class Parser
                 // ─────────────────────────────────────────────────────────────────────
                 // Parse constraint kind and types (same logic as inline constraints)
                 // ─────────────────────────────────────────────────────────────────────
-                if (Match(type: TokenType.Obeys))
-                {
-                    // T obeys Protocol1, Protocol2
-                    var constraintTypes = new List<TypeExpression>();
-                    constraintTypes.Add(item: ParseType());
-                    while (Check(type: TokenType.Comma))
-                    {
-                        // Peek PAST the comma (and any newlines): if a new "Param obeys/is/in"
-                        // constraint follows, this comma separates whole constraints — leave it
-                        // unconsumed for the outer constraint-separator loop. Consuming it here
-                        // (the old bug) dropped the next constraint, e.g. the `U obeys B` in
-                        // `needs T obeys A, U obeys B`, on routines and types alike.
-                        int peek = 1;
-                        while (PeekToken(offset: peek).Type == TokenType.Newline)
-                        {
-                            peek++;
-                        }
-
-                        if (PeekToken(offset: peek).Type == TokenType.Identifier &&
-                            PeekToken(offset: peek + 1).Type is TokenType.Obeys or TokenType.Is
-                                or TokenType.In)
-                        {
-                            break;
-                        }
-
-                        Match(type: TokenType.Comma);
-                        while (Match(type: TokenType.Newline)) { } // NOSONAR S108: intentional newline-consuming loop
-                        constraintTypes.Add(item: ParseType());
-                    }
-
-                    constraints.Add(item: new GenericConstraintDeclaration(
-                        ParameterName: paramName,
-                        ConstraintType: ConstraintKind.Obeys,
-                        ConstraintTypes: constraintTypes,
-                        Location: location));
-                }
-                else if (Match(type: TokenType.Is))
-                {
-                    constraints.Add(item: ParseIsConstraint(paramName: paramName, location: location));
-                }
-                else if (Match(type: TokenType.In))
-                {
-                    // T in [s32, s64, u32] - type equality constraint with list syntax
-                    Consume(type: TokenType.LeftBracket,
-                        errorMessage: "Expected '[' after 'in' for type equality constraint");
-
-                    var equalityTypes = new List<TypeExpression>();
-                    do
-                    {
-                        equalityTypes.Add(item: ParseType());
-                    } while (Match(type: TokenType.Comma));
-
-                    Consume(type: TokenType.RightBracket,
-                        errorMessage: "Expected ']' after type list");
-
-                    constraints.Add(item: new GenericConstraintDeclaration(
-                        ParameterName: paramName,
-                        ConstraintType: ConstraintKind.TypeEquality,
-                        ConstraintTypes: equalityTypes,
-                        Location: location));
-                }
-                else if (Match(type: TokenType.Everywhere))
-                {
-                    // `needs <Protocol> everywhere` — standard-impl eligibility gate: the owner `Me`
-                    // obeys the protocol IFF every member (allmemvarof/branchof/caseof, per kind) obeys it.
-                    // There is no explicit subject; the identifier just consumed as `paramName` is
-                    // actually the protocol name, and the subject is implicitly `Me`.
-                    constraints.Add(item: new GenericConstraintDeclaration(
-                        ParameterName: "Me",
-                        ConstraintType: ConstraintKind.Everywhere,
-                        ConstraintTypes:
-                        [
-                            new TypeExpression(Name: paramName, GenericArguments: null,
-                                Location: location)
-                        ],
-                        Location: location));
-                }
-                else
-                {
-                    throw ThrowParseError(code: GrammarDiagnosticCode.ExpectedConstraintType,
-                        message: "Expected 'obeys', 'is', 'in', or 'everywhere' in generic constraint");
-                }
+                constraints.Add(item: ParseNeedsConstraintClause(paramName: paramName,
+                    location: location));
 
                 // Continue parsing if there's a comma
             } while (Match(type: TokenType.Comma));
@@ -680,6 +709,109 @@ public partial class Parser
         return constraints.Count > 0
             ? constraints
             : null;
+    }
+
+    /// <summary>
+    /// Parses one <c>needs</c>-clause constraint for the given parameter after its name has been
+    /// consumed: <c>obeys</c> (protocol conformance list), <c>is</c> (type-kind / const-generic),
+    /// <c>in</c> (type-equality list), or <c>everywhere</c> (standard-impl eligibility gate on <c>Me</c>).
+    /// </summary>
+    private GenericConstraintDeclaration ParseNeedsConstraintClause(string paramName,
+        SourceLocation location)
+    {
+        if (Match(type: TokenType.Obeys))
+        {
+            // T obeys Protocol1, Protocol2
+            List<TypeExpression> constraintTypes = ParseNeedsObeysProtocolList();
+            return new GenericConstraintDeclaration(
+                ParameterName: paramName,
+                ConstraintType: ConstraintKind.Obeys,
+                ConstraintTypes: constraintTypes,
+                Location: location);
+        }
+
+        if (Match(type: TokenType.Is))
+        {
+            return ParseIsConstraint(paramName: paramName, location: location);
+        }
+
+        if (Match(type: TokenType.In))
+        {
+            // T in [s32, s64, u32] - type equality constraint with list syntax
+            Consume(type: TokenType.LeftBracket,
+                errorMessage: "Expected '[' after 'in' for type equality constraint");
+
+            var equalityTypes = new List<TypeExpression>();
+            do
+            {
+                equalityTypes.Add(item: ParseType());
+            } while (Match(type: TokenType.Comma));
+
+            Consume(type: TokenType.RightBracket,
+                errorMessage: "Expected ']' after type list");
+
+            return new GenericConstraintDeclaration(
+                ParameterName: paramName,
+                ConstraintType: ConstraintKind.TypeEquality,
+                ConstraintTypes: equalityTypes,
+                Location: location);
+        }
+
+        if (Match(type: TokenType.Everywhere))
+        {
+            // `needs <Protocol> everywhere` — standard-impl eligibility gate: the owner `Me`
+            // obeys the protocol IFF every member (allmemvarof/branchof/caseof, per kind) obeys it.
+            // There is no explicit subject; the identifier just consumed as `paramName` is
+            // actually the protocol name, and the subject is implicitly `Me`.
+            return new GenericConstraintDeclaration(
+                ParameterName: "Me",
+                ConstraintType: ConstraintKind.Everywhere,
+                ConstraintTypes:
+                [
+                    new TypeExpression(Name: paramName, GenericArguments: null,
+                        Location: location)
+                ],
+                Location: location);
+        }
+
+        throw ThrowParseError(code: GrammarDiagnosticCode.ExpectedConstraintType,
+            message: "Expected 'obeys', 'is', 'in', or 'everywhere' in generic constraint");
+    }
+
+    /// <summary>
+    /// Parses the protocol list of a <c>needs T obeys A, B</c> clause after <c>obeys</c> has been
+    /// consumed. A comma is treated as a within-clause separator only when it is NOT followed by a new
+    /// <c>Param obeys/is/in</c> constraint (that comma belongs to the outer constraint-separator loop).
+    /// </summary>
+    private List<TypeExpression> ParseNeedsObeysProtocolList()
+    {
+        var constraintTypes = new List<TypeExpression> { ParseType() };
+        while (Check(type: TokenType.Comma))
+        {
+            // Peek PAST the comma (and any newlines): if a new "Param obeys/is/in"
+            // constraint follows, this comma separates whole constraints — leave it
+            // unconsumed for the outer constraint-separator loop. Consuming it here
+            // (the old bug) dropped the next constraint, e.g. the `U obeys B` in
+            // `needs T obeys A, U obeys B`, on routines and types alike.
+            int peek = 1;
+            while (PeekToken(offset: peek).Type == TokenType.Newline)
+            {
+                peek++;
+            }
+
+            if (PeekToken(offset: peek).Type == TokenType.Identifier &&
+                PeekToken(offset: peek + 1).Type is TokenType.Obeys or TokenType.Is
+                    or TokenType.In)
+            {
+                break;
+            }
+
+            Match(type: TokenType.Comma);
+            while (Match(type: TokenType.Newline)) { } // NOSONAR S108: intentional newline-consuming loop
+            constraintTypes.Add(item: ParseType());
+        }
+
+        return constraintTypes;
     }
 
     /// <summary>

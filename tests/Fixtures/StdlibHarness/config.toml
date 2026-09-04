@@ -1,0 +1,9 @@
+[package]
+name = "stdlib-harness"
+version = "0.0.1"
+razorforge-version = "0.1.0"
+
+[target]
+executable = "StdlibHarness"
+mode = "debug"
+library = ["../Stdlib"]

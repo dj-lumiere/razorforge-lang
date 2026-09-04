@@ -169,7 +169,7 @@ routine udiv128_by_u64_sticky(num: U128, den: U64) -> U128
 ### and division numerators). Note that `U256` does not implement `AtomicType`
 ### because hardware atomic operations on 256-bit values are not available.
 @llvm("i256")
-record U256 obeys UnsignedIntegral, Ordered, ConstCompatible, Assignable, Copyable
+record U256 obeys UnsignedIntegral, Ordered, ConstCompatible, Assignable, Copyable, Splittable
   pass
 
 # Constants for U256 limits
@@ -221,10 +221,12 @@ routine udivrem256(num: U256, den: U256) -> UDR256
     return UDR256(q: q, r: r)
 
 ### Diagnostic name (raw wide intermediate; not decimal-formatted).
+@override
 routine U256.represent() -> Text
   return wide_dec[U256](me)
 
 ### Diagnostic representation tagged with the type name.
+@override
 routine U256.diagnose() -> Text
   return "U256(" + me.represent() + ")"
 
