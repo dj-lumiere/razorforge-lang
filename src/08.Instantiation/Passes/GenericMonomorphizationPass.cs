@@ -541,27 +541,30 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
                     memberRoutineName: RuntimeContract.RawPointer.Invalidate)) is { } ib) worklist.Enqueue(item: ib);
         }
 
-        // SEED destroy on EVERY REGISTERED instance. `destroy` is wired/always-live — semantically built for
-        // every type — but a container's field-walk `me.field.destroy()` is codegen-synthesized (the concrete
-        // container body isn't materialized), so the call-driven walk can't discover the field's destroy. Just
-        // build destroy on every ALREADY-REGISTERED concrete + wrapper instance: bounded by the finite
-        // registry (NO GetOrCreateWrapperType, NO field/type-arg recursion → no speculative Hijacked[Hijacked
-        // […]] runaway), and self-contained (every field type of a registered type is itself registered, so
-        // each field.destroy callee is also built here). A FOLDED const-generic Array[T,63].destroy builds
-        // fine; skip a pseudo-concrete instance whose const-generic arg is an UNFOLDED comptime splice
-        // (Array[U8, ${max(...)}] carrier buffer) — its `N` never folds to a value and crashes codegen.
+        // SEED the per-type LIFECYCLE HOOKS on EVERY REGISTERED instance. Codegen synthesizes a body per
+        // type for each of these hooks — the teardown `destroy`/`roam_free_impl` (field-walk `me.f.destroy()`
+        // + entity self-free) and the cycle-tracer `roam_trace_impl` (field-walk `me.f.cyclic_visit()` /
+        // `Hijacked[f].cyclic_trace_buffer()`). Their calls are codegen-injected, so the call-driven walk
+        // can't discover them; but the HOOKS themselves are registered per-type routines. Build the hooks on
+        // every registered concrete + wrapper instance — bounded by the finite registry (NO
+        // GetOrCreateWrapperType, NO field recursion → no speculative Hijacked[Hijacked[…]] runaway) and
+        // SELF-CONTAINED (each hook's field-walk callee is itself a registered instance, discovered + built by
+        // the call-driven closure below). We seed the HOOKS, not the leaf verbs (cyclic_trace_buffer etc.) —
+        // those fall out of the closure. NOT display (represent/diagnose): that's a force-seeded closure whose
+        // callees escape the registry (type_name, nested represents on non-registered members) → net-new
+        // declares (measured: adding represent took the gap 140→367). Skip pseudo-concrete instances whose
+        // const-generic arg is an UNFOLDED comptime splice (`Array[U8, ${max(...)}]` carrier — its `N` never
+        // folds → codegen `Unknown identifier N`; a FOLDED `Array[U8,63]` builds fine).
+        string[] lifecycleHooks = ["destroy", "roam_free_impl", "roam_trace_impl"];
         static bool HasUnfoldedComptime(TypeInfo ty) =>
             ty.TypeArguments is { Count: > 0 } a && a.Any(predicate: x => x is ComptimeConstGenericTypeInfo);
         foreach (TypeInfo t in ctx.Registry.AllConcreteGenericInstancesUnfiltered
                      .Concat(second: ctx.Registry.AllConcreteWrapperInstancesUnfiltered).ToArray())
         {
             if (HasUnfoldedComptime(t)) continue;
-            // destroy ONLY: it is self-contained (each field.destroy callee is itself a registered instance
-            // built here) and CONVERGES (leaf teardown is trivial). `represent` does NOT — it's a
-            // force-seeded display closure whose callees (type_name, nested represents on non-registered
-            // member types) introduce net-new declares (measured: adding represent took the gap 140→367).
-            if (BuildOne(r: ctx.Registry.LookupMemberRoutine(type: t, memberRoutineName: "destroy")) is { } db)
-                worklist.Enqueue(item: db);
+            foreach (string hook in lifecycleHooks)
+                if (BuildOne(r: ctx.Registry.LookupMemberRoutine(type: t, memberRoutineName: hook)) is { } db)
+                    worklist.Enqueue(item: db);
         }
 
         // CALL-DRIVEN closure: walk each freshly-built body, isolated-build every ResolvedRoutine callee it
