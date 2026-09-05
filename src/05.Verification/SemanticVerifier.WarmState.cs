@@ -132,10 +132,28 @@ public partial class SemanticVerifier
         foreach (var kv in warm.SynthesizedBodies) _synthesizedBodies[kv.Key] = kv.Value;
         _variantBodies = new Dictionary<string, Statement>(warm.VariantBodies);
         _restoredVariantKeys = new HashSet<string>(warm.VariantBodies.Keys, System.StringComparer.Ordinal);
-        _instantiatedGenericBodies =
-            new Dictionary<string, MonomorphizedBody>(warm.InstantiatedGenericBodies);
+        // Skip restoring EMPTY synthesized sentinels that have NO matching variant body. The stdlib
+        // snapshot captures a placeholder body for a resolved routine whose owner was not live in the
+        // stdlib-only snapshot program (e.g. `DictEmittable[Text,SerialValue].try_emit` — no stdlib code
+        // iterates a `Dict[Text,SerialValue]`, so its emit variant was never materialized, only a
+        // `new BlockStatement([])` stub). Restoring such a stub is HARMFUL: its key enters
+        // `_restoredInstantiationKeys`, so GMP treats it as already-built and skips re-monomorphization
+        // when the USER program legitimately reaches it — leaving the empty body for codegen to skip
+        // (Phase B), which surfaces as the "declared+called but never defined" over-prune. Dropping the
+        // placeholder lets the warm build re-materialize the real body from the user's live reachability,
+        // exactly as a cold compile does. A sentinel WITH a matching variant body is real (Phase C emits
+        // it) and is kept.
+        var restoredInst = new Dictionary<string, MonomorphizedBody>();
+        foreach (var kv in warm.InstantiatedGenericBodies)
+        {
+            bool emptySentinel = kv.Value is { IsSynthesized: true, Ast.Body: BlockStatement { Statements.Count: 0 } };
+            if (emptySentinel && !warm.VariantBodies.ContainsKey(kv.Key))
+                continue; // broken placeholder — let the warm build rebuild it
+            restoredInst[kv.Key] = kv.Value;
+        }
+        _instantiatedGenericBodies = restoredInst;
         _restoredInstantiationKeys =
-            new HashSet<string>(warm.InstantiatedGenericBodies.Keys, System.StringComparer.Ordinal);
+            new HashSet<string>(restoredInst.Keys, System.StringComparer.Ordinal);
         // Share the daemon-lifetime reachability body-scan cache by reference so it persists (and grows)
         // across every warm compile restored from this snapshot. Cold compiles leave it null → RRP walks.
         _bodyScanCache = warm.BodyScanCache;

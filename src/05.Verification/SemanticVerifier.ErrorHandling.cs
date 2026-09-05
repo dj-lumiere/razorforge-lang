@@ -278,7 +278,18 @@ public sealed partial class SemanticVerifier
             // resolves under a different key than its registered `create#…` overload). Its body is still in
             // the collected routine bodies (CollectStdlibBodiesForVariantGeneration) — synthesize from there.
             if (!_routineBodies.TryGetValue(key: baseRoutine.RegistryKey, value: out Statement? collectedBody))
-                return false;
+            {
+                // WARM: stdlib routine bodies are NOT collected into _routineBodies (SkipStdlibReprocessing)
+                // and PreRegisterStdlibVariants (which fills DeferredVariantBases) is skipped — so a STDLIB
+                // base reached on demand by a USER variant body (e.g. `S64.create` needed to rewrite the
+                // inner `S64!(from_text:)` of a user `try_S64_from_text`) has no body here. The captured
+                // stdlib bodies ARE available via `_warmStdlibRoutineBodies`; use them so warm can synthesize
+                // the variant exactly as cold does — else the inner rewrite fails and the user variant calls
+                // the raw failable form, crashing on the recoverable path.
+                if (_warmStdlibRoutineBodies == null
+                    || !_warmStdlibRoutineBodies.TryGetValue(key: baseRoutine.RegistryKey, value: out collectedBody))
+                    return false;
+            }
             bool hasDirect = new ErrorHandlingGenerator(registry: _registry)
                 .BodyHasThrowOrAbsent(body: collectedBody);
             deferred = (baseRoutine, collectedBody, !hasDirect);
