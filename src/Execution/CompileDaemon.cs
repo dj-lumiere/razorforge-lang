@@ -121,6 +121,26 @@ internal partial class Program
             return state;
         }
 
+        /// <summary>Daemon-lifetime cache of the stdlib import index per (language, library-roots). The index
+        /// is invariant across warm requests (stdlib source + host target are fixed), so building it once and
+        /// re-seeding it replaces the ~0.8 s per-request stdlib re-parse the BuildDriver otherwise repeats.</summary>
+        private static readonly Dictionary<string, IReadOnlyDictionary<string, string>> StdlibIndexCache = new();
+
+        private static IReadOnlyDictionary<string, string>? GetStdlibIndex(Language language,
+            IReadOnlyList<string> libraryRoots)
+        {
+            // Key on language + the ordered library-root set: distinct [target] library sets index different
+            // module surfaces. (Library roots are re-registered per request on top of the seeded stdlib index.)
+            string key = language + "" + string.Join(separator: "", values: libraryRoots);
+            if (StdlibIndexCache.TryGetValue(key: key, value: out IReadOnlyDictionary<string, string>? cached))
+                return cached;
+            IReadOnlyDictionary<string, string> index = Compiler.Declaration.BuildDriver.BuildStdlibIndex(
+                stdlibRoot: Compiler.Declaration.StdlibLoader.GetDefaultStdlibPath(),
+                language: language, libraryRoots: libraryRoots);
+            StdlibIndexCache[key: key] = index;
+            return index;
+        }
+
         private static volatile bool _shutdownRequested;
 
         /// <summary>Runs the daemon server loop (foreground) until a shutdown request or Ctrl-C.</summary>
@@ -318,7 +338,8 @@ internal partial class Program
                     buildMode: (RfBuildMode)req.BuildMode,
                     requireStartRoutine: req.RequireStart,
                     libraryRoots: req.LibraryRoots,
-                    warmProvider: GetWarm);
+                    warmProvider: GetWarm,
+                    stdlibIndexProvider: GetStdlibIndex);
             }
             catch (Exception ex)
             {

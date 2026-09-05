@@ -47,6 +47,24 @@ public sealed class ModuleResolver
     /// <param name="filePath">Absolute path to the source file.</param>
     /// <param name="moduleName">The module name — either from a ModuleDeclaration or derived from the file path.</param>
     /// <param name="ast">The parsed program AST to extract exported symbol names from.</param>
+    /// <summary>
+    /// Bulk-seeds import-index entries from a cached snapshot (see <see cref="IndexSnapshot"/>), skipping the
+    /// per-file parse that <see cref="BuildDriver"/>'s stdlib pre-scan would otherwise do. The stdlib index is
+    /// invariant across a daemon's warm requests (the stdlib source + host target don't change), so building it
+    /// once and re-seeding it each request replaces ~0.8 s of re-tokenize/re-parse per compile. Uses
+    /// <c>TryAdd</c> so an existing (project/library) entry is never clobbered.
+    /// </summary>
+    public void SeedIndex(IReadOnlyDictionary<string, string> entries)
+    {
+        foreach ((string key, string path) in entries)
+            _index.TryAdd(key: key, value: path);
+    }
+
+    /// <summary>Returns an immutable copy of the current import index (module/symbol → declaring file), for
+    /// daemon-side caching + reuse via <see cref="SeedIndex"/>.</summary>
+    public IReadOnlyDictionary<string, string> IndexSnapshot() =>
+        new Dictionary<string, string>(dictionary: _index, comparer: StringComparer.OrdinalIgnoreCase);
+
     public void RegisterFile(string filePath, string moduleName, Program ast)
     {
         // Register the module itself for bare imports: `import Module`

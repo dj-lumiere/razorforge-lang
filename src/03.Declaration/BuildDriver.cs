@@ -65,8 +65,14 @@ public sealed class BuildDriver
     /// External library dependency directories from the manifest's <c>[target] library</c>
     /// list; their modules join the import search space between the project and the stdlib.
     /// </param>
+    /// <param name="cachedStdlibIndex">
+    /// An import index captured once by <see cref="BuildStdlibIndex"/> (daemon-cached). When provided,
+    /// <see cref="CompileFiles"/> seeds it instead of re-parsing every stdlib file — the ~0.8 s per-request
+    /// stdlib re-scan a warm daemon otherwise repeats. Null (cold builds) → parse the stdlib as before.
+    /// </param>
     public BuildDriver(string projectRoot, string stdlibRoot, Language language,
-        IReadOnlyList<string>? libraryRoots = null)
+        IReadOnlyList<string>? libraryRoots = null,
+        IReadOnlyDictionary<string, string>? cachedStdlibIndex = null)
     {
         _projectRoot = projectRoot;
         _libraryRoots = libraryRoots ?? [];
@@ -74,6 +80,23 @@ public sealed class BuildDriver
             libraryRoots: _libraryRoots);
         _stdlibRoot = stdlibRoot;
         _language = language;
+        _cachedStdlibIndex = cachedStdlibIndex;
+    }
+
+    private readonly IReadOnlyDictionary<string, string>? _cachedStdlibIndex;
+
+    /// <summary>
+    /// Builds the stdlib import index ONCE (parses every stdlib file for its module/symbol → path entries)
+    /// and returns an immutable snapshot for daemon-side caching. Subsequent <see cref="BuildDriver"/>s reuse
+    /// it via the <c>cachedStdlibIndex</c> ctor arg, skipping the per-request re-parse.
+    /// </summary>
+    public static IReadOnlyDictionary<string, string> BuildStdlibIndex(string stdlibRoot, Language language,
+        IReadOnlyList<string>? libraryRoots = null)
+    {
+        var driver = new BuildDriver(projectRoot: stdlibRoot, stdlibRoot: stdlibRoot,
+            language: language, libraryRoots: libraryRoots);
+        driver.PreRegisterStdlib();
+        return driver._resolver.IndexSnapshot();
     }
 
     private readonly string _projectRoot;
@@ -105,8 +128,13 @@ public sealed class BuildDriver
     /// <returns>The build result with all units and errors.</returns>
     public BuildResult CompileFiles(List<string> sourceFiles)
     {
-        // Pre-register all stdlib files so imports resolve without filesystem probing.
-        PreRegisterStdlib();
+        // Pre-register all stdlib files so imports resolve without filesystem probing. A daemon supplies a
+        // cached index (built once by BuildStdlibIndex) so warm requests skip the per-request stdlib re-parse;
+        // a cold build has no cache and parses as before.
+        if (_cachedStdlibIndex != null)
+            _resolver.SeedIndex(entries: _cachedStdlibIndex);
+        else
+            PreRegisterStdlib();
         // Pre-register external library dependencies ([target] library) the same way —
         // their modules declare names in `module` headers, not file-path conventions.
         PreRegisterLibraryRoots();

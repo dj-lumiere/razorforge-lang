@@ -1171,7 +1171,8 @@ internal partial class Program
         bool dumpAst = false, bool saTiming = false, bool requireStartRoutine = true,
         bool showBuildStages = false, IReadOnlyList<string>? libraryRoots = null,
         Func<Language, SemanticVerifier.CompiledStdlibState?>? warmProvider = null,
-        Action<string>? irCallback = null)
+        Action<string>? irCallback = null,
+        Func<Language, IReadOnlyList<string>, IReadOnlyDictionary<string, string>?>? stdlibIndexProvider = null)
     {
         // C libraries declared in source via `@link("...")` on `C::` externs, gathered from the files
         // that actually compile (post `@target` gate) and surfaced to the link step. Assigned once the
@@ -1198,6 +1199,7 @@ internal partial class Program
 
         try
         {
+            var _swBuild = DiagnosticFlags.PhaseTiming ? System.Diagnostics.Stopwatch.StartNew() : null;
             // Use provided project root (from manifest) or fall back to entry file directory
             projectRoot ??= Path.GetDirectoryName(path: Path.GetFullPath(path: entryFile)) ?? ".";
             string stdlibRoot = StdlibLoader.GetDefaultStdlibPath();
@@ -1205,12 +1207,22 @@ internal partial class Program
             // Phase 1: Parse all files and resolve dependencies
             if (showBuildStages)
                 Console.WriteLine(value: "=== BUILD DRIVER ===");
+            // Daemon-cached stdlib import index (built once): lets the driver skip the ~0.8 s per-request
+            // stdlib re-parse. Null on a cold build → the driver parses the stdlib as before.
+            IReadOnlyDictionary<string, string>? cachedStdlibIndex =
+                stdlibIndexProvider?.Invoke(arg1: language, arg2: libraryRoots ?? []);
             var driver = new BuildDriver(projectRoot: projectRoot,
                 stdlibRoot: stdlibRoot,
                 language: language,
-                libraryRoots: libraryRoots);
+                libraryRoots: libraryRoots,
+                cachedStdlibIndex: cachedStdlibIndex);
             BuildResult buildResult =
                 driver.CompileFile(entryFile: Path.GetFullPath(path: entryFile));
+            if (_swBuild != null)
+            {
+                Console.Error.WriteLine(value: $"[timing] build-driver (parse+module-resolve): {_swBuild.ElapsedMilliseconds} ms");
+                _swBuild.Restart();
+            }
 
             if (showBuildStages)
                 Console.WriteLine(value: $"Parsed {buildResult.Units.Count} file(s)");
@@ -1296,6 +1308,11 @@ internal partial class Program
                     target: target, buildMode: buildMode) { SaTiming = saTiming || DiagnosticFlags.PhaseTiming }
                 : new SemanticVerifier(language: language,
                     target: target, buildMode: buildMode) { SaTiming = saTiming || DiagnosticFlags.PhaseTiming };
+            if (_swBuild != null)
+            {
+                Console.Error.WriteLine(value: $"[timing] warm-restore ctor (rebuild verifier from snapshot): {_swBuild.ElapsedMilliseconds} ms");
+                _swBuild.Restart();
+            }
             // Share the driver's fully-indexed resolver so SA-phase imports see the same
             // module set the build graph resolved (incl. [target] library directories).
             analyzer.Registry.UseModuleResolver(resolver: driver.Resolver);
@@ -1932,7 +1949,8 @@ internal partial class Program
     private static int BuildToIr(string entryFile, out string ir, string? projectRoot = null,
         RfBuildMode buildMode = RfBuildMode.Debug, bool requireStartRoutine = true,
         IReadOnlyList<string>? libraryRoots = null,
-        Func<Language, SemanticVerifier.CompiledStdlibState?>? warmProvider = null)
+        Func<Language, SemanticVerifier.CompiledStdlibState?>? warmProvider = null,
+        Func<Language, IReadOnlyList<string>, IReadOnlyDictionary<string, string>?>? stdlibIndexProvider = null)
     {
         string captured = "";
         int rc = BuildMultiFile(entryFile: entryFile,
@@ -1946,7 +1964,8 @@ internal partial class Program
             showBuildStages: false,
             libraryRoots: libraryRoots,
             warmProvider: warmProvider,
-            irCallback: s => captured = s);
+            irCallback: s => captured = s,
+            stdlibIndexProvider: stdlibIndexProvider);
         ir = captured;
         return rc;
     }
