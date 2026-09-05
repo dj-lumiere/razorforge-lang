@@ -628,6 +628,10 @@ public sealed class RfSyntaxTreePrinter : ISyntaxTreeVisitor<string>
     public string VisitCarrierPayloadExpression(CarrierPayloadExpression node) =>
         $"#carrier_payload({node.Carrier.Accept(this)}, {node.ConcreteType.Accept(this)})";
 
+    /// <inheritdoc/>
+    public string VisitCrashableDispatchExpression(CrashableDispatchExpression node) =>
+        $"#crashable_dispatch({node.Carrier.Accept(this)}, {node.MemberName})";
+
 
     /// <inheritdoc/>
     public string VisitIsPatternExpression(IsPatternExpression node)

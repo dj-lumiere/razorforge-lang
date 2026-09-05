@@ -241,8 +241,19 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
                     loc: out SourceLocation? bangLoc))
             {
                 changed = true;
-                ExpandCrashableClause(clause: clause, bangBindName: bangBindName, bangLoc: bangLoc!,
-                    crashableTypes: crashableTypes, expanded: expanded);
+                // Prefer the runtime-dispatch rewrite (freeze-safe: the carrier body stays independent of
+                // the crashable set, so the stdlib snapshot can freeze it and a warm compile still picks up
+                // user crashables). Only valid when the binding is used SOLELY via the dispatchable Crashable
+                // members (represent/diagnose/crash_message/crash_title). Otherwise — variant propagation
+                // (`throw e`/`return e`), or a binding still inside an un-lowered f-string — fall back to the
+                // per-type fan-out, which binds the concrete crashable.
+                WhenClause? dispatchClause = TryMakeCrashableDispatchClause(clause: clause,
+                    bindName: bangBindName, loc: bangLoc!, carrier: when.Expression!);
+                if (dispatchClause != null)
+                    expanded.Add(item: dispatchClause);
+                else
+                    ExpandCrashableClause(clause: clause, bangBindName: bangBindName, bangLoc: bangLoc!,
+                        crashableTypes: crashableTypes, expanded: expanded);
             }
             else
             {
@@ -287,6 +298,79 @@ internal sealed class CrashableExpansionPass(PostprocessingContext ctx)
                 bindName = null;
                 loc = null;
                 return false;
+        }
+    }
+
+    /// <summary>
+    /// The zero-arg Crashable protocol members that can be dispatched at runtime off a type-erased error
+    /// (all <c>-&gt; Text</c>). A binding used ONLY via these can take the runtime-dispatch path; any other
+    /// use (as a value) forces the per-type fan-out.
+    /// </summary>
+    private static readonly HashSet<string> DispatchableCrashableMembers =
+        new(comparer: System.StringComparer.Ordinal)
+        {
+            Resolution.RuntimeContract.Display.Represent,
+            Resolution.RuntimeContract.Display.Diagnose,
+            Resolution.RuntimeContract.CrashMessage,
+            Resolution.RuntimeContract.CrashTitle,
+        };
+
+    /// <summary>
+    /// Builds a single freeze-safe <see cref="CrashablePattern"/> clause whose body has every
+    /// <c>&lt;bind&gt;.&lt;member&gt;()</c> call rewritten to a <see cref="CrashableDispatchExpression"/>
+    /// reading the erased error off <paramref name="carrier"/>. Returns null (caller falls back to the
+    /// per-type fan-out) when the binding is used any OTHER way — a leftover reference after the rewrite
+    /// means the binding escaped as a value (variant propagation, un-lowered f-string, etc.).
+    /// </summary>
+    private WhenClause? TryMakeCrashableDispatchClause(WhenClause clause, string? bindName,
+        SourceLocation loc, Expression carrier)
+    {
+        Statement body = clause.Body;
+        if (!string.IsNullOrEmpty(value: bindName))
+        {
+            body = new CrashableDispatchRewriter(bindName: bindName!, carrier: carrier)
+                .VisitStatement(stmt: body);
+            if (BindingStillReferenced(root: body, bindName: bindName!))
+                return null;
+        }
+
+        return clause with
+        {
+            Pattern = new CrashablePattern(ErrorType: null, VariableName: null, Location: loc),
+            Body = body
+        };
+    }
+
+    /// <summary>True when any <see cref="IdentifierExpression"/> named <paramref name="bindName"/> remains
+    /// in <paramref name="root"/> after the dispatch rewrite — i.e. the binding is used as a value.</summary>
+    private static bool BindingStillReferenced(Statement root, string bindName)
+    {
+        bool found = false;
+        AstWalker.WalkExpressions(root: root, visit: e =>
+        {
+            if (e is IdentifierExpression id && id.Name == bindName) found = true;
+        });
+        return found;
+    }
+
+    /// <summary>
+    /// Rewrites <c>&lt;bind&gt;.&lt;dispatchable member&gt;()</c> calls in a Crashable arm body to a
+    /// <see cref="CrashableDispatchExpression"/> over the carrier. Non-dispatchable uses of the binding are
+    /// left intact (and detected afterward by <see cref="BindingStillReferenced"/> to force the fan-out).
+    /// </summary>
+    private sealed class CrashableDispatchRewriter(string bindName, Expression carrier)
+        : SyntaxTree.AstRewriter
+    {
+        protected override Expression VisitCall(CallExpression e)
+        {
+            if (e is { Arguments.Count: 0, Callee: MemberExpression { Object: IdentifierExpression id } m }
+                && id.Name == bindName
+                && DispatchableCrashableMembers.Contains(item: m.MemberName))
+            {
+                return new CrashableDispatchExpression(Carrier: carrier, MemberName: m.MemberName,
+                    Location: e.Location) { ResolvedType = e.ResolvedType };
+            }
+            return base.VisitCall(e: e);
         }
     }
 

@@ -167,6 +167,8 @@ internal sealed class BindingTypeRewriter : ISyntaxTreeVisitor<bool>
             "BracketAccessExpression must be lowered by BracketReclassifyPass before analysis.");
     public bool VisitCarrierPayloadExpression(CarrierPayloadExpression node)
     { Visit(e: node.Carrier); return false; }
+    public bool VisitCrashableDispatchExpression(CrashableDispatchExpression node)
+    { Visit(e: node.Carrier); return false; }
     public bool VisitIsPatternExpression(IsPatternExpression node)
     { Visit(e: node.Expression); VisitPattern(p: node.Pattern); return false; }
     public bool VisitFlagsTestExpression(FlagsTestExpression node)

@@ -270,6 +270,11 @@ public interface ISyntaxTreeVisitor<T>
     /// <returns>Result of visiting the carrier-payload expression</returns>
     T VisitCarrierPayloadExpression(CarrierPayloadExpression node);
 
+    /// <summary>Visits a crashable-dispatch expression node (runtime type_id dispatch of a Crashable member)</summary>
+    /// <param name="node">The crashable-dispatch expression to visit</param>
+    /// <returns>Result of visiting the crashable-dispatch expression</returns>
+    T VisitCrashableDispatchExpression(CrashableDispatchExpression node);
+
     /// <summary>Visits an is-pattern expression node (pattern matching like 'value is Point (x, y)')</summary>
     /// <param name="node">The is-pattern expression to visit</param>
     /// <returns>Result of visiting the is-pattern expression</returns>

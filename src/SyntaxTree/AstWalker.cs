@@ -222,6 +222,8 @@ public static class AstWalker
                 return new object[] { e.Type };
             case CarrierPayloadExpression e:
                 return new object[] { e.Carrier, e.ConcreteType };
+            case CrashableDispatchExpression e:
+                return new object[] { e.Carrier };
             case IsPatternExpression e:
                 return new object[] { e.Expression, e.Pattern };
             case FlagsTestExpression e:

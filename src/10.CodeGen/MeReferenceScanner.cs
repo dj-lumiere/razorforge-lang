@@ -87,6 +87,8 @@ internal sealed class MeReferenceScanner : ISyntaxTreeVisitor<bool>
             "BracketAccessExpression must be lowered by BracketReclassifyPass before analysis.");
     public bool VisitCarrierPayloadExpression(CarrierPayloadExpression node) =>
         node.Carrier.Accept(visitor: this);
+    public bool VisitCrashableDispatchExpression(CrashableDispatchExpression node) =>
+        node.Carrier.Accept(visitor: this);
     public bool VisitIsPatternExpression(IsPatternExpression node) =>
         node.Expression.Accept(visitor: this) || ScanPattern(pattern: node.Pattern);
     public bool VisitFlagsTestExpression(FlagsTestExpression node) =>

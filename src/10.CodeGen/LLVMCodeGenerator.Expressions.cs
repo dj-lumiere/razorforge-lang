@@ -50,6 +50,8 @@ public partial class LlvmCodeGenerator
             // TODO: This should be eliminated by lowering pass
             CarrierPayloadExpression payload => EmitCarrierPayloadExpression(sb: sb,
                 payload: payload),
+            CrashableDispatchExpression dispatch => EmitCrashableDispatchExpression(sb: sb,
+                dispatch: dispatch),
             // Named arguments appear inside synthesized AST bodies (e.g., me.eq(you: you)).
             // The name is irrelevant to codegen -> just emit the inner value positionally.
             NamedArgumentExpression named => EmitExpression(sb: sb, expr: named.Value),
@@ -1423,5 +1425,127 @@ public partial class LlvmCodeGenerator
         string loaded = NextTemp();
         EmitLine(sb: sb, line: $"  {loaded} = load {loadType}, ptr {payloadPtr}");
         return loaded;
+    }
+
+    /// <summary>
+    /// Emits a <see cref="CrashableDispatchExpression"/>: runtime dispatch of a zero-arg Crashable member
+    /// (represent/diagnose/crash_message/crash_title, all <c>-&gt; Text</c>) on a type-erased error stored
+    /// in a Result/Lookup carrier. Reads <c>type_id</c> (field 0) and the entity pointer (field 1) from the
+    /// carrier, then <c>switch</c>es on <c>type_id</c> to the concrete crashable's member.
+    ///
+    /// <para>This replaces the old build-time <c>is Crashable</c> fan-out (one clause per registered
+    /// crashable baked into the carrier body). The switch is emitted per-build over the CURRENTLY registered
+    /// crashable set, so a warm daemon compile includes user-defined crashables registered after the stdlib
+    /// snapshot — the fan-out freeze bug that made a warm carrier fall through to its type-name else arm.</para>
+    /// </summary>
+    private string EmitCrashableDispatchExpression(StringBuilder sb, CrashableDispatchExpression dispatch)
+    {
+        // Spill the carrier value so we can GEP its type_id (field 0) and payload entity ptr (field 1).
+        string carrierVal = EmitExpression(sb: sb, expr: dispatch.Carrier);
+        TypeInfo carrierType = dispatch.Carrier.ResolvedType!;
+        string carrierLlvmType = GetCarrierLlvmType(type: carrierType);
+
+        string spillAddr = NextTemp();
+        EmitLine(sb: sb, line: $"  {spillAddr} = alloca {carrierLlvmType}");
+        EmitLine(sb: sb, line: $"  store {carrierLlvmType} {carrierVal}, ptr {spillAddr}");
+
+        string typeIdPtr = NextTemp();
+        EmitLine(sb: sb,
+            line: $"  {typeIdPtr} = getelementptr {carrierLlvmType}, ptr {spillAddr}, i32 0, i32 0");
+        string typeId = NextTemp();
+        EmitLine(sb: sb, line: $"  {typeId} = load i64, ptr {typeIdPtr}");
+
+        string payloadPtr = NextTemp();
+        EmitLine(sb: sb,
+            line: $"  {payloadPtr} = getelementptr {carrierLlvmType}, ptr {spillAddr}, i32 0, i32 1");
+        string entity = NextTemp();
+        EmitLine(sb: sb, line: $"  {entity} = load ptr, ptr {payloadPtr}");
+
+        // Enumerate every registered crashable and resolve the requested member on each. Conservative:
+        // ALL registered crashables get an arm (a stored type_id always has a match); mirrors the old
+        // fan-out's "all registered crashable types are emitted" contract. RoutineReachabilityPass seeds
+        // these members live (EnqueueCrashableDispatchTargets) so codegen keeps their definitions.
+        var arms = new List<(long id, RoutineInfo routine, string mangled, string label)>();
+        string? retLlvm = null;
+        foreach (TypeInfo t in _registry.GetTypesByCategory(category: TypeCategory.Crashable))
+        {
+            if (t is not CrashableTypeInfo crashable) continue;
+            RoutineInfo? routine = _registry.LookupMemberRoutine(type: crashable,
+                memberRoutineName: dispatch.MemberName, isFailable: false);
+            if (routine is null or { IsGenericDefinition: true }) continue;
+            GenerateRoutineDeclaration(routine: routine);
+            string mangled = MangleRoutineName(routine: routine);
+            retLlvm ??= routine.ReturnType != null ? GetLlvmType(type: routine.ReturnType) : "ptr";
+            long id = unchecked((long)TypeIdHelper.ComputeTypeId(fullName: crashable.FullName));
+            arms.Add((id, routine, mangled, NextLabel(prefix: "crd.case")));
+        }
+
+        retLlvm ??= "ptr";
+
+        // No registered crashables (shouldn't happen where a Crashable arm exists) — yield a zero result.
+        if (arms.Count == 0)
+            return retLlvm == "ptr" ? "null" : "zeroinitializer";
+
+        // Shared result slot: every arm writes its Text here, and we load it ONCE after the merge. This
+        // sidesteps a phi over values whose call ABI differs (sret vs coerced vs direct) — each arm just
+        // materializes into the slot per its own ABI.
+        string resultSlot = NextTemp();
+        EmitEntryAlloca(llvmName: resultSlot, llvmType: retLlvm);
+
+        string mergeLabel = NextLabel(prefix: "crd.merge");
+        string defaultLabel = NextLabel(prefix: "crd.default");
+
+        var switchArms = new StringBuilder();
+        foreach ((long id, _, _, string label) in arms)
+            switchArms.Append(value: $"    i64 {id}, label %{label}\n");
+        EmitLine(sb: sb, line: $"  switch i64 {typeId}, label %{defaultLabel} [\n{switchArms}  ]");
+
+        foreach ((_, RoutineInfo routine, string mangled, string label) in arms)
+        {
+            EmitLine(sb: sb, line: $"{label}:");
+            EmitCrashableMemberCallIntoSlot(sb: sb, routine: routine, mangled: mangled,
+                entity: entity, retLlvm: retLlvm, resultSlot: resultSlot);
+            EmitLine(sb: sb, line: $"  br label %{mergeLabel}");
+        }
+
+        // The Crashable arm only fires for a real crashable type_id, so the default is unreachable.
+        EmitLine(sb: sb, line: $"{defaultLabel}:");
+        EmitLine(sb: sb, line: "  unreachable");
+
+        EmitLine(sb: sb, line: $"{mergeLabel}:");
+        string phiResult = NextTemp();
+        EmitLine(sb: sb, line: $"  {phiResult} = load {retLlvm}, ptr {resultSlot}");
+        return phiResult;
+    }
+
+    /// <summary>
+    /// Emits one crashable-dispatch arm's call to a concrete crashable member, materializing its
+    /// <c>Text</c> result into <paramref name="resultSlot"/> per the member's return ABI (sret / coerced /
+    /// direct). Mirrors the return-ABI handling in <c>EmitCall</c> so the type_id switch respects the same
+    /// contract the callee's declaration/definition were emitted under.
+    /// </summary>
+    private void EmitCrashableMemberCallIntoSlot(StringBuilder sb, RoutineInfo routine, string mangled,
+        string entity, string retLlvm, string resultSlot)
+    {
+        if (ReturnsViaSret(routine: routine))
+        {
+            EmitLine(sb: sb,
+                line: $"  call void @{mangled}(ptr sret({retLlvm}) {resultSlot}, ptr {entity})");
+            return;
+        }
+
+        string? coerce = ReturnCoerceType(routine: routine);
+        if (coerce != null)
+        {
+            string c = NextTemp();
+            EmitLine(sb: sb, line: $"  {c} = call {coerce} @{mangled}(ptr {entity})");
+            // Store the coerced integer form; the later `load {retLlvm}` reinterprets it (opaque ptr).
+            EmitLine(sb: sb, line: $"  store {coerce} {c}, ptr {resultSlot}");
+            return;
+        }
+
+        string r = NextTemp();
+        EmitLine(sb: sb, line: $"  {r} = call {retLlvm} @{mangled}(ptr {entity})");
+        EmitLine(sb: sb, line: $"  store {retLlvm} {r}, ptr {resultSlot}");
     }
 }

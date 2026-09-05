@@ -153,6 +153,10 @@ public static class RuntimeContract
     /// <remarks>Sites: LLVMCodeGenerator.Statements.Returns, WiredRoutinePass, RoutineReachabilityPass.</remarks>
     public const string CrashMessage = "crash_message";
 
+    /// <summary><c>crash_title()</c> on error types — the second Crashable protocol member.</summary>
+    /// <remarks>Sites: CrashableExpansionPass (dispatchable-member set), ImplicitCallContract (reachability seed).</remarks>
+    public const string CrashTitle = "crash_title";
+
     /// <summary>Non-failable iterator step generated for <c>for</c>-lowering (the <c>try_</c> variant of
     /// failable <c>emit!</c>). Also carried by <see cref="WiredRoutineCatalog"/> (reachability seed);
     /// listed here because ControlFlowLoweringPass / IteratorInlineLoweringPass match it by literal.</summary>

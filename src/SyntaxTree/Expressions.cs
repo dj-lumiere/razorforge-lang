@@ -1164,6 +1164,32 @@ public record CarrierPayloadExpression(
         visitor.VisitCarrierPayloadExpression(node: this);
 }
 
+/// <summary>
+/// Runtime dispatch of a zero-arg <c>Crashable</c> protocol member (<c>represent</c>/<c>diagnose</c>/
+/// <c>crash_message</c>/<c>crash_title</c>, all <c>-&gt; Text</c>) on a type-erased error stored in a
+/// <c>Result[T]</c>/<c>Lookup[T]</c> carrier. Replaces the build-time <c>is Crashable</c> fan-out: instead
+/// of baking one clause per registered crashable type into the (snapshot-frozen) carrier body, codegen
+/// emits a <c>type_id</c> switch over the LIVE crashable set at build time, so a warm daemon compile picks
+/// up user-defined crashables registered after the stdlib snapshot.
+///
+/// <para>Codegen reads the erased error's <c>type_id</c> from the carrier's field 0 and its entity pointer
+/// from field 1, switches on <c>type_id</c> to the concrete crashable's mangled member, and yields its
+/// <c>Text</c> result. The carrier-set independence is what makes the enclosing carrier body freeze-safe.</para>
+/// </summary>
+/// <param name="Carrier">The Result/Lookup carrier expression holding the erased error.</param>
+/// <param name="MemberName">The Crashable member to dispatch (represent/diagnose/crash_message/crash_title).</param>
+/// <param name="Location">Source location information.</param>
+public record CrashableDispatchExpression(
+    Expression Carrier,
+    string MemberName,
+    SourceLocation Location) : Expression(Location: Location)
+{
+
+    /// <inheritdoc/>
+    public override T Accept<T>(ISyntaxTreeVisitor<T> visitor) =>
+        visitor.VisitCrashableDispatchExpression(node: this);
+}
+
 #endregion
 
 #region Ownership Transfer Expressions

@@ -480,6 +480,11 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
             EnqueueFStringCallees(inserted: inserted, typeSubs: frame.TypeSubs);
             return;
         }
+        if (node is CrashableDispatchExpression dispatch)
+        {
+            EnqueueCrashableDispatchTargets(dispatch: dispatch);
+            return;
+        }
         RoutineInfo? resolved = ResolveFrameNode(node: node, frame: frame);
         if (resolved == null)
         {
@@ -510,6 +515,11 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         if (node is ListLiteralExpression or SetLiteralExpression or DictLiteralExpression or IndexExpression or UsingStatement or UnaryExpression { Operator: UnaryOperator.ForceUnwrap } or BinaryExpression)
         {
             EnqueueImplicitLoweringCallees(node: node, typeSubs: frame.TypeSubs);
+            return;
+        }
+        if (node is CrashableDispatchExpression dispatch)
+        {
+            EnqueueCrashableDispatchTargets(dispatch: dispatch);
             return;
         }
         RoutineInfo? resolved = ResolveFrameNode(node: node, frame: frame);
@@ -731,6 +741,19 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         foreach (RoutineInfo routine in candidates)
             if (routine.OwnerType is not { IsGenericDefinition: true })
                 EnqueueCallee(callee: routine);
+    }
+
+    /// <summary>
+    /// Seeds the concrete crashable members a <see cref="CrashableDispatchExpression"/> reaches. Codegen
+    /// lowers the dispatch to a <c>type_id</c> switch that calls <c>&lt;MemberName&gt;</c> on EVERY
+    /// registered crashable; none of those calls exist as AST nodes, so — mirroring the codegen switch —
+    /// seed the member on every crashable here, or they'd be over-pruned ("declared+called but never
+    /// defined"). This replaces the per-type AST calls the old fan-out produced (which reachability walked).
+    /// </summary>
+    private void EnqueueCrashableDispatchTargets(CrashableDispatchExpression dispatch)
+    {
+        foreach (TypeInfo t in ctx.Registry.GetTypesByCategory(category: TypeModel.Enums.TypeCategory.Crashable))
+            EnqueueMemberRoutineIfPresent(owner: t, memberRoutineName: dispatch.MemberName);
     }
 
     /// <summary>Seeds the free routine <c>back_resolve</c> that OperatorLoweringPass injects for each
@@ -2561,6 +2584,7 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
     /// </summary>
     private static bool IsCallLikeNode(object? n) =>
         n is CallExpression or GenericMemberRoutineCallExpression or CreatorExpression
+            or CrashableDispatchExpression
             or ThrowStatement
             or ListLiteralExpression or SetLiteralExpression
             or DictLiteralExpression or IndexExpression
