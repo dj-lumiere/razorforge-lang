@@ -493,6 +493,80 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     }
 
     /// <summary>
+    /// Post-fixpoint ISOLATED materialization of the entity self-free tail — the build-one-in-isolation
+    /// primitive the whole-program AOT model lacks (the tractable core of on-demand/lazy materialization).
+    /// Seeds the codegen-injected <c>hijack</c>/<c>Hijacked[E].invalidate</c> per concrete entity (no
+    /// caller carries a ResolvedRoutine, so a pure call walk can't find them), then closes over the ACTUAL
+    /// lifecycle call graph — each callee built via the SINGULAR resolved-routine builder (one body, NO
+    /// transitive drain; its own callees stay extern declares). Because it follows real calls, it never
+    /// builds an uncalled derive like <c>Array[SerialValue,63].assign</c> (the drain's crash/runaway). Runs
+    /// ONLY post-fixpoint: mid-fixpoint, marking these keys live re-triggers a round whose
+    /// <c>ProcessConcreteType</c> materializes that abstract derive → crash. Returns the count built.
+    /// </summary>
+    internal int MaterializeEntitySelfFreeInIsolation()
+    {
+        // This GMP instance is constructed fresh (not via RunGlobal), so its FindInStdlib index is empty.
+        if (!_routineIndexBuilt) { BuildRoutineIndex(); _routineIndexBuilt = true; }
+
+        var worklist = new Queue<MonomorphizedBody>();
+        int totalBuilt = 0;
+
+        // Build ONE routine's body in isolation (SINGULAR builder — no transitive drain). Returns the new
+        // body if it was freshly built, else null. Callees are left as extern declares for a later round.
+        MonomorphizedBody? BuildOne(RoutineInfo? r)
+        {
+            if (r?.GenericDefinition == null) return null;
+            if (ctx.InstantiatedGenericBodies.ContainsKey(key: r.RegistryKey)
+                || ctx.VariantBodies.ContainsKey(key: r.RegistryKey)) return null;
+            ctx.LiveRoutineKeys.Add(item: r.RegistryKey);
+            ProcessResolvedMemberRoutineGenericRoutine(resolvedRoutine: r);
+            if (ctx.InstantiatedGenericBodies.TryGetValue(key: r.RegistryKey, out MonomorphizedBody? b))
+            {
+                totalBuilt++;
+                return b;
+            }
+            return null;
+        }
+
+        // SEED: the entity self-free tail (`me.hijack().invalidate()`) is CODEGEN-INJECTED with no
+        // ResolvedRoutine, so the call-driven closure can't discover it — enumerate it per concrete entity.
+        foreach (TypeInfo t in ctx.Registry.AllConcreteGenericInstancesUnfiltered.ToArray())
+        {
+            if (t is not EntityTypeInfo { IsGenericDefinition: false } entity) continue;
+            if (BuildOne(r: ctx.Registry.LookupMemberRoutine(type: entity,
+                    memberRoutineName: RuntimeContract.RawPointer.Hijack)) is { } hb) worklist.Enqueue(item: hb);
+            TypeInfo hijacked = ctx.Registry.GetOrCreateWrapperType(
+                wrapperName: RuntimeContract.Hijacked, innerType: entity, isReadOnly: false);
+            if (BuildOne(r: ctx.Registry.LookupMemberRoutine(type: hijacked,
+                    memberRoutineName: RuntimeContract.RawPointer.Invalidate)) is { } ib) worklist.Enqueue(item: ib);
+        }
+
+        // CALL-DRIVEN closure: walk each freshly-built body, isolated-build every ResolvedRoutine callee it
+        // references that isn't built yet, enqueue the result. Follows the ACTUAL lifecycle call graph
+        // (hijack → get_address / Hijacked.create; invalidate → Hijacked.address; …) — NOT the transitive
+        // resolution drain (which also builds derives like the abstract Array[SerialValue,63].assign that
+        // nothing calls). Bounded by the finite lifecycle call graph; a visited set walks each body once.
+        var walked = new HashSet<string>(comparer: StringComparer.Ordinal);
+        int guard = 0;
+        while (worklist.Count > 0 && guard++ < 2_000_000)
+        {
+            MonomorphizedBody body = worklist.Dequeue();
+            if (body.Ast?.Body == null || !walked.Add(item: body.Info.RegistryKey)) continue;
+            AstWalker.WalkExpressions(root: body.Ast.Body, visit: expr =>
+            {
+                RoutineInfo? callee = expr switch
+                {
+                    CallExpression { ResolvedRoutine: { } cr } => cr,
+                    GenericMemberRoutineCallExpression { ResolvedRoutine: { } gr } => gr,
+                    _ => null
+                };
+                if (BuildOne(r: callee) is { } nb) worklist.Enqueue(item: nb);
+            });
+        }
+        return totalBuilt;
+    }
+
+    /// <summary>
     /// Yields the wired routines a synthesized body for <paramref name="routine"/> implicitly calls.
     /// See <see cref="EnliveWiredLeafCallees"/> for the rationale and the verb→callee mapping.
     /// </summary>

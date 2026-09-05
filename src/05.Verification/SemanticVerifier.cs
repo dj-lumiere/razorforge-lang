@@ -870,6 +870,8 @@ public sealed partial class SemanticVerifier
             }
         } while (ctx.SeedAllStdlibRoutines &&
                  ctx.InstantiatedGenericBodies.Count != prevCount && ++guard < 20);
+        if (ctx.SeedAllStdlibRoutines)
+            new GenericClosurePass(ctx: ctx).RunIsolatedTail();
         GenericCanonicalizationPass.Run();
         if (SaTiming && ctx.SeedAllStdlibRoutines)
             Console.Error.WriteLine(value: $"  Phase 8 base-closure fixpoint rounds={guard + 1}");

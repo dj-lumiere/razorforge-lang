@@ -41,6 +41,7 @@ internal sealed class GenericClosurePass(InstantiationContext ctx)
             InstantiatedGenericBodies = ctx.InstantiatedGenericBodies,
             LiveRoutineKeys = ctx.LiveRoutineKeys,
             LiveOwnerTypeNames = ctx.LiveOwnerTypeNames,
+            SynthesizeAllDerives = ctx.SeedAllStdlibRoutines,
         };
 
         // Warm-restore incrementalization: the instantiated bodies already in the context on entry were
@@ -123,6 +124,28 @@ internal sealed class GenericClosurePass(InstantiationContext ctx)
         // and the lowering passes made — including the liveness (LiveRoutineKeys/LiveOwnerTypeNames)
         // GMP expands for types reached only through synthesized iterator-adapter chains, which codegen
         // reads from `ctx` to gate Phase-B emission — is already present in `ctx`.
+    }
+
+    /// <summary>Post-fixpoint isolated materialization of the synthesized-lifecycle tail (build-one-no-drain).</summary>
+    public void RunIsolatedTail()
+    {
+        var adapter = new DesugaringContext(registry: ctx.Registry,
+            routineBodies: ctx.RoutineBodies, target: ctx.Target, buildMode: ctx.BuildMode)
+        {
+            SaTiming = ctx.SaTiming, VariantBodies = ctx.VariantBodies,
+            InstantiatedGenericBodies = ctx.InstantiatedGenericBodies,
+            LiveRoutineKeys = ctx.LiveRoutineKeys, LiveOwnerTypeNames = ctx.LiveOwnerTypeNames,
+            SynthesizeAllDerives = ctx.SeedAllStdlibRoutines,
+        };
+        var before = new HashSet<string>(collection: adapter.InstantiatedGenericBodies.Keys);
+        int built = new GenericMonomorphizationPass(ctx: adapter).MaterializeEntitySelfFreeInIsolation();
+        if (built == 0) return;
+        var freshBodies = adapter.InstantiatedGenericBodies
+            .Where(predicate: kv => !before.Contains(item: kv.Key))
+            .ToDictionary(keySelector: kv => kv.Key, elementSelector: kv => kv.Value);
+        LowerFreshBodies(ctx: ctx, adapter: adapter, freshBodies: freshBodies);
+        foreach ((string key, MonomorphizedBody body) in freshBodies)
+            adapter.InstantiatedGenericBodies[key] = body;
     }
 
     /// <summary>
