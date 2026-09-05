@@ -10,6 +10,20 @@
 
 #include <stdint.h>
 
+/*
+ * Force these builtins into the DLL export table. CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS only exports symbols
+ * from a target's OWN object files, NOT ones pulled in from a linked static library (this shim). Without an
+ * explicit dllexport they stay linked-but-hidden, so the in-process ORC JIT — which resolves symbols via a
+ * process-wide dynamic-library search over the loaded razorforge_runtime.dll's exports — can't find them, and
+ * a JIT'd program doing 128-bit integer division/modulo fails with "Symbols not found: __udivti3 …". AOT
+ * builds link compiler-rt directly and never hit this; only the JIT dev-loop needs the export.
+ */
+#if defined(_WIN32)
+#define RT_EXPORT __declspec(dllexport)
+#else
+#define RT_EXPORT
+#endif
+
 /* Only needed when __int128 is available (64-bit platforms with Clang/GCC) */
 #if defined(__SIZEOF_INT128__)
 
@@ -48,7 +62,7 @@ static inline int clz128(tu_int x) {
  *
  * Algorithm: Binary long division
  */
-tu_int __udivti3(tu_int a, tu_int b) {
+RT_EXPORT tu_int __udivti3(tu_int a, tu_int b) {
     if (b == 0) {
         /* Division by zero - return max value (undefined behavior) */
         return ~(tu_int)0;
@@ -95,7 +109,7 @@ tu_int __udivti3(tu_int a, tu_int b) {
  * __umodti3 - Unsigned 128-bit modulo
  * Returns: a % b
  */
-tu_int __umodti3(tu_int a, tu_int b) {
+RT_EXPORT tu_int __umodti3(tu_int a, tu_int b) {
     if (b == 0) {
         return 0;  /* Undefined behavior */
     }
@@ -137,7 +151,7 @@ tu_int __umodti3(tu_int a, tu_int b) {
  * __divti3 - Signed 128-bit division
  * Returns: a / b
  */
-ti_int __divti3(ti_int a, ti_int b) {
+RT_EXPORT ti_int __divti3(ti_int a, ti_int b) {
     int neg = 0;
 
     if (a < 0) {
@@ -161,7 +175,7 @@ ti_int __divti3(ti_int a, ti_int b) {
  * __modti3 - Signed 128-bit modulo
  * Returns: a % b
  */
-ti_int __modti3(ti_int a, ti_int b) {
+RT_EXPORT ti_int __modti3(ti_int a, ti_int b) {
     int neg = 0;
 
     if (a < 0) {
@@ -184,7 +198,7 @@ ti_int __modti3(ti_int a, ti_int b) {
  * __udivmodti4 - Combined unsigned 128-bit division and modulo
  * Returns: a / b, stores a % b in *rem
  */
-tu_int __udivmodti4(tu_int a, tu_int b, tu_int *rem) {
+RT_EXPORT tu_int __udivmodti4(tu_int a, tu_int b, tu_int *rem) {
     if (b == 0) {
         if (rem) *rem = 0;
         return ~(tu_int)0;
