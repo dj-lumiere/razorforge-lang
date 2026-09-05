@@ -352,15 +352,13 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
             EnqueueCallee(callee: r);
         }
 
-        // Every analysis-time concrete generic instance is a live owner in the non-pruned base. The
-        // routine sweep above only enqueues routines that already exist as RoutineInfo; a concrete
-        // instance's wired support surface (List[S64].represent, Array[U8,64].destroy + the entity
-        // self-free tail) is monomorphized later, so it is never enqueued and stays declared-but-
-        // undefined. Marking each instance a live OWNER makes SeedWiredRoutinesOnLiveTypes (run in the
-        // Run() owner-fixpoint) seed its hostable wired routines + self-free tail. Bounded (finite set)
-        // + convergent (owner-count loop). Pruned builds never call this method.
-        foreach (TypeInfo concrete in ctx.Registry.AllConcreteGenericInstances.ToArray())
-            _liveOwnerTypes.Add(item: concrete);
+        // NOTE: do NOT blanket-mark every AllConcreteGenericInstances as a live owner here — that pulls in
+        // genuinely-underivable instances (e.g. Array[SerialValue,63].assign, SerialValue's structural
+        // Assignable satisfied only through its own arms) and CRASHES the base build on the abstract-derive
+        // guard. Tried + reverted (see .claude-memory/base-completeness-const-generic-array-gap.md): the
+        // enumeration crashes; adding a base-mode drop-on-abstract instead runs the closure away (>1400s).
+        // The 687-symbol const-generic/self-free tail is left for the DELTA to define (base∪delta coverage
+        // is already proven by GenerateBase_And_Delta_CoverPrunedBuild_WithTinyDelta).
     }
 
     private void SeedRuntimeSentinels()
