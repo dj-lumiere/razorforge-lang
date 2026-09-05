@@ -167,7 +167,7 @@ public sealed class BaseEmissionTests
     /// data tables, add_range, Maybe[BTreeNode].destroy) referenced by concrete stdlib bodies but not yet
     /// materialized — the genuine (a') closure tail, now free of BuilderQuery artifacts.
     /// </summary>
-    [Fact(Skip = "WIP resident-JIT base define-completeness oracle: base defined=9742 declared=1098 gap=670 rf-mangled (const-generic Array[T,N] derive definitions). Un-skip to measure (dumps %TEMP%/rf_base.ll).")]
+    [Fact(Skip = "WIP resident-JIT base define-completeness oracle. Base-mode generic-instance derive synthesis (GMP ProcessConcreteType gate bypass under SynthesizeAllDerives) fixed the Maybe[DictEntry[Text,SerialValue]].unwrap throw; next layer exposed: Array[SerialValue,63].assign is built though SerialValue is Copyable-NOT-Assignable — conditional-conformance evaluation for structural derives (TypeHasWiredRoutine/ComputeCapability) doesn't reject the invalid instance. Un-skip to iterate (dumps %TEMP%/rf_base.ll).")]
     public void GenerateBase_Standalone_DefineCompleteness()
     {
         var baseSa = new SemanticVerifier(language: Language.RazorForge) { SeedAllStdlibRoutines = true };

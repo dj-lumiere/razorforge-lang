@@ -595,7 +595,12 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         // force-emitting wired operators whose plain-helper callees (add_with_overflow, recast_as,
         // cmp) are never emitted → LINKERR. Mirror the per-routine gate at the BuildBody site below,
         // which already keys off LiveRoutineKeys. Both empty = legacy fan-out (reachability skipped).
+        // Base build (SynthesizeAllDerives): process EVERY concrete instance non-pruned — the resident base
+        // must DEFINE everything it references, incl. structural derives on generic instances (e.g.
+        // DictEntry[Text,SerialValue].duplicate) whose owner is never a LIVE owner because the only caller is
+        // a post-mono `.duplicate()` inside another routine that resolves to the UNIVERSAL derive.
         if (ctx.LiveRoutineKeys.Count > 0
+            && !ctx.SynthesizeAllDerives
             && !ctx.LiveOwnerTypeNames.Contains(item: concreteType.FullName))
         {
             return;

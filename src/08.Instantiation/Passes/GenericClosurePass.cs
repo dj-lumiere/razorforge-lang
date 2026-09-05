@@ -41,6 +41,10 @@ internal sealed class GenericClosurePass(InstantiationContext ctx)
             InstantiatedGenericBodies = ctx.InstantiatedGenericBodies,
             LiveRoutineKeys = ctx.LiveRoutineKeys,
             LiveOwnerTypeNames = ctx.LiveOwnerTypeNames,
+            // Base build (non-pruned): let GMP process EVERY concrete generic instance's members (incl.
+            // structural derives like DictEntry[Text,SerialValue].duplicate) rather than only live owners —
+            // the base must DEFINE everything it references.
+            SynthesizeAllDerives = ctx.SeedAllStdlibRoutines,
         };
 
         // Warm-restore incrementalization: the instantiated bodies already in the context on entry were
