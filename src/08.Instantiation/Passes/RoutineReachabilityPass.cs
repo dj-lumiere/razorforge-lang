@@ -2225,6 +2225,26 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
 
         TypeInfo owner = routine.OwnerType;
 
+        // Universal everywhere-derive: owner is a BARE generic parameter (e.g. `T.duplicate() -> T`, the
+        // Copyable/Assignable structural template). `me.value.duplicate()` in `Maybe[T].unwrap` binds here.
+        // Substitute the owner param via the frame's typeSubs to the concrete RECEIVER type, mark THAT type a
+        // live owner so `ProcessConcreteType` builds exactly its derives, and rebind to the concrete member.
+        // Demand-driven + bounded: only concrete types a real derive-call names become live (a finite closure
+        // that converges), unlike a blanket "process every instance" that combinatorially explodes.
+        if (owner is GenericParameterTypeInfo gpOwner
+            && typeSubs.TryGetValue(key: gpOwner.Name, value: out TypeInfo? concreteRecv)
+            && !ContainsAnyGenericParameter(type: concreteRecv))
+        {
+            _liveOwnerTypes.Add(item: concreteRecv);
+            RoutineInfo? concreteDerive = ctx.Registry.LookupMemberRoutine(
+                type: concreteRecv, memberRoutineName: routine.Name, isFailable: routine.IsFailable);
+            if (concreteDerive is { OwnerType: not GenericParameterTypeInfo and not { IsGenericDefinition: true } })
+                return concreteDerive;
+            // Concrete derive not registered as a distinct member yet — marking the owner live above lets
+            // ProcessConcreteType materialize it from the generic def; keep the universal routine for now.
+            return routine;
+        }
+
         // Owner like ListEmitter[T] or Hijacked[BTreeSetNode[T]] — stored as a resolution whose
         // TypeArguments contain GenericParameterTypeInfo, possibly nested inside another generic
         // resolution. Substitute the params (recursively, via RoutineInfo.SubstituteType) to get

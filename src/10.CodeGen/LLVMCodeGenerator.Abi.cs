@@ -306,7 +306,7 @@ public partial class LlvmCodeGenerator
     /// (the <see cref="AbiKind.Indirect"/> return form). Async variants return carriers
     /// (Result/Lookup/i1) through their own lowering and are never plain-sret.
     /// </summary>
-    private bool ReturnsViaSret(RoutineInfo routine)
+    private bool ReturnsViaSret(RoutineInfo routine, TypeInfo? overrideReturnType = null)
     {
         // Async routines (suspended/threaded) hand their result back through their own ABI — the
         // Task[T] result cell / continuation, NOT a plain sret pointer. Forcing sret here breaks the
@@ -323,8 +323,12 @@ public partial class LlvmCodeGenerator
             return false;
         }
 
-        return routine.ReturnType != null
-               && AbiClassify(type: routine.ReturnType).Kind == AbiKind.Indirect;
+        // overrideReturnType lets a CALL SITE classify by the SUBSTITUTED return type when the carried
+        // routine is a UNIVERSAL derive (OwnerType = generic param), whose raw ReturnType is still `T`.
+        // Classifying the raw `T` would trip GetLlvmType; the concrete call/callee use the substituted type.
+        TypeInfo? rt = overrideReturnType ?? routine.ReturnType;
+        return rt != null
+               && AbiClassify(type: rt).Kind == AbiKind.Indirect;
     }
 
     /// <summary>

@@ -1078,8 +1078,13 @@ public partial class LlvmCodeGenerator
 
         // ABI-Indirect struct return: the callee returns through a hidden sret pointer (declared via
         // GenerateRoutineDeclaration above, which agrees through ReturnsViaSret). Pass the result
-        // slot as the first argument, call as void, then load the struct back.
-        if (memberRoutine != null && ReturnsViaSret(routine: memberRoutine))
+        // slot as the first argument, call as void, then load the struct back. For a UNIVERSAL derive
+        // callee (owner = generic param, raw ReturnType still `T`), classify the SUBSTITUTED return type —
+        // the mangled callee + result slot both use the concrete type, so the ABI must agree.
+        TypeInfo? sretOverride = memberRoutine?.OwnerType is GenericParameterTypeInfo
+            ? resolvedReturnType
+            : null;
+        if (memberRoutine != null && ReturnsViaSret(routine: memberRoutine, overrideReturnType: sretOverride))
         {
             string sretPtr = NextTemp();
             EmitEntryAlloca(llvmName: sretPtr, llvmType: returnType);
