@@ -351,6 +351,16 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
             if (r.OriginalName != null) continue;
             EnqueueCallee(callee: r);
         }
+
+        // Every analysis-time concrete generic instance is a live owner in the non-pruned base. The
+        // routine sweep above only enqueues routines that already exist as RoutineInfo; a concrete
+        // instance's wired support surface (List[S64].represent, Array[U8,64].destroy + the entity
+        // self-free tail) is monomorphized later, so it is never enqueued and stays declared-but-
+        // undefined. Marking each instance a live OWNER makes SeedWiredRoutinesOnLiveTypes (run in the
+        // Run() owner-fixpoint) seed its hostable wired routines + self-free tail. Bounded (finite set)
+        // + convergent (owner-count loop). Pruned builds never call this method.
+        foreach (TypeInfo concrete in ctx.Registry.AllConcreteGenericInstances.ToArray())
+            _liveOwnerTypes.Add(item: concrete);
     }
 
     private void SeedRuntimeSentinels()

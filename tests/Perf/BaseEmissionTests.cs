@@ -167,7 +167,7 @@ public sealed class BaseEmissionTests
     /// data tables, add_range, Maybe[BTreeNode].destroy) referenced by concrete stdlib bodies but not yet
     /// materialized — the genuine (a') closure tail, now free of BuilderQuery artifacts.
     /// </summary>
-    [Fact(Skip = "WIP resident-JIT base define-completeness oracle. Base now BUILDS (no throw) after the demand-driven derive-owner liveness (RRP universal-derive owner substitution) + codegen substituted-return-type ABI for universal-owner member calls. MEASURED: defined=9450 declared=1123 RF-mangled gap=695 (down from the crash). Remaining gap = the const-generic Array[T,N]/from_literal closure + width tails (per doc). Un-skip to measure/iterate (dumps %TEMP%/rf_base.ll).")]
+    [Fact(Skip = "WIP resident-JIT base define-completeness oracle. Base BUILDS (no throw). MEASURED: defined=10162 declared=1115 RF-mangled gap=687 (+712 defines vs the prior 9450/695 baseline, from seeding every analysis-time concrete generic instance as a live base owner — RRP SeedAllConcreteStdlibRoutines). Remaining 687 = the const-generic Array[U<w>,N] carrier/self-free tail that GMP CREATES during monomorphization (post-dates reachability), needing a NON-explosive GMP-side discovery fix (a blanket base-mode gate bypass fans out over every instance×routine and blows past 700s). Un-skip to measure/iterate (dumps %TEMP%/rf_base.ll).")]
     public void GenerateBase_Standalone_DefineCompleteness()
     {
         var baseSa = new SemanticVerifier(language: Language.RazorForge) { SeedAllStdlibRoutines = true };
