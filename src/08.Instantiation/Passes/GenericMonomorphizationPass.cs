@@ -541,6 +541,29 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
                     memberRoutineName: RuntimeContract.RawPointer.Invalidate)) is { } ib) worklist.Enqueue(item: ib);
         }
 
+        // SEED destroy on EVERY REGISTERED instance. `destroy` is wired/always-live — semantically built for
+        // every type — but a container's field-walk `me.field.destroy()` is codegen-synthesized (the concrete
+        // container body isn't materialized), so the call-driven walk can't discover the field's destroy. Just
+        // build destroy on every ALREADY-REGISTERED concrete + wrapper instance: bounded by the finite
+        // registry (NO GetOrCreateWrapperType, NO field/type-arg recursion → no speculative Hijacked[Hijacked
+        // […]] runaway), and self-contained (every field type of a registered type is itself registered, so
+        // each field.destroy callee is also built here). A FOLDED const-generic Array[T,63].destroy builds
+        // fine; skip a pseudo-concrete instance whose const-generic arg is an UNFOLDED comptime splice
+        // (Array[U8, ${max(...)}] carrier buffer) — its `N` never folds to a value and crashes codegen.
+        static bool HasUnfoldedComptime(TypeInfo ty) =>
+            ty.TypeArguments is { Count: > 0 } a && a.Any(predicate: x => x is ComptimeConstGenericTypeInfo);
+        foreach (TypeInfo t in ctx.Registry.AllConcreteGenericInstancesUnfiltered
+                     .Concat(second: ctx.Registry.AllConcreteWrapperInstancesUnfiltered).ToArray())
+        {
+            if (HasUnfoldedComptime(t)) continue;
+            // destroy ONLY: it is self-contained (each field.destroy callee is itself a registered instance
+            // built here) and CONVERGES (leaf teardown is trivial). `represent` does NOT — it's a
+            // force-seeded display closure whose callees (type_name, nested represents on non-registered
+            // member types) introduce net-new declares (measured: adding represent took the gap 140→367).
+            if (BuildOne(r: ctx.Registry.LookupMemberRoutine(type: t, memberRoutineName: "destroy")) is { } db)
+                worklist.Enqueue(item: db);
+        }
+
         // CALL-DRIVEN closure: walk each freshly-built body, isolated-build every ResolvedRoutine callee it
         // references that isn't built yet, enqueue the result. Follows the ACTUAL lifecycle call graph
         // (hijack → get_address / Hijacked.create; invalidate → Hijacked.address; …) — NOT the transitive
