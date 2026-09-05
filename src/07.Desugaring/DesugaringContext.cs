@@ -40,6 +40,14 @@ public sealed class DesugaringContext
     /// </summary>
     public Dictionary<string, MonomorphizedBody> InstantiatedGenericBodies { get; init; } = new();
 
+    /// <summary>
+    /// Variant-body keys RESTORED from a warm daemon snapshot: already fully desugared/lowered at capture
+    /// time. The <c>RunOnVariantBodies</c> passes skip these (re-lowering an already-lowered body is a no-op
+    /// but still walks the whole tree) so a warm compile only processes the USER-added variants, not the
+    /// ~2400 stdlib ones re-seeded each request. Empty on a cold compile → every variant is processed.
+    /// </summary>
+    public HashSet<string> RestoredVariantKeys { get; init; } = new(comparer: StringComparer.Ordinal);
+
     /// <summary>Target platform — drives BuilderQuery platform constants.</summary>
     public TargetConfig Target { get; }
 

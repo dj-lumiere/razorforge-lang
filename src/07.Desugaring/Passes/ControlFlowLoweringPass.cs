@@ -657,6 +657,7 @@ internal sealed class ControlFlowLoweringPass(DesugaringContext ctx)
     {
         foreach (string key in ctx.VariantBodies.Keys.ToList())
         {
+            if (ctx.RestoredVariantKeys.Contains(item: key)) continue; // already lowered at snapshot capture
             Statement body = ctx.VariantBodies[key];
             Statement lowered = LowerStatement(stmt: body);
             if (!ReferenceEquals(lowered, body))

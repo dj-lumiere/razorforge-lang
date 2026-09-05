@@ -574,7 +574,8 @@ public sealed partial class SemanticVerifier
         var ctx = new DesugaringContext(registry: _registry,
             routineBodies: _routineBodies,
             target: _target,
-            buildMode: _buildMode) { VariantBodies = _variantBodies, SynthesizeAllDerives = SeedAllStdlibRoutines };
+            buildMode: _buildMode) { VariantBodies = _variantBodies, SynthesizeAllDerives = SeedAllStdlibRoutines,
+            RestoredVariantKeys = _restoredVariantKeys };
         new DesugaringPipeline(ctx: ctx).RunGlobal();
         SubMark(label: $"{nameof(DesugaringPipeline)}.RunGlobal");
         // Capture variant bodies produced by ErrorHandlingVariantPass for codegen. On the warm-restore
@@ -600,7 +601,8 @@ public sealed partial class SemanticVerifier
         var lateCtx = new DesugaringContext(registry: _registry,
             routineBodies: _routineBodies,
             target: _target,
-            buildMode: _buildMode) { VariantBodies = _variantBodies, SynthesizeAllDerives = SeedAllStdlibRoutines };
+            buildMode: _buildMode) { VariantBodies = _variantBodies, SynthesizeAllDerives = SeedAllStdlibRoutines,
+            RestoredVariantKeys = _restoredVariantKeys };
         new WiredRoutinePass(ctx: lateCtx).RunGlobal();
         SubMark(label: $"{nameof(AutoRegisterWiredRoutines)} + {nameof(WiredRoutinePass)}.RunGlobal");
 

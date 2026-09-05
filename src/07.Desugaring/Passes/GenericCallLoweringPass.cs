@@ -38,12 +38,15 @@ internal sealed class GenericCallLoweringPass : AstRewriter
     private readonly TypeRegistry _registry;
     private readonly Dictionary<string, Statement> _variantBodies;
     private readonly Dictionary<string, MonomorphizedBody>? _instantiatedGenericBodies;
+    /// <summary>Warm-restore stdlib variant keys already lowered at snapshot capture — skipped by
+    /// <see cref="RunOnVariantBodies"/>. Empty on cold builds and non-desugaring-context callers.</summary>
+    private readonly HashSet<string> _restoredVariantKeys;
 
     /// <summary>
     /// Initializes a new instance with the dependencies required for its compiler phase.
     /// </summary>
     public GenericCallLoweringPass(DesugaringContext ctx)
-        : this(ctx.Registry, ctx.VariantBodies, ctx.InstantiatedGenericBodies) { }
+        : this(ctx.Registry, ctx.VariantBodies, ctx.InstantiatedGenericBodies, ctx.RestoredVariantKeys) { }
 
     /// <summary>
     /// Initializes a new instance with the dependencies required for its compiler phase.
@@ -55,11 +58,13 @@ internal sealed class GenericCallLoweringPass : AstRewriter
     /// Initializes a new instance with the dependencies required for its compiler phase.
     /// </summary>
     private GenericCallLoweringPass(TypeRegistry registry, Dictionary<string, Statement> variantBodies,
-        Dictionary<string, MonomorphizedBody>? instantiatedGenericBodies)
+        Dictionary<string, MonomorphizedBody>? instantiatedGenericBodies,
+        HashSet<string>? restoredVariantKeys = null)
     {
         _registry = registry;
         _variantBodies = variantBodies;
         _instantiatedGenericBodies = instantiatedGenericBodies;
+        _restoredVariantKeys = restoredVariantKeys ?? new HashSet<string>(comparer: System.StringComparer.Ordinal);
     }
 
     /// <summary>
@@ -102,6 +107,7 @@ internal sealed class GenericCallLoweringPass : AstRewriter
     {
         foreach (string key in _variantBodies.Keys.ToList())
         {
+            if (_restoredVariantKeys.Contains(item: key)) continue; // already lowered at snapshot capture
             Statement body = _variantBodies[key];
             Statement lowered = VisitStatement(body);
             if (!ReferenceEquals(lowered, body))

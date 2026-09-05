@@ -93,6 +93,7 @@ internal sealed class PresetInliningPass(DesugaringContext ctx) : AstRewriter
         _ownPresets = new Dictionary<string, PresetDeclaration>(comparer: StringComparer.Ordinal);
         foreach (string key in ctx.VariantBodies.Keys.ToList())
         {
+            if (ctx.RestoredVariantKeys.Contains(item: key)) continue; // already inlined at snapshot capture
             Statement body = ctx.VariantBodies[key];
             Statement lowered = VisitStatement(body);
             if (!ReferenceEquals(lowered, body))
