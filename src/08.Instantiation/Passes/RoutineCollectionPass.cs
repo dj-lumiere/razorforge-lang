@@ -50,7 +50,7 @@ internal sealed class RoutineCollectionPass(InstantiationContext ctx)
     /// through non-generic bodies like <c>Bytes.create(from_list:)</c>). Always on — the push DCE's over-prune
     /// gap is closed here.
     /// </summary>
-    public void RunCollect()
+    public void RunCollect(IReadOnlyDictionary<string, Statement>? synthesizedBodies = null)
     {
         // ALIAS the real pipeline dicts: freshly-built + lowered bodies land in the real
         // ctx.InstantiatedGenericBodies (== what codegen reads) and their keys in ctx.LiveRoutineKeys.
@@ -117,7 +117,79 @@ internal sealed class RoutineCollectionPass(InstantiationContext ctx)
             Console.Error.WriteLine(value: $"[COLLECT] demand-built {totalBuilt} over-pruned routine(s): " +
                 string.Join(separator: ", ",
                     values: allFresh.OrderBy(keySelector: k => k, comparer: StringComparer.Ordinal)));
+
+        if (synthesizedBodies != null)
+            MaterializePerOwnerSynthesizedBodies(synthesizedBodies: synthesizedBodies);
     }
+
+    /// <summary>
+    /// Materializes, for each SYNTHESIZED generic-def body (represent/diagnose/hash/eq/try_emit/derived
+    /// operators — keyed by the generic-def routine key) and each REACHED concrete owner instantiation, the
+    /// per-owner rewritten concrete body into <c>InstantiatedGenericBodies</c>. This is the pull-architecture
+    /// move of codegen's Phase-C <c>EmitSynthesizedBodyPerConcreteOwner</c> upstream: the concrete synthesized
+    /// bodies now PRE-EXIST before codegen instead of codegen rewriting them at emission time (which the demand
+    /// collector could not see). Mirrors that emitter's matching + <see cref="GenericAstRewriter"/> rewrite,
+    /// but produces a <see cref="MonomorphizedBody"/> instead of IR. Only reached owners
+    /// (<c>LiveOwnerTypeNames</c>) are materialized, so it stays demand-scoped.
+    /// </summary>
+    private void MaterializePerOwnerSynthesizedBodies(IReadOnlyDictionary<string, Statement> synthesizedBodies)
+    {
+        List<TypeInfo> concreteInstances = ctx.Registry.AllConcreteGenericInstancesUnfiltered.ToList();
+        foreach ((string key, Statement synthBody) in synthesizedBodies)
+        {
+            RoutineInfo? synthInfo = ctx.Registry.LookupRoutine(fullName: key);
+            if (synthInfo is not { IsSynthesized: true }) continue;
+            if (synthInfo.WrapperForwarderInnerMemberRoutine != null) continue; // wrapper path handled elsewhere
+            if (synthInfo.OwnerType is not { IsGenericDefinition: true } genericOwner) continue;
+            if (genericOwner.GenericParameters is not { Count: > 0 } gParams) continue;
+
+            foreach (TypeInfo candidateOwner in concreteInstances)
+            {
+                if (candidateOwner.IsGenericDefinition) continue;
+                if (candidateOwner.TypeArguments is not { Count: > 0 } tArgs) continue;
+                if (tArgs.Count != gParams.Count) continue;
+                TypeInfo? candidateGenDef = candidateOwner switch
+                {
+                    RecordTypeInfo r => r.GenericDefinition,
+                    EntityTypeInfo e => e.GenericDefinition,
+                    WrapperTypeInfo w => ctx.Registry.LookupType(name: w.Name),
+                    _ => null
+                };
+                if (candidateGenDef == null || !ReferenceEquals(objA: candidateGenDef, objB: genericOwner))
+                    continue;
+                // Reached owners only — the collector marks these as it walks (demand-scoped).
+                if (!ctx.LiveOwnerTypeNames.Contains(item: candidateOwner.FullName)) continue;
+                RoutineInfo? concreteMemberRoutine = ctx.Registry.LookupMemberRoutine(
+                    type: candidateOwner, memberRoutineName: synthInfo.Name);
+                if (concreteMemberRoutine == null) continue;
+                if (ctx.InstantiatedGenericBodies.ContainsKey(key: concreteMemberRoutine.RegistryKey))
+                    continue;
+
+                var subs = new Dictionary<string, TypeInfo>(comparer: StringComparer.Ordinal);
+                for (int gi = 0; gi < gParams.Count; gi++) subs[key: gParams[index: gi]] = tArgs[index: gi];
+                Statement rewritten = GenericAstRewriter.RewriteStatement(
+                    stmt: synthBody,
+                    subs: subs.ToDictionary(keySelector: kv => kv.Key, elementSelector: kv => kv.Value.FullName),
+                    typeSubs: subs,
+                    registry: ctx.Registry,
+                    enclosingRoutine: concreteMemberRoutine);
+                ctx.InstantiatedGenericBodies[key: concreteMemberRoutine.RegistryKey] = new MonomorphizedBody(
+                    Ast: WrapInSynthShellDecl(name: concreteMemberRoutine.Name, body: rewritten,
+                        info: concreteMemberRoutine),
+                    Info: concreteMemberRoutine,
+                    TypeSubs: subs,
+                    VariantStatus: null,
+                    VariantInnerType: null,
+                    IsSynthesized: true);
+                ctx.LiveRoutineKeys.Add(item: concreteMemberRoutine.RegistryKey);
+            }
+        }
+    }
+
+    private static RoutineDeclaration WrapInSynthShellDecl(string name, Statement body, RoutineInfo info)
+        => new(Name: name, Parameters: [], ReturnType: null, Body: body,
+            Visibility: VisibilityModifier.Open, Annotations: [],
+            Location: info.Location ?? new SourceLocation(FileName: "", Line: 0, Column: 0, Position: 0));
 
     /// <summary>
     /// The program's entry-point routine bodies (<c>start()</c>, <c>@test</c>, <c>@bench</c>) — the roots of

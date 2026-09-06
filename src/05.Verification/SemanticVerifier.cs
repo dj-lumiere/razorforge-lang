@@ -1482,7 +1482,16 @@ public sealed partial class SemanticVerifier
             // normal builds; builds into an isolated copy, never mutating this run.
             if (_shadowCtx != null)
             {
-                new RoutineCollectionPass(ctx: _shadowCtx).RunCollect();
+                // The demand collector materializes per-owner concrete synthesized bodies (represent/
+                // diagnose/hash/eq/try_emit/derived-operators) that codegen used to rewrite at emission
+                // time (Phase C). Hand it the synthesized-body sources (derived operators + wired/variant
+                // bodies) so those concrete bodies pre-exist in InstantiatedGenericBodies — a step toward
+                // the dumb-codegen goal (codegen stops synthesizing per-owner bodies).
+                var synthSources = _synthesizedBodies.ToDictionary(keySelector: kvp => kvp.Key,
+                    elementSelector: kvp => kvp.Value.Body, comparer: StringComparer.Ordinal);
+                foreach ((string key, Statement variantBody) in _variantBodies)
+                    synthSources[key] = variantBody;
+                new RoutineCollectionPass(ctx: _shadowCtx).RunCollect(synthesizedBodies: synthSources);
                 // The collector added its demand-built keys to the (aliased) live set; the snapshots codegen
                 // consumes were taken pre-collect, so re-snapshot them so codegen's liveness gate admits the
                 // freshly-built bodies.
