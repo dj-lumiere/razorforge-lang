@@ -154,7 +154,7 @@ internal sealed class GenericClosurePass(InstantiationContext ctx)
     /// f-string/pattern/expression/operator/copy sequence. Extracted from <see cref="Run"/> so the
     /// ordering rationale (each pass's comment) stays with the invocation.
     /// </summary>
-    private static void LowerFreshBodies(InstantiationContext ctx, DesugaringContext adapter,
+    internal static void LowerFreshBodies(InstantiationContext ctx, DesugaringContext adapter,
         Dictionary<string, MonomorphizedBody> freshBodies)
     {
         // ControlFlowLowering for instantiated bodies: protocol-default-impl clones (from

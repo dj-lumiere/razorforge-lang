@@ -593,6 +593,159 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
     }
 
     /// <summary>
+    /// Stage-② DEMAND COLLECTION (build-one-no-drain), generalized from
+    /// <see cref="MaterializeEntitySelfFreeInIsolation"/>. Instead of seeding the entity self-free /
+    /// lifecycle tail, it seeds from the generic-INSTANCE routines REFERENCED by the current program /
+    /// variant / instantiated bodies, builds each missing one via the singular resolved-routine builder
+    /// (no transitive drain), then closes over the actual call graph. Builds into THIS ctx's
+    /// <c>InstantiatedGenericBodies</c> — pass an aliased-or-copied ctx per the caller's isolation needs.
+    /// Bounded: only genuinely-referenced instances are built (never an uncalled derive like
+    /// <c>Array[SerialValue,63].assign</c>), so it cannot run away like eager enumeration. Returns the
+    /// count freshly built. This is the pull architecture's stage-② core; today it is driven only in
+    /// SHADOW to measure completeness vs the push pipeline.
+    /// </summary>
+    internal int CollectReferencedInIsolation(IEnumerable<(string Key, Statement Body)> entrySeeds,
+        IReadOnlyDictionary<string, Statement> programBodies)
+    {
+        if (!_routineIndexBuilt) { BuildRoutineIndex(); _routineIndexBuilt = true; }
+
+        int totalBuilt = 0;
+        var walked = new HashSet<string>(comparer: StringComparer.Ordinal);
+        var worklist = new Queue<(string Key, Statement Body)>();
+
+        // Emittable body for a routine key: a monomorphized generic instance, a synthesized variant, or a
+        // concrete non-generic routine body from the actual (lowered) program ASTs — `programBodies`, built by
+        // the caller from the SAME source codegen emits from (Registry.StdlibPrograms + UserPrograms, keyed by
+        // decl.ResolvedInfo.RegistryKey). This is what lets the walk step into `Bytes.create(from_list:)` and
+        // see its `List[Byte].getitem/count` calls. (RoutineBodies — the synthesis working set — is NOT the
+        // codegen source and misses flattened stdlib member bodies, so it is not consulted.)
+        Statement? GetBody(string key) =>
+            ctx.InstantiatedGenericBodies.TryGetValue(key: key, out MonomorphizedBody? mb) ? mb.Ast?.Body :
+            ctx.VariantBodies.TryGetValue(key: key, out Statement? vb) ? vb :
+            programBodies.TryGetValue(key: key, out Statement? pb) ? pb : null;
+
+        // Discover a referenced routine: BUILD it if it is an unbuilt generic INSTANCE (singular builder, no
+        // transitive drain); then, whether generic or NON-generic, queue its body for traversal so the walk
+        // continues through it (this is how `start` → `Bytes.getitem` → `List[Byte].create` chains). Only
+        // genuinely-referenced routines are walked and only referenced instances are built — DCE preserved.
+        // Concrete non-generic-def owner types the walk has reached — each needs its codegen-injected /
+        // synthesis-emitted force-seeds (wired routines, implicit-call-contract verbs, entity self-free,
+        // Text.replace) which have NO AST call for the walk to follow. Mirrors RoutineReachabilityPass's
+        // SeedWiredRoutinesOnLiveTypes, run here so the collector is self-sufficient (Stage-2 retirement).
+        var reachedOwners = new HashSet<TypeInfo>(comparer: ReferenceEqualityComparer.Instance);
+
+        // Mark a reached concrete owner type LIVE + materialized. Codegen's Phase-C synthesized-body emitters
+        // (e.g. iterator-adapter `try_emit` per concrete owner) loop AllConcreteGenericInstancesUnfiltered
+        // (which excludes lazy instances) and gate on the owner being a live owner type — a reached-but-
+        // unmarked Emittable owner leaves its synthesized `try_emit` undefined at link (the
+        // warm-restore-overprune Category-B symptom). Called for a routine's owner AND for a
+        // CreatorExpression's ConstructedType (an Emittable is often only CONSTRUCTED, never method-called).
+        void MarkOwner(TypeInfo? t)
+        {
+            if (t is not { IsGenericDefinition: false } owner) return;
+            reachedOwners.Add(item: owner);
+            owner.IsStdlibLazy = false;
+            ctx.LiveOwnerTypeNames.Add(item: owner.FullName);
+        }
+
+        void Discover(RoutineInfo? r)
+        {
+            if (r == null) return;
+            MarkOwner(t: r.OwnerType);
+            string key = r.RegistryKey;
+            // Mark EVERY reached routine live FIRST — generic instance OR non-generic (e.g.
+            // `Bytes.create(from_list:)` reached through `Bytes.getitem`). Everything reachable from an entry
+            // point is live by definition; codegen's liveness gate only emits a definition for a live key, so
+            // a reached-but-unmarked non-generic body would link-fail as an undefined symbol. Must precede the
+            // build below — `ProcessResolvedMemberRoutineGenericRoutine` itself gates on the key being live.
+            ctx.LiveRoutineKeys.Add(item: key);
+            if (r.GenericDefinition != null
+                && !ctx.InstantiatedGenericBodies.ContainsKey(key: key)
+                && !ctx.VariantBodies.ContainsKey(key: key))
+            {
+                ProcessResolvedMemberRoutineGenericRoutine(resolvedRoutine: r);
+                if (ctx.InstantiatedGenericBodies.ContainsKey(key: key)) totalBuilt++;
+            }
+            if (!walked.Contains(item: key) && GetBody(key: key) is { } body)
+                worklist.Enqueue(item: (key, body));
+        }
+
+        // Force-seed the codegen-injected / synthesis-emitted routines on a reached OWNER type — they have no
+        // AST call for the walk to follow. Mirrors RoutineReachabilityPass.SeedWiredRoutinesOnLiveTypes so the
+        // collector is self-sufficient (Stage-2: retires the push force-seeding). Each seed goes through
+        // Discover (build-if-generic + mark-live + queue-body).
+        void ForceSeedOwner(TypeInfo type)
+        {
+            // (1) Wired routines the type can host (capability-gated), emitted unconditionally per live type.
+            foreach (string wiredName in WiredRoutineCatalog.BuildReachabilitySeedNames())
+            {
+                string capability = wiredName switch
+                {
+                    "ne" => "eq",
+                    "notcontains" => "contains",
+                    "lt" or "le" or "gt" or "ge" => "cmp",
+                    _ => wiredName
+                };
+                if (!ctx.Registry.TypeHasWiredRoutine(type: type, wiredName: capability)) continue;
+                Discover(r: ctx.Registry.LookupMemberRoutine(type: type, memberRoutineName: wiredName));
+            }
+            // (2) Implicit codegen inserts (RC copy verb; Roamed promote/lock/raw_inner; display transparency).
+            foreach ((TypeInfo owner, string mn) in ImplicitCallContract.ForLiveType(liveType: type))
+                Discover(r: ctx.Registry.LookupMemberRoutine(type: owner, memberRoutineName: mn));
+            // (3) Entity self-free tail (hijack / Hijacked[E].invalidate — zero-arg universal, no AST call).
+            if (type is EntityTypeInfo { IsGenericDefinition: false })
+            {
+                Discover(r: ctx.Registry.LookupMemberRoutine(type: type,
+                    memberRoutineName: RuntimeContract.RawPointer.Hijack));
+                TypeInfo hijacked = ctx.Registry.GetOrCreateWrapperType(
+                    wrapperName: RuntimeContract.Hijacked, innerType: type, isReadOnly: false);
+                Discover(r: ctx.Registry.LookupMemberRoutine(type: hijacked,
+                    memberRoutineName: RuntimeContract.RawPointer.Invalidate));
+            }
+            // (4) Text.replace — FStringLoweringPass synthesizes it for `:?`/`?` in-flight-entity interpolation.
+            if (type is { Name: "Text", Module: "Core" })
+                Discover(r: ctx.Registry.LookupMemberRoutine(type: type,
+                    memberRoutineName: RuntimeContract.Collection.Replace));
+        }
+
+        // SEED with the entry-point BODIES directly (start()/@test/@bench — their RoutineDeclaration.Body is
+        // in hand from the caller, NOT looked up: a user `start` body lives in UserPrograms, not RoutineBodies).
+        foreach ((string k, Statement b) in entrySeeds)
+            worklist.Enqueue(item: (k, b));
+
+        // FIXPOINT: drain the call-graph worklist, then force-seed any newly-reached owner types (their seeds
+        // refill the worklist), and repeat until both are exhausted.
+        var seededOwners = new HashSet<TypeInfo>(comparer: ReferenceEqualityComparer.Instance);
+        int guard = 0;
+        do
+        {
+            while (worklist.Count > 0 && guard++ < 5_000_000)
+            {
+                (string key, Statement body) = worklist.Dequeue();
+                if (!walked.Add(item: key)) continue;
+                AstWalker.WalkExpressions(root: body, visit: expr =>
+                {
+                    switch (expr)
+                    {
+                        case CallExpression { ResolvedRoutine: { } cr }: Discover(r: cr); break;
+                        case GenericMemberRoutineCallExpression { ResolvedRoutine: { } gr }: Discover(r: gr); break;
+                        // A constructor (`SelectEmittable(...)`) — reach its create routine AND mark the
+                        // constructed type a live owner (an Emittable is often ONLY constructed, so its owner
+                        // liveness — needed for Phase-C try_emit emission — comes from here, not a method call).
+                        case CreatorExpression ce:
+                            Discover(r: ce.ResolvedCreatorRoutine);
+                            MarkOwner(t: ce.ConstructedType);
+                            break;
+                    }
+                });
+            }
+            foreach (TypeInfo owner in reachedOwners.ToArray())
+                if (seededOwners.Add(item: owner)) ForceSeedOwner(type: owner);
+        } while (worklist.Count > 0);
+        return totalBuilt;
+    }
+
+    /// <summary>
     /// Yields the wired routines a synthesized body for <paramref name="routine"/> implicitly calls.
     /// See <see cref="EnliveWiredLeafCallees"/> for the rationale and the verb→callee mapping.
     /// </summary>

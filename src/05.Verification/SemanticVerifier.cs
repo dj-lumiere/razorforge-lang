@@ -664,6 +664,10 @@ public sealed partial class SemanticVerifier
         return mergedVariantBodies;
     }
 
+    /// <summary>Instantiation context retained from <see cref="RunPhase8Instantiation"/> so the pull
+    /// collector's shadow can run post-Phase-9 (see <c>_shadowCtx</c> assignment / RunPhase9Postprocessing).</summary>
+    private InstantiationContext? _shadowCtx;
+
     private void RunPhase8Instantiation()
     {
         // Include wrapper forwarder bodies in variantBodies so GMP can rewrite them with
@@ -811,6 +815,10 @@ public sealed partial class SemanticVerifier
         _instantiatedGenericBodies = ctx.InstantiatedGenericBodies;
         _liveRoutineKeys = ctx.LiveRoutineKeys.ToArray();
         _liveOwnerTypeNames = ctx.LiveOwnerTypeNames.ToArray();
+        // Retain the instantiation context so the pull collector's SHADOW can run AFTER per-program Phase 9
+        // lowering (RunPhase9Postprocessing), where user bodies have their subscript/operator calls lowered
+        // to real getitem/member CallExpressions — the entry-point walk needs those to follow start()'s chain.
+        _shadowCtx = ctx;
 
         // v0.2.0 may-suspend effect analysis over the call graph RoutineReachabilityPass populated
         // (in either the timed or pipeline path above). Runs here — after both branches — so it is
@@ -1467,6 +1475,20 @@ public sealed partial class SemanticVerifier
                 RunPhase9Postprocessing(program: program);
             }
             Mark(label: "Phase 9 per-file -> type-aware postprocessing");
+
+            // Stage ② of the pull architecture, in SHADOW: all programs are now fully lowered
+            // (subscript/operator → getitem/member CallExpressions), so the demand collector can walk from
+            // the entry points and follow start()'s real call chain. Flag-gated (collect-shadow) — a no-op in
+            // normal builds; builds into an isolated copy, never mutating this run.
+            if (_shadowCtx != null)
+            {
+                new RoutineCollectionPass(ctx: _shadowCtx).RunCollect();
+                // The collector added its demand-built keys to the (aliased) live set; the snapshots codegen
+                // consumes were taken pre-collect, so re-snapshot them so codegen's liveness gate admits the
+                // freshly-built bodies.
+                _liveRoutineKeys = _shadowCtx.LiveRoutineKeys.ToArray();
+                _liveOwnerTypeNames = _shadowCtx.LiveOwnerTypeNames.ToArray();
+            }
 
             RunPhase9PostDesugarChecks();
             Mark(label: "Phase 9 -> PostDesugarChecks");

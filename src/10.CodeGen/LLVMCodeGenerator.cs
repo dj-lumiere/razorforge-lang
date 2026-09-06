@@ -1035,46 +1035,11 @@ public partial class LlvmCodeGenerator
                 $"live_not_referenced={liveNotRef}");
         }
 
-        // Over-prune tripwire (only meaningful when reachability gating is active; with no live set
-        // nothing is pruned, so every referenced routine is emitted and this is trivially satisfied).
-        // Every routine an emitted body actually references must itself have been emitted. A name in
-        // _expectedBodyNames with no define means RoutineReachabilityPass dropped a routine that
-        // emitted code calls — caught here as a located codegen error instead of a linker
-        // "undefined symbol" far downstream.
-        if (_liveRoutineKeys.Count > 0)
-        {
-            // Realm-INSENSITIVE match (mirrors the emission gate): a collapsed SF wrapper emits its
-            // universal members under the ambient RF symbol, but the single-program codegen path can
-            // record the SF-mangled variant as expected. The .ll is realm-consistent (build/link prove
-            // it), so compare realm-stripped — else a benign SF/RF bookkeeping mismatch false-positives.
-            HashSet<string> strippedDefs = _generatedRoutineDefs
-                                          .Select(selector: StripRealmMarker)
-                                          .ToHashSet();
-            // Resident symbols are DEFINED in the base dylib, not this delta module — a referenced-but-
-            // not-defined-here resident is expected, not an over-prune. Empty in the cold/AOT path.
-            HashSet<string> strippedResident = _residentSymbols
-                                              .Select(selector: StripRealmMarker)
-                                              .ToHashSet();
-            List<string> overPruned = _expectedBodyNames
-                                     .Where(predicate: name => !_generatedRoutineDefs.Contains(item: name)
-                                          && !strippedDefs.Contains(item: StripRealmMarker(mangledName: name))
-                                          && !_residentSymbols.Contains(item: name)
-                                          && !strippedResident.Contains(item: StripRealmMarker(mangledName: name)))
-                                     .OrderBy(keySelector: name => name, comparer: StringComparer.Ordinal)
-                                     .ToList();
-            if (overPruned.Count > 0)
-            {
-                string sample = string.Join(separator: "\n",
-                    values: overPruned.Take(count: 20).Select(selector: n => $"  @{n}"));
-                string more = overPruned.Count > 20 ? $"\n  … and {overPruned.Count - 20} more" : "";
-                throw new InvalidOperationException(
-                    message:
-                    $"{sample}{more}\nCodegen bug: {overPruned.Count} referenced routine(s) were declared and called " +
-                    "but never defined. Reachability pruned a routine that emitted code calls. " +
-                    "This would surface as a linker \"undefined symbol\"; catching it here instead.\n" +
-                    sample + more);
-            }
-        }
+        // (Push-DCE over-prune tripwire RETIRED.) The demand collector (RoutineCollectionPass, always-on)
+        // now materializes every referenced generic instance from the entry points before codegen, so a
+        // "declared + called but never defined" over-prune can no longer arise from reachability
+        // under-approximating. Any genuinely-undefined symbol (a real collector/codegen bug) now surfaces at
+        // link — StdlibApiTests + the fixtures are the safety net. See [[pull-codegen-architecture]].
     }
 
     /// <summary>

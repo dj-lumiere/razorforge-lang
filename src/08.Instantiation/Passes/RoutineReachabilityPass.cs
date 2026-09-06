@@ -71,6 +71,12 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         do
         {
             prevOwnerCount = _liveOwnerTypes.Count;
+            // STAGE-2 IN PROGRESS: force-seeding moving to the demand collector (covers 4/5 categories). The
+            // 5th — iterator-adapter `try_emit` — is blocked by codegen Phase-C's per-concrete-owner synth
+            // emitter (EmitSynthesizedBodyPerConcreteOwner). Its gates (owner ∈ LiveOwnerTypeNames + concrete
+            // referenced) require the collector to REACH the Emittable owner; narrowed to "does the collector
+            // reach e.g. SelectEmittable" — a next-session diagnostic. Kept ENABLED until then; the collector's
+            // force-seeding is additive/idempotent alongside it. See [[pull-codegen-architecture]].
             SeedWiredRoutinesOnLiveTypes();
             Drain();
         } while (_liveOwnerTypes.Count > prevOwnerCount);
