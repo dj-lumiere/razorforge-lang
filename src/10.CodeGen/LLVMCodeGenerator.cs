@@ -974,7 +974,11 @@ public partial class LlvmCodeGenerator
             }
 
             // Phase B: Emit pre-built instantiated generic bodies (monomorphized by GMP in Phase 7).
-            // Gate on the live-routine set so dead instantiations don't drag in their callees.
+            // Gate on the live-routine set so dead instantiations don't drag in their callees. NOTE
+            // (Stage-3): still load-bearing — an experiment removing it fails 13 tests, so the collector's
+            // materialized _instantiatedGenericBodies is BROADER than codegen's referenced set (it
+            // over-materializes some bodies; also base-mode populates this map beyond the referenced set).
+            // Retiring this gate needs the materialized set narrowed to exactly the referenced set first.
             foreach ((string _, MonomorphizedBody body) in _instantiatedGenericBodies)
             {
                 string instFuncName = MangleRoutineName(routine: body.Info);
