@@ -102,14 +102,20 @@ internal sealed class VariantReturnLoweringPass(PostprocessingContext ctx) : Ast
     public void RunOnMonomorphizedBodies()
     {
         if (ctx.MonomorphizedBodies is not { } bodies) return;
-        foreach (string key in bodies.Keys.ToList())
+        RunOnInstantiatedGenericBodies(bodies: bodies);
+    }
+
+    /// <summary>Lowers carrier-return sites in a supplied instantiated-body map — used by the demand
+    /// collector's <c>LowerFreshBodies</c>, whose freshly-built variant bodies (a composed iterator's
+    /// <c>try_emit</c> built via path-2) are NOT in <see cref="PostprocessingContext.MonomorphizedBodies"/>
+    /// and so would otherwise reach codegen with un-lowered <see cref="VariantReturnStatement"/> carriers.</summary>
+    public void RunOnInstantiatedGenericBodies(Dictionary<string, MonomorphizedBody> bodies)
+    {
+        BodyDispatch.RunOnInstantiatedGenericBodies(bodies: bodies, lower: (_, mono) =>
         {
-            MonomorphizedBody mono = bodies[key: key];
             _carrierReturn = mono.Info.ReturnType;
-            Statement lowered = VisitStatement(stmt: mono.Ast.Body);
-            if (!ReferenceEquals(objA: lowered, objB: mono.Ast.Body))
-                bodies[key: key] = mono with { Ast = mono.Ast with { Body = lowered } };
-        }
+            return VisitStatement(stmt: mono.Ast.Body);
+        });
     }
 
     private Statement LowerTryBoolVariant(VariantReturnStatement vr)

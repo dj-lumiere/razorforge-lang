@@ -193,6 +193,13 @@ internal sealed class GenericClosurePass(InstantiationContext ctx)
             variantBodies: ctx.VariantBodies,
             target: ctx.Target,
             buildMode: ctx.BuildMode);
+        // Lower synthesized VariantReturnStatement carriers (Try/Check/Lookup `return`s of a composed
+        // iterator's path-2 try_emit body) to ordinary record construction. The main pipeline does this
+        // via VariantReturnLoweringPass.RunOnMonomorphizedBodies at Phase 8, but the collector's
+        // freshly-built variant bodies are not in that map — without this they reach codegen as raw
+        // VariantReturnStatement and trip the codegen guard.
+        new Postprocessing.Passes.VariantReturnLoweringPass(ctx: postCtx)
+            .RunOnInstantiatedGenericBodies(bodies: freshBodies);
         // FStringLoweringPass runs BEFORE OperatorLoweringPass (per the per-file pipeline order);
         // monomorphized represent/diagnose bodies need f-strings lowered to represent/diagnose
         // memberRoutine calls + Text.add before operator lowering can fold the `+` chain.

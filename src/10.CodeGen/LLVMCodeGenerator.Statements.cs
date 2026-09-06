@@ -97,6 +97,7 @@ public partial class LlvmCodeGenerator
             case VariantReturnStatement variantRet:
                 throw new InvalidOperationException(
                     $"VariantReturnStatement ({variantRet.VariantKind}/{variantRet.SiteKind}) reached codegen " +
+                    $"in routine [{_currentRoutineDiagName}] (ret={_currentRoutineReturnType?.FullName ?? "null"}) " +
                     "— VariantReturnLoweringPass must lower all carrier returns to record construction.");
 
             default:

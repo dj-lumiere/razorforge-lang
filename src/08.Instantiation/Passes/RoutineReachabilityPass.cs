@@ -63,23 +63,15 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         SeedFromEntryPoints();
         if (ctx.SeedAllStdlibRoutines) SeedAllConcreteStdlibRoutines();
         Drain();
-        // Loop until fixed-point: every time we drain we may discover new owner types
-        // (e.g. Bool first reached during synthesized-body walks of Tuple[S8, Bool].hash).
-        // The wired-routine seed must rerun on those new owners so their eq/hash/etc.
-        // become live.
-        int prevOwnerCount;
-        do
-        {
-            prevOwnerCount = _liveOwnerTypes.Count;
-            // STAGE-2 IN PROGRESS: force-seeding moving to the demand collector (covers 4/5 categories). The
-            // 5th — iterator-adapter `try_emit` — is blocked by codegen Phase-C's per-concrete-owner synth
-            // emitter (EmitSynthesizedBodyPerConcreteOwner). Its gates (owner ∈ LiveOwnerTypeNames + concrete
-            // referenced) require the collector to REACH the Emittable owner; narrowed to "does the collector
-            // reach e.g. SelectEmittable" — a next-session diagnostic. Kept ENABLED until then; the collector's
-            // force-seeding is additive/idempotent alongside it. See [[pull-codegen-architecture]].
-            SeedWiredRoutinesOnLiveTypes();
-            Drain();
-        } while (_liveOwnerTypes.Count > prevOwnerCount);
+        // STAGE 3 (RETIRED): force-seeding (`SeedWiredRoutinesOnLiveTypes`) — force-marking every wired /
+        // implicit-contract / self-free / iterator-adapter routine on every live owner — is now owned END TO
+        // END by the demand collector (`RoutineCollectionPass` → `GenericMonomorphizationPass.
+        // CollectReferencedInIsolation`'s ForceSeedOwner + PDIL fixpoint). The collector materializes AND lists
+        // (LiveRoutineKeys/LiveOwnerTypeNames) exactly the referenced set, so reachability no longer needs to
+        // over-approximate it here. Proven: full suite green with the seed retired (both header emitters key
+        // linkage on a DETERMINISTIC structural signal, so cold==warm). This removes the push/pull divergence
+        // that force-seeding's over-approximation created. The prior re-seed-until-fixpoint loop existed only
+        // to rerun the seed on owners discovered mid-drain; with no seed, one Drain reaches fixpoint.
         foreach (string key in _live) ctx.LiveRoutineKeys.Add(item: key);
         foreach (TypeInfo owner in _liveOwnerTypes) ctx.LiveOwnerTypeNames.Add(item: owner.FullName);
 
@@ -101,6 +93,10 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
     /// in synthesized code, force every wired routine on every live concrete type into the live set.
     /// Sibling expansion in <see cref="ExpandSyntheticSiblings"/> then handles wrapper transparency
     /// (e.g. Text.represent -> Text.represent).
+    ///
+    /// RETIRED (Stage 3): no longer called — force-seeding moved wholesale to the demand collector (see
+    /// <c>Run</c>). Kept temporarily; a focused dead-code sweep removes this method and any helpers it alone
+    /// reaches (some are shared with <c>Drain</c>-time seeding, so the sweep must trace each caller).
     /// </summary>
     private void SeedWiredRoutinesOnLiveTypes()
     {

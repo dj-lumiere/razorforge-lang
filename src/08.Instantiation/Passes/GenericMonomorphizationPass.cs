@@ -1100,6 +1100,29 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
             return;
         }
 
+        // Variant routines (iterator `try_emit`; and try_/check_/lookup_ of any failable) have NO source AST
+        // under their own name — their real body is built from the ORIGINAL failable routine's AST via the
+        // path-2 transform (BuildVariantBody → FindInStdlib(emit!) + ErrorHandlingVariantPass.TransformBody).
+        // ProcessConcreteType→BuildBody routes variants this way; this singular build-one path (the demand
+        // collector's build atom) must too, else FindInStdlib(try_emit) below fails → an EMPTY SENTINEL body →
+        // undefined `try_emit` at link (the reason iterator adapters over-pruned under the pull collector).
+        if (resolvedRoutine.GenericDefinition.OriginalName != null
+            && resolvedRoutine.GenericDefinition.OwnerType is { } variantGenDefOwner)
+        {
+            MonomorphizedBody? variantBodyBuilt = BuildVariantBody(
+                genMemberRoutine: resolvedRoutine.GenericDefinition,
+                concreteInfo: resolvedRoutine,
+                genDef: variantGenDefOwner,
+                typeSubs: typeSubs,
+                stringSubs: typeSubs.ToDictionary(keySelector: kv => kv.Key,
+                    elementSelector: kv => kv.Value.FullName));
+            if (variantBodyBuilt != null)
+            {
+                ctx.InstantiatedGenericBodies[key: resolvedRoutine.RegistryKey] = variantBodyBuilt;
+                return;
+            }
+        }
+
         string astName = BuildAstNameForResolvedRoutine(resolvedRoutine);
         RoutineDeclaration? astDecl = FindInStdlib(
             genericAstName: astName,

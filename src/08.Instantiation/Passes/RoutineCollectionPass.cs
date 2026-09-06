@@ -74,6 +74,14 @@ internal sealed class RoutineCollectionPass(InstantiationContext ctx)
         // subscript `list[i]` → `list.getitem(i)`) aren't seen the first round. Loop: collect → LOWER the
         // fresh bodies → collect again (the lowered bodies now expose their callees) → … until a round builds
         // nothing. Bounded by the finite reachable set.
+        // PDIL synthesizes per-implementer protocol-default-impl bodies (e.g. `List[S64].List`/`.Set`).
+        // Such a call can appear ONLY inside a demand-monomorphized iterator body (`source.List()` inside
+        // `ReverseIterable.iter`), which PDIL cannot see until the collector builds that body — so PDIL runs
+        // INSIDE the collector fixpoint (real ctx, whose InstantiatedGenericBodies the collector aliases) and
+        // its synthesized bodies are folded in by the incremental GMP. Mirrors GenericClosurePass's PDIL↔GMP
+        // fixpoint, which the push pipeline relies on but which reachability-disabled demand build bypasses.
+        var pdil = new ProtocolDefaultImplLoweringPass(ctx: ctx);
+        var incrementalGmp = new GenericMonomorphizationPass(ctx: adapter);
         int guard = 0;
         while (guard++ < 100)
         {
@@ -81,15 +89,28 @@ internal sealed class RoutineCollectionPass(InstantiationContext ctx)
                 comparer: StringComparer.Ordinal);
             int built = new GenericMonomorphizationPass(ctx: adapter)
                 .CollectReferencedInIsolation(entrySeeds: entrySeeds, programBodies: programBodies);
+            // Synthesize + monomorphize protocol-default-impls referenced by the bodies built this round,
+            // BEFORE lowering, so their fresh bodies join the same lower-all-fresh sweep below.
+            bool pdilSynth = pdil.Run();
+            if (pdilSynth) incrementalGmp.RunIncremental();
             Dictionary<string, MonomorphizedBody> freshBodies = adapter.InstantiatedGenericBodies
                 .Where(predicate: kv => !before.Contains(item: kv.Key))
                 .ToDictionary(keySelector: kv => kv.Key, elementSelector: kv => kv.Value,
                     comparer: StringComparer.Ordinal);
             if (freshBodies.Count > 0)
+            {
                 GenericClosurePass.LowerFreshBodies(ctx: ctx, adapter: adapter, freshBodies: freshBodies);
+                // LowerFreshBodies REASSIGNS entries (`dict[key] = body with { … }`, MonomorphizedBody is a
+                // record) on the `freshBodies` COPY, not the shared adapter map — so the lowered results
+                // (FString/Operator/VariantReturn/…) live only in the copy. Merge them back or codegen reads
+                // the UN-lowered originals (a composed iterator's try_emit reaching codegen with raw
+                // VariantReturnStatement). Mirrors GenericClosurePass.RunClosure's merge-back.
+                foreach ((string key, MonomorphizedBody body) in freshBodies)
+                    adapter.InstantiatedGenericBodies[key: key] = body;
+            }
             totalBuilt += built;
             allFresh.AddRange(collection: freshBodies.Keys);
-            if (built == 0) break;
+            if (built == 0 && !pdilSynth) break;
         }
 
         if (totalBuilt > 0)

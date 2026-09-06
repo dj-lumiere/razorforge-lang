@@ -296,6 +296,9 @@ public partial class LlvmCodeGenerator
     /// <summary>The return type of the current function being generated.</summary>
     private TypeInfo? _currentRoutineReturnType;
 
+    /// <summary>Diagnostic-only: owner-qualified name of the routine currently being emitted.</summary>
+    private string? _currentRoutineDiagName;
+
     /// <summary>
     /// True when the current function returns its value through a hidden <c>ptr sret(%T) %sret</c>
     /// first parameter rather than by value (the ABI Indirect return form of the struct-ABI

@@ -53,7 +53,13 @@ public partial class LlvmCodeGenerator
         // ones and `nounwind` reflects that the runtime never unwinds.
         // Base mode: EXTERNAL so the delta module can reference it (internal is module-local, invisible
         // across the base/delta split). Base is non-pruned + cached ⇒ no GlobalDCE needed.
-        bool isCompilerGenerated = routine.IsSynthesized || routine.IsWiredMemberRoutine;
+        // Deterministic across cold/warm — see BuildDefineHeader: a monomorphized instance (owner carries
+        // concrete type arguments) is whole-program-internal BY STRUCTURE, independent of the IsSynthesized
+        // flag, which drifts cold-vs-warm on a demand-built routine. Both header emitters must agree.
+        bool ownerIsMonomorphizedInstance =
+            routine.OwnerType is { IsGenericDefinition: false, TypeArguments.Count: > 0 };
+        bool isCompilerGenerated =
+            routine.IsSynthesized || routine.IsWiredMemberRoutine || ownerIsMonomorphizedInstance;
         string linkagePrefix = isCompilerGenerated && !_baseMode ? "internal " : "";
         string synthAttrs = isCompilerGenerated ? " nounwind" : "";
         string defineHeader =

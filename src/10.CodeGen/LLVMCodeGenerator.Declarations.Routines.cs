@@ -571,7 +571,20 @@ public partial class LlvmCodeGenerator
         // Base mode (resident-JIT): a compiler-generated routine must be EXTERNAL so the per-run delta
         // module can reference it across the base/delta boundary — `internal` is module-local and would be
         // invisible to the delta. The base is non-pruned + disk-cached, so it needs no GlobalDCE.
-        bool isCompilerGenerated = info.IsSynthesized || info.IsWiredMemberRoutine;
+        // Whole-program-internal ⇒ `internal` linkage (GlobalDCE can strip uncalled ones) + `nounwind`.
+        // Two disjuncts, both DETERMINISTIC so cold and warm builds agree (WarmCompile_Repeatable):
+        //  • IsSynthesized / IsWiredMemberRoutine — a hand-registered compiler routine; and
+        //  • a MONOMORPHIZED generic instance — its owner carries concrete type arguments, so there is no
+        //    cross-module source symbol for THIS instantiation; it is materialized whole-program-internally.
+        //    Keying on the type's structure (not a builder-set flag) is what makes it deterministic: the
+        //    IsSynthesized flag drifts cold-vs-warm because several builder paths (entity self-free tail vs
+        //    record destroy vs the demand collector) set it inconsistently on the same monomorphized routine.
+        // Base mode (resident-JIT): a compiler-generated routine must stay EXTERNAL so the per-run delta
+        // module can reference it — handled by the `!_baseMode` gate below.
+        bool ownerIsMonomorphizedInstance =
+            info.OwnerType is { IsGenericDefinition: false, TypeArguments.Count: > 0 };
+        bool isCompilerGenerated =
+            info.IsSynthesized || info.IsWiredMemberRoutine || ownerIsMonomorphizedInstance;
         string linkagePrefix = isCompilerGenerated && !_baseMode ? "internal " : "";
         string funcAttrs = info.Annotations.Contains(value: "inline") ? " alwaysinline" : "";
         if (isCompilerGenerated)
@@ -676,6 +689,7 @@ public partial class LlvmCodeGenerator
 
         // Track current routine for source_routine() / source_module() injection
         _currentEmittingRoutine = routine;
+        _currentRoutineDiagName = $"{routine.OwnerType?.FullName ?? routine.Module}.{routine.Name}";
     }
 
     /// <summary>
