@@ -630,8 +630,8 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         // genuinely-referenced routines are walked and only referenced instances are built — DCE preserved.
         // Concrete non-generic-def owner types the walk has reached — each needs its codegen-injected /
         // synthesis-emitted force-seeds (wired routines, implicit-call-contract verbs, entity self-free,
-        // Text.replace) which have NO AST call for the walk to follow. Mirrors RoutineReachabilityPass's
-        // SeedWiredRoutinesOnLiveTypes, run here so the collector is self-sufficient (Stage-2 retirement).
+        // Text.replace) which have NO AST call for the walk to follow. This is now the SOLE owner of
+        // force-seeding — the reachability-side pass was retired + deleted (Stage-3 push-DCE retirement).
         var reachedOwners = new HashSet<TypeInfo>(comparer: ReferenceEqualityComparer.Instance);
 
         // Mark a reached concrete owner type LIVE + materialized. Codegen's Phase-C synthesized-body emitters
@@ -671,8 +671,8 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         }
 
         // Force-seed the codegen-injected / synthesis-emitted routines on a reached OWNER type — they have no
-        // AST call for the walk to follow. Mirrors RoutineReachabilityPass.SeedWiredRoutinesOnLiveTypes so the
-        // collector is self-sufficient (Stage-2: retires the push force-seeding). Each seed goes through
+        // AST call for the walk to follow. The collector is self-sufficient: this is the SOLE force-seeder now
+        // (the reachability-side pass was retired + deleted, Stage-3). Each seed goes through
         // Discover (build-if-generic + mark-live + queue-body).
         void ForceSeedOwner(TypeInfo type)
         {

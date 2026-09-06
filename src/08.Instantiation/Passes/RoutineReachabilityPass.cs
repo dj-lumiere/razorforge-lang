@@ -63,9 +63,9 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         SeedFromEntryPoints();
         if (ctx.SeedAllStdlibRoutines) SeedAllConcreteStdlibRoutines();
         Drain();
-        // STAGE 3 (RETIRED): force-seeding (`SeedWiredRoutinesOnLiveTypes`) — force-marking every wired /
-        // implicit-contract / self-free / iterator-adapter routine on every live owner — is now owned END TO
-        // END by the demand collector (`RoutineCollectionPass` → `GenericMonomorphizationPass.
+        // STAGE 3 (RETIRED): force-seeding — force-marking every wired / implicit-contract / self-free /
+        // iterator-adapter routine on every live owner (the old `SeedWiredRoutinesOnLiveTypes`, now DELETED) —
+        // is owned END TO END by the demand collector (`RoutineCollectionPass` → `GenericMonomorphizationPass.
         // CollectReferencedInIsolation`'s ForceSeedOwner + PDIL fixpoint). The collector materializes AND lists
         // (LiveRoutineKeys/LiveOwnerTypeNames) exactly the referenced set, so reachability no longer needs to
         // over-approximate it here. Proven: full suite green with the seed retired (both header emitters key
@@ -85,149 +85,6 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
             File.WriteAllLines(path: dumpPath, contents: lines);
         }
     }
-
-    /// <summary>
-    /// Codegen and synthesis passes (DerivedOperatorPass, WiredRoutinePass, BuilderInfoProvider)
-    /// emit wired routines for every live concrete type unconditionally — they are not driven by
-    /// AST call sites. To prevent the GMP gate from stripping bodies that have downstream callers
-    /// in synthesized code, force every wired routine on every live concrete type into the live set.
-    /// Sibling expansion in <see cref="ExpandSyntheticSiblings"/> then handles wrapper transparency
-    /// (e.g. Text.represent -> Text.represent).
-    ///
-    /// RETIRED (Stage 3): no longer called — force-seeding moved wholesale to the demand collector (see
-    /// <c>Run</c>). Kept temporarily; a focused dead-code sweep removes this method and any helpers it alone
-    /// reaches (some are shared with <c>Drain</c>-time seeding, so the sweep must trace each caller).
-    /// </summary>
-    private void SeedWiredRoutinesOnLiveTypes()
-    {
-        // Snapshot — EnqueueCallee mutates _liveOwnerTypes when it marks new owners live.
-        TypeInfo[] snapshot = _liveOwnerTypes.ToArray();
-        foreach (TypeInfo type in snapshot)
-        {
-            SeedWiredRoutinesForType(type: type);
-
-            // Unified teardown needs NO `destroy` seeding here: ScopeTeardownLoweringPass inserts
-            // the `local.destroy()` calls BEFORE this pass runs (start of Phase 7), so reachability
-            // walks the real call expressions and emits exactly the destructors that are used — no
-            // hand-seeding, and no `eq`→`notcontains` cascade from marking types live abstractly.
-
-            // Implicit codegen-inserted callees (RC-wrapper copy verb; Roamed promote/lock_enter/
-            // lock_exit/raw_inner; the inner value's display routines reached via Roamed transparency)
-            // have NO AST call for reachability to walk. Their single source of truth — shared with
-            // the matching codegen insertion sites — is ImplicitCallContract, so the two sides can't
-            // drift into the "declared+called but never defined" over-prune crash.
-            foreach ((TypeInfo owner, string memberRoutineName) in ImplicitCallContract.ForLiveType(liveType: type))
-                EnqueueMemberRoutineIfPresent(owner: owner, memberRoutineName: memberRoutineName);
-
-            SeedEntitySelfFreeForType(type: type);
-            SeedRoamedCrashMessageForType(type: type);
-            SeedTextReplaceForType(type: type);
-        }
-    }
-
-    /// <summary>
-    /// Seeds every wired routine (eq/cmp/hash/... and their derived siblings) that the concrete
-    /// <paramref name="type"/> can actually host, gating each on its base capability.
-    /// </summary>
-    private void SeedWiredRoutinesForType(TypeInfo type)
-    {
-        foreach (string wiredName in WiredRoutineNames)
-        {
-            // Only seed a wired routine the concrete type can actually host. For a generic
-            // instantiation like List[Person], List[T].eq/contains carry `needs T obeys
-            // Equatable`; if Person doesn't obey Equatable the routine is not instantiable —
-            // its body would call the abstract `Equatable.eq`/`ne` (no concrete impl) →
-            // LINKERR. The user program can't legally call it either (SA rejects the
-            // constraint violation), so skipping is safe. Derived siblings (ne, notcontains,
-            // lt/le/gt/ge) aren't in the wired-capability map themselves — gate them on
-            // their base capability so seeding ne doesn't drag in eq (whose body LINKERRs).
-            string capabilityName = wiredName switch
-            {
-                "ne" => "eq",
-                "notcontains" => "contains",
-                "lt" or "le" or "gt" or "ge" => "cmp",
-                _ => wiredName
-            };
-            if (!ctx.Registry.TypeHasWiredRoutine(type: type, wiredName: capabilityName)) continue;
-            RoutineInfo? routine = ctx.Registry.LookupMemberRoutine(type: type, memberRoutineName: wiredName);
-            if (routine != null) EnqueueCallee(callee: routine);
-        }
-    }
-
-    /// <summary>
-    /// Seeds the entity self-free tail (`me.hijack().invalidate()`) on every live concrete entity
-    /// owner. Those are zero-arg universal member calls the destructor-body walk can't surface.
-    /// </summary>
-    private void SeedEntitySelfFreeForType(TypeInfo type)
-    {
-        // Entity self-free: the auto-derived `T.destroy() needs T is EntityType` (DeriveText) tail is
-        // `me.hijack().invalidate()` — freeing the entity's heap cell. Those are ZERO-ARG UNIVERSAL
-        // member calls (`hijack`/`invalidate` are not registered on the entity itself, they live on the
-        // universal `T`/`Hijacked[T]`), so ResolveMemberCall can't surface them from the destructor
-        // body and they are never enlivened for an entity reached ONLY through its synthesized
-        // destructor (e.g. RangeEmittable[U64] created inside a stdlib iterator) — leaving
-        // `RangeEmittable[U64].hijack` / `Hijacked[RangeEmittable[U64]].invalidate` declared+called but
-        // never defined (over-prune). Seed both explicitly on every live concrete entity owner. Bare
-        // entity only — a Roamed handle frees through the collector, not this tail.
-        if (type is EntityTypeInfo { IsGenericDefinition: false }
-            && ctx.Registry.LookupMemberRoutine(type: type, memberRoutineName: RuntimeContract.RawPointer.Hijack) is { } entityHijack)
-        {
-            EnqueueCallee(callee: entityHijack);
-            TypeInfo hijackedOfEntity = ctx.Registry.GetOrCreateWrapperType(
-                wrapperName: RuntimeContract.Hijacked, innerType: type, isReadOnly: false);
-            if (ctx.Registry.LookupMemberRoutine(type: hijackedOfEntity,
-                    memberRoutineName: RuntimeContract.RawPointer.Invalidate) is { } entityInvalidate)
-                EnqueueCallee(callee: entityInvalidate);
-        }
-    }
-
-    /// <summary>
-    /// Seeds <c>Crashable.crash_message</c> for a live Roamed type — its failable forwarder's
-    /// synthesized re-throw needs it on the throw path, but that when-body isn't walked here.
-    /// </summary>
-    private void SeedRoamedCrashMessageForType(TypeInfo type)
-    {
-        // A Roamed FAILABLE forwarder synthesizes `when inner.check_m() { is Crashable e ->
-        // throw e; ... }`; that re-throw needs Crashable.crash_message on the throw path, but the
-        // synthesized when-body's ThrowStatement isn't walked for it here. NOT an implicit codegen
-        // insertion (the call lives in a synthesized AST body reachability just doesn't reach), so
-        // it stays outside the contract.
-        if (IsRoamedType(type: type) &&
-            ctx.Registry.LookupType(name: "Crashable") is { } crashTy &&
-            ctx.Registry.LookupMemberRoutine(type: crashTy, memberRoutineName: RuntimeContract.CrashMessage) is { } cm)
-        {
-            EnqueueCallee(callee: cm);
-        }
-    }
-
-    /// <summary>
-    /// Seeds <c>Text.replace</c> once <c>Core.Text</c> is live — FStringLoweringPass synthesizes a
-    /// <c>replace(old:, new:)</c> call for `:?`/`?` interpolations of in-flight entity values.
-    /// </summary>
-    private void SeedTextReplaceForType(TypeInfo type)
-    {
-        // FStringLoweringPass synthesizes `<diagnose>.replace(old:..., new:...)` for
-        // f-string `:?`/`?` interpolations of in-flight entity values, to inject the
-        // `?` mark before the short type name. Seed Text.replace once Text is live so
-        // the synthesized call resolves.
-        if (type is { Name: "Text", Module: "Core" })
-        {
-            RoutineInfo? replace = ctx.Registry.LookupMemberRoutine(type: type, memberRoutineName: RuntimeContract.Collection.Replace);
-            if (replace != null) EnqueueCallee(callee: replace);
-        }
-    }
-
-    // Names seeded live on every live concrete owner so operator-lowered bodies keep their link
-    // symbols. Operator-lowering may leave ResolvedRoutine = null on stdlib bodies whose receivers
-    // lack ResolvedType (e.g. CStr.create's UTF-8 encoder uses cp & 0x3F, cp >> 6) — seeding these
-    // names per live owner backstops that. Derived from the single source of truth
-    // WiredRoutineCatalog (entries flagged WiredView.ReachabilitySeed). Note: index forms use the
-    // bare name (getitem not getitem!) to match what LookupMemberRoutine compares against (the parser
-    // strips trailing '!' and tracks failability separately); the catalog encodes that. Excluded
-    // (not seeded here): create/destroy (driven by CreatorExpression / scope) and
-    // getitem!/setitem! bang-forms — those have dedicated reachability paths.
-    private static readonly string[] WiredRoutineNames =
-        WiredRoutineCatalog.BuildReachabilitySeedNames();
 
     private void BuildAstIndices()
     {
@@ -776,11 +633,6 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
             ?? ctx.Registry.LookupRoutine(fullName: RuntimeContract.BackResolve, isFailable: true);
         if (backResolve != null) EnqueueCallee(callee: backResolve);
     }
-
-    /// <summary>True if <paramref name="type"/> is a (resolved or generic-def) <c>Roamed[T]</c>.
-    /// Uses the canonical structured base-name classifier — no ad-hoc name parsing.</summary>
-    private static bool IsRoamedType(TypeInfo type) =>
-        TypeRegistry.GetRcWrapperBaseName(type: type) == RuntimeContract.Roamed;
 
     /// <summary>
     /// Enqueues the <paramref name="memberRoutineName"/> overload whose parameter list matches a single
@@ -1816,10 +1668,10 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
 
         // Direct named-field construction has no `create` routine — codegen synthesizes a struct
         // literal in `EmitRecordConstruction`. Without a routine to enqueue, reachability would
-        // never mark the constructed type as a live owner, blocking `SeedWiredRoutinesOnLiveTypes`
-        // from seeding its derived operators (ne/lt/...). Add the type to the live-owner set
-        // directly when we recognise this construction pattern. Affects user records like Point
-        // that obey Equatable/Comparable and rely on synthesised ne/lt/le/gt/ge bodies.
+        // never mark the constructed type as a live owner, so the demand collector's owner-driven
+        // force-seed would never reach its derived operators (ne/lt/...). Add the type to the
+        // live-owner set directly when we recognise this construction pattern. Affects user records
+        // like Point that obey Equatable/Comparable and rely on synthesised ne/lt/le/gt/ge bodies.
         if (match == null && ct is RecordTypeInfo or EntityTypeInfo)
         {
             _liveOwnerTypes.Add(item: ct);
