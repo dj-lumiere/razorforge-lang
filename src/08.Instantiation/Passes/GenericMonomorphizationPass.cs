@@ -42,6 +42,12 @@ namespace Compiler.Instantiation.Passes;
 /// </summary>
 public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
 {
+    /// <summary>True when <paramref name="t"/> still carries a generic parameter (directly or nested in a type
+    /// argument) — i.e. not yet a fully-concrete monomorphized type.</summary>
+    private static bool ContainsGenericParam(TypeInfo t) =>
+        t is GenericParameterTypeInfo or ProtocolSelfTypeInfo or ComptimeConstGenericTypeInfo
+        || (t.TypeArguments?.Any(predicate: ContainsGenericParam) ?? false);
+
     // Routine-declaration index
 
     // Key: routine name (e.g. "List[T].getitem") -> list of matching declarations.
@@ -713,7 +719,12 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
             foreach ((TypeInfo owner, string mn) in ImplicitCallContract.ForLiveType(liveType: type))
                 Discover(r: ctx.Registry.LookupMemberRoutine(type: owner, memberRoutineName: mn));
             // (3) Entity self-free tail (hijack / Hijacked[E].invalidate — zero-arg universal, no AST call).
-            if (type is EntityTypeInfo { IsGenericDefinition: false })
+            // Skip a type that still carries a generic parameter (IsGenericDefinition can be false for a
+            // partially-substituted resolution like `RangeEmittable[RangeEmittable[T]]`): GetOrCreateWrapperType
+            // would mint `Hijacked[RangeEmittable[RangeEmittable[T]]]` whose hijack references a still-deeper
+            // `RangeEmittable[RangeEmittable[RangeEmittable[T]]]`, each level spawning the next → unbounded
+            // monomorphization. Only fully-concrete entities have a real self-free to seed.
+            if (type is EntityTypeInfo { IsGenericDefinition: false } && !ContainsGenericParam(t: type))
             {
                 Discover(r: ctx.Registry.LookupMemberRoutine(type: type,
                     memberRoutineName: RuntimeContract.RawPointer.Hijack));

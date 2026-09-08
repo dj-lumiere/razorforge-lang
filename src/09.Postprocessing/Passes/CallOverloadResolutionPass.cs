@@ -128,6 +128,12 @@ internal sealed class CallOverloadResolutionPass
 
     // -----------------------------------------------------------------------------
 
+    /// <summary>True when <paramref name="type"/> still carries a generic parameter (directly or nested in a
+    /// type argument) — i.e. it is not yet a fully-concrete monomorphized type.</summary>
+    private static bool TypeContainsGenericParameter(TypeInfo type) =>
+        type is GenericParameterTypeInfo or ProtocolSelfTypeInfo or ComptimeConstGenericTypeInfo
+        || (type.TypeArguments?.Any(predicate: TypeContainsGenericParameter) ?? false);
+
     /// <summary>Walks one top-level routine body, resetting the per-body local-variable type scope first.
     /// When <paramref name="owner"/> is known (a monomorphized member routine), seeds the implicit receiver
     /// `me` so a variant/monomorph clone that left `me` un-typed can still resolve `me.count()` etc.</summary>
@@ -359,7 +365,13 @@ internal sealed class CallOverloadResolutionPass
             {
                 Object.ResolvedType: { } recvT and not ProtocolTypeInfo and not GenericParameterTypeInfo
                     and not ErrorTypeInfo
-            };
+            }
+            // Only when the receiver is FULLY concrete. In a still-generic body (receiver `RangeEmittable[T]`),
+            // re-resolving `iter()` yields a deeper `RangeEmittable[RangeEmittable[T]]` which is then marked a
+            // live owner and force-seeds its entity self-free (`hijack`/`Hijacked[…].invalidate`), each level
+            // spawning the next → unbounded `RangeEmittable[RangeEmittable[…]]` monomorphization. Concrete
+            // receivers (Range[S64], List[S64]) can't nest, so gate on no-generic-parameter.
+            && !TypeContainsGenericParameter(type: recvT);
         // Skip only when FULLY classified — both the lowering kind AND the target routine are known. A body
         // may arrive with LoweringKind set (by GenericAstRewriter) yet ResolvedRoutine still null (a cloned
         // derive's `me.assign()`); the demand collector relies on this pass as the sole member-call resolver
