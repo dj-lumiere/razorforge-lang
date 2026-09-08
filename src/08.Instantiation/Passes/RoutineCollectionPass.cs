@@ -135,8 +135,9 @@ internal sealed class RoutineCollectionPass(InstantiationContext ctx)
         // member calls (`n == 0` → `n.eq(...)`) are lowered with LoweringKind set but ResolvedRoutine null and
         // reach codegen unresolved unless classified here. Idempotent — fully-classified calls are skipped.
         var resolver = new Postprocessing.Passes.CallOverloadResolutionPass(ctx: classCtx);
-        resolver.RunOnStatements(
-            statements: ctx.InstantiatedGenericBodies.Values.Select(selector: b => b.Ast.Body));
+        resolver.RunOnBodiesWithOwners(
+            bodies: ctx.InstantiatedGenericBodies.Values.Select(
+                selector: b => (b.Ast.Body, (TypeInfo?)b.Info.OwnerType)));
         resolver.RunOnVariantBodies();
     }
 

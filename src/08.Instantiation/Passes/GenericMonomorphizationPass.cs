@@ -743,8 +743,15 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
 
         // SEED with the entry-point BODIES directly (start()/@test/@bench — their RoutineDeclaration.Body is
         // in hand from the caller, NOT looked up: a user `start` body lives in UserPrograms, not RoutineBodies).
+        // Mark each SEED's OWN key live too — the fixpoint below only marks CALLEES live (via Discover), so a
+        // root entry that nothing calls (the program's own `start`, e.g. the harness bundle's `StdlibHarness.start`
+        // which invokes each fixture's `start`) would otherwise stay un-live and be pruned by codegen's
+        // reachability gate — leaving the executable with no entry symbol.
         foreach ((string k, Statement b) in entrySeeds)
+        {
+            ctx.LiveRoutineKeys.Add(item: k);
             worklist.Enqueue(item: (k, b));
+        }
 
         // FIXPOINT: drain the call-graph worklist, then force-seed any newly-reached owner types (their seeds
         // refill the worklist), and repeat until both are exhausted.

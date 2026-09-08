@@ -94,6 +94,17 @@ internal sealed class CallOverloadResolutionPass
     }
 
     /// <summary>
+    /// Like <see cref="RunOnStatements"/> but threads each body's owner type so the implicit `me` receiver is
+    /// seeded before the walk — recovers member calls in a monomorph/variant clone whose `me` (and the locals
+    /// cascading from it, e.g. `var n = me.count()`) arrive un-typed.
+    /// </summary>
+    public void RunOnBodiesWithOwners(IEnumerable<(Statement body, TypeInfo? owner)> bodies)
+    {
+        foreach ((Statement body, TypeInfo? owner) in bodies)
+            WalkBody(body, owner: owner);
+    }
+
+    /// <summary>
     /// Classifies all <see cref="CallExpression"/> nodes inside synthesized derived-operator bodies
     /// (ne, lt, le, gt, ge, notcontains). These bodies are built by
     /// <see cref="Compiler.Synthesis.DerivedOperatorPass"/> with <c>ResolvedRoutine</c> set but
@@ -117,11 +128,14 @@ internal sealed class CallOverloadResolutionPass
 
     // -----------------------------------------------------------------------------
 
-    /// <summary>Walks one top-level routine body, resetting the per-body local-variable type scope first.</summary>
-    private void WalkBody(Statement? body)
+    /// <summary>Walks one top-level routine body, resetting the per-body local-variable type scope first.
+    /// When <paramref name="owner"/> is known (a monomorphized member routine), seeds the implicit receiver
+    /// `me` so a variant/monomorph clone that left `me` un-typed can still resolve `me.count()` etc.</summary>
+    private void WalkBody(Statement? body, TypeInfo? owner = null)
     {
         if (body == null) return;
         _localVarTypes.Clear();
+        if (owner is { } o and not ErrorTypeInfo) _localVarTypes[key: "me"] = o;
         WalkStatement(body);
     }
 
@@ -319,6 +333,17 @@ internal sealed class CallOverloadResolutionPass
     /// </summary>
     private void ClassifyCall(CallExpression call)
     {
+        // BACKFILL a null/Error ResolvedType from an ALREADY-resolved routine's return, even when the call is
+        // otherwise fully classified (and skipped below). A monomorph / variant clone can carry a resolved
+        // ResolvedRoutine yet an un-typed ResolvedType: e.g. `var n = me.count()` keeps ErrorTypeInfo, so `n`
+        // never gets a tracked type and a later `n.eq(...)` can't recover its receiver → reaches codegen
+        // unresolved. Propagate the concrete return so `n` types. (Do NOT touch a ProtocolTypeInfo ResolvedType
+        // here — the abstract-iterator case is handled by the staleProtocolReturn full re-resolve below;
+        // backfilling `iter()` returns naively would recurse into RangeEmittable[RangeEmittable[…]].)
+        if (call.ResolvedRoutine is { ReturnType: { } rrRet } && rrRet is not ProtocolTypeInfo and not ErrorTypeInfo
+            && call.ResolvedType is null or ErrorTypeInfo)
+            call.ResolvedType = rrRet;
+
         // A monomorphized body inherits its template's iter/try_emit resolution: AnnotateIterAndTryEmit
         // (each-loop desugar) annotated the call's ResolvedType with the GENERIC template's `iter` return — the
         // abstract protocol `Emittable[T]` (owner typed as `Iterable[T]`). After the routine is monomorphized
@@ -426,10 +451,11 @@ internal sealed class CallOverloadResolutionPass
             if (resolved == null) return;
             receiverType = resolved;
         }
-        else if (!allArgTypesKnown)
-        {
-            return;
-        }
+        // NOTE: unknown arg types no longer bail here. A monomorphized / variant-clone body can leave a literal
+        // arg (`0u64` in `n.eq(0u64)`) with an ErrorTypeInfo, but the receiver is concrete (U64) and the member
+        // is a unique overload — so fall through to the by-NAME lookup below (which returns null on genuine
+        // ambiguity, leaving the call unresolved exactly as the old bail did). Only the overload-BY-ARGTYPES
+        // lookup needs all arg types; it is already guarded on allArgTypesKnown.
 
         RoutineInfo? memberRoutine = allArgTypesKnown
             ? _registry.LookupMemberRoutineOverload(type: receiverType,
@@ -455,12 +481,15 @@ internal sealed class CallOverloadResolutionPass
 
         call.ResolvedRoutine = memberRoutine;
         call.LoweringKind = CallClassifier.ClassifyMemberRoutineCall(memberRoutine: memberRoutine);
-        // Refresh a call whose ResolvedType is still an abstract protocol (a stale iter/try_emit resolution
-        // carried from the generic template — e.g. `Emittable[S64]`) to the freshly-resolved concrete routine's
-        // return type (`RangeEmittable[S64]`). Otherwise codegen infers the each-loop iterator var's type from
-        // the abstract protocol and the leak reaches GetLlvmType. Narrow: only when currently protocol-typed.
-        if (call.ResolvedType is ProtocolTypeInfo && memberRoutine.ReturnType is { } concreteRet
-            && concreteRet is not ProtocolTypeInfo)
+        // Backfill a call whose ResolvedType is stale/unresolved (null, ErrorTypeInfo, or a lingering abstract
+        // protocol) from the freshly-resolved concrete routine's return type. A monomorphized / variant-clone
+        // body leaves member-call ResolvedTypes stale: `var n = me.count()` keeps an ErrorTypeInfo so `n` is
+        // untyped and a later `n.eq(...)` can't recover its receiver; `var it = r.iter()` keeps the abstract
+        // `Emittable[S64]` which leaks into codegen. Propagating the concrete return forward types the local
+        // (count→U64 lets `n` resolve, iter→RangeEmittable[S64] fixes the each-loop var).
+        if (call.ResolvedType is null or ErrorTypeInfo or ProtocolTypeInfo
+            && memberRoutine.ReturnType is { } concreteRet
+            && concreteRet is not ProtocolTypeInfo and not ErrorTypeInfo)
             call.ResolvedType = concreteRet;
     }
 
