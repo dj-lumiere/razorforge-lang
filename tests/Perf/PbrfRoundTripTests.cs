@@ -54,7 +54,6 @@ public sealed class PbrfRoundTripTests
             synthesizedBodies: r.SynthesizedBodies,
             instantiatedGenericBodies: r.InstantiatedGenericBodies,
             liveRoutineKeys: r.LiveRoutineKeys,
-            liveOwnerTypeNames: r.LiveOwnerTypeNames,
             maySuspendRoutineKeys: r.MaySuspendRoutineKeys);
         return gen.Generate();
     }

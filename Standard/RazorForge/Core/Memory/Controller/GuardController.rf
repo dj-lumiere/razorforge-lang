@@ -11,8 +11,8 @@ module Core
 ### their atomic flags.
 ### :typeparam T: The exclusively owned entity type.
 ### :typeparam P: The access-discipline lock policy.
-entity GuardController[T, P]
-needs T is EntityType, P obeys LockPolicy
+entity GuardController[AnyType T, AnyType P]
+needs EntityType T, P obeys LockPolicy
   ### Strong reference count (live `Guarded` handles). Atomic.
   secret strong_count: U64
   ### Weak reference count (live `Witnessed` handles). Atomic.

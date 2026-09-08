@@ -7,7 +7,7 @@ import BuilderQuery
 ### :typeparam T: The entity type being viewed.
 ### :see: {Modifying[T]}, {Amending[T]}, {Consulting[T]}, {Access-Types}
 @llvm("ptr")
-record Viewing[T] obeys Accessing[T], Enterable
+record Viewing[AnyType T] obeys Accessing[T], Enterable
   pass
 
 ### Produces a temporary read-only view of `me`.
@@ -15,7 +15,7 @@ record Viewing[T] obeys Accessing[T], Enterable
 ### :note: Entity-only. Records are value-typed — scoped access to record-typed values is
 ###        not supported in v0.0.1a. Use `entity` if you need a viewable reference.
 routine T.view() -> Viewing[T]
-needs T is EntityType
+needs EntityType T
   danger
     return Viewing[T](me.hijack())
 

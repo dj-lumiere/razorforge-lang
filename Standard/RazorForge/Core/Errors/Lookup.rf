@@ -9,7 +9,7 @@ import BuilderQuery
 ###   { U64 type_id, [max(sizeof(T), 8) x U8] payload }
 ### `type_id == 0` is the absent state with don't-care payload bytes.
 ### :typeparam T: The successful return value type.
-record Lookup[T]
+record Lookup[AnyType T]
   ### Identifies the stored payload type, or `0` for the absent state.
   secret type_id: U64
   ### Inline payload buffer, sized to the success `T` but at least 8 bytes so an error entity pointer

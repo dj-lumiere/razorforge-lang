@@ -4,14 +4,14 @@ import BuilderQuery
 import BuilderExpansion
 import Collections
 
-### The auto-derived default `represent()` for any record: `TypeName(field: value, …)`. Written as a
+### The auto-derived default `represent()` for any record/entity: `TypeName(field: value, …)`. Written as a
 ### universal `@overridable routine T.represent()` — the compiler uses it as the represent for any
 ### record that doesn't provide its own (a hand-written `T.represent` or a kind-specialized
 ### `@override` takes precedence). Secret fields are hidden — the `openmemvarof` walk yields only the
 ### publicly-readable (OPEN ∪ POSTED) members. Each value renders via its own `represent`.
 @overridable
 routine T.represent() -> Text
-needs T is TypeName
+needs AnyType T
   var result = me.type_name() + "("
   var first = true
   expand m in openmemvarof(T)
@@ -29,7 +29,7 @@ needs T is TypeName
 ### exact type-identity), so each instantiation collapses to just its arm. Containers call `nested_repr`
 ### on every element; the top-level `represent()` stays bare.
 routine nested_repr(value: T) -> Text
-needs T is TypeName
+needs AnyType T
   when T
     is Text => return "\"" + value.represent() + "\""
     is Bytes => return "\"" + value.represent() + "\""
@@ -122,12 +122,37 @@ needs T is FlagsType
     result = "<none>"
   return me.full_type_name() + "(value: " + bits + ", " + result + ")"
 
+### Choice `all_cases()`: every declared case value, in declaration order. `caseof` yields each case;
+### `$valueof(c)` is its S32 discriminant, reconstructed into a `Me` value via the reverse `Me(from: S32)`
+### constructor. Replaces the C# `BuildAllCasesBody` (which left the bare case names unresolved at codegen).
+@overridable
+routine T.all_cases() -> List[Me]
+needs ChoiceType T
+  var result = List[Me]()
+  expand c in caseof(T)
+    result.add_last(value: Me(from: $valueof(c)))
+  return result
+
+### Flags `all_cases()`: every declared single-bit member value. `$valueof(c)` is its U64 bit, reconstructed
+### via the reverse `Me(from: U64)` constructor.
+@overridable
+routine T.all_cases() -> List[Me]
+needs FlagsType T
+  var result = List[Me]()
+  expand c in caseof(T)
+    result.add_last(value: Me(from: $valueof(c)))
+  return result
+
+### Choice/Flags `count()` is NOT a template: it is emitted as a BUILDTIME CONSTANT (`return <N>_u64`)
+### by WiredRoutinePass.BuildCountBody — the declared case/member count is known at build time, so there
+### is no runtime `caseof` unroll + increment.
+
 ### Tuple `represent()`: the SPECIAL tuple format `(v0, v1, …)` — no type name, no field names, each
 ### element via its own `represent`. Distinct from the record `TypeName(field: value)` shape, hence the
 ### `is TupleType` override.
 @override
 routine T.represent() -> Text
-needs T is TupleType
+needs TupleType T
   var result = "("
   var first = true
   expand m in allmemvarof(T)
@@ -141,7 +166,7 @@ needs T is TupleType
 ### element walk (elements still render via `represent`, not `diagnose`, matching the C# builder).
 @override
 routine T.diagnose() -> Text
-needs T is TupleType
+needs TupleType T
   var result = me.full_type_name() + "("
   var first = true
   expand m in allmemvarof(T)
@@ -171,7 +196,7 @@ needs T is RoutineType
 ### value still renders via `represent` (never `diagnose`) to avoid exponentially verbose nested output.
 @overridable
 routine T.diagnose() -> Text
-needs T is TypeName
+needs AnyType T
   var result = me.full_type_name() + "("
   var first = true
   expand m in allmemvarof(T)
@@ -190,7 +215,6 @@ needs T is TypeName
 ### builder — a zero-field type expands to no comparisons and returns `true`.
 @overridable
 routine T.eq(you: T) -> Bool
-needs T is TypeName
 needs T obeys Equatable
   expand m in allmemvarof(T)
     if me.$nameof(m) != you.$nameof(m)
@@ -203,19 +227,38 @@ needs T obeys Equatable
 ### zero-field type expands to no comparisons and returns `SAME`.
 @overridable
 routine T.cmp(you: T) -> ComparisonSign
-needs T is TypeName
 needs T obeys Comparable
   expand m in allmemvarof(T)
     if me.$nameof(m).cmp(you: you.$nameof(m)) isnot SAME
       return me.$nameof(m).cmp(you: you.$nameof(m))
   return SAME
 
+### The auto-derived ordering helpers `lt`/`le`/`gt`/`ge` for any Comparable type, derived from `cmp`
+### (`me.cmp(you)` is `ME_SMALL`/`SAME`/`ME_LARGE`). These used to be emitted by the C# DerivedOperatorPass,
+### which the collector/harness codegen path lost; deriving them here routes them through the same
+### everywhere-derive template mechanism as `represent`/`cmp` (registered + materialized by the collector),
+### so `a < b` (-> `a.lt(b)`) resolves for Character, numerics, records, collections uniformly.
+routine T.lt(you: T) -> Bool
+needs T obeys Comparable
+  return me.cmp(you: you) is ME_SMALL
+
+routine T.le(you: T) -> Bool
+needs T obeys Comparable
+  return me.cmp(you: you) isnot ME_LARGE
+
+routine T.gt(you: T) -> Bool
+needs T obeys Comparable
+  return me.cmp(you: you) is ME_LARGE
+
+routine T.ge(you: T) -> Bool
+needs T obeys Comparable
+  return me.cmp(you: you) isnot ME_SMALL
+
 ### The auto-derived fast `hash()` for any record/entity/tuple: XOR-fold each member variable's fast
 ### hash. Seeded at `0` (the XOR identity), so a single-field type hashes to exactly that field's hash
 ### and a zero-field type hashes to `0` — matching the hand-written C# builder. `expand` field-walk.
 @overridable
 routine T.hash() -> U64
-needs T is TypeName
 needs T obeys Hashable
   var acc = 0u64
   expand m in allmemvarof(T)
@@ -226,7 +269,6 @@ needs T obeys Hashable
 ### variable's keyed hash.
 @overridable
 routine T.hash(k0: U64, k1: U64) -> U64
-needs T is TypeName
 needs T obeys Hashable
   var acc = 0u64
   expand m in allmemvarof(T)
@@ -249,7 +291,7 @@ needs T obeys Hashable
 ### so the walk calls `me.field.serialize()` UNCONDITIONALLY — no capability gate, no comptime prune.
 @overridable
 routine T.serialize() -> SerialValue
-needs T is TypeName
+needs AnyType T
   var __sv = Dict[Text, SerialValue]()
   expand m in openmemvarof(T)
     discard __sv.add(key: nameof(m), value: me.$nameof(m).serialize())
@@ -259,7 +301,6 @@ needs T is TypeName
 ### type, or the retaining store for a managed-leaf / retaining-field record. Same as the C# builder.
 @overridable
 routine T.duplicate() -> Me
-needs T is TypeName
 needs T obeys Copyable
   return me.assign()
 
@@ -284,7 +325,7 @@ needs T obeys Copyable
 ### destructor. The `allmemvarof` walk covers every owned member including `secret`.
 @overridable
 routine T.destroy()
-needs T is TypeName
+needs T is RecordType
   expand m in allmemvarof(T)
     me.$nameof(m).destroy()
   return
@@ -322,7 +363,6 @@ needs T is VariantType
 ### reconstruction `T(f: me.f.assign(), …)` with a mutation walk — no creator arg-list needed.
 @overridable
 routine T.assign() -> Me
-needs T is TypeName
 needs T obeys Assignable
 needs Assignable everywhere
   var result = me

@@ -1067,7 +1067,6 @@ internal partial class Program
                 synthesizedBodies: result.SynthesizedBodies,
                 instantiatedGenericBodies: result.InstantiatedGenericBodies,
                 liveRoutineKeys: result.LiveRoutineKeys,
-                liveOwnerTypeNames: result.LiveOwnerTypeNames,
                 maySuspendRoutineKeys: result.MaySuspendRoutineKeys)
             {
                 Timing = saTiming,
@@ -1415,7 +1414,6 @@ internal partial class Program
                 synthesizedBodies: result.SynthesizedBodies,
                 instantiatedGenericBodies: result.InstantiatedGenericBodies,
                 liveRoutineKeys: result.LiveRoutineKeys,
-                liveOwnerTypeNames: result.LiveOwnerTypeNames,
                 maySuspendRoutineKeys: result.MaySuspendRoutineKeys)
             {
                 Timing = saTiming,

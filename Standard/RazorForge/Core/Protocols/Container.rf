@@ -4,7 +4,7 @@ module Core
 ### Containers answer whether a candidate value is present according to the
 ### semantics of the conforming type.
 ### :typeparam T: The element type tested for membership.
-protocol Container[T]
+protocol Container[AnyType T]
   ### Returns whether this value contains `value`.
   ### The exact matching semantics, including equality rules and search scope,
   ### are defined by the conforming type.

@@ -33,7 +33,7 @@ choice AgentKind
 ### nothing → no double-free even when the same coroutine/worker is aliased across copies. A coroutine
 ### created but never spawned (a recipe you never invoke) leaks its context — rare, and the routine
 ### body never runs, which is the point of laziness.
-record Agent[T] obeys Assignable
+record Agent[AnyType T] obeys Assignable
   ### CORO = coroutine-backed (suspended routine); THREAD = thread-backed (threaded routine).
   secret kind: AgentKind
   ### The coroutine handle (rf_coro*) — created INERT at the call site (kind CORO), spawned by a verb.

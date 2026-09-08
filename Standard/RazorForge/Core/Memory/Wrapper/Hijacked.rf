@@ -11,7 +11,7 @@ import BuilderQuery
 ### :typeparam T: The pointee type.
 ### :see: {Address}, {Modifying[T]}, {Viewing[T]}, {Memory-Types}
 @llvm("ptr")
-record Hijacked[T] obeys Assignable, Copyable
+record Hijacked[AnyType T] obeys Assignable, Copyable
   pass
 
 ### Returns the raw address carried by this pointer.
@@ -91,7 +91,7 @@ dangerous routine Hijacked[T].peek() -> T
 ### Contrast with `peek`, which reads the `T` stored *at* the address.
 ### :returns: This pointer reinterpreted as `T`.
 dangerous routine Hijacked[T].as_entity() -> T
-needs T is EntityType
+needs EntityType T
   return LLVM::reinterpret_bits[Hijacked[T], T](me)
 
 ### Stores `value` at the address referenced by this pointer.

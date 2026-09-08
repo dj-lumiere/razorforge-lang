@@ -42,7 +42,7 @@ public sealed partial class StdlibLoader
     /// <summary>True when this loader belongs to a WARM-restore registry whose <c>module Core</c> programs
     /// were already parsed, analyzed and lowered at snapshot capture (served from the registry's restored
     /// set). A warm compile still needs the fresh loader to <see cref="ScanStdlibFiles"/> so on-demand
-    /// non-Core imports (e.g. <c>Collections.Deque</c>) resolve from <see cref="_modulePrograms"/> — but that
+    /// non-Core imports (e.g. <c>Collections.CircularList</c>) resolve from <see cref="_modulePrograms"/> — but that
     /// scan also re-parses every Core file into <see cref="_corePrograms"/> as UNANALYZED/UNLOWERED ASTs.
     /// When this flag is set, <see cref="AllLoadedPrograms"/> excludes <see cref="_corePrograms"/> so those
     /// stale Core copies never re-enter <c>FreshlyLoadedStdlibPrograms</c> and get re-lowered (which throws
@@ -58,7 +58,7 @@ public sealed partial class StdlibLoader
         _corePrograms;
 
     /// <summary>
-    /// Scans the stdlib once and returns every NON-Core module name found (e.g. "Collections.Deque",
+    /// Scans the stdlib once and returns every NON-Core module name found (e.g. "Collections.CircularList",
     /// "IO.Console"). Used by the daemon snapshot capture to import — and therefore pre-load into the
     /// resident snapshot — the entire stdlib, so warm compiles short-circuit on-demand imports instead of
     /// re-parsing the whole stdlib per run to resolve one import.

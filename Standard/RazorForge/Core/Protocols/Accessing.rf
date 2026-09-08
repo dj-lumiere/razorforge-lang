@@ -4,7 +4,7 @@ module Core
 ### `Accessing[T]` is the scoped read-only access abstraction used when an API needs
 ### safe access to an entity without transferring ownership.
 ### :typeparam T: The referenced entity type.
-protocol Accessing[T]
+protocol Accessing[AnyType T]
   ### Yields the inner entity as an in-flight `T` reference for read-only access.
   ### Implicitly inserted by the compiler at call sites whose target parameter is
   ### `Accessing[T]` and whose argument is any obeyer of `Accessing[T]`.

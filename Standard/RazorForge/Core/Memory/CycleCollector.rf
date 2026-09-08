@@ -259,5 +259,5 @@ routine cyclic_collect() -> U64
 ### `Roamed` element reports itself — no per-element-type branching in the compiler/codegen.
 @overridable
 dangerous routine T.cyclic_visit()
-needs T is TypeName
+needs AnyType T
   return

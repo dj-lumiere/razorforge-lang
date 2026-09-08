@@ -2,7 +2,7 @@ module Tests/Stdlib/RandomApi
 
 # Random stdlib module — end-to-end smoke test for the xoshiro256** generator and its
 # Sized-powered collection helpers. Exercises make_random (splitmix64 seeding), next_u64
-# determinism, next_f64 range, chance() distribution, pick! across List + Deque (the
+# determinism, next_f64 range, chance() distribution, pick! across List + CircularList (the
 # MutableIndexable extension), and in-place Fisher-Yates shuffle. All draws use fixed seeds
 # so the output is fully deterministic.
 
@@ -45,10 +45,10 @@ routine run_demo!() -> S64
     k = k +% 1u64
   show(f"heads out of 10000: {heads}")
 
-  # pick! generalizes across MutableIndexable collections (List and Deque here).
+  # pick! generalizes across MutableIndexable collections (List and CircularList here).
   var r = make_random(seed: 42u64)
   var lst = List[S64]()
-  var dq = Deque[S64]()
+  var dq = CircularList[S64]()
   var f = 0s64
   while f < 6s64
     lst.add_last(value: f)
@@ -57,7 +57,7 @@ routine run_demo!() -> S64
   var lv = lst.pick(rng: r.modify())
   var dv = dq.pick(rng: r.modify())
   show(f"List pick in [0,6): {lv >= 0s64 and lv < 6s64}")
-  show(f"Deque pick in [0,6): {dv >= 0s64 and dv < 6s64}")
+  show(f"CircularList pick in [0,6): {dv >= 0s64 and dv < 6s64}")
 
   # shuffle moves elements in place; the multiset is preserved (sum invariant) and
   # the count is unchanged.

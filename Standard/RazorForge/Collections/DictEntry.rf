@@ -4,7 +4,7 @@ module Core
 ### `DictEntry[K, V]` appears in dictionary literals, iteration, and constructor helpers.
 ### :typeparam K: The key type.
 ### :typeparam V: The value type.
-record DictEntry[K, V]
+record DictEntry[AnyType K, AnyType V]
   ### Stores the entry key.
   key: K
   ### Stores the value associated with `key`.

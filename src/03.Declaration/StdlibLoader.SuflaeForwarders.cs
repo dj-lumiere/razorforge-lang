@@ -88,7 +88,7 @@ public sealed partial class StdlibLoader
         // ALL scanned stdlib programs — eager `module Core` (_corePrograms) AND the on-demand modules
         // (_modulePrograms, e.g. `module Collections`), both fully parsed by ScanStdlibFiles before this
         // runs. Forwarders appended to an on-demand program register when that module later loads. Without
-        // this, `Collections`-module wrappers (Deque/SortedList/…) got NO forwarders (over-prune at codegen)
+        // this, `Collections`-module wrappers (CircularList/SortedList/…) got NO forwarders (over-prune at codegen)
         // while `Core`-module ones (List/Dict/Set) worked.
         List<(Program Program, string FilePath, string Module)> allProgs = _corePrograms
             .Concat(second: _modulePrograms.Values.SelectMany(selector: v => v))
@@ -208,7 +208,7 @@ public sealed partial class StdlibLoader
             return;
         }
 
-        // `inner.Type.Name` is the module-qualified owner ("Core.List", "Collections.Deque") — a
+        // `inner.Type.Name` is the module-qualified owner ("Core.List", "Collections.CircularList") — a
         // TypeExpression keeps its args in GenericArguments, so Name has no `[..]` to strip. This is
         // the exact key of the member index, so only that module's own members are forwarded.
         string innerModuleOwner = innerType.Name;

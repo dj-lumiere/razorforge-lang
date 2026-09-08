@@ -103,7 +103,7 @@ public sealed partial class SemanticVerifier
         // Extract base name (e.g., "List" from "List[S32]")
         string baseName = resolution.BareName;
         TypeSymbol? def = _registry.LookupType(name: baseName);
-        // Try slash-qualified module path lookup for non-Core types (e.g., "Collections/Deque")
+        // Try slash-qualified module path lookup for non-Core types (e.g., "Collections/CircularList")
         if (def == null && !string.IsNullOrEmpty(value: resolution.Module))
         {
             def = _registry.LookupType(name: $"{resolution.Module}.{baseName}");

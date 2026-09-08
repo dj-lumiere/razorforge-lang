@@ -13,8 +13,8 @@ import BuilderQuery
 ### :typeparam P: The access-discipline lock policy of the originating `Guarded`.
 ### :see: {Amending[T]}, {Viewing[T]}, {Guarded[T, P]}, {Access-Types}
 @llvm("ptr")
-record Consulting[T, P] obeys Accessing[T], Enterable
-needs T is EntityType, P obeys LockPolicy
+record Consulting[AnyType T, AnyType P] obeys Accessing[T], Enterable
+needs EntityType T, P obeys LockPolicy
   pass
 
 # NOTE: No creators, no manual methods — the token is produced only by `Guarded.consult()`, which

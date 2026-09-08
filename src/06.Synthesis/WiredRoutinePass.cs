@@ -223,6 +223,21 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                     ?? throw new System.InvalidOperationException(
                         message: $"destroy derive could not be cloned for '{destroyOwner.FullName}'.");
                 return true;
+            // Derived comparison operators (lt/le/gt/ge) delegate to the type's own `cmp` — the DeriveText
+            // templates spell `return me.cmp(you) == ME_SMALL` etc. Like `destroy`, they apply to EVERY
+            // concrete type obeying Comparable regardless of kind (numeric scalar, record, choice), so clone
+            // the per-name template here rather than duplicating a case in each per-kind HandleX. The retired
+            // DerivedOperatorPass used to generate these; the everywhere-derive registers the stub (guarded on
+            // a template existing — AutoWiredRegistrationPass), and this materializes its body so the demand
+            // collector and codegen see a definition (else `a < b` links to an undefined `<Type>.lt`).
+            case { Name: "lt" or "le" or "gt" or "ge", Parameters.Count: 1 } when routine.OwnerType is { } cmpOwner
+                    && ctx.Registry.GetDeriveTemplate(name: routine.Name, arity: 1, forType: cmpOwner) is not null:
+                ctx.VariantBodies[key: routine.RegistryKey] =
+                    CloneUniversalDeriveBody(ownerType: cmpOwner, synthesized: routine,
+                        memberRoutineName: routine.Name)
+                    ?? throw new System.InvalidOperationException(
+                        message: $"{routine.Name} derive could not be cloned for '{cmpOwner.FullName}'.");
+                return true;
             default:
                 DispatchByOwnerType(routine: routine,
                     textType: textType,
@@ -375,6 +390,22 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                 {
                     ctx.VariantBodies[key: routine.RegistryKey] =
                         BuildRoamFreeBody(owner: routine.OwnerType);
+                    continue;
+                }
+
+                // Derived comparison operators on a generic DEF (e.g. Array[T, N].lt) — clone the DeriveText
+                // template body here so GMP/the collector has a def body to monomorphize onto each concrete
+                // instance. Mirrors the concrete-type case in TrySynthesizeHookOrDispatch; the retired
+                // DerivedOperatorPass previously produced these.
+                if (routine is { Name: "lt" or "le" or "gt" or "ge", Parameters.Count: 1 }
+                    && routine.OwnerType is { } cmpDefOwner
+                    && ctx.Registry.GetDeriveTemplate(name: routine.Name, arity: 1, forType: cmpDefOwner) is not null)
+                {
+                    ctx.VariantBodies[key: routine.RegistryKey] =
+                        CloneUniversalDeriveBody(ownerType: cmpDefOwner, synthesized: routine,
+                            memberRoutineName: routine.Name)
+                        ?? throw new System.InvalidOperationException(
+                            message: $"{routine.Name} derive could not be cloned for '{cmpDefOwner.FullName}'.");
                     continue;
                 }
 
@@ -532,12 +563,26 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
             string paramName = routine.Parameters[index: 0].Name;
             TypeInfo? s64Type = ctx.Registry.LookupType(name: "S64");
             TypeInfo? u64Type = ctx.Registry.LookupType(name: "U64");
+            TypeInfo? s32Type = ctx.Registry.LookupType(name: "S32");
             if (paramType is ChoiceTypeInfo && record.Name == "S64" && s64Type != null)
             {
                 ctx.VariantBodies[key: routine.RegistryKey] = BuildLlvmIntrinsicCallBody(
                     intrinsicName: "sign_extend",
                     fromType: paramType,
                     toType: s64Type,
+                    paramName: paramName);
+                return true;
+            }
+
+            // S32.create(from: Choice) — a choice is S32-backed, so its discriminant reinterprets to S32
+            // with no width change. Used by the choice `eq` derive + choice pattern lowering to compare
+            // discriminants via S32.eq (icmp eq i32) instead of the codegen-side `is` primitive.
+            if (paramType is ChoiceTypeInfo && record.Name == "S32" && s32Type != null)
+            {
+                ctx.VariantBodies[key: routine.RegistryKey] = BuildLlvmIntrinsicCallBody(
+                    intrinsicName: "reinterpret_bits",
+                    fromType: paramType,
+                    toType: s32Type,
                     paramName: paramName);
                 return true;
             }
@@ -851,10 +896,20 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
         switch (routine.Name)
         {
             case "eq":
-                ctx.VariantBodies[key: routine.RegistryKey] = BuildEqBodyNumeric(ownerType: choice,
-                    boolType: boolType,
-                    isChoice: true);
+            {
+                // Choice `eq` = discriminant equality. A choice is S32-backed, so reinterpret both sides
+                // to its underlying integer (S32) and compare with `==`, which OperatorLoweringPass lowers
+                // to `S32.eq` (icmp eq i32). This keeps the `is` operator OUT of codegen — no EmitChoiceIs,
+                // no eq->is->eq recursion (the conversion is a reinterpret, the compare is S32's wired eq).
+                TypeInfo underlying = choice.UnderlyingType
+                    ?? ctx.Registry.LookupType(name: "S32")!;
+                ctx.VariantBodies[key: routine.RegistryKey] = BuildNumericEqBodyViaConversion(
+                    ownerType: choice,
+                    conversionTypeName: underlying.Name,
+                    conversionType: underlying,
+                    boolType: boolType);
                 break;
+            }
 
             case HashMemberRoutineName
                 when s64Type != null && u64Type != null && routine.Parameters.Count == 0:
@@ -874,19 +929,37 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                         u64Type: u64Type);
                 break;
 
-            case "all_cases" when listTypeDef != null:
-            {
-                TypeInfo listChoiceType =
-                    ctx.Registry.GetOrCreateResolution(genericDef: listTypeDef,
-                        typeArguments: [choice]);
-                ctx.VariantBodies[key: routine.RegistryKey] = BuildAllCasesBody(memberNames: choice
-                       .Cases
-                       .Select(c => c.Name)
-                       .ToList(),
-                    elementType: choice,
-                    listType: listChoiceType);
+            case "all_cases":
+                // Cloned from the `@overridable … needs T is ChoiceType` DeriveText template (caseof unroll
+                // reconstructing each case via `Me(from: $valueof(c))`); C# BuildAllCasesBody is the fallback.
+                ctx.VariantBodies[key: routine.RegistryKey] =
+                    CloneUniversalDeriveBody(ownerType: choice, synthesized: routine,
+                        memberRoutineName: "all_cases")
+                    ?? (listTypeDef != null
+                        ? BuildAllCasesBody(
+                            memberNames: choice.Cases.Select(c => c.Name).ToList(),
+                            elementType: choice,
+                            listType: ctx.Registry.GetOrCreateResolution(genericDef: listTypeDef,
+                                typeArguments: [choice]))
+                        : null!);
                 break;
-            }
+
+            case "count" when u64Type != null:
+                // Buildtime constant: the declared case count is known here, so emit `return <N>_u64`
+                // directly instead of a `caseof` unroll that increments N times at runtime.
+                ctx.VariantBodies[key: routine.RegistryKey] =
+                    BuildCountBody(count: choice.Cases.Count, u64Type: u64Type);
+                break;
+
+            case CreateMemberRoutineName
+                when !routine.IsFailable && routine.Parameters is [{ Name: "from" }]:
+                // Reverse constructor `Choice.create(from: S32)` — reinterpret the discriminant bits.
+                ctx.VariantBodies[key: routine.RegistryKey] = BuildLlvmIntrinsicCallBody(
+                    intrinsicName: "reinterpret_bits",
+                    fromType: routine.Parameters[0].Type!,
+                    toType: choice,
+                    paramName: "from");
+                break;
 
             case RepresentMemberRoutineName:
                 // Cloned from the `@override … needs T is ChoiceType` derive template (VALUE-dispatch
@@ -1140,6 +1213,16 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     //  hash
 
     /// <summary>
+    /// Builds a choice/flags <c>count()</c> body as a BUILDTIME CONSTANT: <c>return &lt;N&gt;_u64</c>,
+    /// where N is the declared case/member count (known at build time). Constant-time at runtime — no
+    /// <c>caseof</c> unroll + per-case increment. Replaces the DeriveText template for <c>count</c>.
+    /// </summary>
+    private static ReturnStatement BuildCountBody(int count, TypeInfo u64Type)
+        => new(Value: new LiteralExpression(Value: (ulong)count,
+                LiteralType: TokenType.U64Literal, Location: _synthLoc) { ResolvedType = u64Type },
+            Location: _synthLoc);
+
+    /// <summary>
     /// Builds the body: <c>return me.f1.hash() ^ me.f2.hash() ^ ...</c>.
     /// Zero-field types: <c>return 0_u64</c>.
     /// </summary>
@@ -1225,6 +1308,37 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
     /// The numeric create lowers via the existing codegen numeric-create path; <c>hash</c>
     /// on the result delegates to the primitive type's xxHash64 implementation.
     /// </summary>
+    /// <summary>
+    /// Builds the body: <c>return ConversionType(from: me) == ConversionType(from: you)</c>.
+    /// Used for Choice <c>eq</c>: reinterpret both discriminants to the underlying integer (S32) and
+    /// compare via <c>==</c>, which OperatorLoweringPass lowers to the integer type's wired <c>eq</c>
+    /// (<c>icmp eq i32</c>). The conversion is a reinterpret and the compare is the primitive's own eq,
+    /// so this neither uses the <c>is</c> operator nor recurses into the choice's own <c>eq</c>.
+    /// </summary>
+    private static ReturnStatement BuildNumericEqBodyViaConversion(TypeInfo ownerType,
+        string conversionTypeName, TypeInfo conversionType, TypeInfo boolType)
+    {
+        CreatorExpression Reinterpret(string localName) =>
+            new(TypeName: conversionTypeName,
+                TypeArguments: null,
+                MemberVariables:
+                [
+                    ("from", new IdentifierExpression(Name: localName, Location: _synthLoc)
+                        { ResolvedType = ownerType })
+                ],
+                Location: _synthLoc)
+            {
+                ResolvedType = conversionType, LoweringKind = CallLoweringKind.TypeConstructor
+            };
+
+        var cmp = new BinaryExpression(
+            Left: Reinterpret(localName: "me"),
+            Operator: BinaryOperator.Equal,
+            Right: Reinterpret(localName: "you"),
+            Location: _synthLoc) { ResolvedType = boolType };
+        return new ReturnStatement(Value: cmp, Location: _synthLoc);
+    }
+
     private static ReturnStatement BuildNumericHashBodyViaConversion(TypeInfo ownerType,
         string conversionTypeName, TypeInfo conversionType, TypeInfo u64Type)
     {
@@ -1997,19 +2111,37 @@ public sealed class WiredRoutinePass(DesugaringContext ctx)
                         u64Type: u64Type);
                 break;
 
-            case "all_cases" when listTypeDef != null:
-            {
-                TypeInfo listFlagsType =
-                    ctx.Registry.GetOrCreateResolution(genericDef: listTypeDef,
-                        typeArguments: [flags]);
-                ctx.VariantBodies[key: routine.RegistryKey] = BuildAllCasesBody(memberNames: flags
-                       .Members
-                       .Select(m => m.Name)
-                       .ToList(),
-                    elementType: flags,
-                    listType: listFlagsType);
+            case "all_cases":
+                // Cloned from the `@overridable … needs T is FlagsType` DeriveText template (caseof unroll
+                // reconstructing each member via `Me(from: $valueof(c))`); C# BuildAllCasesBody is the fallback.
+                ctx.VariantBodies[key: routine.RegistryKey] =
+                    CloneUniversalDeriveBody(ownerType: flags, synthesized: routine,
+                        memberRoutineName: "all_cases")
+                    ?? (listTypeDef != null
+                        ? BuildAllCasesBody(
+                            memberNames: flags.Members.Select(m => m.Name).ToList(),
+                            elementType: flags,
+                            listType: ctx.Registry.GetOrCreateResolution(genericDef: listTypeDef,
+                                typeArguments: [flags]))
+                        : null!);
                 break;
-            }
+
+            case "count" when u64Type != null:
+                // Buildtime constant: the declared member count is known here, so emit `return <N>_u64`
+                // directly instead of a `caseof` unroll that increments N times at runtime.
+                ctx.VariantBodies[key: routine.RegistryKey] =
+                    BuildCountBody(count: flags.Members.Count, u64Type: u64Type);
+                break;
+
+            case CreateMemberRoutineName
+                when !routine.IsFailable && routine.Parameters is [{ Name: "from" }]:
+                // Reverse constructor `Flags.create(from: U64)` — reinterpret the bitmask bits.
+                ctx.VariantBodies[key: routine.RegistryKey] = BuildLlvmIntrinsicCallBody(
+                    intrinsicName: "reinterpret_bits",
+                    fromType: routine.Parameters[0].Type!,
+                    toType: flags,
+                    paramName: "from");
+                break;
 
             case RepresentMemberRoutineName:
                 // Cloned from the `@override … needs T is FlagsType` derive template (SUBSET

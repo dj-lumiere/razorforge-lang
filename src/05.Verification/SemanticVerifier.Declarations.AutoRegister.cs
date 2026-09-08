@@ -27,6 +27,14 @@ public sealed partial class SemanticVerifier
         // signal must be a NON-stdlib import (see the override computed in AnalyzeMultiple).
         bool builderServiceImported = _builderQueryUserImportedOverride ?? ScanUserProgramsForBuilderQuery();
 
+        // The everywhere-derive registration inside the pass consults GetDeriveTemplate to decide which
+        // derived operators (lt/le/gt/ge from cmp) to register per type. AutoRegisterWiredRoutines is
+        // invoked from several phase orderings (single-file Phase-6 stub synthesis runs BEFORE the
+        // Analyze-level RegisterStdlibDeriveTemplates; the multi-file global sweep has no equivalent), so
+        // guarantee the template store is populated HERE, immediately before the pass. Idempotent (dedups
+        // by arity+gate) and a no-op in warm mode (restored registry re-scans its restored StdlibPrograms).
+        RegisterStdlibDeriveTemplates();
+
         new AutoWiredRegistrationPass(_registry, implicitConformances: _implicitProtocolConformances)
             .Run(builderServiceImported: builderServiceImported);
     }

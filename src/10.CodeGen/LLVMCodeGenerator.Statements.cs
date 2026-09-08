@@ -401,38 +401,10 @@ public partial class LlvmCodeGenerator
             })
             varType = constructedType;
 
-        // Fallback: constructor-style call (e.g., `var x = TypeName(...)`) -> look up by callee name.
-        // Fixes "Cannot determine type" when type inference doesn't propagate the return type
-        // (common for generic constructors and stdlib intrinsic-wrapped calls).
-        if (varType != null || varDecl.Initializer is not CallExpression callInit)
-        {
-            return varType;
-        }
-
-        return ResolveVarTypeByConstructorCalleeName(callInit: callInit);
-    }
-
-    /// <summary>Last-resort variable-type resolution for a constructor-style call: derives the type
-    /// name from the callee and looks it up (bare, Core-qualified, or by full-name suffix).</summary>
-    private TypeInfo? ResolveVarTypeByConstructorCalleeName(CallExpression callInit)
-    {
-        string? typeName = callInit.Callee switch
-        {
-            IdentifierExpression idc => idc.Name,
-            GenericMemberExpression gmc => gmc.MemberName,
-            MemberExpression mc => mc.MemberName,
-            _ => null
-        };
-        if (typeName == null)
-        {
-            return null;
-        }
-
-        return _registry.LookupType(name: typeName) ??
-               _registry.LookupType(name: $"Core.{typeName}") ?? _registry.GetAllTypes()
-                  .FirstOrDefault(predicate: t =>
-                       t.Name == typeName || t.FullName == typeName ||
-                       t.FullName.EndsWith(value: "." + typeName));
+        // No name-based fuzzy fallback: the type must come structurally (declared type, initializer's
+        // ResolvedType, the call's generic-return, or ConstructedType). If none resolved, the caller
+        // hard-errors (UndeterminableVariableType) — codegen never fails silently, never string-parses a name.
+        return varType;
     }
 
     /// <summary>
@@ -456,8 +428,13 @@ public partial class LlvmCodeGenerator
         RoutineInfo? routine = call.ResolvedRoutine;
         if (routine == null && call.Callee is IdentifierExpression id)
         {
-            routine = _registry.LookupRoutine(fullName: id.Name) ??
-                      _registry.LookupRoutineByName(name: id.Name);
+            // Signature-only: resolve the overload by the call's concrete argument types.
+            routine = _registry.LookupRoutineOverload(baseName: id.Name,
+                argTypes: call.Arguments
+                    .Select(selector: a => GetExpressionType(
+                        expr: a is NamedArgumentExpression na ? na.Value : a))
+                    .OfType<TypeInfo>()
+                    .ToList());
         }
 
         if (routine == null || call.TypeArguments is not { Count: > 0 } explicitTypeArgs)
@@ -1240,7 +1217,8 @@ public partial class LlvmCodeGenerator
 
             // Unified teardown: tear the RC-wrapper field down via its `destroy` (which forwards
             // to `release`→controller), not `release` directly — keeps every teardown on one verb.
-            RoutineInfo? destroyMemberRoutine = _registry.LookupMemberRoutine(type: w, memberRoutineName: "destroy");
+            RoutineInfo? destroyMemberRoutine = _registry.LookupMemberRoutineOverload(type: w,
+                memberRoutineName: "destroy", argTypes: new List<TypeInfo>());
             if (destroyMemberRoutine == null)
             {
                 continue;
@@ -1290,7 +1268,8 @@ public partial class LlvmCodeGenerator
         }
 
         RoutineInfo? releaseMemberRoutine =
-            _registry.LookupMemberRoutine(type: recordType, memberRoutineName: "destroy");
+            _registry.LookupMemberRoutineOverload(type: recordType, memberRoutineName: "destroy",
+                argTypes: new List<TypeInfo>());
         if (releaseMemberRoutine == null)
         {
             return;

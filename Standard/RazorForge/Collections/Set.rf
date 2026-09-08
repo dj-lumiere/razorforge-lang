@@ -32,7 +32,7 @@ secret preset ENTRY_LIVE: U8 = 1_u8
 ###
 ### :typeparam T: The element type. Must obey {Hashable} and {Equatable}.
 ### :see: {Dict[K, V]} for the dictionary counterpart.
-entity Set[T] obeys Iterable[T], Container, SetLiteral[T]
+entity Set[AnyType T] obeys Iterable[T], Container, SetLiteral[T]
 needs T obeys Hashable, Equatable
 relates SetEmittable[T] as Iter
   secret ctrl: Hijacked[U8]
@@ -303,7 +303,7 @@ routine Set[T].iter() -> SetEmittable[T]
     )
 
 ### Emittable that walks the dense entries array of a {Set[T]} in insertion order.
-entity SetEmittable[T] obeys Emittable[T]
+entity SetEmittable[AnyType T] obeys Emittable[T]
   secret slots: Hijacked[T]
   secret entry_live: Hijacked[U8]
   secret entries_used: U64

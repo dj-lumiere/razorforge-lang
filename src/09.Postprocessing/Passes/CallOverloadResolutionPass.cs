@@ -306,7 +306,11 @@ internal sealed class CallOverloadResolutionPass
     /// </summary>
     private void ClassifyCall(CallExpression call)
     {
-        if (call.LoweringKind != CallLoweringKind.Unknown) return;
+        // Skip only when FULLY classified — both the lowering kind AND the target routine are known. A body
+        // may arrive with LoweringKind set (by GenericAstRewriter) yet ResolvedRoutine still null (a cloned
+        // derive's `me.assign()`); the demand collector relies on this pass as the sole member-call resolver
+        // (codegen no longer resolves call targets at emission), so it must still resolve those.
+        if (call.LoweringKind != CallLoweringKind.Unknown && call.ResolvedRoutine != null) return;
 
         // Fast path: routine already resolved by DerivedOperatorPass or SA.
         // Wired routines like ComparisonSign.eq may not be findable via LookupMemberRoutineOverload
@@ -355,7 +359,14 @@ internal sealed class CallOverloadResolutionPass
     private void ClassifyMemberCall(CallExpression call, MemberExpression member,
         List<TypeInfo> argTypes, bool allArgTypesKnown)
     {
-        TypeInfo? receiverType = member.Object.ResolvedType;
+        // A derive-template field-walk body (`me.$nameof(m).destroy()`) deliberately leaves each unrolled
+        // member access's ResolvedType DEFERRED (GenericAstRewriter keeps member types deferred so a
+        // recursively-typed field can't spawn unbounded concrete instantiations). `me` itself IS typed to
+        // the owner, so recover the field-access receiver by walking the object chain and reading each field
+        // type off the owner — WITHOUT backfilling the AST node (leave it deferred; this is resolution-only).
+        TypeInfo? receiverType = member.Object.ResolvedType is { } rt and not ErrorTypeInfo
+            ? rt
+            : ComputeDeferredType(expr: member.Object);
         if (receiverType == null) return;
 
         // Const-generic value types (e.g. ConstGenericValueTypeInfo("63") = N=63 in Array[T, 63])
@@ -401,6 +412,32 @@ internal sealed class CallOverloadResolutionPass
 
         call.ResolvedRoutine = memberRoutine;
         call.LoweringKind = CallClassifier.ClassifyMemberRoutineCall(memberRoutine: memberRoutine);
+    }
+
+    /// <summary>
+    /// Computes an expression's type when its own <see cref="Expression.ResolvedType"/> is null/deferred, by
+    /// walking a member-access chain and reading each field's static type off its (recursively computed)
+    /// owner. Only field accesses off a typed base (`me`, a typed local) are recovered — it never invents a
+    /// type. Used to resolve member calls in derive-template field-walk bodies whose unrolled member accesses
+    /// are intentionally left type-deferred (see <c>GenericAstRewriter</c>). Returns null when the chain does
+    /// not bottom out in a known type. Does NOT mutate the AST — resolution-only.
+    /// </summary>
+    private static TypeInfo? ComputeDeferredType(Expression expr)
+    {
+        if (expr.ResolvedType is { } t and not ErrorTypeInfo)
+            return t;
+        if (expr is MemberExpression member)
+        {
+            TypeInfo? ownerType = ComputeDeferredType(expr: member.Object);
+            return ownerType switch
+            {
+                RecordTypeInfo record => record.LookupMemberVariable(memberVariableName: member.MemberName)?.Type,
+                EntityTypeInfo entity => entity.LookupMemberVariable(memberVariableName: member.MemberName)?.Type,
+                _ => null
+            };
+        }
+
+        return null;
     }
 
     /// <summary>

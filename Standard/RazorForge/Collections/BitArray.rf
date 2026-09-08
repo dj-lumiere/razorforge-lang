@@ -33,8 +33,7 @@ import BuilderQuery
 ### :see: {BitList} for a heap-backed growable bit sequence.
 ### :see: {Array[T, N]} for a fixed-size inline array of typed elements.
 @llvm("[{(N+7)//8} x i8]")
-record BitArray[N] obeys Comparable, Iterable[Bool], MutableIndexable[Bool]
-needs N is U64
+record BitArray[U64 N] obeys Comparable, Iterable[Bool], MutableIndexable[Bool]
 relates BitArrayEmittable[N] as Iter
   pass
 
@@ -244,8 +243,7 @@ routine BitArray[N].diagnose() -> Text
 ### Walks the bits of a fixed-size `BitArray[N]` from index 0 to N - 1.
 ### Because `BitArray` is a record type, the iterator holds its own copy of the packed bits.
 ### :typeparam N: The compile-time bit count.
-entity BitArrayEmittable[N] obeys Emittable[Bool]
-needs N is U64
+entity BitArrayEmittable[U64 N] obeys Emittable[Bool]
   ### Stores the bit array being iterated.
   bits: BitArray[N]
   ### Stores the next logical bit index to read.

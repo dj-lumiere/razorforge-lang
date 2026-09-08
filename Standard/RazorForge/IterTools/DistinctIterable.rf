@@ -4,7 +4,7 @@ module IterTools
 ### Two values are considered equal when they produce the same hash and compare as equal.
 ### :typeparam T: The element type of the source sequence.
 ### :typeparam S: The concrete source iterable type (borrowed; enables build-time dispatch).
-entity DistinctIterable[T, S] obeys Iterable[T]
+entity DistinctIterable[AnyType T, AnyType S] obeys Iterable[T]
 needs S obeys Iterable[T]
 relates DistinctEmittable[T, S/Iter] as Iter
   ### Stores the source iterable (borrowed, not owned).
@@ -22,7 +22,7 @@ needs T obeys Hashable, Comparable
 ### Iterates over a source sequence while suppressing values already produced.
 ### :typeparam T: The element type of the source sequence.
 ### :typeparam SE: The concrete source iterator type (borrowed).
-entity DistinctEmittable[T, SE] obeys Emittable[T]
+entity DistinctEmittable[AnyType T, AnyType SE] obeys Emittable[T]
 needs SE obeys Emittable[T]
   ### Stores the underlying source iterator (borrowed).
   secret source: Hijacked[SE]
@@ -56,7 +56,7 @@ needs T obeys Hashable, Comparable
 ### :typeparam T: The source element type.
 ### :typeparam U: The key type used for equality comparison.
 ### :typeparam S: The concrete source iterable type (borrowed).
-entity DistinctByIterable[T, U, S] obeys Iterable[T]
+entity DistinctByIterable[AnyType T, AnyType U, AnyType S] obeys Iterable[T]
 needs S obeys Iterable[T]
 relates DistinctByEmittable[T, U, S/Iter] as Iter
   ### Stores the source iterable (borrowed, not owned).
@@ -77,7 +77,7 @@ needs U obeys Hashable, Comparable
 ### :typeparam T: The source element type.
 ### :typeparam U: The key type used for equality comparison.
 ### :typeparam SE: The concrete source iterator type (borrowed).
-entity DistinctByEmittable[T, U, SE] obeys Emittable[T]
+entity DistinctByEmittable[AnyType T, AnyType U, AnyType SE] obeys Emittable[T]
 needs SE obeys Emittable[T]
   ### Stores the underlying source iterator (borrowed).
   secret source: Hijacked[SE]

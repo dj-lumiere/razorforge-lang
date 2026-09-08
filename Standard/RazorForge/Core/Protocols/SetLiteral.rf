@@ -5,7 +5,7 @@ module Core
 ### `{…}` (element form) to `Type.from_literal(...)`. The `:`-bearing brace form `{k: v}` is a dict literal
 ### (see `DictLiteral`). Analogous to Swift's `ExpressibleByArrayLiteral` for set types.
 ### :typeparam T: The element type accepted by the literal.
-protocol SetLiteral[T]
+protocol SetLiteral[AnyType T]
   ### Builds an instance holding the given `elements` (duplicates collapsed by the type).
   ### :param elements: The literal elements.
   ### :returns: The constructed value.

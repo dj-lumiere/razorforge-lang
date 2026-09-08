@@ -6,7 +6,7 @@ module IterTools
 ### :typeparam U: The element type of the second source sequence.
 ### :typeparam S1: The concrete first source iterable type (referenced, not owned).
 ### :typeparam S2: The concrete second source iterable type (referenced, not owned).
-entity ZipIterable[T, U, S1, S2] obeys Iterable[Tuple[T, U]]
+entity ZipIterable[AnyType T, AnyType U, AnyType S1, AnyType S2] obeys Iterable[Tuple[T, U]]
 needs S1 obeys Iterable[T]
 needs S2 obeys Iterable[U]
 relates ZipEmittable[T, U, S1/Iter, S2/Iter] as Iter
@@ -28,7 +28,7 @@ routine ZipIterable[T, U, S1, S2].iter() -> ZipEmittable[T, U, S1/Iter, S2/Iter]
 ### :typeparam U: The element type of the second source.
 ### :typeparam SE1: The concrete first source iterator type (referenced, not owned).
 ### :typeparam SE2: The concrete second source iterator type (referenced, not owned).
-entity ZipEmittable[T, U, SE1, SE2] obeys Emittable[Tuple[T, U]]
+entity ZipEmittable[AnyType T, AnyType U, AnyType SE1, AnyType SE2] obeys Emittable[Tuple[T, U]]
 needs SE1 obeys Emittable[T]
 needs SE2 obeys Emittable[U]
   ### Stores the iterator for the first source (referenced, not owned).
@@ -66,7 +66,7 @@ needs S2 obeys Iterable[U]
 ### :typeparam S1: The concrete first source iterable type (referenced, not owned).
 ### :typeparam S2: The concrete second source iterable type (referenced, not owned).
 ### :typeparam S3: The concrete third source iterable type (referenced, not owned).
-entity Zip3Iterable[T, U, V, S1, S2, S3] obeys Iterable[Tuple[T, U, V]]
+entity Zip3Iterable[AnyType T, AnyType U, AnyType V, AnyType S1, AnyType S2, AnyType S3] obeys Iterable[Tuple[T, U, V]]
 needs S1 obeys Iterable[T]
 needs S2 obeys Iterable[U]
 needs S3 obeys Iterable[V]
@@ -93,7 +93,7 @@ routine Zip3Iterable[T, U, V, S1, S2, S3].iter() -> Zip3Emittable[T, U, V, S1/It
 ### :typeparam SE1: The concrete first source iterator type (referenced, not owned).
 ### :typeparam SE2: The concrete second source iterator type (referenced, not owned).
 ### :typeparam SE3: The concrete third source iterator type (referenced, not owned).
-entity Zip3Emittable[T, U, V, SE1, SE2, SE3] obeys Emittable[Tuple[T, U, V]]
+entity Zip3Emittable[AnyType T, AnyType U, AnyType V, AnyType SE1, AnyType SE2, AnyType SE3] obeys Emittable[Tuple[T, U, V]]
 needs SE1 obeys Emittable[T]
 needs SE2 obeys Emittable[U]
 needs SE3 obeys Emittable[V]
@@ -137,7 +137,7 @@ needs S3 obeys Iterable[V]
 ### :typeparam S2: The concrete second source iterable type (referenced, not owned).
 ### :typeparam S3: The concrete third source iterable type (referenced, not owned).
 ### :typeparam S4: The concrete fourth source iterable type (referenced, not owned).
-entity Zip4Iterable[T, U, V, W, S1, S2, S3, S4] obeys Iterable[Tuple[T, U, V, W]]
+entity Zip4Iterable[AnyType T, AnyType U, AnyType V, AnyType W, AnyType S1, AnyType S2, AnyType S3, AnyType S4] obeys Iterable[Tuple[T, U, V, W]]
 needs S1 obeys Iterable[T]
 needs S2 obeys Iterable[U]
 needs S3 obeys Iterable[V]
@@ -169,7 +169,7 @@ routine Zip4Iterable[T, U, V, W, S1, S2, S3, S4].iter() -> Zip4Emittable[T, U, V
 ### :typeparam SE2: The concrete second source iterator type (referenced, not owned).
 ### :typeparam SE3: The concrete third source iterator type (referenced, not owned).
 ### :typeparam SE4: The concrete fourth source iterator type (referenced, not owned).
-entity Zip4Emittable[T, U, V, W, SE1, SE2, SE3, SE4] obeys Emittable[Tuple[T, U, V, W]]
+entity Zip4Emittable[AnyType T, AnyType U, AnyType V, AnyType W, AnyType SE1, AnyType SE2, AnyType SE3, AnyType SE4] obeys Emittable[Tuple[T, U, V, W]]
 needs SE1 obeys Emittable[T]
 needs SE2 obeys Emittable[U]
 needs SE3 obeys Emittable[V]

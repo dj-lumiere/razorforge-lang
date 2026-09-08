@@ -54,14 +54,13 @@ public partial class LlvmCodeGenerator
             entity = refreshed;
         }
 
-        if (entity.MemberVariables.Count == 0 && !TryRebuildEntityMembersFromAst(entity: entity))
+        // Structural re-lookup ONLY (a registered entity carries its members). No AST rebuild / no
+        // name-based type re-resolution: codegen consumes resolved TypeInfo, it does not reconstruct it.
+        if (entity.MemberVariables.Count == 0 &&
+            (_registry.LookupType(name: entity.FullName) ?? _registry.LookupType(name: entity.Name))
+                is EntityTypeInfo { MemberVariables.Count: > 0 } resolvedEntity)
         {
-            TypeInfo? relookup = _registry.LookupType(name: entity.FullName) ??
-                                 _registry.LookupType(name: entity.Name);
-            if (relookup is EntityTypeInfo { MemberVariables.Count: > 0 } resolvedEntity)
-            {
-                entity = resolvedEntity;
-            }
+            entity = resolvedEntity;
         }
         return entity;
     }

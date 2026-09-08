@@ -12,8 +12,7 @@ module Core
 ### follow-up. `Watching` currently carries only a scalar address (no hand-written `store`), so a
 ### return is a bitwise MOVE — mint (`watch`) observes once, the single live handle's `destroy`
 ### unobserves once. Do not COPY a `Watching` yet (a bitwise copy would unbalance the weak count).
-record Watching[T]
-needs T is EntityType
+record Watching[EntityType T]
   ### The observed entity's {RoamController} address — the weak edge. `0` for the absent observation.
   secret ctrl: Address
 

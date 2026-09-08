@@ -3,8 +3,7 @@ module Core
 ### Single-threaded reference counting controller.
 ### Owns the managed entity; shared between {Retained[T]} (strong) and {Tracked[T]} (weak).
 ### :typeparam T: The exclusively owned entity type.
-entity RetainController[T]
-needs T is EntityType
+entity RetainController[EntityType T]
   ### Stores the strong count.
   secret strong_count: U32
   ### Stores the weak count.

@@ -6,7 +6,7 @@ module Core
 ### (a trivially-destructible footprint), so a zeroed instance owns nothing that needs teardown.
 ### :returns: A `T` with every byte zero.
 common routine T.blank() -> T
-needs T is TypeName
+needs AnyType T
   return LLVM::zeroed[T]()
 
 ### A freshly heap-allocated `T` entity whose whole footprint is zeroed — the reference-type analog of

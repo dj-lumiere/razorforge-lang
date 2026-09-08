@@ -4,7 +4,7 @@ module Core
 ### An iterable value can produce a fresh iterator for use in `for` loops and
 ### other traversal utilities.
 ### :typeparam T: The element type yielded during iteration.
-protocol Iterable[T]
+protocol Iterable[AnyType T]
 relates Iter obeys Emittable[T]
   ### Creates an iterator over this value.
   ### Each call should return an iterator positioned at the start of the sequence.

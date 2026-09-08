@@ -120,8 +120,13 @@ public partial class LlvmCodeGenerator
                 BackendType: not null, IsGenericDefinition: false
             } record => record.LlvmType,
 
-            // Generic definition records (unresolved) -> pointer fallback (TODO: should not exist)
-            RecordTypeInfo { IsGenericDefinition: true } => "ptr",
+            // Generic-definition record (unresolved) -> HARD ERROR. codegen never fails silently: a
+            // generic-def type reaching the backend is an upstream monomorphization bug, not a `ptr` to
+            // paper over. It must be a concrete instance (GenericMonomorphizationPass) before codegen.
+            RecordTypeInfo { IsGenericDefinition: true } genDefRecord => throw new InvalidOperationException(
+                $"Generic-definition record '{genDefRecord.Name}' reached GetLlvmType " +
+                $"[inRoutine={_currentEmittingRoutine?.FullName}] — it must be monomorphized to a concrete " +
+                "instance before codegen. codegen is a never-fail translator; this leak is an upstream bug."),
 
             // Records with no fields -> look up the registered definition (may have @llvm annotation)
             RecordTypeInfo { MemberVariables.Count: 0 } record when _registry.LookupType(
@@ -162,11 +167,14 @@ public partial class LlvmCodeGenerator
                     baseName: (markerProto.GenericDefinition ?? markerProto).BareName)
                 => GetLlvmType(type: markerInner),
 
-            // Any OTHER protocol -> type-erased pointer. A non-marker protocol that monomorphization did not
-            // fully substitute (e.g. an iterator's `Emittable[T]` return, or a generic-def body) stays `ptr`
-            // (the established type-erased handle) until monomorphization is tightened to substitute every
-            // protocol-typed slot. TODO: promote to hard error once no ProtocolTypeInfo survives to codegen.
-            ProtocolTypeInfo => "ptr",
+            // Any OTHER protocol -> HARD ERROR. A non-marker protocol reaching the backend (an iterator's
+            // `Emittable[T]` return, a generic-def body, an unsubstituted protocol-typed slot) is an upstream
+            // monomorphization gap. codegen never fails silently: surface it loudly so the leak is fixed
+            // upstream, not masked by a type-erased `ptr`. (Marker protocols are unwrapped in the arm above.)
+            ProtocolTypeInfo proto => throw new InvalidOperationException(
+                $"Protocol type '{proto.Name}' reached GetLlvmType [inRoutine={_currentEmittingRoutine?.FullName}] — " +
+                "a non-marker protocol must be substituted/monomorphized before codegen. codegen is a never-fail " +
+                "translator; this leak is an upstream bug."),
 
             // Routine types -> fat value { ptr fn, ptr bound } (v0.4.1). `fn` is the callee's bare
             // C-ABI symbol; `bound` is null (captureless) or a heap payload of pre-bound captures
@@ -549,80 +557,6 @@ public partial class LlvmCodeGenerator
     );
 
     /// <summary>
-    /// Infers memberRoutine-level type arguments from concrete argument types.
-    /// Returns a mapping of generic parameter names to concrete types, or null if inference fails.
-    /// Only infers parameters that belong to the memberRoutine itself (excludes owner-level params).
-    /// </summary>
-    private static Dictionary<string, TypeInfo>? InferMemberRoutineTypeArgs(RoutineInfo genericMemberRoutine,
-        List<TypeInfo> argTypes)
-    {
-        if (genericMemberRoutine.GenericParameters == null)
-        {
-            return null;
-        }
-
-        var ownerParams = new HashSet<string>();
-        if (genericMemberRoutine.OwnerType?.GenericParameters != null)
-        {
-            foreach (string gp in genericMemberRoutine.OwnerType.GenericParameters)
-            {
-                ownerParams.Add(item: gp);
-            }
-        }
-
-        var memberRoutineParams = genericMemberRoutine.GenericParameters
-            .Where(predicate: gp => !ownerParams.Contains(item: gp))
-            .ToHashSet();
-        if (memberRoutineParams.Count == 0)
-        {
-            return null;
-        }
-
-        var inferred = new Dictionary<string, TypeInfo>();
-
-        for (int i = 0; i < genericMemberRoutine.Parameters.Count && i < argTypes.Count; i++)
-        {
-            TypeInfo paramType = genericMemberRoutine.Parameters[index: i].Type;
-            TypeInfo argType = argTypes[index: i];
-            InferFromTypes(paramType: paramType,
-                argType: argType,
-                memberRoutineParams: memberRoutineParams,
-                inferred: inferred);
-        }
-
-        return inferred.Count == memberRoutineParams.Count
-            ? inferred
-            : null;
-    }
-
-    /// <summary>
-    /// Recursively infers type argument mappings by matching a generic parameter type against a concrete type.
-    /// Handles direct params (T -> S64) and parameterized types (List[T] -> List[S64]).
-    /// </summary>
-    private static void InferFromTypes(TypeInfo paramType, TypeInfo argType,
-        HashSet<string> memberRoutineParams, Dictionary<string, TypeInfo> inferred)
-    {
-        if (paramType is GenericParameterTypeInfo && memberRoutineParams.Contains(item: paramType.Name))
-        {
-            inferred.TryAdd(key: paramType.Name, value: argType);
-            return;
-        }
-
-        if (paramType is { IsGenericResolution: true, TypeArguments: not null } &&
-            argType is { IsGenericResolution: true, TypeArguments: not null } &&
-            paramType.TypeArguments.Count == argType.TypeArguments.Count)
-        {
-            for (int i = 0; i < paramType.TypeArguments.Count; i++)
-            {
-                InferFromTypes(paramType: paramType.TypeArguments[index: i],
-                    argType: argType.TypeArguments[index: i],
-                    memberRoutineParams: memberRoutineParams,
-                    inferred: inferred);
-            }
-        }
-    }
-
-    /// <summary>
     /// Looks up a memberRoutine on a type and returns a fully-resolved bundle for codegen.
     /// Generic instantiation must already be complete before this runs.
     /// </summary>
@@ -636,15 +570,11 @@ public partial class LlvmCodeGenerator
             .Select(selector: ApplyTypeSubstitutions)
             .ToList();
 
-        RoutineInfo? memberRoutine = _registry.LookupMemberRoutine(type: receiverType,
+        // Signature-only: resolve by (name, argTypes) always — empty argTypes matches the 0-param overload.
+        // Failability is structural (same name); the overload's own IsFailable flag carries it.
+        RoutineInfo? memberRoutine = _registry.LookupMemberRoutineOverload(type: receiverType,
             memberRoutineName: memberRoutineName,
-            isFailable: isFailable);
-        if (memberRoutine?.IsGenericDefinition == true && resolvedArgTypes is { Count: > 0 })
-        {
-            memberRoutine = _registry.LookupMemberRoutineOverload(type: receiverType,
-                memberRoutineName: memberRoutineName,
-                argTypes: resolvedArgTypes);
-        }
+            argTypes: resolvedArgTypes ?? new List<TypeInfo>());
 
         if (memberRoutine == null)
         {
@@ -764,12 +694,10 @@ public partial class LlvmCodeGenerator
              routine.IsGenericDefinition ||
              RoutineHasUnresolvedTypeArguments(routine: routine)))
         {
+            // Signature-only rebind by (name, argTypes); no name-only fallback.
             RoutineInfo? reboundMemberRoutine = _registry.LookupMemberRoutineOverload(type: receiverType,
                 memberRoutineName: lookupMemberRoutineName,
                 argTypes: argTypes);
-            reboundMemberRoutine ??= _registry.LookupMemberRoutine(type: receiverType,
-                memberRoutineName: lookupMemberRoutineName,
-                isFailable: routine.IsFailable);
             if (reboundMemberRoutine != null)
             {
                 return reboundMemberRoutine;

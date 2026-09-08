@@ -78,7 +78,6 @@ public sealed class BaseEmissionTests
         synthesizedBodies: r.SynthesizedBodies,
         instantiatedGenericBodies: r.InstantiatedGenericBodies,
         liveRoutineKeys: r.LiveRoutineKeys,
-        liveOwnerTypeNames: r.LiveOwnerTypeNames,
         maySuspendRoutineKeys: r.MaySuspendRoutineKeys).Generate();
 
     /// <summary>The delta build: user code with the base's symbols marked resident (⇒ declare, not define).</summary>
@@ -90,7 +89,6 @@ public sealed class BaseEmissionTests
             synthesizedBodies: r.SynthesizedBodies,
             instantiatedGenericBodies: r.InstantiatedGenericBodies,
             liveRoutineKeys: r.LiveRoutineKeys,
-            liveOwnerTypeNames: r.LiveOwnerTypeNames,
             maySuspendRoutineKeys: r.MaySuspendRoutineKeys,
             residentSymbols: residentSymbols).Generate();
 
@@ -114,8 +112,7 @@ public sealed class BaseEmissionTests
             stdlibPrograms: r.Registry.StdlibPrograms,
             synthesizedBodies: r.SynthesizedBodies,
             instantiatedGenericBodies: r.InstantiatedGenericBodies,
-            liveRoutineKeys: null,
-            liveOwnerTypeNames: null);
+            liveRoutineKeys: null);
         (string baseIr, IReadOnlyCollection<string> baseSyms) = baseGen.GenerateBase();
 
         Assert.False(condition: string.IsNullOrWhiteSpace(value: baseIr));
@@ -185,8 +182,7 @@ public sealed class BaseEmissionTests
             stdlibPrograms: baseR.Registry.StdlibPrograms,
             synthesizedBodies: baseR.SynthesizedBodies,
             instantiatedGenericBodies: baseR.InstantiatedGenericBodies,
-            liveRoutineKeys: null,
-            liveOwnerTypeNames: null);
+            liveRoutineKeys: null);
         (string baseIr, _) = baseGen.GenerateBase();
         System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "rf_base.ll"), baseIr);
 
@@ -242,8 +238,7 @@ public sealed class BaseEmissionTests
             stdlibPrograms: baseR.Registry.StdlibPrograms,
             synthesizedBodies: baseR.SynthesizedBodies,
             instantiatedGenericBodies: baseR.InstantiatedGenericBodies,
-            liveRoutineKeys: null,
-            liveOwnerTypeNames: null);
+            liveRoutineKeys: null);
         (string baseIr, IReadOnlyCollection<string> baseSyms) = baseGen.GenerateBase();
 
         bool ok = Builder.OrcJitExecutor.TryParseIr(llvmIr: baseIr, out string? err);
@@ -276,8 +271,7 @@ public sealed class BaseEmissionTests
             stdlibPrograms: baseR.Registry.StdlibPrograms,
             synthesizedBodies: baseR.SynthesizedBodies,
             instantiatedGenericBodies: baseR.InstantiatedGenericBodies,
-            liveRoutineKeys: null,
-            liveOwnerTypeNames: null);
+            liveRoutineKeys: null);
         (string baseIr, IReadOnlyCollection<string> baseSyms) = baseGen.GenerateBase();
 
         // DELTA: the actual user program, with the base's symbols marked resident (⇒ extern declare).

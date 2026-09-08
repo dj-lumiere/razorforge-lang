@@ -7,7 +7,7 @@ import BuilderQuery
 ### :typeparam T: The entity type being accessed.
 ### :see: {Viewing[T]}, {Hijacked[T]}, {Access-Types}
 @llvm("ptr")
-record Modifying[T] obeys Controlling[T], Enterable
+record Modifying[AnyType T] obeys Controlling[T], Enterable
   pass
 
 ### Produces a temporary unmanaged mutable view of `me`.
@@ -16,7 +16,7 @@ record Modifying[T] obeys Controlling[T], Enterable
 ###        through the returned `Modifying[T]` would write to a stack temporary rather than the
 ###        caller's storage. Use `entity` for scoped mutation.
 routine T.modify() -> Modifying[T]
-needs T is EntityType
+needs EntityType T
   danger
     return Modifying[T](me.hijack())
 

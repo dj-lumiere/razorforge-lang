@@ -4,7 +4,7 @@ module IterTools
 ### The adapter can keep either matching or non-matching items depending on `inverted`.
 ### :typeparam T: The element type produced by the source sequence.
 ### :typeparam S: The concrete source iterable type (borrowed; enables build-time dispatch).
-entity WhereIterable[T, S] obeys Iterable[T]
+entity WhereIterable[AnyType T, AnyType S] obeys Iterable[T]
 needs S obeys Iterable[T]
 relates WhereEmittable[T, S/Iter] as Iter
   ### Stores the source iterable (borrowed, not owned).
@@ -25,7 +25,7 @@ routine WhereIterable[T, S].iter() -> WhereEmittable[T, S/Iter]
 ### Iterates over a source sequence while yielding only values that satisfy the effective filter.
 ### :typeparam T: The element type produced by the source sequence.
 ### :typeparam SE: The concrete source iterator type (borrowed).
-entity WhereEmittable[T, SE] obeys Emittable[T]
+entity WhereEmittable[AnyType T, AnyType SE] obeys Emittable[T]
 needs SE obeys Emittable[T]
   ### Stores the underlying source iterator (borrowed).
   secret source: Hijacked[SE]

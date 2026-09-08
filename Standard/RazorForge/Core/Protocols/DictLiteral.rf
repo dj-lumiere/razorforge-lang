@@ -6,7 +6,7 @@ module Core
 ### `{a, b}` is a set literal (see `SetLiteral`). Analogous to Swift's `ExpressibleByDictionaryLiteral`.
 ### :typeparam K: The key type.
 ### :typeparam V: The value type.
-protocol DictLiteral[K, V]
+protocol DictLiteral[AnyType K, AnyType V]
   ### Builds an instance holding the given key-value `pairs`.
   ### :param pairs: The literal key-value pairs as `DictEntry[K, V]` values.
   ### :returns: The constructed value.

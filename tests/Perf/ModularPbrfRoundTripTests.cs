@@ -46,7 +46,7 @@ public sealed class ModularPbrfRoundTripTests
             userPrograms: r.Registry.UserPrograms, registry: r.Registry,
             stdlibPrograms: r.Registry.StdlibPrograms, synthesizedBodies: r.SynthesizedBodies,
             instantiatedGenericBodies: r.InstantiatedGenericBodies, liveRoutineKeys: r.LiveRoutineKeys,
-            liveOwnerTypeNames: r.LiveOwnerTypeNames, maySuspendRoutineKeys: r.MaySuspendRoutineKeys);
+            maySuspendRoutineKeys: r.MaySuspendRoutineKeys);
         return gen.Generate();
     }
 

@@ -5,7 +5,7 @@ module Core
 ### `Type.from_literal(...)`, packing the elements into a fixed `Array[T, K]`. Analogous to Swift's
 ### `ExpressibleByArrayLiteral`.
 ### :typeparam T: The element type accepted by the literal.
-protocol ListLiteral[T]
+protocol ListLiteral[AnyType T]
   ### Builds an instance holding exactly `elements`, in order.
   ### :param elements: The literal elements, in order.
   ### :returns: The constructed value.

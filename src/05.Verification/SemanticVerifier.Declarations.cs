@@ -349,7 +349,7 @@ public sealed partial class SemanticVerifier
 
         // A collection-literal preset is only Presettable as a fixed-size `Array[T, N]` or
         // `BitArray[N]` — those lower to a single constant global. Heap collections (List/Set/Dict/
-        // Deque/...) would rebuild the whole collection on every use (the fun_bench OOM class), so
+        // CircularList/...) would rebuild the whole collection on every use (the fun_bench OOM class), so
         // reject them. Non-collection presets (scalars, constructor calls like `C64(...)`) are fine.
         if (preset.Value is ListLiteralExpression && presetType is not ErrorTypeInfo)
         {

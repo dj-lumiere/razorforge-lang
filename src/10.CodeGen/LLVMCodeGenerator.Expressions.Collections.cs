@@ -54,7 +54,7 @@ public partial class LlvmCodeGenerator
 
     private static readonly string[] OwnedCollectionBaseNames =
     {
-        "List", "Dict", "Set", "Deque", "SortedDict", "SortedSet", "SortedList",
+        "List", "Dict", "Set", "CircularList", "SortedDict", "SortedSet", "SortedList",
         "SecureDict", "SecureSet", "BitList", "PriorityQueue"
     };
 
@@ -148,7 +148,7 @@ public partial class LlvmCodeGenerator
 
         string addMemberRoutineName;
         bool isMapType = baseName is "Dict" or "SortedDict" or "SecureDict";
-        bool isSequenceType = baseName is "List" or "Deque" or "BitList";
+        bool isSequenceType = baseName is "List" or "CircularList" or "BitList";
         addMemberRoutineName = isSequenceType
             ? Resolution.RuntimeContract.Collection.AddLast
             : Resolution.RuntimeContract.Collection.Add;
@@ -254,7 +254,7 @@ public partial class LlvmCodeGenerator
     }
 
     /// <summary>
-    /// Emits the element add calls for a sequence/set collection literal (List/Deque/BitList/Set/...).
+    /// Emits the element add calls for a sequence/set collection literal (List/CircularList/BitList/Set/...).
     /// </summary>
     private void EmitSequenceCollectionAdds(StringBuilder sb, List<Expression> arguments,
         string baseName, string collectionPtr, string mangledAdd, ResolvedMemberRoutine resolvedAdd)
@@ -408,9 +408,9 @@ public partial class LlvmCodeGenerator
             if (genericDef != null)
             {
                 string genCreateName = $"{RoutineInfo.GetTypeIdentity(type: genericDef)}.create";
+                // Signature-only: the 0-arg creator matches the empty-argTypes overload; no name-only fallback.
                 creator = _registry.LookupRoutineOverload(baseName: genCreateName,
                     argTypes: new List<TypeInfo>());
-                creator ??= _registry.LookupRoutine(fullName: genCreateName);
                 if (creator is { Parameters.Count: > 0 })
                     creator = null;
             }

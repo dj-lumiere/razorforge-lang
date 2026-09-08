@@ -178,15 +178,15 @@ public class CollectionLiteralTests
         Assert.Empty(collection: result.Errors);
     }
     /// <summary>
-    /// Verifies that the test validates literal with deque annotation retargets to deque.
+    /// Verifies that the test validates literal with circular list annotation retargets to circular list.
     /// </summary>
     [Fact]
-    public void ListLiteral_WithDequeAnnotation_RetargetsToDeque()
+    public void ListLiteral_WithCircularListAnnotation_RetargetsToCircularList()
     {
         string source = """
                         import Collections
                         routine test()
-                          var items: Deque[S64] = [1, 2, 3]
+                          var items: CircularList[S64] = [1, 2, 3]
                           return
                         """;
 

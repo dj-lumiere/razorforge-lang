@@ -32,7 +32,7 @@ When unsure, consult ground truth in the repo:
     `RF::` needed; a bare `Text` in a `.sf` just works.
   - **`entity` collections are WRAPPED** (`Standard/Suflae/Collections/*.sf`): a
     thin `entity X { secret inner: RF::…X }` roam-boundary wrapper — `List`, `Dict`,
-    `Set`, `Deque`, `PriorityQueue`, `SortedDict`, `SortedList`, `SortedSet`,
+    `Set`, `CircularList`, `PriorityQueue`, `SortedDict`, `SortedList`, `SortedSet`,
     `SplitList`. Every method is auto-forwarded to `inner`; you use them exactly
     like the RF twins, but an SF `entity` slot roams them (§4).
   - The "approachable surface" (hide `dangerous`/`steal`/fixed-width) is enforced
@@ -350,7 +350,7 @@ Suflae is at v0.1, and the core is now standing end-to-end:
   stop-the-world rwlock), script mode, bare-invocation run.
 - **Number model:** `Integer`/`Decimal` defaults + the `import Numerics` gate (RF-S636).
 - **Realm-scoped Core stdlib:** value records shared from RF; entity collections
-  wrapped under `Standard/Suflae/Collections/*.sf` (List/Dict/Set/Deque/
+  wrapped under `Standard/Suflae/Collections/*.sf` (List/Dict/Set/CircularList/
   PriorityQueue/Sorted{Dict,List,Set}/SplitList), auto-forwarded + re-wrapped.
 - **Approachable-surface gates:** `danger`/`extern` rejected; `dangerous` calls
   rejected (RF-S800); `@readonly`/`@reshaping` absent; fixed-width import-gated.

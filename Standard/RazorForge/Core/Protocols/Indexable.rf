@@ -1,11 +1,11 @@
 module Core
 
-### Integer-indexed read access for ordered sequences (List, Deque, Array, BitArray, BitList).
+### Integer-indexed read access for ordered sequences (List, CircularList, Array, BitArray, BitList).
 ### Provides the `[]` subscript operator with U64 integer keys.
 ### Back-index (`^n`) is handled as a separate overload by each conforming type.
 ### Bounds violations throw at runtime.
 ### :typeparam V: The element type returned by the indexer.
-protocol Indexable[V] obeys Sized
+protocol Indexable[AnyType V] obeys Sized
   ### Returns the element at zero-based position `index`.
   ### :param index: The zero-based position to read.
   ### :returns: The element at that position.

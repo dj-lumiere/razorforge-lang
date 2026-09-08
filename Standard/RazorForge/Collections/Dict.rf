@@ -33,7 +33,7 @@ secret preset ENTRY_LIVE: U8 = 1_u8
 ### :typeparam K: The key type. Must obey {Hashable} and {Equatable}.
 ### :typeparam V: The value type associated with each key.
 ### :see: {Set[T]} for the set counterpart.
-entity Dict[K, V] obeys Iterable[DictEntry[K, V]], KeyFindable, Container, Copyable onlyif (K obeys Copyable, V obeys Copyable), DictLiteral[K, V]
+entity Dict[AnyType K, AnyType V] obeys Iterable[DictEntry[K, V]], KeyFindable, Container, Copyable onlyif (K obeys Copyable, V obeys Copyable), DictLiteral[K, V]
 needs K obeys Hashable, Equatable
 relates DictEmittable[K, V] as Iter
 relates K as Key
@@ -427,7 +427,7 @@ routine Dict[K, V].iter() -> DictEmittable[K, V]
     )
 
 ### Emittable that walks the dense entries array of a {Dict[K, V]} in insertion order.
-entity DictEmittable[K, V] obeys Emittable[DictEntry[K, V]]
+entity DictEmittable[AnyType K, AnyType V] obeys Emittable[DictEntry[K, V]]
   secret keys: Hijacked[K]
   secret vals: Hijacked[V]
   secret entry_live: Hijacked[U8]

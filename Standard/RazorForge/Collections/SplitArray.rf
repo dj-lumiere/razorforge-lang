@@ -36,9 +36,8 @@ import BuilderExpansion
 ### :typeparam N: The compile-time element count, supplied as a `U64` literal.
 ### :see: {Array[T, N]} for the array-of-structs counterpart.
 ### :see: {SplitList[T]} for the growable, heap-backed SoA sequence.
-record SplitArray[T, N] obeys Comparable, Iterable[T], MutableIndexable[T], Sized, Container
+record SplitArray[AnyType T, U64 N] obeys Comparable, Iterable[T], MutableIndexable[T], Sized, Container
 needs T obeys Splittable
-needs N is U64
 relates SplitArrayEmittable[T, N] as Iter
   expand m in allmemvarof(T)
     ### One inline column holding this field across every element.
@@ -143,9 +142,8 @@ needs T obeys Equatable
 ### copy of the column data.
 ### :typeparam T: The element type yielded by the iterator.
 ### :typeparam N: The compile-time element count.
-entity SplitArrayEmittable[T, N] obeys Emittable[T]
+entity SplitArrayEmittable[AnyType T, U64 N] obeys Emittable[T]
 needs T obeys Splittable
-needs N is U64
   ### Stores the split array being iterated.
   source: SplitArray[T, N]
   ### Stores the next logical index to read.

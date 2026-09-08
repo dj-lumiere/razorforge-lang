@@ -72,8 +72,19 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
         // linkage on a DETERMINISTIC structural signal, so cold==warm). This removes the push/pull divergence
         // that force-seeding's over-approximation created. The prior re-seed-until-fixpoint loop existed only
         // to rerun the seed on owners discovered mid-drain; with no seed, one Drain reaches fixpoint.
-        foreach (string key in _live) ctx.LiveRoutineKeys.Add(item: key);
-        foreach (TypeInfo owner in _liveOwnerTypes) ctx.LiveOwnerTypeNames.Add(item: owner.FullName);
+        // DEMAND path (normal build): the collector (RoutineCollectionPass → CollectReferencedInIsolation)
+        // is the SOLE authority for LiveRoutineKeys/LiveOwnerTypeNames — it lists EXACTLY the referenced
+        // closure. This pass over-approximates (it walks generic-DEF bodies and can't see which concrete
+        // branches codegen prunes), so publishing ITS live sets pollutes the shared set with owners the
+        // demand walk never reaches — e.g. a decimal↔integer conversion `S64(from: D128)` in a generic
+        // numeric body marks D128 a live owner, and MaterializePerOwnerSynthesizedBodies then emits
+        // D128.represent → the whole bignum/decimal cluster in an S64-only program. Publish only in BASE
+        // mode (SeedAllStdlibRoutines), which must define every stdlib instance regardless of reachability.
+        if (ctx.SeedAllStdlibRoutines)
+        {
+            foreach (string key in _live) ctx.LiveRoutineKeys.Add(item: key);
+            foreach (TypeInfo owner in _liveOwnerTypes) ctx.LiveOwnerTypeNames.Add(item: owner.FullName);
+        }
 
         string? dumpPath = Compiler.Diagnostics.DiagnosticFlags.ReachabilityDump;
         if (!string.IsNullOrEmpty(value: dumpPath))
@@ -482,9 +493,9 @@ internal sealed class RoutineReachabilityPass(InstantiationContext ctx)
                 string baseName = GetCollectionBaseNameForReachability(collectionType);
                 // Array/BitArray are pure inline IR — no add memberRoutine synthesized.
                 if (baseName is "Array" or "BitArray") return;
-                // List/Deque/BitList → add_last; everything else → add (mirrors
+                // List/CircularList/BitList → add_last; everything else → add (mirrors
                 // ExpressionLoweringPass.LowerListLiteral).
-                string addMemberRoutine = baseName is "List" or "Deque" or "BitList"
+                string addMemberRoutine = baseName is "List" or "CircularList" or "BitList"
                     ? RuntimeContract.Collection.AddLast
                     : RuntimeContract.Collection.Add;
                 EnqueueMemberRoutineIfPresent(owner: collectionType, memberRoutineName: addMemberRoutine);

@@ -51,75 +51,6 @@ public partial class LlvmCodeGenerator
     private HashSet<string> _liveRoutineKeys = new(comparer: StringComparer.Ordinal);
 
     /// <summary>
-    /// RegistryKeys of routines actually REFERENCED while emitting a routine body (the transitive
-    /// closure from the user entry points). Codegen gates body definitions on this set so a routine
-    /// is emitted only if some emitted body calls it — pruning every routine nothing references
-    /// (dead derived operators, dead variants, etc.). Populated by <c>GenerateRoutineDeclaration</c>
-    /// whenever <see cref="_emittingRoutineBody"/> is set. The do/while fixpoint in
-    /// <c>GenerateRoutineDefinitions</c> drives convergence: each newly-emitted body adds its callees.
-    /// </summary>
-    private readonly HashSet<string> _referencedKeys = new(comparer: StringComparer.Ordinal);
-
-    /// <summary>
-    /// Strips a leading realm prefix (<c>SF::</c>/<c>RF::</c>) from a routine RegistryKey. Routine
-    /// mangling is realm-FREE (option-b, ambient-bare), so an SF-realm body and its RF-realm twin emit
-    /// under ONE symbol; but their RegistryKeys differ by the realm prefix. The emission gate compares
-    /// against callers' referenced keys, which are recorded from whatever realm the CALL resolved to
-    /// (often the ambient RF form). Comparing realm-stripped closes that gap: same emitted symbol =
-    /// same emission decision, regardless of which world-line the caller vs the body was keyed under.
-    /// </summary>
-    private static string StripRealmPrefix(string registryKey)
-    {
-        int sep = registryKey.IndexOf("::", StringComparison.Ordinal);
-        // Realm prefix is a bare word at the very start (e.g. "SF::[member] …"); the "::" never
-        // appears elsewhere in a key. Guard on the prefix being alphanumeric so a stray "::" deeper
-        // in the string can't truncate a real key.
-        if (sep > 0 && registryKey.AsSpan(0, sep).IndexOfAny(" .[]") < 0)
-            return registryKey[(sep + 2)..];
-        return registryKey;
-    }
-
-    /// <summary>
-    /// Removes an embedded realm marker (<c>SF::</c>/<c>RF::</c>) from a MANGLED symbol name (where it
-    /// sits after the attribute prefix, e.g. <c>[member] SF::Collections.BitList.hijack()</c>) — unlike
-    /// <see cref="StripRealmPrefix"/>, which strips a leading realm from a RegistryKey. Mangled names use
-    /// <c>.</c> and <c>[]</c> as separators and <c>::</c> ONLY as the realm marker, so a plain replace is
-    /// exact. Used to make the over-prune tripwire realm-INSENSITIVE, matching the emission gate
-    /// (<see cref="IsRoutineReferenced"/>): a collapsed SF wrapper emits its universal members (hijack,
-    /// destroy, …) under the ambient RF symbol, but the reference bookkeeping in the single-program
-    /// codegen path may record the SF-mangled variant — same emitted symbol, so same emission decision.
-    /// </summary>
-    private static string StripRealmMarker(string mangledName)
-        => mangledName.Replace(oldValue: "SF::", newValue: "").Replace(oldValue: "RF::", newValue: "");
-
-    /// <summary>
-    /// Emission gate: is this routine's body referenced by some emitted call? Realm-insensitive —
-    /// see <see cref="StripRealmPrefix"/> — so an SF-realm body whose caller referenced the ambient
-    /// RF-keyed symbol is still emitted (they are the same mangled symbol).
-    /// </summary>
-    private bool IsRoutineReferenced(string registryKey) =>
-        _referencedKeys.Contains(item: registryKey)
-        || _referencedKeys.Contains(item: StripRealmPrefix(registryKey));
-
-    /// <summary>
-    /// True while emitting a routine body (inside <c>GenerateRoutineBody</c>). Reference recording
-    /// is gated on this so the broad declaration pre-pass doesn't pollute <see cref="_referencedKeys"/>.
-    /// </summary>
-    private bool _emittingRoutineBody;
-
-    /// <summary>
-    /// Mangled names of non-extern RF routines that were referenced from an emitted body (so a
-    /// forward <c>declare</c> was recorded for them) and therefore MUST also receive a <c>define</c>.
-    /// A name left here without a matching entry in <see cref="_generatedRoutineDefs"/> after the
-    /// fixpoint converges means reachability pruned away a routine that emitted code actually calls —
-    /// an over-prune that would otherwise surface only as a linker "undefined symbol". Only populated
-    /// while <see cref="_emittingRoutineBody"/> is set, so dead declares from the broad pre-pass
-    /// (e.g. an unreferenced <c>List[Character].merge_into</c>) never enter it.
-    /// <c>external("C")</c> routines and <c>@innate</c> stubs are excluded — they are bodyless by design.
-    /// </summary>
-    private readonly HashSet<string> _expectedBodyNames = new(comparer: StringComparer.Ordinal);
-
-    /// <summary>
     /// MANGLED symbol names whose bodies live in the RESIDENT base dylib (resident-JIT incremental,
     /// see <c>internal-wiki/RESIDENT-JIT-INCREMENTAL-V0.5.md</c> §2A/C4). When non-empty, codegen emits
     /// each such routine as an extern <c>declare</c> and SKIPS its <c>define</c> in the per-run delta
@@ -143,12 +74,6 @@ public partial class LlvmCodeGenerator
     /// <c>@main</c> entry point (the delta module supplies it). Set only by <see cref="GenerateBase"/>.
     /// </summary>
     private bool _baseMode;
-
-    /// <summary>
-    /// Live concrete owner type FullNames from RoutineReachabilityPass. Used to drive Phase C
-    /// monomorphization of synthesized routines (try_emit, represent, diagnose) for generic owners.
-    /// </summary>
-    private HashSet<string> _liveOwnerTypeNames = new(comparer: StringComparer.Ordinal);
 
     /// <summary>Wrapper type base names for member forwarding in codegen.</summary>
     // TODO: It shouldn't know about all these types because they are going to be llvm ptr anyway.
@@ -360,7 +285,6 @@ public partial class LlvmCodeGenerator
     /// <param name="instantiatedGenericBodies">The instantiated generic bodies.</param>
     /// <param name="synthesizedBodies">The synthesized bodies.</param>
     /// <param name="liveRoutineKeys">Reachable routine keys from RoutineReachabilityPass; empty disables filtering.</param>
-    /// <param name="liveOwnerTypeNames">Live owner type full-names from RoutineReachabilityPass; empty disables filtering.</param>
     /// <param name="maySuspendRoutineKeys">Routine keys that may suspend (used for coroutine frame layout).</param>
     /// <param name="residentSymbols">Mangled symbols already defined in the resident base dylib (resident-JIT incremental); empty = full emission (cold/AOT).</param>
     public LlvmCodeGenerator(Program program, TypeRegistry registry,
@@ -369,7 +293,6 @@ public partial class LlvmCodeGenerator
         IReadOnlyDictionary<string, Statement>? synthesizedBodies = null,
         IReadOnlyDictionary<string, MonomorphizedBody>? instantiatedGenericBodies = null,
         IReadOnlyCollection<string>? liveRoutineKeys = null,
-        IReadOnlyCollection<string>? liveOwnerTypeNames = null,
         IReadOnlyCollection<string>? maySuspendRoutineKeys = null,
         IReadOnlyCollection<string>? residentSymbols = null) :
         this(userPrograms:
@@ -382,7 +305,6 @@ public partial class LlvmCodeGenerator
             synthesizedBodies: synthesizedBodies,
             instantiatedGenericBodies: instantiatedGenericBodies,
             liveRoutineKeys: liveRoutineKeys,
-            liveOwnerTypeNames: liveOwnerTypeNames,
             maySuspendRoutineKeys: maySuspendRoutineKeys,
             residentSymbols: residentSymbols)
     {
@@ -399,7 +321,6 @@ public partial class LlvmCodeGenerator
     /// <param name="instantiatedGenericBodies">The instantiated generic bodies.</param>
     /// <param name="synthesizedBodies">The synthesized bodies.</param>
     /// <param name="liveRoutineKeys">Reachable routine keys from RoutineReachabilityPass; empty disables filtering.</param>
-    /// <param name="liveOwnerTypeNames">Live owner type full-names from RoutineReachabilityPass; empty disables filtering.</param>
     /// <param name="maySuspendRoutineKeys">Routine keys that may suspend (used for coroutine frame layout).</param>
     /// <param name="residentSymbols">Mangled symbols already defined in the resident base dylib (resident-JIT incremental); empty = full emission (cold/AOT).</param>
     public LlvmCodeGenerator(
@@ -410,7 +331,6 @@ public partial class LlvmCodeGenerator
         IReadOnlyDictionary<string, Statement>? synthesizedBodies = null,
         IReadOnlyDictionary<string, MonomorphizedBody>? instantiatedGenericBodies = null,
         IReadOnlyCollection<string>? liveRoutineKeys = null,
-        IReadOnlyCollection<string>? liveOwnerTypeNames = null,
         IReadOnlyCollection<string>? maySuspendRoutineKeys = null,
         IReadOnlyCollection<string>? residentSymbols = null)
     {
@@ -432,14 +352,8 @@ public partial class LlvmCodeGenerator
         if (liveRoutineKeys is { Count: > 0 })
             _liveRoutineKeys = new HashSet<string>(collection: liveRoutineKeys,
                 comparer: StringComparer.Ordinal);
-        if (liveOwnerTypeNames is { Count: > 0 })
-            _liveOwnerTypeNames = new HashSet<string>(collection: liveOwnerTypeNames,
-                comparer: StringComparer.Ordinal);
         if (residentSymbols is { Count: > 0 })
             _residentSymbols = new HashSet<string>(collection: residentSymbols,
-                comparer: StringComparer.Ordinal);
-        if (maySuspendRoutineKeys is { Count: > 0 })
-            new HashSet<string>(collection: maySuspendRoutineKeys,
                 comparer: StringComparer.Ordinal);
         _buildMode = buildMode;
         _pointerBitWidth = _target.PointerBitWidth;
@@ -715,6 +629,17 @@ public partial class LlvmCodeGenerator
             return false;
         }
 
+        // A generic DEFINITION type itself (e.g. `RoamController[T]`, `Amending[T, P]`) has no concrete
+        // layout — its own type parameters are unbound, so its `TypeArguments` are the param placeholders
+        // (or null). Treat it as non-concrete so an INSTANCE routine anchored on a generic-def owner (a
+        // template like `RoamController[T].member_type_id`, wrongly demand-collected under its generic-def
+        // key) is skipped, not emitted by-value — emitting its `me` param recurses into a generic-def field
+        // (`Amending`) with no LLVM layout and detonates codegen. Concrete instances emit under their own key.
+        if (type.IsGenericDefinition)
+        {
+            return true;
+        }
+
         if (type.TypeArguments == null)
         {
             return false;
@@ -902,619 +827,41 @@ public partial class LlvmCodeGenerator
             }
         }
 
-        // Unified loop: compile stdlib bodies, emit pre-built generic bodies, generate
-        // synthesized routines, and then build runtime dispatch stubs. Codegen no longer
-        // performs generic discovery or on-demand monomorphization.
-        int prevDefCount;
-        int prevDeclCount;
-        int iterations = 0;
-        const int maxIterations = 100;
-        do
+        // DUMB TRANSLATOR (big-bang): codegen makes NO liveness/set/resolution decision. The step before
+        // codegen — the demand collector (RoutineCollectionPass) — materialized EVERY body to emit into
+        // `_instantiatedGenericBodies` (reached stdlib + monomorphized + synthesized + wrapper-forwarder,
+        // each pre-resolved). Codegen just translates that one set to IR: no Phase-A stdlib resolution,
+        // no per-body liveness gate, no `_referencedKeys` fixpoint, no per-owner synthesis at emission.
+        // The only checks below are correctness bookkeeping (don't define a symbol twice; a resident body
+        // lives in the base dylib; an empty sentinel is not a real body) — not decisions about WHAT exists.
+        foreach ((string mapKey, MonomorphizedBody body) in _instantiatedGenericBodies)
         {
-            prevDefCount = _generatedRoutineDefs.Count;
-            prevDeclCount = _generatedRoutines.Count;
-
-            // Phase A: Compile stdlib routine bodies for referenced routines
-            foreach ((Program program, string _, string module) in _stdlibPrograms)
+            string instFuncName = MangleRoutineName(routine: body.Info);
+            if (_generatedRoutineDefs.Contains(item: instFuncName)
+                || IsResident(mangledFuncName: instFuncName)) continue;
+            // A body anchored on a generic-DEFINITION owner (a template like `RoamController[T].member_type_id`
+            // or `Array[T, N].member_type_id` wrongly demand-collected under its generic-def key, not a
+            // concrete instance) has no concrete `me` layout — emitting its param list recurses into an
+            // unbound/generic-def field type with no LLVM layout and detonates codegen. `IsGenericDefinition`
+            // is the precise "this is a template" signal (unlike ContainsGenericParameter, which early-returns
+            // concrete for an `@llvm`-backed generic def like `Array[T, N]`). Skip it (correctness bookkeeping,
+            // like the sentinel/resident skips above); concrete instances still emit under their own key. The
+            // non-synthesized branch's GenerateRoutineDefinition applies the same guard via ShouldSkipRoutine.
+            if (body.Info.OwnerType is { IsGenericDefinition: true }) continue;
+            if (body.IsSynthesized)
             {
-                foreach (RoutineDeclaration routine in EnumerateStdlibRoutines(program: program))
-                {
-                    RoutineInfo? routineInfo = ResolveStdlibRoutineInfo(routine: routine,
-                        module: module);
-
-                    if (routineInfo == null || routineInfo.IsGenericDefinition)
-                    {
-                        continue;
-                    }
-
-                    // Base mode has no liveness gate to hide TEMPLATE routines whose IsGenericDefinition is
-                    // false but whose signature still carries an unresolved generic parameter (const-generic
-                    // arity like __Vararg0). Emitting one yields malformed IR; such templates instantiate on
-                    // demand (§2A.5), never in the non-pruned base. No-op for the normal path (_baseMode off).
-                    if (_baseMode && SignatureHasUnresolvedGeneric(r: routineInfo))
-                    {
-                        continue;
-                    }
-
-                    if (HasErrorTypes(routine: routineInfo))
-                    {
-                        continue;
-                    }
-
-                    // Only generate definitions for routines that were declared
-                    string funcName = MangleRoutineName(routine: routineInfo);
-                    if (!_generatedRoutines.Contains(item: funcName))
-                    {
-                        continue;
-                    }
-
-                    // Reachability gate: when LiveRoutineKeys is populated, skip stdlib
-                    // routines not reachable from program entry points. This prevents the
-                    // lazy-declaration cascade (declare X -> emit X -> declare Y -> emit Y)
-                    // from pulling in entire stdlib subgraphs (SortedList, BTreeNode, etc.)
-                    // that the user program never invokes.
-                    if (_liveRoutineKeys.Count > 0
-                        && !IsRoutineReferenced(registryKey: routineInfo.RegistryKey))
-                    {
-                        continue;
-                    }
-
-                    // Skip if already defined, or resident (body lives in the base dylib — emit as an
-                    // extern declare only; the resident set is empty in the cold/AOT path).
-                    if (_generatedRoutineDefs.Contains(item: funcName) || IsResident(mangledFuncName: funcName))
-                    {
-                        continue;
-                    }
-
-                    // No swallow: a body reaching codegen must be fully resolved by SA / lowering /
-                    // monomorphization. A failure here is an upstream contract violation and MUST be
-                    // loud (mirrors MonomorphizationCompletenessAssertionPass), not a silent warning.
-                    GenerateRoutineDefinition(routine: routine, preResolvedInfo: routineInfo);
-                }
-            }
-
-            // Phase B: Emit pre-built instantiated generic bodies (monomorphized by GMP in Phase 7).
-            // Gate on the live-routine set so dead instantiations don't drag in their callees. NOTE
-            // (Stage-3): still load-bearing — an experiment removing it fails 13 tests, so the collector's
-            // materialized _instantiatedGenericBodies is BROADER than codegen's referenced set (it
-            // over-materializes some bodies; also base-mode populates this map beyond the referenced set).
-            // Retiring this gate needs the materialized set narrowed to exactly the referenced set first.
-            foreach ((string _, MonomorphizedBody body) in _instantiatedGenericBodies)
-            {
-                string instFuncName = MangleRoutineName(routine: body.Info);
-                if (_generatedRoutineDefs.Contains(item: instFuncName)
-                    || IsResident(mangledFuncName: instFuncName)) continue;
-                if (_liveRoutineKeys.Count > 0
-                    && !IsRoutineReferenced(registryKey: body.Info.RegistryKey))
-                    continue;
-                // Base mode: skip a template whose signature still carries an unresolved generic param
-                // (e.g. a const-generic __Vararg arity) — it instantiates on demand (§2A.5), never in base.
-                if (_baseMode && SignatureHasUnresolvedGeneric(r: body.Info)) continue;
-
-                // No swallow (see Phase A): a monomorphized body that fails codegen is an upstream
-                // resolution bug — fail loudly rather than dropping the definition (which would only
-                // resurface downstream as an "undefined symbol" linker error).
-                if (body.IsSynthesized)
-                {
-                    // Empty-body sentinel — pure IR-level synthesis not yet wired; skip.
-                    if (body.Ast.Body is BlockStatement { Statements.Count: 0 })
-                    {
-                        continue;
-                    }
-
-                    _generatedRoutineDefs.Add(item: instFuncName);
-                    _generatedRoutines.Add(item: instFuncName);
-                    EmitSynthesizedBodyFromAst(routine: body.Info, funcName: instFuncName,
-                        body: body.Ast.Body);
-                }
-                else
-                {
-                    GenerateRoutineDefinition(routine: body.Ast, preResolvedInfo: body.Info);
-                }
-            }
-
-            // Phase C: Emit synthesized variant bodies (try_/check_/lookup_ and derived operators).
-            // Gate on the live-routine set: a synthesized ne body for a dead type would call a
-            // dead eq, leaving the linker hanging on the dead eq symbol.
-            foreach ((string key, Statement synthBodyAst) in _synthesizedBodies)
-            {
-                EmitPhaseCSynthesizedBody(key: key, synthBodyAst: synthBodyAst);
-            }
-
-            iterations++;
-            if (iterations >= maxIterations)
-            {
-                Console.Error.WriteLine(
-                    value:
-                    $"Warning: GenerateFunctionDefinitions reached {maxIterations} iterations, possible infinite loop");
-                break;
-            }
-        } while (_generatedRoutineDefs.Count > prevDefCount ||
-                 _generatedRoutines.Count > prevDeclCount);
-
-        if (Compiler.Diagnostics.DiagnosticFlags.PruneStats)
-        {
-            int liveNotRef = _liveRoutineKeys.Count(predicate: k => !_referencedKeys.Contains(item: k));
-            Console.Error.WriteLine(
-                value:
-                $"[PRUNE-STATS] live={_liveRoutineKeys.Count} referenced={_referencedKeys.Count} " +
-                $"defs={_generatedRoutineDefs.Count} expectedBodies={_expectedBodyNames.Count} " +
-                $"live_not_referenced={liveNotRef}");
-        }
-
-        // (Push-DCE over-prune tripwire RETIRED.) The demand collector (RoutineCollectionPass, always-on)
-        // now materializes every referenced generic instance from the entry points before codegen, so a
-        // "declared + called but never defined" over-prune can no longer arise from reachability
-        // under-approximating. Any genuinely-undefined symbol (a real collector/codegen bug) now surfaces at
-        // link — StdlibApiTests + the fixtures are the safety net. See [[pull-codegen-architecture]].
-    }
-
-    /// <summary>
-    /// Phase C: emits one synthesized-variant body (try_/check_/lookup_ / derived operator) keyed by
-    /// <paramref name="key"/>, applying all the liveness / generic-owner gates. A generic-def owner is
-    /// dispatched to the per-concrete-instantiation emitters; a concrete owner is emitted directly.
-    /// </summary>
-    private void EmitPhaseCSynthesizedBody(string key, Statement synthBodyAst)
-    {
-        RoutineInfo? synthInfo = _registry.LookupRoutine(fullName: key);
-        if (synthInfo == null || synthInfo.IsGenericDefinition) return;
-        // Base mode: skip a template whose signature still carries an unresolved generic param
-        // (e.g. from_literal(elements: Array[T, __Vararg0])) — instantiated on demand (§2A.5).
-        if (_baseMode && SignatureHasUnresolvedGeneric(r: synthInfo)) return;
-        // Wrapper-forwarder synthesized bodies are anchored on the generic-def owner
-        // (e.g. Retained[T].eq). Reachability seeds the *concrete* monomorphizations
-        // (Retained[Text].eq), not the gen-def routine itself, so the gen-def synth
-        // would always fail this gate. The inner per-concrete loop below has its own
-        // liveness check (_generatedRoutines.Contains), so it's safe to bypass here.
-        bool isWrapperForwarderGenDef =
-            synthInfo is { IsSynthesized: true, WrapperForwarderInnerMemberRoutine: not null }
-            && synthInfo.OwnerType?.IsGenericDefinition == true;
-        if (!isWrapperForwarderGenDef
-            && _liveRoutineKeys.Count > 0
-            && !IsRoutineReferenced(registryKey: synthInfo.RegistryKey))
-            return;
-        // Skip routines whose owner type still has unresolved generic parameters
-        // (e.g. represent/hash on DictEntry[K, V] — the generic definition).
-        // IsGenericDefinition only covers routines with their own type params (like
-        // hijacked_from[T]); owner-generic types need a separate guard.
-        if (synthInfo.OwnerType != null && ContainsGenericParameter(synthInfo.OwnerType))
-            return;
-        // Skip derived operators on generic owner types (e.g. ArrayIterator.ne).
-        // GMP monomorphizes these into InstantiatedGenericBodies (Phase B); emitting the
-        // generic-def version here would call a non-existent generic eq/contains.
-        // Exception: synthesized wrapper forwarder bodies (T.key_get, etc.) are
-        // anchored on the generic-def owner by design. For each concrete resolution,
-        // emit the body with the wrapper's type parameter substituted.
-        if (synthInfo.OwnerType?.IsGenericDefinition == true)
-        {
-            // Non-wrapper synthesized bodies on generic-def owners (try_emit, represent,
-            // diagnose, hash, eq for generic types like ListEmitter[T], List[T]).
-            // For each live concrete instantiation of this owner, lookup the substituted
-            // memberRoutine (LookupMemberRoutine normalizes generic-def memberRoutines onto concrete owners),
-            // rewrite the shared body to a fully concrete form, and emit one per owner.
-            if (synthInfo is { IsSynthesized: true, WrapperForwarderInnerMemberRoutine: null }
-                && synthInfo.OwnerType.GenericParameters is { Count: > 0 } gParams)
-            {
-                EmitSynthesizedBodyPerConcreteOwner(synthInfo: synthInfo,
-                    synthBodyAst: synthBodyAst, gParams: gParams);
-            }
-            if (synthInfo is { IsSynthesized: true, WrapperForwarderInnerMemberRoutine: not null } &&
-                synthInfo.OwnerType.GenericParameters is { Count: 1 } wrapperParams)
-            {
-                EmitWrapperForwarderBodyPerConcreteInner(synthInfo: synthInfo,
-                    synthBodyAst: synthBodyAst, wrapperParamName: wrapperParams[0]);
-            }
-            return;
-        }
-        string synthFuncName = MangleRoutineName(routine: synthInfo);
-        if (_generatedRoutineDefs.Contains(item: synthFuncName)) return;
-        _generatedRoutineDefs.Add(item: synthFuncName);
-        _generatedRoutines.Add(item: synthFuncName);
-        // No swallow (see Phase A): a synthesized body that fails codegen is an upstream
-        // synthesis/resolution bug and MUST be loud, not a dropped definition (which would only
-        // resurface as a downstream "undefined symbol" linker error).
-        EmitSynthesizedBodyFromAst(routine: synthInfo, funcName: synthFuncName,
-            body: synthBodyAst);
-    }
-
-    /// <summary>
-    /// Emits a non-wrapper synthesized body once per live concrete instantiation of its generic-def
-    /// owner, rewriting the shared AST to a fully concrete form for each.
-    /// </summary>
-    private void EmitSynthesizedBodyPerConcreteOwner(RoutineInfo synthInfo, Statement synthBodyAst,
-        IReadOnlyList<string> gParams)
-    {
-        TypeInfo genericOwner = synthInfo.OwnerType!;
-        foreach (TypeInfo candidateOwner in _registry.AllConcreteGenericInstancesUnfiltered.ToList())
-        {
-            if (candidateOwner.IsGenericDefinition) continue;
-            if (candidateOwner.TypeArguments is not { Count: > 0 } tArgs) continue;
-            if (tArgs.Count != gParams.Count) continue;
-            // Match by generic-def reference: candidate must be an instantiation of genericOwner.
-            TypeInfo? candidateGenDef = candidateOwner switch
-            {
-                RecordTypeInfo r => r.GenericDefinition,
-                EntityTypeInfo e => e.GenericDefinition,
-                WrapperTypeInfo w => _registry.LookupType(name: w.Name),
-                _ => null
-            };
-            if (candidateGenDef == null
-                || !ReferenceEquals(objA: candidateGenDef, objB: genericOwner))
-                continue;
-            if (_liveOwnerTypeNames.Count > 0
-                && !_liveOwnerTypeNames.Contains(item: candidateOwner.FullName))
-                continue;
-            RoutineInfo? concreteMemberRoutine = _registry.LookupMemberRoutine(
-                type: candidateOwner, memberRoutineName: synthInfo.Name);
-            if (concreteMemberRoutine == null) continue;
-            if (_liveRoutineKeys.Count > 0
-                && !IsRoutineReferenced(registryKey: concreteMemberRoutine.RegistryKey))
-                continue;
-            string monoFuncName = MangleRoutineName(routine: concreteMemberRoutine);
-            if (_generatedRoutineDefs.Contains(item: monoFuncName)
-                || IsResident(mangledFuncName: monoFuncName)) continue;
-            var newSubs = new Dictionary<string, TypeInfo>(comparer: StringComparer.Ordinal);
-            for (int gi = 0; gi < gParams.Count; gi++)
-                newSubs[key: gParams[index: gi]] = tArgs[index: gi];
-            // The GenericAstRewriter call below already produces a fully concrete body
-            // from newSubs — codegen needs no live substitution map. No swallow (see
-            // Phase A): a failure here is an upstream monomorph/resolution bug and must
-            // be loud, not a dropped definition.
-            _generatedRoutineDefs.Add(item: monoFuncName);
-            _generatedRoutines.Add(item: monoFuncName);
-            // Rewrite the shared generic-def body per concrete owner BEFORE
-            // emission. The raw AST is shared across every instantiation, so
-            // BuilderQueryInliningPass had to defer folding its BuilderQuery
-            // constants (me.type_name() in synthesized represent/diagnose).
-            // GenericAstRewriter deep-clones, substitutes the type params, folds
-            // those constants against the concrete owner (same fold logic as the
-            // inlining pass), and re-resolves routine bindings — emitting the
-            // unrewritten body instead fails with unresolved-call errors.
-            var monoStringSubs = newSubs.ToDictionary(
-                keySelector: kvp => kvp.Key,
-                elementSelector: kvp => kvp.Value.FullName);
-            Statement rewrittenSynthBody = GenericAstRewriter.RewriteStatement(
-                stmt: synthBodyAst,
-                subs: monoStringSubs,
-                typeSubs: newSubs,
-                registry: _registry,
-                enclosingRoutine: concreteMemberRoutine);
-            EmitSynthesizedBodyFromAst(routine: concreteMemberRoutine,
-                funcName: monoFuncName, body: rewrittenSynthBody);
-        }
-    }
-
-    /// <summary>
-    /// Emits a wrapper-forwarder synthesized body once per concrete single-arg wrapper resolution,
-    /// substituting the wrapper's sole type parameter with each concrete inner type.
-    /// </summary>
-    private void EmitWrapperForwarderBodyPerConcreteInner(RoutineInfo synthInfo,
-        Statement synthBodyAst, string wrapperParamName)
-    {
-        foreach (RoutineInfo concreteWf in _registry.GetAllRoutineResolutions())
-        {
-            if (!concreteWf.IsSynthesized ||
-                concreteWf.WrapperForwarderInnerMemberRoutine == null ||
-                !ReferenceEquals(objA: concreteWf.GenericDefinition, objB: synthInfo) ||
-                concreteWf.OwnerType?.TypeArguments is not { Count: 1 })
-                continue;
-            string concreteFuncName = MangleRoutineName(routine: concreteWf);
-            if (!_generatedRoutines.Contains(item: concreteFuncName))
-                continue;
-            if (_generatedRoutineDefs.Contains(item: concreteFuncName)
-                || IsResident(mangledFuncName: concreteFuncName))
-                continue;
-            TypeInfo concreteInner = concreteWf.OwnerType!.TypeArguments![0];
-            // Rewrite the shared wrapper-forwarder body to a fully concrete form
-            // per inner type BEFORE emission (mirrors the non-wrapper synth loop
-            // above), so codegen needs no live substitution map.
-            var wfSubs = new Dictionary<string, TypeInfo>
-                { [wrapperParamName] = concreteInner };
-            // No swallow (see Phase A): a wrapper-forwarder body that fails codegen is
-            // an upstream resolution bug — fail loudly, don't drop the definition.
-            _generatedRoutineDefs.Add(item: concreteFuncName);
-            _generatedRoutines.Add(item: concreteFuncName);
-            Statement rewrittenWfBody = GenericAstRewriter.RewriteStatement(
-                stmt: synthBodyAst,
-                subs: wfSubs.ToDictionary(kvp => kvp.Key,
-                    kvp => kvp.Value.FullName),
-                typeSubs: wfSubs,
-                registry: _registry,
-                enclosingRoutine: concreteWf);
-            EmitSynthesizedBodyFromAst(routine: concreteWf,
-                funcName: concreteFuncName, body: rewrittenWfBody);
-        }
-    }
-
-    /// <summary>
-    /// Resolves the concrete <see cref="RoutineInfo"/> for a stdlib <see cref="RoutineDeclaration"/>
-    /// (Phase A): prefers the registration-time structured binding, then multi-key registry lookups,
-    /// then overload disambiguation by parameter types, then a failable-flag correction. Returns null
-    /// when no routine info can be found.
-    /// </summary>
-    private RoutineInfo? ResolveStdlibRoutineInfo(RoutineDeclaration routine, string module)
-    {
-        // Prefer the structured binding attached at registration (StdlibLoader /
-        // SignatureResolver) — the exact overload for THIS decl. This is the only
-        // reliable identity for a CONSTRUCTOR (`routine T(...)`), whose AST name is the
-        // bare type ("U64") with no ".create" for the name-string lookups below to key on.
-        // Look up routine info — try multiple keys:
-        // 1. Raw AST name (e.g., "show")
-        // 2. Module-qualified (e.g., "IO.show")
-        // 3. Short name fallback via LookupRoutineByName
-        // 4. Overload-based lookup using AST parameter types
-        RoutineInfo? routineInfo = routine.ResolvedInfo
-                                   ?? _registry.LookupRoutine(fullName: routine.QualifiedName);
-        if (routineInfo == null && !string.IsNullOrEmpty(value: module))
-        {
-            routineInfo =
-                _registry.LookupRoutine(fullName: $"{module}.{routine.QualifiedName}");
-        }
-
-        if (routineInfo == null)
-        {
-            if (routine.OwnerName is { } ownerPart && routine.MemberRoutineName is { } shortName)
-            {
-                // Member declaration (e.g. "UnpackedFloat[M, L, W].cbrt"). Resolve scoped
-                // to the owner type FIRST — never fall through to a bare short-name lookup
-                // that could bind a same-named free/external routine of a different owner
-                // (which would emit this memberRoutine's body under the wrong identity →
-                // "Unresolved generic member routine" at codegen). OwnerName is the args-stripped
-                // owner base (structural, from the parser).
-                TypeInfo? ownerType = _registry.LookupType(name: ownerPart);
-                if (ownerType != null)
-                {
-                    routineInfo = _registry.LookupMemberRoutine(type: ownerType,
-                        memberRoutineName: shortName);
-                }
-
-                routineInfo ??= _registry.LookupRoutine(fullName: shortName) ??
-                                _registry.LookupRoutineByName(name: shortName);
+                if (body.Ast.Body is BlockStatement { Statements.Count: 0 }) continue; // sentinel, not a body
+                _generatedRoutineDefs.Add(item: instFuncName);
+                _generatedRoutines.Add(item: instFuncName);
+                EmitSynthesizedBodyFromAst(routine: body.Info, funcName: instFuncName, body: body.Ast.Body);
             }
             else
             {
-                routineInfo = _registry.LookupRoutineByName(name: routine.QualifiedName);
-            }
-        }
-
-        // For overloaded routines (e.g., create), try to find the
-        // specific overload matching this AST declaration's parameter types.
-        // This includes 0-arg overloads — LookupRoutine returns an arbitrary
-        // overload, so we must disambiguate for all param counts. Skipped when
-        // ResolvedInfo already pinned the exact overload for this decl.
-        if (routineInfo != null && routine.ResolvedInfo == null)
-        {
-            routineInfo = DisambiguateStdlibOverload(routine: routine, routineInfo: routineInfo);
-        }
-
-        // Ensure the resolved routine's failable flag matches the AST routine.
-        // When failable/non-failable overloads share the same name and parameter types
-        // (e.g., interpret_as_utf8() and interpret_as_utf8!()), they collide in
-        // the _routines dictionary under the same RegistryKey. The last registration
-        // wins, making the first invisible to LookupRoutine. Use LookupMemberRoutine
-        // (which indexes by owner type and preserves all overloads) to find the
-        // correct variant.
-        if (routineInfo != null && routineInfo.IsFailable != routine.IsFailable &&
-            routineInfo.OwnerType != null)
-        {
-            RoutineInfo? corrected = _registry.LookupMemberRoutine(
-                type: routineInfo.OwnerType,
-                memberRoutineName: routineInfo.Name,
-                isFailable: routine.IsFailable);
-            if (corrected != null)
-            {
-                routineInfo = corrected;
-            }
-        }
-
-        return routineInfo;
-    }
-
-    /// <summary>
-    /// Disambiguates the resolved stdlib routine to the specific overload whose parameter types match
-    /// the AST declaration — first via typed <c>LookupRoutineOverload</c>, then via a param-type-NAME
-    /// fallback against the owner's candidate member routines (for generic param types LookupType
-    /// misses, e.g. Hijacked[Byte]). Returns the best match, or <paramref name="routineInfo"/> unchanged.
-    /// </summary>
-    private RoutineInfo DisambiguateStdlibOverload(RoutineDeclaration routine, RoutineInfo routineInfo)
-    {
-        var astParamTypes = new List<TypeInfo>();
-        foreach (Parameter param in routine.Parameters)
-        {
-            if (param.Type != null)
-            {
-                string typeName = param.Type.Name;
-                if (param.Type.GenericArguments is { Count: > 0 })
-                {
-                    typeName =
-                        $"{typeName}[{string.Join(separator: ", ", values: param.Type.GenericArguments.Select(selector: a => a.Name))}]";
-                }
-
-                TypeInfo? t = _registry.LookupType(name: typeName);
-                if (t != null)
-                {
-                    astParamTypes.Add(item: t);
-                }
-            }
-        }
-
-        if (astParamTypes.Count == routine.Parameters.Count)
-        {
-            RoutineInfo? overload = _registry.LookupRoutineOverload(
-                baseName: routineInfo.BaseName,
-                argTypes: astParamTypes);
-            if (overload != null)
-            {
-                routineInfo = overload;
-            }
-        }
-
-        // Fallback: match AST declaration to the exact registry overload by
-        // parameter type NAMES. LookupType may fail for generic param types
-        // like Hijacked[Byte], so astParamTypes can be incomplete and
-        // LookupRoutineOverload may return the wrong overload (or fail).
-        // Build the AST param-type name list directly and match against
-        // candidate parameter type names. Determine the owner type from the
-        // AST routine name (e.g. "Bytes.create") rather than the possibly-
-        // wrong initial routineInfo, since LookupRoutineByName returns an
-        // arbitrary overload (possibly from a different type).
-        TypeInfo? resolvedOwner = routineInfo.OwnerType;
-        if (routine.RenderedReceiver is { } ownerName)
-        {
-            TypeInfo? t = _registry.LookupType(name: ownerName);
-            if (t != null) resolvedOwner = t;
-        }
-
-        if (resolvedOwner != null)
-        {
-            RoutineInfo? nameMatch = MatchStdlibOverloadByParamNames(routine: routine,
-                routineInfo: routineInfo, resolvedOwner: resolvedOwner);
-            if (nameMatch != null)
-            {
-                routineInfo = nameMatch;
-            }
-        }
-
-        return routineInfo;
-    }
-
-    /// <summary>
-    /// Matches a stdlib routine declaration against the owner's candidate member routines by comparing
-    /// normalized parameter type NAMES (and failability). Returns the matching routine or null.
-    /// </summary>
-    private RoutineInfo? MatchStdlibOverloadByParamNames(RoutineDeclaration routine,
-        RoutineInfo routineInfo, TypeInfo resolvedOwner)
-    {
-        var astParamTypeNames = new List<string>();
-        foreach (Parameter param in routine.Parameters)
-        {
-            if (param.Type == null)
-            {
-                astParamTypeNames.Clear();
-                break;
-            }
-
-            string tn = param.Type.Name;
-            if (param.Type.GenericArguments is { Count: > 0 })
-            {
-                tn =
-                    $"{tn}[{string.Join(separator: ",", values: param.Type.GenericArguments.Select(selector: a => a.Name))}]";
-            }
-
-            astParamTypeNames.Add(item: tn);
-        }
-
-        if (astParamTypeNames.Count != routine.Parameters.Count)
-        {
-            return null;
-        }
-
-        var candidates = new List<RoutineInfo>();
-        _registry.CollectMemberRoutineCandidates(type: resolvedOwner,
-            memberRoutineName: routineInfo.Name,
-            candidates: candidates);
-
-        static string NormalizeTypeName(string n)
-        {
-            n = n.Replace(oldValue: " ", newValue: "");
-            var sb = new StringBuilder(n.Length);
-            var token = new StringBuilder();
-
-            static void FlushToken(StringBuilder source,
-                StringBuilder dest)
-            {
-                if (source.Length == 0)
-                {
-                    return;
-                }
-
-                string segment = source.ToString();
-                int lastDot = segment.LastIndexOf(value: '.');
-                dest.Append(lastDot >= 0
-                    ? segment[(lastDot + 1)..]
-                    : segment);
-                source.Clear();
-            }
-
-            foreach (char ch in n)
-            {
-                if (char.IsLetterOrDigit(ch) || ch is '_' or '.' or '/')
-                {
-                    token.Append(value: ch);
-                    continue;
-                }
-
-                FlushToken(source: token, dest: sb);
-                sb.Append(value: ch);
-            }
-
-            FlushToken(source: token, dest: sb);
-            return sb.ToString();
-        }
-
-        // Wrapper / generic TypeInfo.Name omits type arguments (e.g. a
-        // Hijacked[Byte] parameter exposes Type.Name = "Hijacked"), so we
-        // must rebuild "Name[arg1,arg2,...]" before comparing — otherwise
-        // overload disambiguation can't distinguish Hijacked[Byte] from
-        // Hijacked[Character] and silently falls through to a wrong overload.
-        static string CandidateTypeName(TypeInfo t)
-        {
-            if (t.TypeArguments is { Count: > 0 } typeArgs && !t.Name.Contains(value: '['))
-            {
-                return $"{t.Name}[{string.Join(separator: ",", values: typeArgs.Select(selector: a => a.Name))}]";
-            }
-            return t.Name;
-        }
-
-        return candidates.FirstOrDefault(predicate: c =>
-        {
-            if (c.Parameters.Count != astParamTypeNames.Count)
-                return false;
-            if (c.IsFailable != routine.IsFailable) return false;
-            for (int i = 0; i < astParamTypeNames.Count; i++)
-            {
-                string candName =
-                    NormalizeTypeName(n: CandidateTypeName(c.Parameters[index: i].Type));
-                string astName =
-                    NormalizeTypeName(n: astParamTypeNames[index: i]);
-                if (candName == astName) continue;
-                return false;
-            }
-
-            return true;
-        });
-    }
-
-    /// <summary>
-    /// Enumerates all compilable RoutineDeclaration nodes from a stdlib program, including
-    /// routines nested inside CrashableDeclaration.Members (e.g., crash_message synthesized
-    /// from the "message:" directive). Nested routines are yielded with their names prefixed
-    /// by the owning type name (e.g., "DivisionByZeroError.crash_message") so Phase A's
-    /// registry lookup can find the registered memberRoutine.
-    /// </summary>
-    private static IEnumerable<RoutineDeclaration> EnumerateStdlibRoutines(Program program)
-    {
-        foreach (ISyntaxTreeNode decl in program.Declarations)
-        {
-            if (decl is RoutineDeclaration routine)
-            {
-                yield return routine;
-            }
-            else if (decl is CrashableDeclaration crashable)
-            {
-                foreach (SyntaxTree.Declaration member in crashable.Members)
-                {
-                    if (member is RoutineDeclaration memberRoutine)
-                    {
-                        yield return memberRoutine with
-                        {
-                            Name = $"{crashable.Name}.{memberRoutine.Name}"
-                        };
-                    }
-                }
+                GenerateRoutineDefinition(routine: body.Ast, preResolvedInfo: body.Info);
             }
         }
     }
+
 
     /// <summary>
     /// Generates runtime support functions.

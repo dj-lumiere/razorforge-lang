@@ -676,17 +676,37 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         // Discover (build-if-generic + mark-live + queue-body).
         void ForceSeedOwner(TypeInfo type)
         {
-            // (1) Wired routines the type can host (capability-gated), emitted unconditionally per live type.
+            // (1) Wired derives. The CALL-DRIVEN family is EXCLUDED (denylist below): each is reached through
+            // a real lowered call site — `f"{x}"`/`show(x)`/a container element → `.represent()`/`.diagnose()`;
+            // a Dict/Set body → `.hash()`; `a==b`/`a<b`/`x in c` → `.eq()`/`.cmp()`/`.contains()` (+derived);
+            // a copy/store → `.duplicate()`/`.assign()`; `.serialize()`; indexing → `.getitem`/`.setitem`; a
+            // for-loop → `.iter`. Force-seeding those per reached owner OVER-APPROXIMATES — it drags in dead
+            // chains (a reached-but-unused `Complex[Real].represent` pulling a nonexistent
+            // `Real.represent_with_places`; a `Doc.duplicate` whose `assign` isn't derivable) the retired
+            // codegen liveness gate used to prune. Everything ELSE stays seeded — the genuinely
+            // non-discoverable, codegen/framework-inserted derives (cyclic_visit; crash_message/crash_title on
+            // the throw path) that have no AST call for the walk to follow.
             foreach (string wiredName in WiredRoutineCatalog.BuildReachabilitySeedNames())
             {
-                string capability = wiredName switch
-                {
-                    "ne" => "eq",
-                    "notcontains" => "contains",
-                    "lt" or "le" or "gt" or "ge" => "cmp",
-                    _ => wiredName
-                };
-                if (!ctx.Registry.TypeHasWiredRoutine(type: type, wiredName: capability)) continue;
+                if (wiredName is "represent" or "diagnose" or "hash" or "serialize"
+                    or "duplicate" or "assign" or "eq" or "ne" or "cmp"
+                    or "lt" or "le" or "gt" or "ge" or "contains" or "notcontains"
+                    or "getitem" or "setitem" or "iter")
+                    continue;
+                // The OPERATOR family is call-driven too: `a+b`→.add, `a<<b`→.ashl, `-a`→.neg, `a+=b`→.iadd
+                // each reach their wired routine through a lowered call the walk follows. Force-seeding them
+                // per live owner OVER-approximates — worse, a widening op's body constructs a WIDER type
+                // (U64.mul_clamp builds U128 to detect overflow), so seeding it on live U64 drags in the whole
+                // U128 → bignum-division → decimal (D128) closure even when the program never multiplies. Skip
+                // every call-driven operator kind here; the genuinely non-discoverable framework hook
+                // (cyclic_visit / CycleTrace) and the display/compare/etc. names above stay handled.
+                if (WiredRoutineCatalog.TryGet(name: wiredName, entry: out WiredEntry seedEntry)
+                    && seedEntry.Kind is WiredKind.Arithmetic or WiredKind.ArithmeticWrap
+                        or WiredKind.ArithmeticClamp or WiredKind.ArithmeticUnchecked
+                        or WiredKind.Bitwise or WiredKind.Shift or WiredKind.Unary or WiredKind.Unwrap
+                        or WiredKind.InPlaceArithmetic or WiredKind.InPlaceBitwise or WiredKind.InPlaceShift)
+                    continue;
+                if (!ctx.Registry.TypeHasWiredRoutine(type: type, wiredName: wiredName)) continue;
                 Discover(r: ctx.Registry.LookupMemberRoutine(type: type, memberRoutineName: wiredName));
             }
             // (2) Implicit codegen inserts (RC copy verb; Roamed promote/lock/raw_inner; display transparency).
@@ -706,6 +726,19 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
             if (type is { Name: "Text", Module: "Core" })
                 Discover(r: ctx.Registry.LookupMemberRoutine(type: type,
                     memberRoutineName: RuntimeContract.Collection.Replace));
+            // (5) `common` routines. Force-seeding EVERY common member of a reached owner is an
+            // over-approximation (like the call-driven operator family excluded above): most common routines
+            // (from_digit_bytes, to_digit_bytes, …) are reached through a real call the demand walk follows.
+            // Worse, it is NON-DETERMINISTIC — `GetMemberRoutinesForType` returns MORE members in a warm build
+            // (a universal `Integer.X` common routine resolved onto every concrete width during the full-stdlib
+            // capture) than in a cold build, so a warm build would drag in the whole from_digit_bytes → Bytes/
+            // Integer/Tuple cascade for a program that never parses. The only genuinely NON-discoverable common
+            // family is the UnpackedFloat integer-width helpers (to_width / low_mask / from_words), reached only
+            // through nested generic-member instantiation with no AST call — seed just those.
+            foreach (RoutineInfo commonR in ctx.Registry.GetMemberRoutinesForType(type: type))
+                if (commonR is { IsCommon: true, IsGenericDefinition: false }
+                    && commonR.Name is "to_width" or "low_mask" or "from_words")
+                    Discover(r: commonR);
         }
 
         // SEED with the entry-point BODIES directly (start()/@test/@bench — their RoutineDeclaration.Body is
@@ -736,6 +769,19 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
                             Discover(r: ce.ResolvedCreatorRoutine);
                             MarkOwner(t: ce.ConstructedType);
                             break;
+                        // A routine referenced AS A VALUE (not called) — a bare routine name passed as an
+                        // argument (a coroutine/thread entry `coro_body`, a callback, a first-class routine).
+                        // Codegen wraps these in an entry/value thunk (EnsureCoroEntryThunk/RoutineValueThunk)
+                        // whose body calls the routine, so the routine — and its whole transitive closure
+                        // (e.g. coro_body → Worker.do_work → Box's create/destroy) — is genuinely live even
+                        // though no CallExpression names it. Discover it here so the demand walk follows it.
+                        // Two forms: pre-resolved (ResolvedRoutine set) or a bare name whose ResolvedType is a
+                        // RoutineTypeInfo (codegen resolves it by name+param-types via TryResolveRoutineReference,
+                        // e.g. a routine passed to a C function pointer like `rf_coro_create(entry: coro_body)`).
+                        case IdentifierExpression { ResolvedRoutine: { } ir }: Discover(r: ir); break;
+                        case IdentifierExpression { ResolvedType: RoutineTypeInfo rvt } rid:
+                            Discover(r: ResolveRoutineValueByName(name: rid.Name, routineType: rvt));
+                            break;
                     }
                 });
             }
@@ -744,6 +790,16 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         } while (worklist.Count > 0);
         return totalBuilt;
     }
+
+    /// <summary>
+    /// Resolves a bare routine-VALUE reference (an identifier typed as a <see cref="RoutineTypeInfo"/>, e.g.
+    /// a coroutine entry passed to a C function pointer) to its <see cref="RoutineInfo"/> by name + parameter
+    /// types via the ONLY legitimate resolver, signature-based <see cref="TypeRegistry.LookupRoutineOverload"/>.
+    /// (Name-only lookups are not a valid resolution path.) Returns null if unresolved (Discover no-ops on null).
+    /// </summary>
+    private RoutineInfo? ResolveRoutineValueByName(string name, RoutineTypeInfo routineType)
+        => ctx.Registry.LookupRoutineOverload(baseName: name,
+            argTypes: routineType.ParameterTypes.ToList());
 
     /// <summary>
     /// Yields the wired routines a synthesized body for <paramref name="routine"/> implicitly calls.

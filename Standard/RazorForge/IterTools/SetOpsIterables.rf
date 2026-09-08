@@ -5,7 +5,7 @@ module IterTools
 ### :typeparam T: The element type of both source sequences.
 ### :typeparam S: The concrete primary source iterable type (borrowed).
 ### :typeparam SO: The concrete membership-test iterable type (borrowed).
-entity IntersectIterable[T, S, SO] obeys Iterable[T]
+entity IntersectIterable[AnyType T, AnyType S, AnyType SO] obeys Iterable[T]
 needs S obeys Iterable[T]
 needs SO obeys Iterable[T]
 relates IntersectEmittable[T, S/Iter] as Iter
@@ -26,7 +26,7 @@ needs T obeys Hashable, Comparable
 ### Iterates over a source sequence and keeps only elements that appear in the membership set.
 ### :typeparam T: The element type of the filtered sequence.
 ### :typeparam SE: The concrete source iterator type (borrowed).
-entity IntersectEmittable[T, SE] obeys Emittable[T]
+entity IntersectEmittable[AnyType T, AnyType SE] obeys Emittable[T]
 needs SE obeys Emittable[T]
   ### Stores the underlying source iterator (borrowed).
   secret source: Hijacked[SE]
@@ -59,7 +59,7 @@ needs T obeys Hashable, Comparable
 ### :typeparam T: The element type of both source sequences.
 ### :typeparam S: The concrete primary source iterable type (borrowed).
 ### :typeparam SO: The concrete exclusion iterable type (borrowed).
-entity ExcludeIterable[T, S, SO] obeys Iterable[T]
+entity ExcludeIterable[AnyType T, AnyType S, AnyType SO] obeys Iterable[T]
 needs S obeys Iterable[T]
 needs SO obeys Iterable[T]
 relates ExcludeEmittable[T, S/Iter] as Iter
@@ -80,7 +80,7 @@ needs T obeys Hashable, Comparable
 ### Iterates over a source sequence and suppresses elements found in the exclusion set.
 ### :typeparam T: The element type of the filtered sequence.
 ### :typeparam SE: The concrete source iterator type (borrowed).
-entity ExcludeEmittable[T, SE] obeys Emittable[T]
+entity ExcludeEmittable[AnyType T, AnyType SE] obeys Emittable[T]
 needs SE obeys Emittable[T]
   ### Stores the underlying source iterator (borrowed).
   secret source: Hijacked[SE]

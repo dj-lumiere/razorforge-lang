@@ -36,8 +36,7 @@ routine T.roam_free_ref() -> CPtr
 ### owner fast even AFTER escape, is a deferred perf optimization). Reentrancy is keyed to the
 ### task/coroutine id (NOT the OS thread) because M:N migration moves a coroutine across workers.
 ### :typeparam T: The exclusively owned entity type.
-entity RoamController[T]
-needs T is EntityType
+entity RoamController[EntityType T]
   ### Reference count. Read/written non-atomically in LOCAL mode, atomically once ESCAPED.
   secret count: U64
   ### EXPERIMENT (object-level liveness): weak/observer count. A weak observer does NOT keep the entity

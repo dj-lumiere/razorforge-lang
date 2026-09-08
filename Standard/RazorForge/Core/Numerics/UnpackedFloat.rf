@@ -19,9 +19,8 @@ module Core
 # ============================================================================
 
 ### The generic extended-precision unpacked float.
-secret record UnpackedFloat[M, L, W] obeys Addable, Subtractable, Multiplicable, Divisible
+secret record UnpackedFloat[AnyType M, AnyType L, U64 W] obeys Addable, Subtractable, Multiplicable, Divisible
 needs L obeys FloorDivisible
-needs W is U64
   ### Normalized mantissa (leading bit at W-2 when finite-nonzero).
   mant: M
   ### Unbiased exponent offset (ilogb - 1).
@@ -59,8 +58,7 @@ needs T obeys FloorDivisible
 ### An unpacked value paired with an integer exponent/quadrant. Used instead of a
 ### `(UnpackedFloat, S64)` tuple because tuples of generic records hit a compiler
 ### `destroy` synthesis gap (the tuple type's teardown is never emitted).
-record UFExp[M, L, W]
-needs W is U64
+record UFExp[AnyType M, AnyType L, U64 W]
   ### The reduced/fractional unpacked value.
   item0: UnpackedFloat[M, L, W]
   ### The integer exponent or quadrant.
@@ -68,8 +66,7 @@ needs W is U64
 
 ### A pair of unpacked values (e.g. tan numerator & denominator). Replaces a
 ### `(UnpackedFloat, UnpackedFloat)` tuple for the same reason as `UFExp`.
-record UFPair[M, L, W]
-needs W is U64
+record UFPair[AnyType M, AnyType L, U64 W]
   ### First component.
   item0: UnpackedFloat[M, L, W]
   ### Second component.
@@ -77,8 +74,7 @@ needs W is U64
 
 ### A sign flag paired with an unpacked value (lgamma result). Replaces a
 ### `(Bool, UnpackedFloat)` tuple for the same reason as `UFExp`.
-record UFSign[M, L, W]
-needs W is U64
+record UFSign[AnyType M, AnyType L, U64 W]
   ### The sign flag.
   item0: Bool
   ### The magnitude value.
@@ -757,18 +753,24 @@ routine UnpackedFloat[M, L, W].toward0() -> UnpackedFloat[M, L, W]
   return UnpackedFloat[M, L, W].make(mant: m, exp: exp, fpclass: SignedFpClass.from_flags(sign: me.sign(), iszero: false, isinf: false, isnan: false))
 
 ### Returns `true` when `me < you` (via `cmp`; does not special-case NaN).
+### `@override`: UnpackedFloat's `cmp` returns a raw signed width (compared to 0 by `LLVM::signed_lt`),
+### not a `ComparisonSign`, so these replace the auto-derived `me.cmp(you) == ME_SMALL` helpers.
+@override
 routine UnpackedFloat[M, L, W].lt(you: UnpackedFloat[M, L, W]) -> Bool
   return LLVM::signed_lt(a: me.cmp(you: you), b: 0_s64)
 
 ### Returns `true` when `me > you` (via `cmp`; does not special-case NaN).
+@override
 routine UnpackedFloat[M, L, W].gt(you: UnpackedFloat[M, L, W]) -> Bool
   return LLVM::signed_gt(a: me.cmp(you: you), b: 0_s64)
 
 ### Returns `true` when `me <= you` (via `cmp`; does not special-case NaN).
+@override
 routine UnpackedFloat[M, L, W].le(you: UnpackedFloat[M, L, W]) -> Bool
   return not LLVM::signed_gt(a: me.cmp(you: you), b: 0_s64)
 
 ### Returns `true` when `me >= you` (via `cmp`; does not special-case NaN).
+@override
 routine UnpackedFloat[M, L, W].ge(you: UnpackedFloat[M, L, W]) -> Bool
   return not LLVM::signed_lt(a: me.cmp(you: you), b: 0_s64)
 

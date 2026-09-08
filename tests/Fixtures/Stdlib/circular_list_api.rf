@@ -1,9 +1,9 @@
-module Tests/Stdlib/DequeApi
+module Tests/Stdlib/CircularListApi
 import IO/Console
 import Collections
 
 routine start()
-  var dq = Deque[S64]()
+  var dq = CircularList[S64]()
   show(f"new size: {dq.count()}")
   show(f"is_empty: {dq.is_empty()}")
 

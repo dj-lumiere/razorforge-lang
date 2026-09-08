@@ -15,8 +15,8 @@ import BuilderQuery
 ### :typeparam T: The exclusively owned entity type.
 ### :typeparam P: The access-discipline lock policy.
 @llvm("ptr")
-record Guarded[T, P]
-needs T is EntityType, P obeys LockPolicy
+record Guarded[AnyType T, AnyType P]
+needs EntityType T, P obeys LockPolicy
   pass
 
 # ============================================================================
@@ -25,7 +25,7 @@ needs T is EntityType, P obeys LockPolicy
 
 ### Constructor form: `Guarded[T, P](from: n)` routes here. Ownership of the entity moves into the RC system.
 routine Guarded[T, P].create(from: T) -> Guarded[T, P]
-needs T is EntityType, P obeys LockPolicy
+needs EntityType T, P obeys LockPolicy
   danger
     var ctrl = GuardController[T, P](data: from.hijack()).hijack()
     return Guarded[T, P](ctrl)

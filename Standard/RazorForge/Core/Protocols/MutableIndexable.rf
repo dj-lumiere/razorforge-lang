@@ -3,7 +3,7 @@ module Core
 ### Integer-indexed read and write access for mutable ordered sequences.
 ### Extends {Indexable[V]} with a write arm for the `[]` assignment operator.
 ### :typeparam V: The element type stored in the sequence.
-protocol MutableIndexable[V] obeys Indexable[V]
+protocol MutableIndexable[AnyType V] obeys Indexable[V]
   ### Replaces the element at `index` with `value`.
   ### :param index: The zero-based position to update.
   ### :param value: The replacement value.

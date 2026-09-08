@@ -1,9 +1,0 @@
-module Collections
-
-### Suflae SF-realm Collections deque — roam-boundary wrapper over a bare RF::Collections.Deque[T].
-### Entity + default constructor hand-written; every other method auto-forwarded (SuflaeForwarders).
-entity Deque[T]
-  secret inner: RF::Collections.Deque[T]
-
-routine Deque[T]() -> Deque[T]
-  return Deque[T](inner: RF::Collections.Deque[T]())

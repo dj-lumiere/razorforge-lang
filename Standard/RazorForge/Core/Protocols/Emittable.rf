@@ -4,7 +4,7 @@ module Core
 ### Iterators expose sequential access to values and advance their internal
 ### position each time `emit!` succeeds.
 ### :typeparam T: The element type yielded by the iterator.
-protocol Emittable[T]
+protocol Emittable[AnyType T]
   ### Returns the next value from this iterator.
   ### Implementations should return `absent` once the iterator is exhausted.
   ### :returns: The next element in the iteration sequence.

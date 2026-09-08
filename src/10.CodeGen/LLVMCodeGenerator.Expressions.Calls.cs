@@ -637,7 +637,7 @@ public partial class LlvmCodeGenerator
         // the stored function pointer from the field and call it indirectly — mirroring the
         // free-call indirect path for Routine-typed locals/params (see EmitRoutineCall).
         // SA also stamps DynamicCall on its generic fallback for calls it couldn't resolve to a
-        // concrete routine (e.g. `deque.first()` where `first` is an ordinary memberRoutine returning S64);
+        // concrete routine (e.g. `circular_list.first()` where `first` is an ordinary memberRoutine returning S64);
         // those are NOT field invocations, so only take this path when the member is genuinely a
         // Routine-typed value — otherwise fall through to normal memberRoutine resolution.
         if (loweringKind == CallLoweringKind.DynamicCall
@@ -705,10 +705,9 @@ public partial class LlvmCodeGenerator
         bool isFailableMemberRoutineCall = member.IsFailable;
         string memberRoutineName = member.MemberName;
 
-        RoutineInfo? memberRoutine = ResolveInitialMemberRoutineCall(receiverType: receiverType,
-            memberRoutineName: memberRoutineName,
-            isFailableMemberRoutineCall: isFailableMemberRoutineCall,
-            resolvedRoutine: resolvedRoutine);
+        // Use the SA/upstream-stamped routine when present; otherwise the signature-based overload path
+        // below (memberRoutine == null branch) resolves it by (name, arg types). No premature name-only lookup.
+        RoutineInfo? memberRoutine = resolvedRoutine;
 
         // Member-conversion call (`x.U64()`, `"42".S32!()`): SA classified it as a
         // TypeConstructor and stamped the resolved `create`/`create!` (see #78 in
@@ -781,7 +780,7 @@ public partial class LlvmCodeGenerator
         {
             throw new InvalidOperationException(
                 $"member routine call .{member.MemberName} on {receiverType.FullName} reached codegen " +
-                $"with loweringKind={loweringKind} but no resolved member routine. Semantic verifier" +
+                $"with loweringKind={loweringKind} but no resolved member routine [enclosing={_currentRoutineDiagName}]. Semantic verifier" +
                 $" must resolve this.");
         }
 
@@ -854,16 +853,13 @@ public partial class LlvmCodeGenerator
         int receiverSkip = memberRoutineTakesReceiver ? 1 : 0;
         if (memberRoutine == null)
         {
+            // Signature-only lookup (name + arg types), empty argTypes matching the 0-param overload. NO
+            // name-only fallback: never-fail means the UPSTREAM passes make an unresolved member call
+            // unreachable here, not that codegen papers over it. An unresolved call hits the loud throw below.
             var concreteArgTypes = argTypeInfos.Skip(count: receiverSkip).ToList();
-            memberRoutine = concreteArgTypes.Count > 0
-                ? _registry.LookupMemberRoutineOverload(type: receiverType,
-                    memberRoutineName: memberRoutineName,
-                    argTypes: concreteArgTypes)
-                : null;
-
-            memberRoutine ??= _registry.LookupMemberRoutine(type: receiverType,
+            memberRoutine = _registry.LookupMemberRoutineOverload(type: receiverType,
                 memberRoutineName: memberRoutineName,
-                isFailable: isFailableMemberRoutineCall);
+                argTypes: concreteArgTypes);
         }
 
         memberRoutine = NormalizeResolvedRoutineReference(routine: memberRoutine,
@@ -883,23 +879,18 @@ public partial class LlvmCodeGenerator
             _ => null
         };
 
+        // codegen NEVER infers method-generic type arguments from the call's argument types and
+        // monomorphizes on the fly — that is upstream's job (GenericMonomorphizationPass / the demand
+        // collector). A generic member routine reaching here WITHOUT explicit `[...]` type arguments (which
+        // the block far below still instantiates) is an upstream resolution gap → hard error, never inference.
         if (genericMemberRoutineForInference is { OwnerType: not GenericParameterTypeInfo and not ProtocolTypeInfo and not null } &&
-            !genericMemberRoutineForInference.OwnerType.IsGenericDefinition)
+            !genericMemberRoutineForInference.OwnerType.IsGenericDefinition &&
+            typeArguments is not { Count: > 0 })
         {
-            var mArgTypes = argTypeInfos.Skip(count: receiverSkip).ToList();
-            Dictionary<string, TypeInfo>? inferred = InferMemberRoutineTypeArgs(
-                genericMemberRoutine: genericMemberRoutineForInference, argTypes: mArgTypes);
-            if (inferred != null &&
-                genericMemberRoutineForInference.GenericParameters!.All(predicate: gp =>
-                    inferred.ContainsKey(key: gp) &&
-                    inferred[key: gp] is not ErrorTypeInfo and not GenericParameterTypeInfo))
-            {
-                var orderedArgs = genericMemberRoutineForInference.GenericParameters!
-                    .Select(selector: gp => inferred[key: gp])
-                    .ToList();
-                memberRoutine = _registry.GetOrCreateRoutineResolution(genericDef: genericMemberRoutineForInference,
-                    typeArguments: orderedArgs);
-            }
+            throw new InvalidOperationException(
+                $"Generic member routine '{receiverType.FullName}.{memberRoutineName}' reached codegen " +
+                "unresolved (no explicit type arguments) — it must be monomorphized upstream. codegen is a " +
+                "never-fail translator; it does not infer generic type arguments.");
         }
 
         // LLVM intrinsic template memberRoutine call (e.g., buf.read![U8](offset)) — emits its own
@@ -1584,7 +1575,9 @@ public partial class LlvmCodeGenerator
         // concrete entity's STRUCT footprint zeroed, exactly like a `create` prologue with no args, so a
         // SoA entity (SplitList) starts with null columns + zero counts. Only entity return types are
         // valid; a non-entity `hollow` is a stdlib authoring error.
-        if (functionName == "hollow" || functionName.EndsWith(value: ".hollow", comparisonType: StringComparison.Ordinal))
+        // `hollow` is a bare global @innate primitive — an equality check against the name constant,
+        // NOT a suffix-parse of a qualified name string.
+        if (functionName == "hollow")
         {
             if (resolvedReturnType is not EntityTypeInfo hollowEntity)
             {
@@ -1596,9 +1589,12 @@ public partial class LlvmCodeGenerator
 
         if (resolvedRoutine == null && typeArguments is { Count: > 0 })
         {
-            RoutineInfo? intrinsicRoutine =
-                _registry.LookupRoutine(fullName: functionName) ??
-                _registry.LookupRoutineByName(name: functionName);
+            RoutineInfo? intrinsicRoutine = _registry.LookupRoutineOverload(baseName: functionName,
+                argTypes: arguments
+                    .Select(selector: a => GetExpressionType(
+                        expr: a is NamedArgumentExpression na ? na.Value : a))
+                    .OfType<TypeInfo>()
+                    .ToList());
             if (intrinsicRoutine?.LlvmIrTemplate != null)
             {
                 return EmitLlvmIntrinsicCall(sb: sb, routine: intrinsicRoutine,
@@ -1646,11 +1642,16 @@ public partial class LlvmCodeGenerator
         bool isFailableCallSyntax, RoutineInfo? resolvedRoutine,
         List<TypeExpression>? typeArguments, List<Expression> arguments)
     {
+        // Signature-only lookup (name + arg types) — never a name-only fallback. When SA already stamped
+        // the routine, use it; otherwise resolve the overload by the call's concrete argument types.
+        List<TypeInfo> freeArgTypes = arguments
+            .Select(selector: a => GetExpressionType(
+                expr: a is NamedArgumentExpression na ? na.Value : a))
+            .OfType<TypeInfo>()
+            .ToList();
         RoutineInfo? routine = resolvedRoutine ??
-                               _registry.LookupRoutine(fullName: functionName,
-                                   isFailable: isFailableCallSyntax) ??
-                               _registry.LookupRoutineByName(name: functionName,
-                                   isFailable: isFailableCallSyntax);
+                               _registry.LookupRoutineOverload(baseName: functionName,
+                                   argTypes: freeArgTypes);
         if (routine == null || typeArguments is not { Count: > 0 })
         {
             return routine;
@@ -1710,10 +1711,9 @@ public partial class LlvmCodeGenerator
             }
         }
 
+        // Signature-only: resolve the concrete-owner creator by (name, ctorArgTypes); no name-only fallback.
         RoutineInfo? rebound = _registry.LookupMemberRoutineOverload(type: concreteOwner,
-                                   memberRoutineName: CreateMemberRoutineName, argTypes: ctorArgTypes) ??
-                               _registry.LookupMemberRoutine(type: concreteOwner,
-                                   memberRoutineName: CreateMemberRoutineName, isFailable: routine.IsFailable);
+            memberRoutineName: CreateMemberRoutineName, argTypes: ctorArgTypes);
         return rebound ?? routine;
     }
 
@@ -1984,27 +1984,6 @@ public partial class LlvmCodeGenerator
     /// </summary>
     private static bool ReceiverPassedByRef(TypeInfo? receiverType) =>
         IsByRefMeRecord(ownerType: receiverType);
-
-    /// <summary>
-    /// Resolves the initial member routine call from semantic compiler state.
-    /// </summary>
-    private RoutineInfo? ResolveInitialMemberRoutineCall(TypeInfo receiverType, string memberRoutineName,
-        bool isFailableMemberRoutineCall, RoutineInfo? resolvedRoutine)
-    {
-        if (resolvedRoutine != null) return resolvedRoutine;
-        RoutineInfo? m = _registry.LookupMemberRoutine(type: receiverType,
-            memberRoutineName: memberRoutineName,
-            isFailable: isFailableMemberRoutineCall);
-        // U64.sub etc. only define the failable form; retry when the operator-lowered call
-        // came in non-failable. Comment at the call site says codegen retries here.
-        if (m == null && !isFailableMemberRoutineCall && memberRoutineName.StartsWith('$'))
-        {
-            m = _registry.LookupMemberRoutine(type: receiverType,
-                memberRoutineName: memberRoutineName,
-                isFailable: true);
-        }
-        return m;
-    }
 
 }
 

@@ -41,7 +41,7 @@ Each fixture passes iff its captured stdout matches the snapshot exactly (traili
 ## Inventory
 
 Covered today (see `*.rf` files in this directory):
-- Containers: `list`, `set`, `dict`, `deque`, `tuple`, `bitlist`, `sorted_list`, `sorted_set`, `sorted_dict`, `array`, `bitarray`
+- Containers: `list`, `set`, `dict`, `circular_list`, `tuple`, `bitlist`, `sorted_list`, `sorted_set`, `sorted_dict`, `array`, `bitarray`
 - Carriers: `maybe`, `maybe_entity` (auto-wrap to `Owned`), `result`, `crashable`
 - Memory wrappers: `owned`, `retained`, `viewed_grasped`
 - Primitives: `bool`, `text`, `bytes`

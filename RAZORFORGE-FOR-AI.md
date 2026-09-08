@@ -120,7 +120,7 @@ binding RazorForge has.
 - Complex: `j32/j64/j128/jn` literal suffixes (e.g. `3j64`)
 - `Bool`, `Text` (UTF-32 string), `Character`, `Byte`, `Bytes`
 - `Duration`, `ByteSize` (with literal forms), `Moment`/`LocalMoment` temporals
-- Collections: `List[T]`, `Dict[K,V]`, `Set[T]`, `Deque[T]`, `BitList`, `PriorityQueue[TPriority, TElement]`,
+- Collections: `List[T]`, `Dict[K,V]`, `Set[T]`, `CircularList[T]`, `BitList`, `PriorityQueue[TPriority, TElement]`,
   `SortedDict[K, V]`, `SortedList[T]`, `SortedSet[T]`, fixed-size `Array[T, N]`, `BitArray[N]`
 - Tuples: `(T, U)` / `Tuple[T, U]`, with fields `item0`, `item1`, ...
 - Carriers: `Maybe[T]`, `Result[T]`, `Lookup[T]` (compiler-synthesized only —
@@ -371,13 +371,13 @@ that differ from other languages:
 - Indexing `coll[i]` is failable under the hood (`getitem!`); back-indexing
   is `coll[^1]` (last element).
 - **Range slicing returns an owned COPY**: `xs[a til b]` (or `xs[a to b]`) on a
-  `List`/`Deque` yields a new `List`/`Deque`, on `Array[T, N]` a `List[T]`
+  `List`/`CircularList` yields a new `List`/`CircularList`, on `Array[T, N]` a `List[T]`
   (slice length is a runtime value, so it cannot be a fixed `Array`). Mutating
   the slice never touches the original. Open-ended `xs[a til ^0]` slices to the
   end. Element type must be `Copyable` (slicing a `List[Entity]` is a compile
   error). For a lazy, no-copy window use the iterator combinator
   `xs.skip(a).take(n)` instead — copy-vs-view is spelled by which you call.
-- `List[T]`, `Dict[K, V]`, `Set[T]`, `Deque[T]`, and sorted collections are
+- `List[T]`, `Dict[K, V]`, `Set[T]`, `CircularList[T]`, and sorted collections are
   entities. Do not pass a container as a bare parameter when read-only access is
   enough; use `Viewing[List[T]]` and pass `items.view()` inline for one call.
   Use `using items.view() as v` only when the token needs a name or spans
@@ -393,7 +393,7 @@ that differ from other languages:
   by the endpoints.
 - `List`, `Set`, `Dict` live in **`Core`** (always available — never suggest
   `using Collections`). Only these three canonical collections have literal
-  syntax (`[]`/`{}`); specialized containers (`SortedSet`, `Deque`, `Array`,
+  syntax (`[]`/`{}`); specialized containers (`SortedSet`, `CircularList`, `Array`,
   `BitList`, `PriorityQueue`, …) are constructor-only
   (`SortedSet.from([1, 2, 3])`, `Array[3](1, 2, 3)`).
 - Tuple fields are accessed as `t.item0`, `t.item1`, … (NOT `t.0`/`t.first`);

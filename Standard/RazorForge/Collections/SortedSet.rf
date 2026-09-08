@@ -10,7 +10,7 @@ secret preset MIN_KEYS: U64 = 31u64  # B/2 - 1
 ### Represents one internal node in the `SortedSet[T]` B-tree.
 ### Nodes store ordered keys, child pointers, and cached subtree sizes for efficient indexing.
 ### :typeparam T: The stored element type.
-entity BTreeSetNode[T]
+entity BTreeSetNode[AnyType T]
 needs T obeys Comparable
   keys: Array[T, 63]                           # Keys in this node (fixed capacity)
   children: Array[Hijacked[BTreeSetNode[T]], 64]  # Child pointers (empty for leaf)
@@ -261,7 +261,7 @@ routine BTreeSetNode[T].children_add_range_from(you: Accessing[BTreeSetNode[T]],
 ### :see: {SortedList[T]} for a sorted list that allows duplicates.
 ### :see: {Set[T]} for an unsorted, hash-table-backed set with O(1) operations.
 ### :see: {SortedDict[K, V]} for a sorted mapping from keys to values.
-entity SortedSet[T] obeys Iterable[T], Container, SetLiteral[T]
+entity SortedSet[AnyType T] obeys Iterable[T], Container, SetLiteral[T]
 needs T obeys Comparable
 relates SortedSetEmittable[T] as Iter
   secret root: Hijacked[BTreeSetNode[T]]?
@@ -988,7 +988,7 @@ routine SortedSet[T].collect_inorder(node: Accessing[BTreeSetNode[T]], result: C
 ### Walks the elements of a `SortedSet[T]` in ascending sorted order.
 ### Each call to `emit!` resolves the element at the current rank from the source set.
 ### :typeparam T: The element type yielded by the iterator.
-entity SortedSetEmittable[T] obeys Emittable[T]
+entity SortedSetEmittable[AnyType T] obeys Emittable[T]
   ### The source set being iterated (NON-OWNING borrow — a cursor borrows its container).
   set: Hijacked[SortedSet[T]]
   ### The next sorted rank to yield.

@@ -410,6 +410,15 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
             // Result/Lookup and user variant TypePatterns: lowerable -> condition is type_id == constant.
             TypePattern when IsResultOrLookup(subjectType) || subjectType is VariantTypeInfo => true,
 
+            // User choice `is CASE`: lowerable to a discriminant identity compare (subject `is` case value),
+            // but only when the case name resolves — an unknown case is left for codegen (br failLabel).
+            TypePattern choiceTp when subjectType is ChoiceTypeInfo choiceCti =>
+                choiceCti.Cases.Any(predicate: c => c.Name == LastNameSegment(choiceTp.Type.Name)),
+
+            // Entity `is T`: RF entities have no subtyping, so it is BUILDTIME-decidable (same concrete
+            // type = always match, different = never) — lowerable to a constant condition + optional binding.
+            TypePattern when subjectType is EntityTypeInfo => true,
+
             // The single un-fanned `is Crashable` arm on a carrier (CrashableExpansionPass no longer fans it
             // per-type; it rewrites the arm body to CrashableDispatchExpression and keeps ONE CrashablePattern).
             // Lowerable -> condition is `type_id != 0 && type_id != <T>.type_id()` (i.e. "holds an error").
@@ -420,12 +429,12 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
 
             DestructuringPattern dp
                 when subjectType is RecordTypeInfo or EntityTypeInfo
-                     && IsAllNamedSimpleBindings(dp.Bindings)
+                     && AreDestructuringBindingsLowerable(bindings: dp.Bindings, subjectType: subjectType)
                 => true,
 
             TypeDestructuringPattern tdp
                 when subjectType is RecordTypeInfo or EntityTypeInfo
-                     && IsAllNamedSimpleBindings(tdp.Bindings)
+                     && AreDestructuringBindingsLowerable(bindings: tdp.Bindings, subjectType: subjectType)
                 => true,
 
             GuardPattern gp => IsLowerablePattern(pattern: gp.InnerPattern,
@@ -548,6 +557,14 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
                 return GetResultLookupTypePatternCondition(tp: tp, subject: subject, loc: loc,
                     boolType: boolType);
 
+            case TypePattern tp when subjectType is ChoiceTypeInfo choiceSubj:
+                return GetChoiceTypePatternCondition(tp: tp, subject: subject,
+                    choiceSubj: choiceSubj, loc: loc, boolType: boolType);
+
+            case TypePattern tp when subjectType is EntityTypeInfo:
+                return GetEntityTypePatternCondition(tp: tp, subject: subject,
+                    subjectType: subjectType, loc: loc, boolType: boolType);
+
             // -----------------------------------------------------------------------------
 
             case FlagsPattern fp:
@@ -568,20 +585,20 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
             // -----------------------------------------------------------------------------
 
             case DestructuringPattern dp when subjectType is RecordTypeInfo rec:
-                return (null, GenerateDestructuringBindings(bindings: dp.Bindings,
-                    subject: subject, memberVars: rec.MemberVariables, loc: loc));
+                return GetDestructuringCondition(bindings: dp.Bindings,
+                    subject: subject, memberVars: rec.MemberVariables, loc: loc);
 
             case DestructuringPattern dp when subjectType is EntityTypeInfo ent:
-                return (null, GenerateDestructuringBindings(bindings: dp.Bindings,
-                    subject: subject, memberVars: ent.MemberVariables, loc: loc));
+                return GetDestructuringCondition(bindings: dp.Bindings,
+                    subject: subject, memberVars: ent.MemberVariables, loc: loc);
 
             case TypeDestructuringPattern tdp when subjectType is RecordTypeInfo rec:
-                return (null, GenerateDestructuringBindings(bindings: tdp.Bindings,
-                    subject: subject, memberVars: rec.MemberVariables, loc: loc));
+                return GetDestructuringCondition(bindings: tdp.Bindings,
+                    subject: subject, memberVars: rec.MemberVariables, loc: loc);
 
             case TypeDestructuringPattern tdp when subjectType is EntityTypeInfo ent:
-                return (null, GenerateDestructuringBindings(bindings: tdp.Bindings,
-                    subject: subject, memberVars: ent.MemberVariables, loc: loc));
+                return GetDestructuringCondition(bindings: tdp.Bindings,
+                    subject: subject, memberVars: ent.MemberVariables, loc: loc);
 
             default:
                 throw new InvalidOperationException(
@@ -683,6 +700,71 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
     }
 
     // -----------------------------------------------------------------------------
+
+    /// <summary>The last dot-separated segment of a (possibly qualified) name, e.g. "Color.RED" -> "RED".</summary>
+    private static string LastNameSegment(string name)
+    {
+        int dot = name.LastIndexOf(value: '.');
+        return dot >= 0 ? name[(dot + 1)..] : name;
+    }
+
+    /// <summary>
+    /// Lowers a user-choice <c>is CASE</c> <see cref="TypePattern"/> to a discriminant equality:
+    /// reinterpret the choice to its underlying integer (S32) via <c>S32(from: subject)</c> and compare
+    /// to the case's computed discriminant with <c>==</c>. OperatorLoweringPass (which runs AFTER this
+    /// pass) lowers the <c>==</c> to <c>S32.eq</c> (icmp eq i32), so the <c>is</c> operator never reaches
+    /// codegen. No binding (a choice case carries no payload).
+    /// </summary>
+    private (Expression? Cond, Statement? Binding) GetChoiceTypePatternCondition(
+        TypePattern tp, Expression subject, ChoiceTypeInfo choiceSubj, SourceLocation loc,
+        TypeInfo? boolType)
+    {
+        string caseName = LastNameSegment(name: tp.Type.Name);
+        ChoiceCaseInfo? matched =
+            choiceSubj.Cases.FirstOrDefault(predicate: c => c.Name == caseName);
+        // IsLowerablePattern only returns true when the case exists, so `matched` is non-null here.
+        TypeInfo? underlying = choiceSubj.UnderlyingType ?? ctx.Registry.LookupType(name: "S32");
+        var reinterpret = new CreatorExpression(
+            TypeName: underlying?.Name ?? "S32",
+            TypeArguments: null,
+            MemberVariables: [("from", subject)],
+            Location: loc) { ResolvedType = underlying, LoweringKind = CallLoweringKind.TypeConstructor };
+        var valueLit = new LiteralExpression(
+            Value: matched!.ComputedValue,
+            LiteralType: TokenType.S32Literal,
+            Location: loc) { ResolvedType = underlying };
+        var cond = new BinaryExpression(
+            Left: reinterpret,
+            Operator: BinaryOperator.Equal,
+            Right: valueLit,
+            Location: loc) { ResolvedType = boolType };
+        return (cond, null);
+    }
+
+    /// <summary>
+    /// Lowers an entity <c>is T</c> <see cref="TypePattern"/> to a BUILDTIME-constant condition: RF entities
+    /// have no subtyping, so a concrete-entity subject `is` a concrete-entity target is statically known —
+    /// same type always matches (null condition = the arm is unconditional; binds `is T name` to the subject),
+    /// a different type never matches (a `false` literal). No runtime type test reaches codegen.
+    /// </summary>
+    private (Expression? Cond, Statement? Binding) GetEntityTypePatternCondition(
+        TypePattern tp, Expression subject, TypeInfo? subjectType, SourceLocation loc, TypeInfo? boolType)
+    {
+        TypeInfo? target = tp.Type.ResolvedType ?? ctx.Registry.LookupType(name: tp.Type.Name);
+        bool same = target != null && subjectType?.FullName == target.FullName;
+        if (same)
+        {
+            // Always matches; bind `is T name` to the subject (already this exact type).
+            Statement? binding = tp.VariableName is { } name
+                ? MakeBinding(name: name, value: subject, loc: loc)
+                : null;
+            return (null, binding);
+        }
+
+        // Different concrete entity — never matches.
+        return (new LiteralExpression(Value: false, LiteralType: TokenType.False, Location: loc)
+            { ResolvedType = boolType }, null);
+    }
 
     /// <summary>
     /// Lowers a <c>TypePattern</c> over a Result/Lookup/Variant carrier to a <c>type_id ==</c> test
@@ -941,28 +1023,52 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
     }
 
     /// <summary>
-    /// Generates binding statements for a destructuring pattern applied to a record, entity, or tuple subject.
-    /// Returns a single <see cref="DeclarationStatement"/> for one binding, or a
-    /// <see cref="BlockStatement"/> for multiple (caller must flatten into the outer block).
+    /// Lowers a named destructuring pattern applied to a record/entity subject to a (condition, binding)
+    /// pair. A SIMPLE binding (<c>y: name</c>) always matches and binds <c>var name = subject.field</c>.
+    /// A NESTED binding (<c>y: SubPattern</c>) recurses: the field access becomes the sub-pattern's
+    /// subject, its condition is AND-combined into the total, and its bindings are appended. Field access
+    /// is a pure GEP+load, so re-evaluating it across a nested pattern's condition+binding is side-effect-free.
     /// </summary>
-    private static Statement GenerateDestructuringBindings(
+    private (Expression? Cond, Statement? Binding) GetDestructuringCondition(
         List<DestructuringBinding> bindings, Expression subject,
         List<MemberVariableInfo> memberVars, SourceLocation loc)
     {
+        TypeInfo? boolType = ctx.Registry.LookupType(name: "Bool");
+        Expression? cond = null;
         var stmts = new List<Statement>(capacity: bindings.Count);
         foreach (DestructuringBinding b in bindings)
         {
-            if (b.MemberVariableName == null || b.BindingName == null) continue;
-            MemberVariableInfo? member = memberVars.FirstOrDefault(m => m.Name == b.MemberVariableName);
+            if (b.MemberVariableName == null) continue;
+            MemberVariableInfo? member =
+                memberVars.FirstOrDefault(predicate: m => m.Name == b.MemberVariableName);
             if (member == null) continue;
             Expression fieldAccess = MakeMemberAccess(subject: subject,
                 field: b.MemberVariableName, fieldType: member.Type, loc: loc);
-            stmts.Add(item: MakeBinding(name: b.BindingName, value: fieldAccess, loc: loc));
+
+            if (b.NestedPattern is { } nested)
+            {
+                (Expression? subCond, Statement? subBinding) = GetPatternCondition(
+                    pattern: nested, subject: fieldAccess, subjectType: member.Type);
+                if (subCond != null)
+                    cond = cond == null
+                        ? subCond
+                        : new BinaryExpression(Left: cond, Operator: BinaryOperator.And,
+                            Right: subCond, Location: loc) { ResolvedType = boolType };
+                if (subBinding != null) stmts.Add(item: subBinding);
+            }
+            else if (b.BindingName != null)
+            {
+                stmts.Add(item: MakeBinding(name: b.BindingName, value: fieldAccess, loc: loc));
+            }
         }
 
-        return stmts.Count == 1
-            ? stmts[0]
-            : new BlockStatement(Statements: stmts, Location: loc);
+        Statement? binding = stmts.Count switch
+        {
+            0 => null,
+            1 => stmts[0],
+            _ => new BlockStatement(Statements: stmts, Location: loc)
+        };
+        return (cond, binding);
     }
 
     // -----------------------------------------------------------------------------
@@ -1022,12 +1128,30 @@ internal sealed class PatternLoweringPass(PostprocessingContext ctx) : AstRewrit
     }
 
     /// <summary>
-    /// Returns true when every binding in the list has both a member name and a local alias
-    /// and no nested pattern (i.e., it is a plain field -> name binding).
+    /// Returns true when every named binding is lowerable: a SIMPLE binding (member name + alias, no nested
+    /// pattern) always is; a NESTED binding is lowerable when its sub-pattern is lowerable on the member's
+    /// type (recursively). Positional bindings (no member name) are left for codegen.
     /// </summary>
-    private static bool IsAllNamedSimpleBindings(List<DestructuringBinding> bindings) =>
-        bindings.All(predicate: b =>
-            b is { MemberVariableName: not null, BindingName: not null, NestedPattern: null });
+    private static bool AreDestructuringBindingsLowerable(
+        List<DestructuringBinding> bindings, TypeInfo? subjectType)
+    {
+        List<MemberVariableInfo>? memberVars = subjectType switch
+        {
+            RecordTypeInfo r => r.MemberVariables,
+            EntityTypeInfo e => e.MemberVariables,
+            _ => null
+        };
+        if (memberVars == null) return false;
+        return bindings.All(predicate: b =>
+        {
+            if (b.MemberVariableName == null) return false; // positional — not lowered here
+            if (b.NestedPattern == null) return b.BindingName != null; // simple field -> name binding
+            MemberVariableInfo? member =
+                memberVars.FirstOrDefault(predicate: m => m.Name == b.MemberVariableName);
+            return member != null &&
+                   IsLowerablePattern(pattern: b.NestedPattern, subjectType: member.Type);
+        });
+    }
 
     // -----------------------------------------------------------------------------
 

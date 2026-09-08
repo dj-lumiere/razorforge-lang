@@ -349,9 +349,14 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
             // -- Step 1f-2: variant type test (x is T / x isnot T) -> type_id compare --
             // Variant subjects: x is S64 -> x.type_id == FNV("S64")
             //                   x isnot S64 -> x.type_id != FNV("S64")
-            // Choice subjects fall through -- codegen's EmitChoiceIs (icmp eq i32) handles them.
             case BinaryExpression { Operator: BinaryOperator.Is or BinaryOperator.IsNot, Left.ResolvedType: VariantTypeInfo } isBin:
                 return LowerVariantIsExpression(isBin);
+
+            // -- Step 1f-3: choice discriminant test (a is b / a isnot b) -> S32 equality --
+            // A choice is S32-backed; reinterpret both sides to S32 and compare with ==/!=, which OLP
+            // lowers to S32.eq / S32.ne (icmp eq/ne i32). Keeps the `is` operator out of codegen.
+            case BinaryExpression { Operator: BinaryOperator.Is or BinaryOperator.IsNot, Left.ResolvedType: ChoiceTypeInfo choiceLeft } choiceBin:
+                return LowerChoiceIsExpression(choiceBin, choiceLeft);
 
             // -- Step 1g: boolean short-circuit And -> ConditionalExpression --------
             // a and b  ->  if a { _cif = b } else { _cif = false }
@@ -1197,8 +1202,8 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
         AddTempVar(hoisted2, tempName, listType, MakeZeroArgCreator(listType, baseName, loc), loc);
         Expression colRef = MakeRef(tempName, listType, loc);
 
-        // List, Deque, BitList append at the end; everything else uses add().
-        string addMemberRoutine = baseName is "List" or "Deque" or "BitList"
+        // List, CircularList, BitList append at the end; everything else uses add().
+        string addMemberRoutine = baseName is "List" or "CircularList" or "BitList"
             ? Resolution.RuntimeContract.Collection.AddLast
             : Resolution.RuntimeContract.Collection.Add;
 
@@ -1706,6 +1711,43 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
     }
 
     /// <summary>
+    /// Lowers a choice discriminant test <c>a is b</c> / <c>a isnot b</c> to an S32 equality:
+    /// reinterpret both choice values to their underlying S32 (<c>S32(from: _)</c>, a no-op bit view)
+    /// and compare with <c>==</c> / <c>!=</c>, which OperatorLoweringPass lowers to <c>S32.eq</c> /
+    /// <c>S32.ne</c> (icmp eq/ne i32). This keeps the <c>is</c> operator out of codegen.
+    /// </summary>
+    private (List<Statement> Hoisted, Expression Expr) LowerChoiceIsExpression(
+        BinaryExpression bin, ChoiceTypeInfo choiceType)
+    {
+        var (leftH, loweredLeft) = LowerExpr(bin.Left);
+        var (rightH, loweredRight) = LowerExpr(bin.Right);
+        bool isNot = bin.Operator == BinaryOperator.IsNot;
+        SourceLocation loc = bin.Location;
+
+        TypeInfo? boolType = ctx.Registry.LookupType(name: "Bool");
+        TypeInfo? underlying = choiceType.UnderlyingType ?? ctx.Registry.LookupType(name: "S32");
+        List<Statement> hoisted = Concat(leftH, rightH);
+        if (boolType == null || underlying == null)
+            return (hoisted, bin with { Left = loweredLeft, Right = loweredRight });
+
+        CreatorExpression Reinterpret(Expression inner) =>
+            new(TypeName: underlying.Name,
+                TypeArguments: null,
+                MemberVariables: [("from", inner)],
+                Location: loc)
+            {
+                ResolvedType = underlying, LoweringKind = CallLoweringKind.TypeConstructor
+            };
+
+        var cmp = new BinaryExpression(
+            Left: Reinterpret(loweredLeft),
+            Operator: isNot ? BinaryOperator.NotEqual : BinaryOperator.Equal,
+            Right: Reinterpret(loweredRight),
+            Location: loc) { ResolvedType = boolType };
+        return (hoisted, cmp);
+    }
+
+    /// <summary>
     /// 1g. Lowers boolean short-circuit And to <see cref="ConditionalExpression"/>:
     /// <c>a and b</c> -> <c>if a { _cif = b } else { _cif = false }</c>.
     /// The right operand (<paramref name="bin"/>.Right) is NOT pre-lowered here;
@@ -2005,6 +2047,24 @@ internal sealed class ExpressionLoweringPass(PostprocessingContext ctx)
             var (matched, result) = LowerFlagsIsPattern(ipe: ipe, flagsTp: flagsTp,
                 flagsType2: flagsType2, loweredExpr: loweredExpr, hoisted: hoisted);
             if (matched) return result;
+        }
+
+        // Entity `x is T`: RF entities have no subtyping, so a concrete-entity `is` a concrete-entity is
+        // BUILDTIME-decidable — same type = always true, different = always false. Fold to a Bool literal
+        // so codegen never sees an entity type-test (the old "optimistic match" hack disappears). A
+        // protocol/Unknown operand carries a runtime type_id and is handled by its own path, not here.
+        if (ipe.Pattern is TypePattern entTp && operandType is EntityTypeInfo)
+        {
+            TypeInfo? target = entTp.Type.ResolvedType ?? ctx.Registry.LookupType(name: entTp.Type.Name);
+            if (target is EntityTypeInfo)
+            {
+                bool same = operandType.FullName == target.FullName;
+                bool value = ipe.IsNegated ? !same : same;
+                return (hoisted, new LiteralExpression(
+                    Value: value,
+                    LiteralType: value ? TokenType.True : TokenType.False,
+                    Location: ipe.Location) { ResolvedType = boolType });
+            }
         }
 
         // Not lowerable (Maybe[T entity] or other): pass through, but recurse operand.

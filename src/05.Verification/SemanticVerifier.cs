@@ -443,6 +443,22 @@ public sealed partial class SemanticVerifier
             Mark(label: "Phase 8 Instantiation");
             RunPhase9Postprocessing(program: program);
             Mark(label: "Phase 9 Postprocessing");
+            // Stage ② of the pull architecture: after Phase 9 has lowered subscript/operator calls to real
+            // getitem/member CallExpressions, run the demand collector so it walks from the entry points and
+            // monomorphizes exactly the referenced generic closure. The AnalyzeMultiple path does this after
+            // its per-file Phase-9 loop; the single-program path (unit tests, `check`/`codegen` verbs) needs
+            // the same call or InstantiatedGenericBodies stays empty of user generics (eager GMP is retired
+            // for non-base builds, so the collector is the SOLE monomorphizer).
+            if (_shadowCtx != null)
+            {
+                var synthSources = _synthesizedBodies.ToDictionary(keySelector: kvp => kvp.Key,
+                    elementSelector: kvp => kvp.Value.Body, comparer: StringComparer.Ordinal);
+                foreach ((string key, Statement variantBody) in _variantBodies)
+                    synthSources[key] = variantBody;
+                new RoutineCollectionPass(ctx: _shadowCtx).RunCollect(synthesizedBodies: synthSources);
+                _liveRoutineKeys = _shadowCtx.LiveRoutineKeys.ToArray();
+                _liveOwnerTypeNames = _shadowCtx.LiveOwnerTypeNames.ToArray();
+            }
             RunPhase9PostDesugarChecks();
             Mark(label: "Phase 9 PostDesugarChecks");
             FinalizeReturnTypes();
@@ -867,14 +883,26 @@ public sealed partial class SemanticVerifier
                 Step(label: nameof(ReachableGenericCollectionPass));
                 new RoutineReachabilityPass(ctx: ctx).Run();
                 Step(label: nameof(RoutineReachabilityPass));
-                new GenericClosurePass(ctx: ctx).Run();
-                Step(label: nameof(GenericClosurePass));
+                // BIG-BANG (pull): eager mono retired for normal builds (collector is sole monomorphizer);
+                // base mode still needs the eager full closure. See the non-timed branch below.
+                if (ctx.SeedAllStdlibRoutines)
+                {
+                    new GenericClosurePass(ctx: ctx).Run();
+                    Step(label: nameof(GenericClosurePass));
+                }
             }
             else
             {
                 new ReachableGenericCollectionPass(ctx: ctx).Run();
                 new RoutineReachabilityPass(ctx: ctx).Run();
-                new GenericClosurePass(ctx: ctx).Run();
+                // BIG-BANG (pull): eager monomorphization (GenericClosurePass) over reachability's
+                // over-approximated live set is retired for normal builds — the demand collector
+                // (RoutineCollectionPass at Phase 9) is the SOLE monomorphizer, building EXACTLY the
+                // referenced closure (no wasted List[Character]/Hijacked[U64] for an Address-only program).
+                // Base mode (SeedAllStdlibRoutines) still runs the eager full closure — it must DEFINE every
+                // stdlib instance, not just what one entry program reaches.
+                if (ctx.SeedAllStdlibRoutines)
+                    new GenericClosurePass(ctx: ctx).Run();
             }
         } while (ctx.SeedAllStdlibRoutines &&
                  ctx.InstantiatedGenericBodies.Count != prevCount && ++guard < 20);
@@ -1345,7 +1373,9 @@ public sealed partial class SemanticVerifier
         // unless the user actually asked for BuilderQuery" optimization).
         _builderQueryUserImportedOverride = DetectUserBuilderQueryImport(files: files);
 
-        // Phase 3 global: synthesized routines, derived operators, protocol validation
+        // Phase 3 global: synthesized routines, derived operators, protocol validation.
+        // (AutoRegisterWiredRoutines registers the derive templates itself before the everywhere-derive
+        // sweep, so lt/le/gt/ge resolve here regardless of phase ordering.)
         AutoRegisterWiredRoutines();
         Mark(label: $"Phase 6 global -> {nameof(AutoRegisterWiredRoutines)}");
         GenerateDerivedOperators();

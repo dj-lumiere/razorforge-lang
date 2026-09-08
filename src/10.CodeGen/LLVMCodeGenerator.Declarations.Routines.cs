@@ -15,17 +15,6 @@ public partial class LlvmCodeGenerator
 {
     private void GenerateRoutineDeclaration(RoutineInfo routine, string? nameOverride = null)
     {
-        // Record the reference: if we are emitting a routine body, this routine is a real callee and
-        // must itself be emitted. Gated on _emittingRoutineBody so the broad declaration pre-pass
-        // (which declares much of the registry up front) does not mark everything referenced.
-        if (_emittingRoutineBody)
-        {
-            _referencedKeys.Add(item: routine.RegistryKey);
-            // Also record the realm-stripped form: mangling is realm-free, so a body keyed under a
-            // different world-line (SF:: vs ambient) is the SAME emitted symbol and must pass the gate.
-            _referencedKeys.Add(item: StripRealmPrefix(routine.RegistryKey));
-        }
-
         string funcName = nameOverride ?? MangleRoutineName(routine: routine);
 
         // Skip if already generated
@@ -157,18 +146,6 @@ public partial class LlvmCodeGenerator
             _rfRoutineDeclarations[key: funcName] =
                 $"declare {returnPrefix}{returnType} @{funcName}({parameters})";
         }
-
-        // Over-prune tripwire: this declare was emitted because an emitted body references the
-        // routine, and it is a real RF routine (not a bodyless C extern), so it MUST also be
-        // defined. Record it so the post-fixpoint check in GenerateRoutineDefinitions can catch a
-        // reachability over-prune (a called routine whose body got dropped) as a located codegen
-        // error rather than a downstream linker "undefined symbol". Gated on _emittingRoutineBody
-        // so the broad declaration pre-pass — which declares much of the registry but references
-        // nothing — does not enroll dead routines.
-        if (_emittingRoutineBody && !isCExtern)
-        {
-            _expectedBodyNames.Add(item: funcName);
-        }
     }
 
     /// <summary>
@@ -289,96 +266,37 @@ public partial class LlvmCodeGenerator
     private RoutineInfo? ResolveRoutineInfoForDefinition(RoutineDeclaration routine,
         string? moduleContext)
     {
-        // The owner-qualified composite key (bare member for a free routine). Used AS-IS for the
-        // whole-key registry lookups; the scoped/unqualified helpers read the routine's STRUCTURED
-        // owner/member fields instead of re-splitting this string.
-        string baseName = routine.QualifiedName;
-        RoutineInfo? routineInfo = LookupScopedMemberRoutine(routine: routine,
-            moduleContext: moduleContext);
-
-        routineInfo ??= _registry.LookupRoutine(fullName: baseName);
-        // Module-level routine (no owner): prefer the module-qualified key so that two modules'
-        // same-named routines each bind to their OWN RoutineInfo.
-        if (routineInfo == null && !string.IsNullOrEmpty(value: moduleContext) &&
-            routine.OwnerName is null)
-        {
-            routineInfo = _registry.LookupRoutine(fullName: $"{moduleContext}.{baseName}");
-        }
-        routineInfo ??= LookupUnqualifiedRoutine(routine: routine, moduleContext: moduleContext);
-
-        return ResolveDefinitionOverload(routine: routine, moduleContext: moduleContext,
-            routineInfo: routineInfo);
-    }
-
-    /// <summary>
-    /// Owner-scoped member lookup pinned to <paramref name="moduleContext"/>. A bare
-    /// <c>LookupRoutine("Box.destroy")</c> returns a first-wins entry, so a 0-param memberRoutine on a
-    /// same-named type in another module would otherwise be emitted under the wrong symbol.
-    /// </summary>
-    private RoutineInfo? LookupScopedMemberRoutine(RoutineDeclaration routine, string? moduleContext)
-    {
-        // OwnerName is the canonical BARE owner (generic args live in RenderedReceiver); MemberRoutineName
-        // is the bare member. Reading them structurally avoids re-splitting QualifiedName on '.'.
-        if (string.IsNullOrEmpty(value: moduleContext) || routine.OwnerName is not { } ownerSeg)
-        {
-            return null;
-        }
-
-        TypeInfo? scopedOwner = _registry.LookupType(name: $"{moduleContext}.{ownerSeg}");
-        return scopedOwner == null
-            ? null
-            : _registry.LookupMemberRoutine(type: scopedOwner, memberRoutineName: routine.MemberRoutineName!);
-    }
-
-    /// <summary>
-    /// Fallback lookup when the earlier module-scoped and full-name lookups miss. For a member name
-    /// (with a dot) resolves owner-scoped first; otherwise uses the short-name registry fallback.
-    /// </summary>
-    private RoutineInfo? LookupUnqualifiedRoutine(RoutineDeclaration routine, string? moduleContext)
-    {
-        if (routine.OwnerName is not { } ownerPart)
-        {
-            // Free routine (or type-body member) — bare short-name fallback (e.g. "show" -> "IO.show").
-            return _registry.LookupRoutineByName(name: routine.Name);
-        }
-
-        // Member declaration (e.g. "UnpackedFloat[M, L, W].cbrt"). Resolve scoped to the owner
-        // type FIRST so a bare short-name lookup does not bind to a same-named routine of another
-        // owner. OwnerName/MemberRoutineName are the parser's structured pieces — no '.'-splitting.
-        string shortName = routine.MemberRoutineName!;
-        TypeInfo? ownerType = (!string.IsNullOrEmpty(value: moduleContext)
-            ? _registry.LookupType(name: $"{moduleContext}.{ownerPart}")
-            : null) ?? _registry.LookupType(name: ownerPart);
-        RoutineInfo? routineInfo = ownerType != null
-            ? _registry.LookupMemberRoutine(type: ownerType, memberRoutineName: shortName)
-            : null;
-        return routineInfo ?? _registry.LookupRoutine(fullName: shortName) ??
-            _registry.LookupRoutineByName(name: shortName);
-    }
-
-    /// <summary>
-    /// For an overloaded routine, resolves the specific overload matching this AST's parameter
-    /// types (owner-scoped first for member declarations), returning the more specific match.
-    /// </summary>
-    private RoutineInfo? ResolveDefinitionOverload(RoutineDeclaration routine,
-        string? moduleContext, RoutineInfo? routineInfo)
-    {
-        if (routineInfo == null || routine.Parameters.Count == 0)
-        {
-            return routineInfo;
-        }
-
+        // Signature-only: a routine is looked up by (name, arg-type set) ONLY — never a name-only
+        // first-wins lookup. The declaration's STRUCTURED owner/member/name fields + its parameter
+        // types uniquely identify it. A bare generic param (`value: T`) resolves to a
+        // GenericParameterTypeInfo (see ResolveAstParameterTypes) so the arg-type list stays
+        // arity-complete and the overload matcher's Tier-1 name match binds the generic-def routine.
         List<TypeInfo> astParamTypes = ResolveAstParameterTypes(routine: routine);
-        if (astParamTypes.Count != routine.Parameters.Count)
+
+        // Member declaration (`Owner.member`) — resolve owner-scoped by (owner, member, argTypes),
+        // module-qualified owner first so a same-named type in another module is not mis-bound.
+        if (routine.OwnerName is { } ownerPart && routine.MemberRoutineName is { } shortName)
         {
-            return routineInfo;
+            TypeInfo? ownerType = (!string.IsNullOrEmpty(value: moduleContext)
+                ? _registry.LookupType(name: $"{moduleContext}.{ownerPart}")
+                : null) ?? _registry.LookupType(name: ownerPart);
+            return ownerType == null
+                ? null
+                : _registry.LookupMemberRoutineOverload(type: ownerType,
+                    memberRoutineName: shortName, argTypes: astParamTypes);
         }
 
-        RoutineInfo? overload = ResolveScopedMemberRoutineOverload(routine: routine,
-            moduleContext: moduleContext, astParamTypes: astParamTypes);
-        overload ??= _registry.LookupRoutineOverload(baseName: routineInfo.BaseName,
-            argTypes: astParamTypes);
-        return overload ?? routineInfo;
+        // Free routine — resolve by (name, argTypes), module-qualified key first so two modules'
+        // same-named routines each bind to their own overload.
+        string freeBase = routine.QualifiedName;
+        RoutineInfo? info = null;
+        if (!string.IsNullOrEmpty(value: moduleContext))
+        {
+            info = _registry.LookupRoutineOverload(baseName: $"{moduleContext}.{freeBase}",
+                argTypes: astParamTypes);
+        }
+
+        return info ?? _registry.LookupRoutineOverload(baseName: freeBase, argTypes: astParamTypes);
     }
 
     /// <summary>
@@ -402,34 +320,18 @@ public partial class LlvmCodeGenerator
             }
 
             TypeInfo? t = _registry.LookupType(name: typeName);
+            // A bare unresolvable name is a generic PARAMETER (e.g. `value: T` in `List[T].add_last`);
+            // keep it as a GenericParameterTypeInfo so the arg-type list stays arity-complete and the
+            // overload matcher's Tier-1 name match (param.Name == arg.Name) can bind the generic-def routine.
+            t ??= param.Type.GenericArguments is not { Count: > 0 } && !typeName.Contains(value: '.')
+                ? new GenericParameterTypeInfo(name: typeName)
+                : null;
             if (t != null)
             {
                 astParamTypes.Add(item: t);
             }
         }
         return astParamTypes;
-    }
-
-    /// <summary>
-    /// Owner-scoped overload disambiguation for a member declaration. The base-name overload path
-    /// misses here because member base names always contain a '.', which disables the Core-prefix
-    /// fallback — so collect the owner type's candidates and match positionally by arg type.
-    /// </summary>
-    private RoutineInfo? ResolveScopedMemberRoutineOverload(RoutineDeclaration routine,
-        string? moduleContext, List<TypeInfo> astParamTypes)
-    {
-        if (routine.OwnerName is not { } ownerPart || routine.MemberRoutineName is not { } shortName)
-        {
-            return null;
-        }
-
-        TypeInfo? ownerType = (!string.IsNullOrEmpty(value: moduleContext)
-            ? _registry.LookupType(name: $"{moduleContext}.{ownerPart}")
-            : null) ?? _registry.LookupType(name: ownerPart);
-        return ownerType == null
-            ? null
-            : _registry.LookupMemberRoutineOverload(type: ownerType, memberRoutineName: shortName,
-                argTypes: astParamTypes);
     }
 
     /// <summary>
@@ -565,27 +467,7 @@ public partial class LlvmCodeGenerator
             : _currentReturnCoerceType ?? returnType;
         string returnPrefix =
             !_currentReturnViaSret && isCreator && returnType == "ptr" ? "noalias " : "";
-        // Compiler-synthesized routines are only ever referenced within this whole-program module,
-        // so give them `internal` linkage (GlobalDCE can strip uncalled ones) + `nounwind` (the
-        // runtime never unwinds). main / start / user routines and extern `declare`s are untouched.
-        // Base mode (resident-JIT): a compiler-generated routine must be EXTERNAL so the per-run delta
-        // module can reference it across the base/delta boundary — `internal` is module-local and would be
-        // invisible to the delta. The base is non-pruned + disk-cached, so it needs no GlobalDCE.
-        // Whole-program-internal ⇒ `internal` linkage (GlobalDCE can strip uncalled ones) + `nounwind`.
-        // Two disjuncts, both DETERMINISTIC so cold and warm builds agree (WarmCompile_Repeatable):
-        //  • IsSynthesized / IsWiredMemberRoutine — a hand-registered compiler routine; and
-        //  • a MONOMORPHIZED generic instance — its owner carries concrete type arguments, so there is no
-        //    cross-module source symbol for THIS instantiation; it is materialized whole-program-internally.
-        //    Keying on the type's structure (not a builder-set flag) is what makes it deterministic: the
-        //    IsSynthesized flag drifts cold-vs-warm because several builder paths (entity self-free tail vs
-        //    record destroy vs the demand collector) set it inconsistently on the same monomorphized routine.
-        // Base mode (resident-JIT): a compiler-generated routine must stay EXTERNAL so the per-run delta
-        // module can reference it — handled by the `!_baseMode` gate below.
-        bool ownerIsMonomorphizedInstance =
-            info.OwnerType is { IsGenericDefinition: false, TypeArguments.Count: > 0 };
-        bool isCompilerGenerated =
-            info.IsSynthesized || info.IsWiredMemberRoutine || ownerIsMonomorphizedInstance;
-        string linkagePrefix = isCompilerGenerated && !_baseMode ? "internal " : "";
+        (bool isCompilerGenerated, string linkagePrefix) = ComputeRoutineLinkage(routine: info);
         string funcAttrs = info.Annotations.Contains(value: "inline") ? " alwaysinline" : "";
         if (isCompilerGenerated)
         {
@@ -599,6 +481,32 @@ public partial class LlvmCodeGenerator
         }
         return
             $"define {linkagePrefix}{returnPrefix}{headerReturnType} @{funcName}({parameters}){funcAttrs} {{";
+    }
+
+    /// <summary>
+    /// Single source of truth for a routine's LLVM linkage. Compiler-generated routines are referenced
+    /// only within this whole-program module, so they get <c>internal</c> linkage (GlobalDCE can strip
+    /// uncalled ones) + <c>nounwind</c> (the runtime never unwinds). A routine is compiler-generated when
+    /// it is hand-registered (<see cref="RoutineInfo.IsSynthesized"/> / <see cref="RoutineInfo.IsWiredMemberRoutine"/>)
+    /// OR a MONOMORPHIZED generic instance — an owner carrying concrete type arguments has no cross-module
+    /// source symbol for that instantiation, so it is whole-program-internal BY STRUCTURE. Keying on the
+    /// type's structure (not the IsSynthesized flag) is what makes this DETERMINISTIC cold-vs-warm: the flag
+    /// drifts because several builder paths (entity self-free tail vs record destroy vs the demand collector)
+    /// set it inconsistently on the same monomorphized routine.
+    /// Base mode (resident-JIT): a compiler-generated routine must stay EXTERNAL so the per-run delta module
+    /// can reference it across the base/delta split (<c>internal</c> is module-local, invisible to the delta);
+    /// the base is non-pruned + disk-cached, so it needs no GlobalDCE. Both header emitters — this one via
+    /// <see cref="BuildDefineHeader"/> and the synthesized-runtime header — MUST route through here so they
+    /// never drift (WarmCompile_Repeatable).
+    /// </summary>
+    private (bool isCompilerGenerated, string linkagePrefix) ComputeRoutineLinkage(RoutineInfo routine)
+    {
+        bool ownerIsMonomorphizedInstance =
+            routine.OwnerType is { IsGenericDefinition: false, TypeArguments.Count: > 0 };
+        bool isCompilerGenerated =
+            routine.IsSynthesized || routine.IsWiredMemberRoutine || ownerIsMonomorphizedInstance;
+        string linkagePrefix = isCompilerGenerated && !_baseMode ? "internal " : "";
+        return (isCompilerGenerated, linkagePrefix);
     }
 
     /// <summary>
@@ -633,19 +541,7 @@ public partial class LlvmCodeGenerator
     /// </summary>
     private void GenerateRoutineBody(StringBuilder sb, Statement body, RoutineInfo routine)
     {
-        // Mark that we are emitting a body: every routine declared (referenced) from here on is a
-        // real callee of an emitted routine, so it must itself be emitted. Save/restore in case a
-        // body's emission ever re-enters this memberRoutine.
-        bool prevEmittingBody = _emittingRoutineBody;
-        _emittingRoutineBody = true;
-        try
-        {
-            EmitRoutineBodyInner(sb: sb, body: body, routine: routine);
-        }
-        finally
-        {
-            _emittingRoutineBody = prevEmittingBody;
-        }
+        EmitRoutineBodyInner(sb: sb, body: body, routine: routine);
     }
 
     /// <summary>
@@ -1156,12 +1052,11 @@ public partial class LlvmCodeGenerator
         return name.Replace(oldValue: "!", newValue: "");
     }
 
-    private static bool IsCreatorRoutine(RoutineInfo routine)
-    {
-        return routine.Name.Contains(value: "create") ||
-               routine.Name is "try_create" or "check_create" or "lookup_create" ||
-               routine.OriginalName?.Contains(value: "create") == true;
-    }
+    // A creator is identified by its semantic KIND, not a name substring. SA sets Kind=Creator for
+    // `create` and `routine T(...)` (SemanticVerifier.Declarations.cs); error-handling variants inherit it
+    // (ErrorHandlingGenerator copies `Kind = original.Kind`), so try_/check_/lookup_create qualify too.
+    private static bool IsCreatorRoutine(RoutineInfo routine) =>
+        routine.Kind == TypeModel.Enums.RoutineKind.Creator;
 
     private string GetImplicitMeParameterDeclaration(RoutineInfo routine, bool includeName)
     {
@@ -1241,9 +1136,11 @@ public partial class LlvmCodeGenerator
             return false;
         }
 
-        string llvmType = GetLlvmType(type: routine.ReturnType);
-        if (!llvmType.StartsWith(value: "%Record.") && !llvmType.StartsWith(value: "%\"Record.") &&
-            !llvmType.StartsWith(value: "%Tuple.") && !llvmType.StartsWith(value: "%\"Tuple."))
+        // Aggregate return (named record — NOT a variant, which returns its own struct — or a tuple).
+        // Structural type check, NOT a parse of the emitted LLVM type string.
+        bool isAggregate = routine.ReturnType is TupleTypeInfo
+            || routine.ReturnType is RecordTypeInfo and not VariantTypeInfo;
+        if (!isAggregate)
         {
             return false;
         }

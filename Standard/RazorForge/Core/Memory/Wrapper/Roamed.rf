@@ -31,8 +31,7 @@ import BuilderQuery
 ### (no auto-scheduling yet), so cycles are reclaimed only where the collector is actually run.
 ### :typeparam T: The exclusively owned entity type.
 @llvm("ptr")
-record Roamed[T] obeys Controlling[T]
-needs T is EntityType
+record Roamed[EntityType T] obeys Controlling[T]
   pass
 
 # ============================================================================
@@ -42,7 +41,7 @@ needs T is EntityType
 ### Constructor form: `Roamed[T](from: n)` routes here. Ownership of the entity moves into the RC system.
 ### This is what an SF `entity` slot lowers to (SuflaeEntityLoweringPass builds this constructor call).
 routine Roamed[T].create(from: T) -> Roamed[T]
-needs T is EntityType
+needs EntityType T
   danger
     var ctrl = RoamController[T](data: from.hijack()).hijack()
     return Roamed[T](ctrl)
@@ -53,7 +52,7 @@ needs T is EntityType
 ### tracing all no-op on a none handle.
 ### :returns: The absent `Roamed[T]`.
 routine roamed_none[T]() -> Roamed[T]
-needs T is EntityType
+needs EntityType T
   danger
     return Roamed[T](Hijacked[RoamController[T]](from: 0_addr))
 
@@ -69,7 +68,7 @@ routine Roamed[T].is_none() -> Bool
 ### :param addr: The controller address (0 for the absent handle).
 ### :returns: The `Roamed[T]` viewing that controller.
 dangerous routine roamed_from_addr[T](addr: Address) -> Roamed[T]
-needs T is EntityType
+needs EntityType T
   return Roamed[T](Hijacked[RoamController[T]](from: addr))
 
 ### Returns a new alias to the same object (biased retain), or the absent handle unchanged. This is

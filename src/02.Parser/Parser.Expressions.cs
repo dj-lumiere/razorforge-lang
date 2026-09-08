@@ -163,8 +163,12 @@ public partial class Parser
         }
 
         // Identifiers and language-specific keywords
-        // Note: 'me' is tokenized as TokenType.Me, so we need to handle it explicitly
-        if (Match(TokenType.Identifier, TokenType.Me))
+        // Note: 'me' is tokenized as TokenType.Me and 'Me' (the self TYPE) as TokenType.MyType, so we
+        // handle both explicitly. `Me` in expression position is a self-type reference usable as a
+        // constructor callee — e.g. the choice/flags `all_cases()` derive reconstructs each case via the
+        // reverse `Me(from: $valueof(c))` constructor; after the derive-template T→concrete substitution
+        // `Me` resolves to the owning type exactly as it does in a hand-written routine body.
+        if (Match(TokenType.Identifier, TokenType.Me, TokenType.MyType))
         {
             return ParseIdentifierPrimary(location: location);
         }

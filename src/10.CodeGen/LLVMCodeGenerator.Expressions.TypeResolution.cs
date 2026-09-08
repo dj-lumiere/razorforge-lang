@@ -321,8 +321,14 @@ public partial class LlvmCodeGenerator
             return memberType.TypeArguments[index: 0];
         }
 
-        // Try getitem on the member type
-        RoutineInfo? getItem = _registry.LookupMemberRoutine(type: memberType, memberRoutineName: "getitem");
+        // Try the scalar-index getitem on the member type (element type = its return). Signature-only:
+        // getitem has two overloads — `getitem(index: U64) -> T` and `getitem(range) -> List[T]` — so a
+        // name-only first-wins lookup could pick the range form and report the wrong element type.
+        TypeInfo? u64ForIndex = _registry.LookupType(name: "U64");
+        RoutineInfo? getItem = u64ForIndex != null
+            ? _registry.LookupMemberRoutineOverload(type: memberType, memberRoutineName: "getitem",
+                argTypes: [u64ForIndex])
+            : null;
         return getItem?.ReturnType;
     }
 
@@ -740,7 +746,13 @@ public partial class LlvmCodeGenerator
 
         TypeInfo? lookupType = MarkerProtocolInner(type: targetType) ?? targetType;
 
-        RoutineInfo? getItem = _registry.LookupMemberRoutine(type: lookupType, memberRoutineName: "getitem");
+        // Scalar-index getitem (`getitem(index: U64) -> T`) — signature-only so the range overload
+        // (`getitem(range) -> List[T]`) is not first-wins-picked.
+        TypeInfo? u64ForIndex = _registry.LookupType(name: "U64");
+        RoutineInfo? getItem = u64ForIndex != null
+            ? _registry.LookupMemberRoutineOverload(type: lookupType, memberRoutineName: "getitem",
+                argTypes: [u64ForIndex])
+            : null;
         if (getItem?.ReturnType == null)
         {
             return null;

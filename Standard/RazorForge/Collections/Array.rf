@@ -33,8 +33,7 @@ import BuilderQuery
 ### :see: {List[T]} for a heap-backed growable sequence.
 ### :see: {BitArray[N]} for a compact fixed-size bit sequence.
 @llvm("[{N} x {T}]")
-record Array[T, N] obeys Comparable, Iterable[T], MutableIndexable[T], Sized, Container
-needs N is U64
+record Array[AnyType T, U64 N] obeys Comparable, Iterable[T], MutableIndexable[T], Sized, Container
 relates ArrayEmittable[T, N] as Iter
   # N elements of T stored inline by compiler - no explicit member variables needed
   pass
@@ -195,7 +194,7 @@ needs T obeys Equatable
 ### Because `Array` is a record type, the iterator holds its own copy of the array data.
 ### :typeparam T: The element type yielded by the iterator.
 ### :typeparam N: The compile-time element count.
-entity ArrayEmittable[T, N] obeys Emittable[T]
+entity ArrayEmittable[AnyType T, U64 N] obeys Emittable[T]
   ### Stores the array being iterated.
   list: Array[T, N]
   ### Stores the next logical index to read.

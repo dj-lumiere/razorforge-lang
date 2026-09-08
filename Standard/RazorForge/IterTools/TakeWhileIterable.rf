@@ -4,7 +4,7 @@ module IterTools
 ### Iteration stops permanently after the first predicate failure.
 ### :typeparam T: The element type produced by the source sequence.
 ### :typeparam S: The concrete source iterable type (borrowed; enables build-time dispatch).
-entity TakeWhileIterable[T, S] obeys Iterable[T]
+entity TakeWhileIterable[AnyType T, AnyType S] obeys Iterable[T]
 needs S obeys Iterable[T]
 relates TakeWhileEmittable[T, S/Iter] as Iter
   ### Stores the source iterable (borrowed, not owned).
@@ -24,7 +24,7 @@ routine TakeWhileIterable[T, S].iter() -> TakeWhileEmittable[T, S/Iter]
 ### Iterates over a source sequence until the continuation predicate fails.
 ### :typeparam T: The element type produced by the source sequence.
 ### :typeparam SE: The concrete source iterator type (borrowed).
-entity TakeWhileEmittable[T, SE] obeys Emittable[T]
+entity TakeWhileEmittable[AnyType T, AnyType SE] obeys Emittable[T]
 needs SE obeys Emittable[T]
   ### Stores the underlying source iterator (borrowed).
   secret source: Hijacked[SE]

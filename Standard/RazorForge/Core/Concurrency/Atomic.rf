@@ -25,7 +25,7 @@ module Core
 ###
 ### :typeparam T: The cell's element type (an atomic-capable scalar).
 ### :see: {Guarded}, {Hijacked}, {FrozenController}
-record Atomic[T]
+record Atomic[AnyType T]
 needs T obeys AtomicType
   ### The payload. Driven through SeqCst atomic intrinsics on its live address;
   ### never read directly (see the by-ref `me` note above).

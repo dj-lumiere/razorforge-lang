@@ -261,7 +261,7 @@ internal sealed class GenericCallLoweringPass : AstRewriter
         // matching create() to bind ResolvedRoutine. Without lowering they'd survive as
         // GMCEs and trip the IllegalBackendResidualNode check.
         //
-        // Zero-arg construction of a type that has fields (e.g. Deque[S64]()) is NOT lowered
+        // Zero-arg construction of a type that has fields (e.g. CircularList[S64]()) is NOT lowered
         // here — the type relies on a real create() overload that SA failed to bind, and
         // forging an empty CreatorExpression would just re-issue the bug as S455
         // (missing field). Leave that case to the SA fix path.

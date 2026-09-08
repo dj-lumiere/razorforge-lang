@@ -31,23 +31,24 @@ public partial class LlvmCodeGenerator
         {
         return expr switch
         {
-            // TODO: This should be eliminated by lowering pass
+            // Fundamental leaves: a literal value and a name reference.
             LiteralExpression literal => EmitLiteral(sb: sb, literal: literal),
             IdentifierExpression identifier => EmitIdentifier(sb: sb, identifier: identifier),
-            // TODO: This should be eliminated by lowering pass
+            // Field access (GEP + load) — fundamental IR, distinct from a member-routine call.
             MemberExpression memberAccess => EmitMemberVariableAccess(sb: sb, expr: memberAccess),
             CreatorExpression constructor => EmitConstructorCall(sb: sb, expr: constructor),
             CallExpression call => EmitCall(sb: sb, call: call),
-            // TODO: This should be eliminated by lowering pass
+            // Only the fundamental operator arms survive to codegen (Assign / Is / IdentityEqual /
+            // Steal / flags-bitnot); every wired/comparison/membership/logical op is lowered upstream.
             BinaryExpression binary => EmitBinaryOp(sb: sb, binary: binary),
-            // TODO: This should be eliminated by lowering pass
             UnaryExpression unary => EmitUnaryOp(sb: sb, unary: unary),
             GenericMemberRoutineCallExpression gmc => EmitGmceFallback(sb: sb, gmc: gmc),
             // Array[T,N] and BitArray[N] are inline IR constructs (insertvalue); all other
             // collection literals must be lowered to CreatorExpression + add calls before codegen.
             ListLiteralExpression list when IsArrayOrBitArrayLiteral(list.ResolvedType) =>
                 EmitListLiteral(sb: sb, list: list),
-            // TODO: This should be eliminated by lowering pass
+            // CarrierPayloadExpression is the RESULT of PatternLoweringPass (Maybe/Result payload
+            // projection) — codegen consumes it, it is not a surface node.
             CarrierPayloadExpression payload => EmitCarrierPayloadExpression(sb: sb,
                 payload: payload),
             CrashableDispatchExpression dispatch => EmitCrashableDispatchExpression(sb: sb,
@@ -123,12 +124,8 @@ public partial class LlvmCodeGenerator
         // is `{ @sym, null }` where @sym is the callee's bare C-ABI symbol and bound is null. No heap
         // box, no adapter thunk: the fn field IS a raw C function pointer (drops straight into a C
         // callback slot / struct field), and a captureless value never leaks. See [[cabi-callback-ffi]].
-        //
-        // Record the reference so the callee's body is emitted — a routine used ONLY as a value (e.g.
-        // a synthesized `roam_*_impl` cycle-collector hook) would otherwise fail the Phase-C
-        // `_referencedKeys` emission gate and link against an undefined symbol.
-        _referencedKeys.Add(item: routine.RegistryKey);
-        _referencedKeys.Add(item: StripRealmPrefix(routine.RegistryKey));
+        // (The demand collector discovers a routine used as a VALUE via the same IdentifierExpression the
+        // walk visits, so its body is materialized upstream — codegen no longer tracks references itself.)
         string sym = $"@{MangleRoutineName(routine: routine)}";
         string t0 = NextTemp();
         EmitLine(sb: sb, line: $"  {t0} = insertvalue {{ ptr, ptr }} undef, ptr {sym}, 0");
@@ -595,7 +592,8 @@ public partial class LlvmCodeGenerator
     private void AppendThunkCompleteResult(StringBuilder b, RoutineInfo routine, string retType)
     {
         RoutineInfo? destroy = routine.ReturnType is { } rt
-            ? _registry.LookupMemberRoutine(type: rt, memberRoutineName: "destroy")
+            ? _registry.LookupMemberRoutineOverload(type: rt, memberRoutineName: "destroy",
+                argTypes: new List<TypeInfo>())
             : null;
         bool needsDiscard = destroy != null && routine.ReturnType != null;
 
@@ -776,7 +774,7 @@ public partial class LlvmCodeGenerator
             }
 
             throw new InvalidOperationException(
-                message: $"Unknown identifier '{identifier.Name}'");
+                message: $"Unknown identifier '{identifier.Name}' in routine [{_currentEmittingRoutine?.OwnerType?.FullName ?? _currentEmittingRoutine?.Module}.{_currentEmittingRoutine?.Name}]");
         }
 
         // Variables are stored in allocas (%name.addr), need to load them
@@ -801,8 +799,6 @@ public partial class LlvmCodeGenerator
     {
         if (preResolved.Name is "roam_trace_impl" or "roam_free_impl")
         {
-            _referencedKeys.Add(item: preResolved.RegistryKey);
-            _referencedKeys.Add(item: StripRealmPrefix(preResolved.RegistryKey));
             return $"@{MangleRoutineName(routine: preResolved)}";
         }
         return preResolved.IsLambda
@@ -824,17 +820,15 @@ public partial class LlvmCodeGenerator
 
         List<TypeInfo> paramTypes = routineType.ParameterTypes.ToList();
 
+        // Signature-only: a routine VALUE's type carries its parameter types, so resolve the overload by
+        // (name, paramTypes) — no name-only fallback (which first-wins-picks the wrong overload).
         if (moduleName != null && !bareName.Contains(value: '.'))
         {
             routine = _registry.LookupRoutineOverload(baseName: $"{moduleName}.{bareName}",
                 argTypes: paramTypes);
-            routine ??= _registry.LookupRoutine(fullName: $"{moduleName}.{bareName}");
         }
 
         routine ??= _registry.LookupRoutineOverload(baseName: bareName, argTypes: paramTypes);
-        routine ??= _registry.LookupRoutine(fullName: bareName);
-        routine ??=
-            _registry.LookupRoutineByName(name: bareName, isFailable: routineType.IsFailable);
         return routine != null;
     }
 
@@ -930,7 +924,8 @@ public partial class LlvmCodeGenerator
             return ""; // not a tracked local (e.g. a param) — leave untracked (first-cut limitation)
         }
 
-        RoutineInfo? destroy = _registry.LookupMemberRoutine(type: type, memberRoutineName: "destroy");
+        RoutineInfo? destroy = _registry.LookupMemberRoutineOverload(type: type,
+            memberRoutineName: "destroy", argTypes: new List<TypeInfo>());
         if (destroy == null)
         {
             return "";
@@ -1166,7 +1161,10 @@ public partial class LlvmCodeGenerator
     /// </summary>
     private string EmitBinaryOp(StringBuilder sb, BinaryExpression binary)
     {
-        // TODO: This should be done with member routine, not here
+        // Wired/comparison/membership/logical operators are all lowered to member calls or folded to
+        // literals UPSTREAM (OperatorLoweringPass / ExpressionLoweringPass) and throw here if they leak.
+        // The arms that remain are FUNDAMENTAL IR primitives with no member routine to dispatch to:
+        // Assign (storage), Is/IsNot (choice-discriminant icmp), IdentityEqual/NotEqual (ptr icmp).
         return binary.Operator switch
         {
             BinaryOperator.And => throw new InvalidOperationException(
@@ -1174,12 +1172,20 @@ public partial class LlvmCodeGenerator
             BinaryOperator.Or => throw new InvalidOperationException(
                 $"BinaryExpression(Or) must be lowered to ConditionalExpression by ExpressionLoweringPass before codegen. In routine: {_currentEmittingRoutine?.Name ?? "<unknown>"} (owner: {_currentEmittingRoutine?.OwnerType?.Name ?? "none"})"),
             BinaryOperator.Assign => EmitBinaryAssign(sb: sb, binary: binary),
-            BinaryOperator.In => EmitContainsCall(sb: sb, binary: binary, memberRoutineName: "contains"),
-            BinaryOperator.NotIn => EmitContainsCall(sb: sb,
-                binary: binary,
-                memberRoutineName: "notcontains"),
-            BinaryOperator.Is => EmitChoiceIs(sb: sb, binary: binary, cmpOp: "eq"),
-            BinaryOperator.IsNot => EmitChoiceIs(sb: sb, binary: binary, cmpOp: "ne"),
+            // `x in coll` / `x notin coll` are lowered to `coll.contains(x)` / `coll.notcontains(x)`
+            // member calls by OperatorLoweringPass before codegen (membership operators reverse
+            // receiver/argument there). A bare BinaryExpression(In/NotIn) reaching codegen means a body
+            // skipped that lowering — fix the pass, not here.
+            BinaryOperator.In or BinaryOperator.NotIn => throw new InvalidOperationException(
+                $"BinaryExpression({binary.Operator}) must be lowered to a contains/notcontains member " +
+                $"call by OperatorLoweringPass before codegen (right={binary.Right.GetType().Name}, loc={binary.Location})"),
+            // `is` / `isnot` are lowered UPSTREAM to a structural comparison: variant → type_id compare
+            // (ExpressionLoweringPass), choice → S32 discriminant equality (ExpressionLoweringPass +
+            // PatternLoweringPass, via S32.eq). A bare BinaryExpression(Is/IsNot) reaching codegen means a
+            // body skipped that lowering — fix the pass, not here.
+            BinaryOperator.Is or BinaryOperator.IsNot => throw new InvalidOperationException(
+                $"BinaryExpression({binary.Operator}) must be lowered to a type_id / discriminant compare " +
+                $"before codegen (left={binary.Left.ResolvedType?.Name ?? "?"}, loc={binary.Location})"),
             // Reference identity (===, !==): a raw pointer compare on the operands. Every entity and
             // forwarding wrapper lowers to a `ptr` (see GetLlvmType), and that pointer IS the object
             // reference member forwarding dispatches on — so comparing the two pointers answers
@@ -1255,58 +1261,6 @@ public partial class LlvmCodeGenerator
     }
 
     /// <summary>
-    /// Emit contains call as part of this compiler phase.
-    /// </summary>
-    private string EmitContainsCall(StringBuilder sb, BinaryExpression binary, string memberRoutineName)
-    {
-        // TODO: This should be done with member routine, not here
-        string collection = EmitExpression(sb: sb, expr: binary.Right);
-        string element = EmitExpression(sb: sb, expr: binary.Left);
-
-        TypeInfo? collectionType = GetExpressionType(expr: binary.Right);
-        if (collectionType == null)
-        {
-            throw new InvalidOperationException(
-                message: "Cannot determine collection type for 'in'/'notin' operator");
-        }
-
-        ResolvedMemberRoutine? resolved =
-            ResolveMemberRoutine(receiverType: collectionType, memberRoutineName: memberRoutineName);
-        string mangledName = resolved?.MangledName ??
-                             Q(name:
-                                 $"{collectionType.FullName}.{SanitizeLlvmName(name: memberRoutineName)}");
-
-        if (resolved != null)
-        {
-            GenerateRoutineDeclaration(routine: resolved.Routine,
-                nameOverride: resolved.MangledName);
-        }
-
-        var argValues = new List<string> { collection, element };
-        var argTypes = new List<string> { GetParameterLlvmType(type: collectionType) };
-
-        argTypes.Add(item: GetExpressionLlvmType(expr: binary.Left));
-
-        string result = NextTemp();
-        string args = BuildCallArgs(types: argTypes, values: argValues);
-        EmitLine(sb: sb, line: $"  {result} = call i1 @{mangledName}({args})");
-        return result;
-    }
-
-    /// <summary>
-    /// Emit choice is as part of this compiler phase.
-    /// </summary>
-    private string EmitChoiceIs(StringBuilder sb, BinaryExpression binary, string cmpOp)
-    {
-        // TODO: This should be done with member routine, not here
-        string left = EmitExpression(sb: sb, expr: binary.Left);
-        string right = EmitExpression(sb: sb, expr: binary.Right);
-        string result = NextTemp();
-        EmitLine(sb: sb, line: $"  {result} = icmp {cmpOp} i32 {left}, {right}");
-        return result;
-    }
-
-    /// <summary>
     /// Emits <c>===</c> / <c>!==</c> as a pointer-identity compare. Both operands lower to a <c>ptr</c>
     /// (entity or forwarding wrapper), so <c>icmp eq/ne ptr</c> answers "same object?". Returns the i1.
     /// </summary>
@@ -1325,7 +1279,8 @@ public partial class LlvmCodeGenerator
     /// </summary>
     private string EmitUnaryOp(StringBuilder sb, UnaryExpression unary)
     {
-        // TODO: This should be done with member routine, not here
+        // Wired unary operators lower to member calls upstream (and throw here if they leak). The
+        // arms that remain are fundamental: Steal (pure passthrough) and flags BitwiseNot below —
         // BitwiseNot on FlagsTypeInfo is intentionally left unlowered by OperatorLoweringPass
         // (flags have no bitnot body to avoid synthesizer recursion). Emit `xor x, -1` directly
         // on the underlying integer type, mirroring EmitFlagsBitwiseOp.

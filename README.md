@@ -174,7 +174,7 @@ With no entry file given, the CLI searches the current and parent directories fo
 - **Numerics**: `S8`–`S128`, `U8`–`U128`, `F16`–`F128`, decimal `D32`/`D64`/`D128`, arbitrary
   precision `Integer`/`Decimal`, complex numbers — with checked, wrapping, clamping, and
   overflow-reporting arithmetic variants.
-- **Collections**: `List`, `Dict`, `Set`, `Deque`, `BitList`, sorted collections, fixed-size
+- **Collections**: `List`, `Dict`, `Set`, `CircularList`, `BitList`, sorted collections, fixed-size
   `Array[T, N]`, iterator adapters (`select`, `where`, `zip`, `enumerate`, …).
 - **Text**: UTF-32 `Text` type, f-string interpolation with format specs, `Bytes` with UTF-8
   iteration.

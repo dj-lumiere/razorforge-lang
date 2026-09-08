@@ -627,7 +627,8 @@ public partial class LlvmCodeGenerator
     {
         TypeInfo? textType = _registry.LookupType(name: "Text");
         RoutineInfo? textEq = textType != null
-            ? _registry.LookupMemberRoutine(type: textType, memberRoutineName: "eq")
+            ? _registry.LookupMemberRoutineOverload(type: textType, memberRoutineName: "eq",
+                argTypes: [textType])
             : null;
         string eqFuncName = textEq != null ? MangleRoutineName(routine: textEq) : "Text_eq";
         EmitLine(sb: sb,
@@ -746,22 +747,30 @@ public partial class LlvmCodeGenerator
     }
 
     /// <summary>
-    /// Emits an entity/record type pattern: an unconditional match on same-named types, a fail on
-    /// known-incompatible entity types, and an optimistic match when undecidable at compile time.
+    /// Emits an entity/record type pattern. RF has no entity/record subtyping, so a concrete-vs-concrete
+    /// <c>is</c> is buildtime-decidable: same concrete type matches, a different one fails. (Entity `is` is
+    /// normally folded to a constant upstream; this stays for a mixed when that kept it, and for records.)
+    /// An UNDECIDABLE case (protocol / Unknown / null subject) is a HARD ERROR — codegen never fails
+    /// silently, and a runtime type test must be lowered to a type_id comparison upstream, never optimistically
+    /// matched here.
     /// </summary>
     private void EmitEntityTypePatternMatch(StringBuilder sb, TypeInfo? subjectType,
         TypeInfo? targetType, string branchTarget, string failLabel)
     {
-        // Known incompatible entity types -> cannot match
-        if (subjectType is EntityTypeInfo && targetType is EntityTypeInfo &&
-            subjectType.Name != targetType.Name)
+        if (subjectType is EntityTypeInfo or RecordTypeInfo &&
+            targetType is EntityTypeInfo or RecordTypeInfo)
         {
-            EmitLine(sb: sb, line: $"  br label %{failLabel}");
+            // Different concrete type -> never matches; same concrete type -> always matches.
+            EmitLine(sb: sb, line: subjectType.Name != targetType.Name
+                ? $"  br label %{failLabel}"
+                : $"  br label %{branchTarget}");
             return;
         }
 
-        // Same-named types match; otherwise fall through optimistically (undecidable at compile time).
-        EmitLine(sb: sb, line: $"  br label %{branchTarget}");
+        throw new InvalidOperationException(
+            $"Undecidable type pattern (subject '{subjectType?.FullName ?? "<null>"}' is " +
+            $"'{targetType?.FullName ?? "<null>"}') reached codegen — a runtime type test must be lowered to a " +
+            "type_id comparison upstream. codegen is a never-fail translator, it does not optimistically match.");
     }
 
     /// <summary>

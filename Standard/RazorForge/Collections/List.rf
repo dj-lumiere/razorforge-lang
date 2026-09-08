@@ -13,7 +13,7 @@ import BuilderQuery
 ### - You need fast indexed access (`list[i]`).
 ### - You mainly add elements to the back.
 ### - You need to sort or reverse a sequence in place.
-### - Use {Deque[T]} instead when you frequently add or remove from both ends.
+### - Use {CircularList[T]} instead when you frequently add or remove from both ends.
 ### - Use {SortedList[T]} instead when elements must stay in sorted order.
 ###
 ### **Complexity**
@@ -30,9 +30,9 @@ import BuilderQuery
 ### | Iteration | O(n) |
 ###
 ### :typeparam T: The element type stored in the list.
-### :see: {Deque[T]} for efficient double-ended insertion and removal.
+### :see: {CircularList[T]} for efficient double-ended insertion and removal.
 ### :see: {SortedList[T]} for a list that maintains ascending order automatically.
-entity List[T] obeys Iterable[T], MutableIndexable[T], Sized, Container, Equatable, Copyable onlyif (T obeys Copyable), ListLiteral[T]
+entity List[AnyType T] obeys Iterable[T], MutableIndexable[T], Sized, Container, Equatable, Copyable onlyif T obeys Copyable, ListLiteral[T]
 relates ListEmittable[T] as Iter
   ### Stores the backing buffer.
   secret data: Hijacked[T]
@@ -364,7 +364,7 @@ routine List[T].clear()
 ### The iterator captures a raw pointer and element count at creation so it does
 ### not hold a live reference to the list; mutations during iteration are unsafe.
 ### :typeparam T: The element type produced by the iterator.
-entity ListEmittable[T] obeys Emittable[T]
+entity ListEmittable[AnyType T] obeys Emittable[T]
   ### Stores a pointer into the source list buffer.
   secret data: Hijacked[T]
   ### Stores the element count captured at iterator creation.

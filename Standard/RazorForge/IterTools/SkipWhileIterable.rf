@@ -4,7 +4,7 @@ module IterTools
 ### Once the predicate fails, all remaining source values are yielded unchanged.
 ### :typeparam T: The element type produced by the source sequence.
 ### :typeparam S: The concrete source iterable type (borrowed; enables build-time dispatch).
-entity SkipWhileIterable[T, S] obeys Iterable[T]
+entity SkipWhileIterable[AnyType T, AnyType S] obeys Iterable[T]
 needs S obeys Iterable[T]
 relates SkipWhileEmittable[T, S/Iter] as Iter
   ### Stores the source iterable (borrowed, not owned).
@@ -23,7 +23,7 @@ routine SkipWhileIterable[T, S].iter() -> SkipWhileEmittable[T, S/Iter]
 ### Iterates over a source sequence after dropping its leading predicate-matching prefix.
 ### :typeparam T: The element type produced by the source sequence.
 ### :typeparam SE: The concrete source iterator type (borrowed).
-entity SkipWhileEmittable[T, SE] obeys Emittable[T]
+entity SkipWhileEmittable[AnyType T, AnyType SE] obeys Emittable[T]
 needs SE obeys Emittable[T]
   ### Stores the underlying source iterator (borrowed).
   secret source: Hijacked[SE]

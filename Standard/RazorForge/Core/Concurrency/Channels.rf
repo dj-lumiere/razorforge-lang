@@ -41,7 +41,7 @@ routine make_shared_channel[T](capacity: U64) -> (Sender[T], SharedReceiver[T])
 
 ### The sending end of a channel. Clone it for multiple producers; the last one dropping (or an
 ### explicit `close`) closes the channel.
-entity Sender[T]
+entity Sender[AnyType T]
   ### The shared native channel handle (rf_channel*).
   secret chan: CPtr
 
@@ -93,7 +93,7 @@ dangerous routine Sender[T].destroy()
 ### The single-consumer receiving end. Obeys `Iterable[T]`: `for x in hop` drains it until the
 ### channel closes and the buffer empties. There is only ever one `Receiver` per channel (it is not
 ### cloneable — use a `SharedReceiver` for multiple consumers).
-entity Receiver[T] obeys Iterable[T]
+entity Receiver[AnyType T] obeys Iterable[T]
 relates ChannelDrain[T] as Iter
   ### The shared native channel handle (rf_channel*).
   secret chan: CPtr
@@ -137,7 +137,7 @@ dangerous routine Receiver[T].destroy()
 
 ### A multi-consumer receiving handle. Clone one per consumer for a worker pool; any free worker
 ### takes the next item. Obeys `Iterable[T]` like `Receiver`.
-entity SharedReceiver[T] obeys Iterable[T]
+entity SharedReceiver[AnyType T] obeys Iterable[T]
 relates ChannelDrain[T] as Iter
   ### The shared native channel handle (rf_channel*).
   secret chan: CPtr
@@ -187,7 +187,7 @@ dangerous routine SharedReceiver[T].destroy()
 ### The iterator a receiving end hands to a `for` loop. It references the channel without owning it (the
 ### owning `Receiver`/`SharedReceiver` holds the consumer reference); `emit!` receives one item, parking
 ### while the buffer is empty, and returns `absent` once the channel is closed and drained — ending the loop.
-entity ChannelDrain[T] obeys Emittable[T]
+entity ChannelDrain[AnyType T] obeys Emittable[T]
   ### The shared native channel handle (rf_channel*), non-owning (this iterator holds no reference).
   secret chan: CPtr
 

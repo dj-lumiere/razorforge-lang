@@ -444,6 +444,28 @@ internal sealed class AutoWiredRegistrationPass
             });
         }
 
+        // S32.create(from: ChoiceType) — a choice is S32-backed, so this reinterprets its discriminant
+        // to S32 (no width change). The choice `eq` derive + choice pattern lowering use it to compare
+        // discriminants via S32.eq (icmp eq i32), so the `is` operator never reaches codegen.
+        TypeSymbol? s32ChoiceType = _registry.LookupType(name: "S32");
+        if (s32ChoiceType != null && !type.IsGenericDefinition &&
+            _registry.LookupRoutineOverload(baseName: "S32.create",
+                argTypes: [type]) == null)
+        {
+            _registry.RegisterRoutine(routine: new RoutineInfo(name: CreateMemberRoutineName)
+            {
+                Kind = RoutineKind.Creator,
+                OwnerType = s32ChoiceType,
+                Parameters = [new ParameterInfo(name: "from", type: type)],
+                ReturnType = s32ChoiceType,
+                IsFailable = false,
+                DeclaredMutation = MutationCategory.Readonly,
+                MutationCategory = MutationCategory.Readonly,
+                Visibility = VisibilityModifier.Open,
+                IsSynthesized = true
+            });
+        }
+
         if (textType != null)
         {
             // name stays bare `create` + IsFailable (set by the helper); the `!` is a
@@ -466,6 +488,34 @@ internal sealed class AutoWiredRegistrationPass
                 name: "all_cases",
                 returnType: listMeType,
                 existingMemberRoutines: existingMemberRoutines);
+        }
+
+        // count() — number of declared cases.
+        if (u64Type != null)
+            MaybeRegisterWired(owner: type,
+                name: "count",
+                returnType: u64Type,
+                existingMemberRoutines: existingMemberRoutines);
+
+        // from-S32 reverse constructor (build a choice value from its discriminant, used by the all_cases
+        // derive to reconstruct each case from `$valueof(c)`). Mirrors the forward `S64.create(from: choice)`.
+        TypeSymbol? s32Type = _registry.LookupType(name: "S32");
+        if (s32Type != null && !type.IsGenericDefinition &&
+            _registry.LookupRoutineOverload(baseName: $"{type.FullName}.create",
+                argTypes: [s32Type]) == null)
+        {
+            _registry.RegisterRoutine(routine: new RoutineInfo(name: CreateMemberRoutineName)
+            {
+                Kind = RoutineKind.Creator,
+                OwnerType = type,
+                Parameters = [new ParameterInfo(name: "from", type: s32Type)],
+                ReturnType = type,
+                IsFailable = false,
+                DeclaredMutation = MutationCategory.Readonly,
+                MutationCategory = MutationCategory.Readonly,
+                Visibility = VisibilityModifier.Open,
+                IsSynthesized = true
+            });
         }
     }
 
@@ -615,6 +665,33 @@ internal sealed class AutoWiredRegistrationPass
                 name: "all_cases",
                 returnType: listMeType,
                 existingMemberRoutines: existingMemberRoutines);
+        }
+
+        // count() — number of declared members; from-U64 reverse constructor (build a flags value from its
+        // bitmask, used by the all_cases derive to reconstruct each member from `$valueof(c)`).
+        if (u64Type != null)
+        {
+            MaybeRegisterWired(owner: type,
+                name: "count",
+                returnType: u64Type,
+                existingMemberRoutines: existingMemberRoutines);
+            if (!type.IsGenericDefinition &&
+                _registry.LookupRoutineOverload(baseName: $"{type.FullName}.create",
+                    argTypes: [u64Type]) == null)
+            {
+                _registry.RegisterRoutine(routine: new RoutineInfo(name: CreateMemberRoutineName)
+                {
+                    Kind = RoutineKind.Creator,
+                    OwnerType = type,
+                    Parameters = [new ParameterInfo(name: "from", type: u64Type)],
+                    ReturnType = type,
+                    IsFailable = false,
+                    DeclaredMutation = MutationCategory.Readonly,
+                    MutationCategory = MutationCategory.Readonly,
+                    Visibility = VisibilityModifier.Open,
+                    IsSynthesized = true
+                });
+            }
         }
     }
 
@@ -820,8 +897,10 @@ internal sealed class AutoWiredRegistrationPass
     /// that <paramref name="type"/> both OBEYS (opt-in) and structurally satisfies (<see
     /// cref="TypeRegistry.EverywhereObeys"/> — every member obeys P), contributes each of its non-generated
     /// members that has a universal derive body. The member's signature comes from the protocol declaration,
-    /// with the protocol-self type (<c>Me</c>) substituted to the concrete type. Generated operators
-    /// (lt/le/gt/ge, ne) are skipped — DerivedOperatorPass produces them from cmp/eq. Wrappers are excluded
+    /// with the protocol-self type (<c>Me</c>) substituted to the concrete type. Derived operators register
+    /// too when a universal DeriveText template exists for them (lt/le/gt/ge from cmp) — routed through the
+    /// same collector-materialized template path as cmp; those without a template (ne, notcontains) are still
+    /// produced by DerivedOperatorPass from eq/contains. Wrappers are excluded
     /// (they override/forward eq/hash/cmp from their inner T). Idempotent via a live own-member check, so it
     /// never double-registers a member the type already declares or an earlier pass registered.
     /// </summary>
@@ -898,39 +977,60 @@ internal sealed class AutoWiredRegistrationPass
                 continue;
             }
 
-            // Opt-in is not enough: for a CONCRETE type the derive is only VALID when every member obeys P
-            // (its bodies field-walk into `member.cmp/eq/…`). A concrete type that declares `obeys P` but
-            // fails this is a conformance error surfaced elsewhere; we simply don't fabricate an ill-typed
-            // body. A generic DEF defers this to instantiation (see isGenericDef above).
-            if (!isGenericDef && !_registry.EverywhereObeys(type: type, protocol: p.Name))
-            {
-                continue;
-            }
+            // The `everywhere` structural gate is evaluated PER-MEMBER below, not for the whole protocol:
+            // it applies only to field-walk BASE derives (cmp/eq/hash/assign), NOT to delegation derives
+            // (lt/le/gt/ge), which simply call the type's own base op and are valid whenever the type obeys
+            // P (already true — p came from the obeyed-protocol closure).
+            bool everywhereObeys = isGenericDef || _registry.EverywhereObeys(type: type, protocol: p.Name);
 
             foreach (ProtocolMemberRoutineInfo member in p.MemberRoutines)
             {
-                // Register only the BASE wired derive of the protocol (cmp/eq/hash/assign) — never a
-                // DERIVED operator (lt/le/gt/ge from cmp, ne from eq). The catalog is the declarative
-                // source: a derived operator's `CapabilityWired` points at its base (≠ its own name);
-                // a base derive's points at itself. DerivedOperatorPass produces the operators from the
-                // base, so registering them here as bodyless stubs would shadow those real bodies. (The
-                // protocol member's own GenerationKind is unreliable at this pre-pass timing, and the
-                // derive-template store isn't populated yet — the static catalog is authoritative.)
+                // The catalog is the declarative source for whether a protocol member is a wired derive
+                // and whether it is a BASE derive or a DERIVED operator: a derived operator's
+                // `CapabilityWired` points at its base (≠ its own name); a base derive's points at itself.
                 if (member.HasDefaultImplementation || !member.IsInstanceMemberRoutine ||
-                    !Compiler.Resolution.WiredRoutineCatalog.TryGet(name: member.Name, entry: out WiredEntry we) ||
-                    we.CapabilityWired != member.Name)
+                    !Compiler.Resolution.WiredRoutineCatalog.TryGet(name: member.Name, entry: out WiredEntry we))
+                {
+                    continue;
+                }
+
+                // BASE derive (cmp/eq/hash/assign — CapabilityWired == own name) vs DERIVED operator
+                // (lt/le/gt/ge from cmp, ne from eq, notcontains from contains — CapabilityWired == base).
+                bool isDerivedOperator = we.CapabilityWired != member.Name;
+                int memberArity = member.ParameterTypes.Count;
+
+                if (isDerivedOperator)
+                {
+                    // A DERIVED operator registers here ONLY when a universal derive-template body exists for
+                    // it (DeriveText.rf lt/le/gt/ge → `me.cmp(you) == ME_SMALL` etc.). Routing these through
+                    // the everywhere-derive template mechanism (registered + materialized by the collector) is
+                    // what makes `a < b` resolve uniformly for Character/numerics/records — the C#
+                    // DerivedOperatorPass bodies did not survive the collector/warm codegen path. Delegation
+                    // derives WITHOUT a template (ne, notcontains) are still produced by DerivedOperatorPass,
+                    // so we skip them here rather than register stubs the collector cannot materialize.
+                    if (_registry.GetDeriveTemplate(name: member.Name, arity: memberArity, forType: type) is null)
+                    {
+                        continue;
+                    }
+                }
+                // A field-walk BASE derive is only VALID when every member obeys P (its body field-walks into
+                // `member.cmp/eq/…`). A concrete type that declares `obeys P` but fails this is a conformance
+                // error surfaced elsewhere; we don't fabricate an ill-typed body. A generic DEF defers to
+                // instantiation (everywhereObeys is forced true for a def above).
+                else if (!everywhereObeys)
                 {
                     continue;
                 }
 
                 // 0-memvar rule (per member, not per type): a field-less type (an `@llvm` scalar like U64,
-                // an empty record, choice/flags) has no members to walk, so a FIELD-WALK derive (eq/cmp/hash
-                // → returns Bool/ComparisonSign/U64) would produce a WRONG empty-walk body (`return true` /
-                // `SAME` / `0`) — such a type must IMPLEMENT those itself (`@override`). But an IDENTITY
-                // derive (assign/copy → returns `Me`) is CORRECT as `return me` even with no members, so it
-                // still auto-derives. Signal = the member's return type is the self type (`Me`). This is what
-                // gives every 0-memvar `obeys Assignable` primitive its trivial `assign`/`copy`.
-                if (memberCount == 0 && member.ReturnType is not ProtocolSelfTypeInfo)
+                // an empty record, choice/flags) has no members to walk, so a FIELD-WALK BASE derive
+                // (eq/cmp/hash → returns Bool/ComparisonSign/U64) would produce a WRONG empty-walk body
+                // (`return true` / `SAME` / `0`) — such a type must IMPLEMENT those itself (`@override`).
+                // But an IDENTITY derive (assign/copy → returns `Me`) is CORRECT as `return me` even with no
+                // members, so it still auto-derives (signal = return type is the self type). A DELEGATION
+                // derive (lt = `me.cmp(you) == ME_SMALL`) is likewise correct regardless of member count —
+                // it calls the type's own cmp, native on a field-less scalar — so the rule does not gate it.
+                if (!isDerivedOperator && memberCount == 0 && member.ReturnType is not ProtocolSelfTypeInfo)
                 {
                     continue;
                 }
@@ -940,7 +1040,15 @@ internal sealed class AutoWiredRegistrationPass
                 // routine, an earlier hardcoded stub, or a native/wired op on an @llvm scalar (U64.cmp etc.).
                 // A resolution to the ABSTRACT protocol member (OwnerType is a protocol) does NOT count —
                 // that is the obligation this derive fulfils. Mirrors ComputeCapability's `direct` check.
-                if (_registry.LookupMemberRoutine(type: type, memberRoutineName: member.Name) is
+                // For a BASE derive, skip when the type already resolves a CONCRETE (non-abstract) impl of
+                // this member (a hand-written routine or a native/wired op on an @llvm scalar). A DERIVED
+                // operator (lt/le/gt/ge) is NOT gated by this: LookupMemberRoutine resolves the abstract
+                // Comparable.lt SUBSTITUTED to the implementer (owner rewritten to the type, so the
+                // `OwnerType is protocol` test can't see it's the abstract obligation), which would wrongly
+                // block the template-derived registration and re-open RF-S702. The derived operator is only
+                // ever provided by this template path (DerivedOperatorPass no longer emits it), so register it.
+                if (!isDerivedOperator &&
+                    _registry.LookupMemberRoutine(type: type, memberRoutineName: member.Name) is
                         { OwnerType: not ProtocolTypeInfo })
                 {
                     continue;

@@ -389,6 +389,10 @@ public class CompilerPipelineLoweringTests
                         routine test()
                           var items = [[1_s64, 2_s64, 3_s64], [4_s64, 5_s64], [6_s64], []]
                           return
+
+                        routine start()
+                          test()
+                          return
                         """;
 
         Program program = Parse(source: source);
@@ -551,6 +555,10 @@ public class CompilerPipelineLoweringTests
                           var bits = BitList()
                           bits.add_last(true)
                           return
+
+                        routine start()
+                          test()
+                          return
                         """;
 
         Program program = Parse(source: source);
@@ -615,6 +623,10 @@ public class CompilerPipelineLoweringTests
         string source = """
                         routine test() -> S64
                           return 1_s64 +% 2_s64
+
+                        routine start()
+                          discard test()
+                          return
                         """;
 
         Program program = Parse(source: source);
@@ -645,6 +657,10 @@ public class CompilerPipelineLoweringTests
         string source = """
                         routine test() -> Array[Byte, 8]
                           return 1_u64.to_bytes_le()
+
+                        routine start()
+                          discard test()
+                          return
                         """;
 
         Program program = Parse(source: source);
@@ -684,6 +700,11 @@ public class CompilerPipelineLoweringTests
                         routine trigger(bits: BitList) -> U8
                           discard bits.try_to_u8()
                           return 0u8
+
+                        routine start()
+                          var bits = BitList()
+                          discard trigger(bits: steal bits)
+                          return
                         """;
 
         Program program = Parse(source: source);
@@ -900,6 +921,10 @@ public class CompilerPipelineLoweringTests
 
                         routine test(text: Text) -> S32
                           return helper(text.count().S32())
+
+                        routine start()
+                          discard test(text: "")
+                          return
                         """;
 
         Program program = Parse(source: source);

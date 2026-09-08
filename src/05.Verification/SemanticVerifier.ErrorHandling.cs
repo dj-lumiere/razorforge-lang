@@ -503,8 +503,20 @@ public sealed partial class SemanticVerifier
         if (decl.HasReceiverTypeArgs) return false;
         if (decl.OwnerName is not { } deriveOwner) return false;
         if (decl.MemberRoutineName is not { } deriveMember) return false;
-        if (!(decl.Annotations.Contains(item: "overridable")
-              || decl.Annotations.Contains(item: "override"))) return false;
+        // A derive TEMPLATE is per-type MATERIALIZED (its body is cloned into the template store, NOT filed
+        // as one shared generic routine body). Two shapes qualify, and both are read from what's already
+        // written — no dedicated marker:
+        //   • @overridable / @override — universal or kind-specialized derives (`represent`, choice `count`).
+        //   • an OWNER `obeys` constraint (`routine T.lt() needs T obeys Comparable`) — a capability-conferred
+        //     derived helper (`lt`/`le`/`gt`/`ge` from `cmp`), which is NOT `@overridable` (you override
+        //     `cmp`, not `lt`).
+        // An untagged bare-`T` routine with only a KIND gate (`T.view() needs T is EntityType`) is a normal
+        // GENERIC method — one shared body via `_routineBodies` — and must NOT be diverted into the store.
+        bool hasDeriveAnnotation = decl.Annotations.Contains(item: "overridable")
+                                   || decl.Annotations.Contains(item: "override");
+        bool hasOwnerObeysConstraint = decl.GenericConstraints?.Any(predicate: c =>
+            c.ParameterName == deriveOwner && c.ConstraintType == ConstraintKind.Obeys) == true;
+        if (!hasDeriveAnnotation && !hasOwnerObeysConstraint) return false;
         if (!DeriveOwnerIsTypeParameter(ownerName: deriveOwner, decl: decl)) return false;
 
         _registry.RegisterDeriveTemplate(memberRoutine: deriveMember,
@@ -548,7 +560,14 @@ public sealed partial class SemanticVerifier
             foreach (RoutineInfo routine in _registry.GetMemberRoutinesForType(type: type))
             {
                 if (routine.IsSynthesized) continue;
-                if (!_registry.HasDeriveTemplate(name: routine.Name)) continue;
+                // Gate-aware: only a collision if THIS type actually RECEIVES a derive of this name+arity —
+                // i.e. it satisfies the template's `needs T is <kind>` gate. A name-only HasDeriveTemplate
+                // check wrongly flagged a collection's own `count()` against the choice/flags-gated `count`
+                // derive (RF-S164), which no non-choice/flags type receives. count/all_cases are ChoiceType/
+                // FlagsType-gated buildtime derives; represent/diagnose keep the universal (`T is TypeName`)
+                // template, so they still require @override on every concrete override.
+                if (_registry.GetDeriveTemplate(name: routine.Name,
+                        arity: routine.Parameters.Count, forType: type) == null) continue;
                 if (_registry.IsOptInDeriveMemberRoutine(memberRoutine: routine.Name)) continue;
                 if (routine.Annotations.Contains(value: "override")) continue;
                 ReportError(code: SemanticDiagnosticCode.OverridableDeriveNeedsOverrideMarker,

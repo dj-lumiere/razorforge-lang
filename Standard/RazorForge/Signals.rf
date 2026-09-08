@@ -57,7 +57,7 @@ routine when_terminated(handler: Routine[(), None])
 
 ### Interrupt handler carrying a `Guarded[T, P]` context (RazorForge multi-thread state).
 routine when_interrupted[T, P](handler: Routine[(Guarded[T, P],), None], context: Guarded[T, P])
-needs T is EntityType, P obeys LockPolicy
+needs EntityType T, P obeys LockPolicy
   danger
     Hijacked[GuardController[T, P]](context).as_entity().hold()
     C::rf_signal_register_ctx(0_s32,
@@ -67,7 +67,7 @@ needs T is EntityType, P obeys LockPolicy
 
 ### Termination handler carrying a `Guarded[T, P]` context (RazorForge multi-thread state).
 routine when_terminated[T, P](handler: Routine[(Guarded[T, P],), None], context: Guarded[T, P])
-needs T is EntityType, P obeys LockPolicy
+needs EntityType T, P obeys LockPolicy
   danger
     Hijacked[GuardController[T, P]](context).as_entity().hold()
     C::rf_signal_register_ctx(1_s32,
@@ -77,7 +77,7 @@ needs T is EntityType, P obeys LockPolicy
 
 ### Interrupt handler carrying a `Roamed[T]` context (Suflae entity state).
 routine when_interrupted[T](handler: Routine[(Roamed[T],), None], context: Roamed[T])
-needs T is EntityType
+needs EntityType T
   danger
     var ctrl = Hijacked[RoamController[T]](context).as_entity()
     ctrl.promote()
@@ -89,7 +89,7 @@ needs T is EntityType
 
 ### Termination handler carrying a `Roamed[T]` context (Suflae entity state).
 routine when_terminated[T](handler: Routine[(Roamed[T],), None], context: Roamed[T])
-needs T is EntityType
+needs EntityType T
   danger
     var ctrl = Hijacked[RoamController[T]](context).as_entity()
     ctrl.promote()

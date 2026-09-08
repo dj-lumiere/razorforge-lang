@@ -37,10 +37,11 @@ public partial class Parser
         ["VariantType"] = ConstraintKind.VariantType,
         ["EntityType"] = ConstraintKind.EntityType,
         ["CrashableType"] = ConstraintKind.Crashable,
-        ["ZeroMemvarType"] = ConstraintKind.ZeroMemvarType,
-        // `needs T is TypeName` — declares the named identifier as an unconstrained generic type
-        // parameter (the explicit alternative to `[T]`); satisfied by any type.
-        ["TypeName"] = ConstraintKind.AnyType
+        // `RedirectType` = an `@llvm("…")` primitive that redirects to its raw LLVM repr.
+        ["RedirectType"] = ConstraintKind.RedirectType,
+        // `AnyType` = an unconstrained generic type parameter (satisfied by any type) — the classifier for
+        // `[AnyType T]` / `needs AnyType T`.
+        ["AnyType"] = ConstraintKind.AnyType
     };
 
     /// <summary>Recognizes a <c>T is &lt;Name&gt;Type</c> type-kind constraint. When the identifier after
@@ -48,6 +49,46 @@ public partial class Parser
     /// <c>is</c> target is an identity / const-generic type (<c>N is U64</c>).</summary>
     private static bool TryGetTypeKindConstraint(string name, out ConstraintKind kind) =>
         TypeKindNames.TryGetValue(key: name, value: out kind);
+
+    /// <summary>True when the cursor sits on the NEW classifier-first generic-parameter declaration form
+    /// — two consecutive identifiers <c>&lt;Kind&gt; &lt;name&gt;</c> (<c>AnyType T</c>, <c>ChoiceType T</c>,
+    /// <c>U64 N</c>). Unambiguous because the OLD forms always have a keyword (<c>obeys</c>/<c>is</c>/
+    /// <c>in</c>/<c>everywhere</c>) or a delimiter (<c>,</c>/<c>]</c>) as the second token — a bare
+    /// <c>ident ident</c> pair never occurred in a bracket or <c>needs</c> clause before. Both surfaces
+    /// coexist during the migration off <c>needs T is TypeName</c> → <c>[AnyType T]</c>.</summary>
+    private bool IsClassifierFirstParamDecl() =>
+        Check(type: TokenType.Identifier) && PeekToken(offset: 1).Type == TokenType.Identifier;
+
+    /// <summary>Parses one NEW classifier-first generic parameter <c>&lt;Kind&gt; &lt;name&gt;</c> (cursor
+    /// already confirmed by <see cref="IsClassifierFirstParamDecl"/>). A known kind keyword
+    /// (<c>AnyType</c>/<c>ChoiceType</c>/…) yields that <see cref="ConstraintKind"/>; any other leading
+    /// identifier is a concrete type, so the param is a CONST-generic of that type (<c>U64 N</c> → N is a
+    /// U64 value). Returns the param name plus the constraint node — the SAME AST the old
+    /// <c>T is &lt;Kind&gt;</c> / <c>N is U64</c> forms produced, so the resolver is unchanged.</summary>
+    private (string paramName, GenericConstraintDeclaration constraint) ParseClassifierFirstParam()
+    {
+        SourceLocation location = GetLocation();
+        string classifier = ConsumeIdentifier(
+            errorMessage: "Expected a type-kind or type before the generic parameter name");
+        string paramName = ConsumeIdentifier(errorMessage: "Expected generic parameter name");
+
+        if (TryGetTypeKindConstraint(name: classifier, out ConstraintKind kind))
+        {
+            return (paramName, new GenericConstraintDeclaration(
+                ParameterName: paramName,
+                ConstraintType: kind,
+                ConstraintTypes: null,
+                Location: location));
+        }
+
+        // Concrete-type classifier → const-generic: `U64 N` means N is a build-time U64 value.
+        var constType = new TypeExpression(Name: classifier, GenericArguments: null, Location: location);
+        return (paramName, new GenericConstraintDeclaration(
+            ParameterName: paramName,
+            ConstraintType: ConstraintKind.ConstGeneric,
+            ConstraintTypes: [constType],
+            Location: location));
+    }
 
     private const string TypeKindNamesHint =
         "RecordType, VariantType, EntityType, ChoiceType, FlagsType, TupleType, RoutineType, " +
@@ -491,6 +532,24 @@ public partial class Parser
         do
         {
             SourceLocation location = GetLocation();
+
+            // ─────────────────────────────────────────────────────────────────────
+            // NEW classifier-first form: `[AnyType T]`, `[ChoiceType T]`, `[U64 N]`.
+            // The classifier carries the kind; a bare `AnyType` is just an unconstrained
+            // param (no constraint node, matching old `[T]`), other kinds/const-types keep
+            // their constraint.
+            // ─────────────────────────────────────────────────────────────────────
+            if (IsClassifierFirstParamDecl())
+            {
+                (string clsParam, GenericConstraintDeclaration clsConstraint) = ParseClassifierFirstParam();
+                genericParams.Add(item: clsParam);
+                if (clsConstraint.ConstraintType != ConstraintKind.AnyType)
+                {
+                    inlineConstraints.Add(item: clsConstraint);
+                }
+                continue;
+            }
+
             string paramName = ConsumeIdentifier(errorMessage: "Expected generic parameter name");
             genericParams.Add(item: paramName);
 
@@ -691,6 +750,18 @@ public partial class Parser
             do
             {
                 SourceLocation location = GetLocation();
+
+                // NEW classifier-first form: `needs AnyType T`, `needs ChoiceType T`, `needs U64 N`.
+                // Keep the AnyType constraint here too (unlike the bracket): for a universal template
+                // whose owner IS the param (`routine T.diagnose() needs AnyType T`), the AnyType
+                // constraint is what folds T into the routine's GenericParameters downstream.
+                if (IsClassifierFirstParamDecl())
+                {
+                    (string _, GenericConstraintDeclaration clsConstraint) = ParseClassifierFirstParam();
+                    constraints.Add(item: clsConstraint);
+                    continue;
+                }
+
                 string paramName = ConsumeIdentifier(errorMessage: "Expected type parameter name");
 
                 // Note: Type parameter validation (whether paramName is in genericParams)

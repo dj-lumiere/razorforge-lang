@@ -8,8 +8,8 @@ import BuilderQuery
 ### :typeparam T: The exclusively owned entity type.
 ### :typeparam P: The access-discipline lock policy (carried so the upgraded `Guarded` keeps it).
 @llvm("ptr")
-record Witnessed[T, P]
-needs T is EntityType, P obeys LockPolicy
+record Witnessed[AnyType T, AnyType P]
+needs EntityType T, P obeys LockPolicy
   pass
 
 # ============================================================================

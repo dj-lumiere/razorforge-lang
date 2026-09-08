@@ -75,14 +75,11 @@ internal sealed class DerivedOperatorPass
             GenerateNeFromEq(type: type, eqMemberRoutine: eqMemberRoutine, existingMemberRoutines: memberRoutineList);
         }
 
-        // Look for cmp memberRoutine
-        RoutineInfo? cmpMemberRoutine = memberRoutineList.FirstOrDefault(predicate: m => m.Name == "cmp");
-        if (cmpMemberRoutine != null)
-        {
-            GenerateComparisonOperatorsFromCmp(type: type,
-                cmpMemberRoutine: cmpMemberRoutine,
-                existingMemberRoutines: memberRoutineList);
-        }
+        // lt/le/gt/ge are NOT generated here: they are registered by the everywhere-derive pass and their
+        // bodies materialized by the collector from the DeriveText.rf `T.lt/le/gt/ge` universal templates
+        // (`me.cmp(you) == ME_SMALL` etc.). Routing them through the template mechanism — the same path as
+        // cmp/represent — is what makes them survive the collector/warm codegen path (the C#-synthesized
+        // bodies here did not), so `a < b` resolves uniformly for Character/numerics/records.
 
         // Look for contains memberRoutine
         RoutineInfo? containsMemberRoutine =
@@ -211,80 +208,6 @@ internal sealed class DerivedOperatorPass
     }
 
     /// <summary>
-    /// Generates lt, le, gt, ge from cmp.
-    /// lt(you) = me.cmp(you: you) == ComparisonSign.ME_SMALL
-    /// le(you) = me.cmp(you: you) != ComparisonSign.ME_LARGE
-    /// gt(you) = me.cmp(you: you) == ComparisonSign.ME_LARGE
-    /// ge(you) = me.cmp(you: you) != ComparisonSign.ME_SMALL
-    /// </summary>
-    private void GenerateComparisonOperatorsFromCmp(TypeSymbol type, RoutineInfo cmpMemberRoutine,
-        List<RoutineInfo> existingMemberRoutines)
-    {
-        TypeSymbol? boolType = _registry.LookupType(name: "Bool");
-        if (boolType == null)
-        {
-            return;
-        }
-
-        string cmpParamName = cmpMemberRoutine.Parameters.Count > 0
-            ? cmpMemberRoutine.Parameters[index: 0].Name
-            : "you";
-
-        // (opName, caseName, equal-or-notequal)
-        (string OpName, string CaseName, bool UseEqual)[] derivedOps =
-        [
-            ("lt", "ME_SMALL", true),
-            ("le", "ME_LARGE", false),
-            ("gt", "ME_LARGE", true),
-            ("ge", "ME_SMALL", false)
-        ];
-
-        foreach ((string opName, string caseName, bool useEqual) in derivedOps)
-        {
-            RoutineInfo? existing =
-                existingMemberRoutines.FirstOrDefault(predicate: m => m.Name == opName);
-
-            if (existing != null)
-            {
-                // User provided their own implementation — it takes priority over generated.
-                continue;
-            }
-
-            var derivedMemberRoutine = new RoutineInfo(name: opName)
-            {
-                Kind = RoutineKind.MemberRoutine,
-                OwnerType = type,
-                Parameters = cmpMemberRoutine.Parameters,
-                ReturnType = boolType,
-                IsFailable = false,
-                DeclaredMutation = MutationCategory.Readonly,
-                MutationCategory = MutationCategory.Readonly,
-                // Inherit `cmp`'s constraints so `lt/le/gt/ge` are only available for
-                // the same instantiations.
-                GenericParameters = cmpMemberRoutine.GenericParameters,
-                GenericConstraints = cmpMemberRoutine.GenericConstraints,
-                Visibility = cmpMemberRoutine.Visibility,
-                Location = cmpMemberRoutine.Location,
-                Module = cmpMemberRoutine.Module,
-                Annotations = ["readonly"],
-                IsSynthesized = true
-            };
-
-            _registry.RegisterRoutine(routine: derivedMemberRoutine);
-
-            // Build AST body: return me.cmp(you: you) == ComparisonSign.ME_SMALL  (or != ME_LARGE etc.)
-            var cmpBody = BuildCmpDerivedBody(
-                ownerType: type,
-                cmpMemberRoutine: cmpMemberRoutine,
-                boolType: boolType,
-                cmpParamName: cmpParamName,
-                caseName: caseName,
-                useEqual: useEqual);
-            _synthesizedBodies[key: derivedMemberRoutine.RegistryKey] = (derivedMemberRoutine, cmpBody);
-        }
-    }
-
-    /// <summary>
     /// Builds: return not me.{memberRoutineName}({paramName}: {paramName})
     /// </summary>
     private static BlockStatement BuildNegatedDelegateBody(TypeSymbol ownerType, RoutineInfo delegateMemberRoutine,
@@ -329,79 +252,4 @@ internal sealed class DerivedOperatorPass
             Location: _synthLoc);
     }
 
-    /// <summary>
-    /// Builds: return me.cmp({paramName}: {paramName}) == ComparisonSign.{caseName}
-    /// or:     return me.cmp({paramName}: {paramName}) != ComparisonSign.{caseName}
-    /// </summary>
-    private Statement BuildCmpDerivedBody(TypeSymbol ownerType, RoutineInfo cmpMemberRoutine,
-        TypeSymbol boolType, string cmpParamName, string caseName, bool useEqual)
-    {
-        var meRef = new IdentifierExpression(Name: "me", Location: _synthLoc)
-            { ResolvedType = ownerType };
-        var cmpCall = new CallExpression(
-            Callee: new MemberExpression(
-                Object: meRef,
-                MemberName: "cmp",
-                Location: _synthLoc),
-            Arguments:
-            [
-                new NamedArgumentExpression(
-                    Name: cmpParamName,
-                    Value: new IdentifierExpression(Name: cmpParamName, Location: _synthLoc),
-                    Location: _synthLoc)
-            ],
-            Location: _synthLoc)
-        {
-            ResolvedRoutine = cmpMemberRoutine,
-            ResolvedType = cmpMemberRoutine.ReturnType
-        };
-
-        TypeSymbol cmpResultType = cmpMemberRoutine.ReturnType ?? ErrorTypeInfo.Instance;
-
-        // Use an integer literal for the ComparisonSign case value to avoid requiring
-        // identifier resolution of 'ComparisonSign' in synthesized bodies.
-        // ME_SMALL = -1 (receiver less than other), ME_LARGE = 1 (receiver greater).
-        long caseIntValue = caseName == "ME_SMALL" ? -1L : 1L;
-        var caseLiteral = new LiteralExpression(
-            Value: caseIntValue,
-            LiteralType: TokenType.S32Literal,
-            Location: _synthLoc) { ResolvedType = cmpResultType };
-
-        // Always use eq (guaranteed registered by AutoWiredRegistrationPass before DerivedOperatorPass).
-        // ne may not yet be registered when this body is built (ordering not guaranteed).
-        RoutineInfo? eqMemberRoutine = _registry.LookupMemberRoutine(type: cmpResultType, memberRoutineName: "eq");
-        var eqCall = new CallExpression(
-            Callee: new MemberExpression(Object: cmpCall, MemberName: "eq", Location: _synthLoc),
-            Arguments:
-            [
-                new NamedArgumentExpression(Name: "you", Value: caseLiteral, Location: _synthLoc)
-            ],
-            Location: _synthLoc)
-        {
-            ResolvedRoutine = eqMemberRoutine,
-            ResolvedType = boolType
-        };
-
-        if (useEqual)
-        {
-            return new ReturnStatement(Value: eqCall, Location: _synthLoc);
-        }
-
-        // "not equal" case (le, ge): use if-return to avoid needing ne on ComparisonSign.
-        var falseVal = new LiteralExpression(Value: false, LiteralType: TokenType.False,
-            Location: _synthLoc) { ResolvedType = boolType };
-        var trueVal = new LiteralExpression(Value: true, LiteralType: TokenType.True,
-            Location: _synthLoc) { ResolvedType = boolType };
-        return new BlockStatement(
-            Statements:
-            [
-                new IfStatement(
-                    Condition: eqCall,
-                    ThenStatement: new ReturnStatement(Value: falseVal, Location: _synthLoc),
-                    ElseStatement: null,
-                    Location: _synthLoc),
-                new ReturnStatement(Value: trueVal, Location: _synthLoc)
-            ],
-            Location: _synthLoc);
-    }
 }

@@ -16,7 +16,7 @@ namespace Compiler.CodeGen;
 // `create`. Doing that fully requires D1's memberwise-create synthesis plus a compile-time
 // constant-aggregate argument path (the current stdlib `create` takes runtime args). As a partial
 // step, the carrier struct LAYOUT is now derived from the registered TypeInfo (BuildLiteralCarrierLayout)
-// instead of a hardcoded `{ ptr, i64, ptr }`. See the task report.
+// instead of a hardcoded `{ ptr, i64, ptr }`.
 /// <summary>
 /// Expression code generation for literals and scalar literal helpers.
 /// </summary>

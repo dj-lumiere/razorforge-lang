@@ -3,7 +3,7 @@ module Core
 ### Represents the `Range` record.
 ### `Range[T]` describes a lazily iterated arithmetic progression between two bounds.
 ### :typeparam T: The type argument bound to `T`.
-record Range[T] obeys Iterable[T] needs T obeys Comparable, Addable, Subtractable
+record Range[AnyType T] obeys Iterable[T] needs T obeys Comparable, Addable, Subtractable
   ### Stores the first value in the progression.
   start: T
   ### Stores the terminating bound.
@@ -69,7 +69,7 @@ routine Range[T].is_empty() -> Bool
 ### Represents the `RangeEmittable` entity.
 ### `RangeEmittable[T]` holds the mutable iteration state for a `Range[T]`.
 ### :typeparam T: The type argument bound to `T`.
-entity RangeEmittable[T] needs T obeys Comparable, Addable, Subtractable
+entity RangeEmittable[AnyType T] needs T obeys Comparable, Addable, Subtractable
   ### Stores the next value to yield.
   current: T
   ### Stores the terminating bound.

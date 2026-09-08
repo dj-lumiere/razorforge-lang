@@ -5,7 +5,7 @@ module IterTools
 ### :typeparam T: The source element type.
 ### :typeparam U: The projected output type.
 ### :typeparam S: The concrete source iterable type (borrowed; enables build-time dispatch).
-entity SelectIterable[T, U, S] obeys Iterable[U]
+entity SelectIterable[AnyType T, AnyType U, AnyType S] obeys Iterable[U]
 needs S obeys Iterable[T]
 relates SelectEmittable[T, U, S/Iter] as Iter
   ### Stores the source iterable (borrowed, not owned).
@@ -26,7 +26,7 @@ routine SelectIterable[T, U, S].iter() -> SelectEmittable[T, U, S/Iter]
 ### :typeparam T: The source element type.
 ### :typeparam U: The projected output type.
 ### :typeparam SE: The concrete source iterator type (borrowed).
-entity SelectEmittable[T, U, SE] obeys Emittable[U]
+entity SelectEmittable[AnyType T, AnyType U, AnyType SE] obeys Emittable[U]
 needs SE obeys Emittable[T]
   ### Stores the underlying source iterator (borrowed).
   secret source: Hijacked[SE]

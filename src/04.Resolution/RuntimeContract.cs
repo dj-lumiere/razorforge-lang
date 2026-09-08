@@ -126,14 +126,14 @@ public static class RuntimeContract
     /// <summary>Collection-shape routines resolved by literal during lowering / reachability.</summary>
     /// <remarks>Sites: OperatorLoweringPass, ExpressionLoweringPass, RoutineReachabilityPass,
     /// LLVMCodeGenerator.Expressions.Collections. <see cref="AddLast"/> vs <see cref="Add"/> is chosen
-    /// by base-name (<c>List</c>/<c>Deque</c>/<c>BitList</c> → add_last, else add).</remarks>
+    /// by base-name (<c>List</c>/<c>CircularList</c>/<c>BitList</c> → add_last, else add).</remarks>
     public static class Collection
     {
         /// <summary>Element count (see also the shipped <c>Sized.count()</c> protocol).</summary>
         public const string Count = "count";
         /// <summary>Unordered insert (Set/Dict).</summary>
         public const string Add = "add";
-        /// <summary>Ordered append (List/Deque/BitList).</summary>
+        /// <summary>Ordered append (List/CircularList/BitList).</summary>
         public const string AddLast = "add_last";
         /// <summary>Element replacement.</summary>
         public const string Replace = "replace";

@@ -5,7 +5,7 @@ module IterTools
 ### :typeparam T: The element type produced by both source sequences.
 ### :typeparam S1: The concrete first source iterable type (borrowed).
 ### :typeparam S2: The concrete second source iterable type (borrowed).
-entity ExtendIterable[T, S1, S2] obeys Iterable[T]
+entity ExtendIterable[AnyType T, AnyType S1, AnyType S2] obeys Iterable[T]
 needs S1 obeys Iterable[T]
 needs S2 obeys Iterable[T]
 relates ExtendEmittable[T, S1/Iter, S2/Iter] as Iter
@@ -26,7 +26,7 @@ routine ExtendIterable[T, S1, S2].iter() -> ExtendEmittable[T, S1/Iter, S2/Iter]
 ### :typeparam T: The element type produced by the concatenated sequence.
 ### :typeparam SE1: The concrete first source iterator type (borrowed).
 ### :typeparam SE2: The concrete second source iterator type (borrowed).
-entity ExtendEmittable[T, SE1, SE2] obeys Emittable[T]
+entity ExtendEmittable[AnyType T, AnyType SE1, AnyType SE2] obeys Emittable[T]
 needs SE1 obeys Emittable[T]
 needs SE2 obeys Emittable[T]
   ### Stores the iterator for the first source (borrowed).

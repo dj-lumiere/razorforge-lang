@@ -18,8 +18,7 @@ module Simd
 ### :typeparam N: The compile-time lane count, supplied as a `U64` literal.
 ### :see: {Vector3D} for the fixed 3-component geometry vector.
 @llvm("<{N} x {T}>")
-record Vector[T, N] obeys Addable, Subtractable, Multiplicable, Divisible, Negatable, Equatable, Sized, MutableIndexable[T]
-needs N is U64
+record Vector[AnyType T, U64 N] obeys Addable, Subtractable, Multiplicable, Divisible, Negatable, Equatable, Sized, MutableIndexable[T]
   # N lanes of T stored as a native LLVM vector - no explicit member variables.
   pass
 

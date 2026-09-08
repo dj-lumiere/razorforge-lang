@@ -4,7 +4,7 @@ module IterTools
 ### The source is fully materialized when iteration begins.
 ### :typeparam T: The element type of the source sequence.
 ### :typeparam S: The concrete source iterable type (borrowed; enables build-time dispatch).
-entity ReverseIterable[T, S] obeys Iterable[T]
+entity ReverseIterable[AnyType T, AnyType S] obeys Iterable[T]
 needs S obeys Iterable[T]
 relates ReverseEmittable[T] as Iter
   ### Stores the source iterable to materialize and reverse (borrowed, not owned).
@@ -21,7 +21,7 @@ routine ReverseIterable[T, S].iter() -> ReverseEmittable[T]
 
 ### Iterates over a pre-materialized buffer from back to front.
 ### :typeparam T: The element type of the reversed sequence.
-entity ReverseEmittable[T] obeys Emittable[T]
+entity ReverseEmittable[AnyType T] obeys Emittable[T]
   ### Stores the materialized buffer of source values.
   secret buffer: List[T]
   ### Stores the next read position, counting down toward zero.

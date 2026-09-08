@@ -4,7 +4,7 @@ module Core
 ### The emitted index starts at `0` by default or at the caller-supplied offset.
 ### :typeparam T: The element type produced by the source sequence.
 ### :typeparam S: The concrete source iterable type (borrowed; enables build-time dispatch).
-entity EnumerateIterable[T, S] obeys Iterable[Tuple[U64, T]]
+entity EnumerateIterable[AnyType T, AnyType S] obeys Iterable[Tuple[U64, T]]
 needs S obeys Iterable[T]
 relates EnumerateEmittable[T, S/Iter] as Iter
   ### Stores the source iterable (borrowed, not owned).
@@ -22,7 +22,7 @@ routine EnumerateIterable[T, S].iter() -> EnumerateEmittable[T, S/Iter]
 ### Iterates over a source sequence, pairing each element with an incrementing index.
 ### :typeparam T: The element type of the source sequence.
 ### :typeparam SE: The concrete source iterator type (borrowed).
-entity EnumerateEmittable[T, SE] obeys Emittable[Tuple[U64, T]]
+entity EnumerateEmittable[AnyType T, AnyType SE] obeys Emittable[Tuple[U64, T]]
 needs SE obeys Emittable[T]
   ### Stores the iterator over the source sequence (borrowed).
   secret source: Hijacked[SE]

@@ -649,11 +649,16 @@ public partial class LlvmCodeGenerator
     {
         RoutineInfo? routine = gmc.ResolvedRoutine;
 
-        // Try registry lookup for unresolved free-function calls (Object.Name == memberRoutineName).
+        // Signature-only registry lookup for unresolved free-function calls (Object.Name == memberRoutineName).
         if (routine == null && gmc.Object is IdentifierExpression freeId &&
             freeId.Name == gmc.MemberRoutineName)
         {
-            routine = _registry.LookupRoutineByName(name: gmc.MemberRoutineName);
+            routine = _registry.LookupRoutineOverload(baseName: gmc.MemberRoutineName,
+                argTypes: gmc.Arguments
+                    .Select(selector: a => GetExpressionType(
+                        expr: a is NamedArgumentExpression na ? na.Value : a))
+                    .OfType<TypeInfo>()
+                    .ToList());
         }
 
         if (routine?.LlvmIrTemplate != null)

@@ -6,8 +6,7 @@ import BuilderQuery
 ### Equivalent to `Rc[T]` in Rust. Copying bumps the strong count; dropping decrements it.
 ### :typeparam T: The exclusively owned entity type.
 @llvm("ptr")
-record Retained[T] obeys Controlling[T]
-needs T is EntityType
+record Retained[EntityType T] obeys Controlling[T]
   pass
 
 # ============================================================================
@@ -17,7 +16,7 @@ needs T is EntityType
 ### Constructor form: wraps `from` in a reference-counted {Retained[T]}. `Retained[T](from: n)` routes
 ### here (bare `Type(...)` → user `create`). Ownership of the entity moves into the RC system.
 routine Retained[T].create(from: T) -> Retained[T]
-needs T is EntityType
+needs EntityType T
   danger
     var ctrl = RetainController[T](data: from.hijack()).hijack()
     return Retained[T](ctrl)

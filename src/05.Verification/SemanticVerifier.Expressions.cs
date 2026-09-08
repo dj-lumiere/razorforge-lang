@@ -241,6 +241,12 @@ public sealed partial class SemanticVerifier
 
         if (routine != null)
         {
+            // First-class routine VALUE reference (bare `foo` used as a value, not called): record the
+            // routine SA just resolved on the node so codegen consumes it directly (EmitIdentifier's
+            // ResolvedRoutine fast-path) instead of re-doing name-based lookup at emission time. A
+            // routine name used as a call callee is handled separately (the CallExpression carries its
+            // own overload-resolved ResolvedRoutine), so stamping the callee identifier here is inert.
+            id.ResolvedRoutine = routine;
             // Return the function type for first-class function references
             return GetRoutineType(routine: routine);
         }

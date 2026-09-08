@@ -8,7 +8,7 @@ secret preset MIN_KEYS_LIST: U64 = 31u64
 ### Internal B-tree node for {SortedList[T]}.
 ### Stores up to 63 ordered keys, up to 64 child pointers, and a cached subtree element count.
 ### :typeparam T: The stored element type.
-entity BTreeListNode[T]
+entity BTreeListNode[AnyType T]
 needs T obeys Comparable
   keys: Array[T, 63]
   children: Array[Hijacked[BTreeListNode[T]], 64]
@@ -45,7 +45,7 @@ needs T obeys Comparable
 ### :typeparam T: The stored element type. Must obey {Comparable}.
 ### :see: {SortedSet[T]} for a duplicate-free sorted collection.
 ### :see: {SortedDict[K, V]} for sorted key-value storage.
-entity SortedList[T] obeys Iterable[T], Container, ListLiteral[T]
+entity SortedList[AnyType T] obeys Iterable[T], Container, ListLiteral[T]
 needs T obeys Comparable
 relates SortedListEmittable[T] as Iter
   secret root: Hijacked[BTreeListNode[T]]?
@@ -872,7 +872,7 @@ routine SortedList[T].collect_inorder(node: Accessing[BTreeListNode[T]], result:
 
 ### Emittable that yields elements of a {SortedList[T]} in ascending order.
 ### :typeparam T: The stored element type.
-entity SortedListEmittable[T] obeys Emittable[T]
+entity SortedListEmittable[AnyType T] obeys Emittable[T]
   list: Hijacked[SortedList[T]]
   index: U64
 

@@ -8,7 +8,7 @@ module IterTools
 ###   emitter dispatches `.List()` against a real type — RazorForge has no runtime dispatch, so a
 ###   bare `Iterable[U]` transform return would leave `Iterable[U].List` unresolvable).
 ### :typeparam S: The concrete source iterable type (borrowed; enables build-time dispatch).
-entity SelectManyIterable[T, U, Sub, S] obeys Iterable[U]
+entity SelectManyIterable[AnyType T, AnyType U, AnyType Sub, AnyType S] obeys Iterable[U]
 needs S obeys Iterable[T]
 needs Sub obeys Iterable[U]
 relates SelectManyEmittable[T, U, Sub, S/Iter] as Iter
@@ -31,7 +31,7 @@ routine SelectManyIterable[T, U, Sub, S].iter() -> SelectManyEmittable[T, U, Sub
 ### :typeparam U: The element type yielded by each inner iterable.
 ### :typeparam Sub: The concrete inner-iterable type returned by the transform.
 ### :typeparam SE: The concrete source iterator type (borrowed).
-entity SelectManyEmittable[T, U, Sub, SE] obeys Emittable[U]
+entity SelectManyEmittable[AnyType T, AnyType U, AnyType Sub, AnyType SE] obeys Emittable[U]
 needs SE obeys Emittable[T]
 needs Sub obeys Iterable[U]
   ### Stores the outer source iterator (borrowed).

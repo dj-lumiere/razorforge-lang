@@ -6,6 +6,5 @@ module Core
 ### to the type's `N`-argument constructor (arity mismatch is a compile error). `Vector3D`, for example,
 ### `obeys TupleLiteral[3]`, so `(x, y, z)` constructs it. The built-in `Tuple` is handled natively; this
 ### marker is the opt-in for OTHER fixed-shape types.
-protocol TupleLiteral[N]
-needs N is U64
+protocol TupleLiteral[U64 N]
   pass

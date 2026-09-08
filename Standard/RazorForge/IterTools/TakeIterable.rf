@@ -3,7 +3,7 @@ module IterTools
 ### Represents a lazy adapter that yields at most `limit` elements from a source sequence.
 ### :typeparam T: The element type produced by the source sequence.
 ### :typeparam S: The concrete source iterable type (borrowed; enables build-time dispatch).
-entity TakeIterable[T, S] obeys Iterable[T]
+entity TakeIterable[AnyType T, AnyType S] obeys Iterable[T]
 needs S obeys Iterable[T]
 relates TakeEmittable[T, S/Iter] as Iter
   ### Stores the source iterable (borrowed, not owned).
@@ -23,7 +23,7 @@ routine TakeIterable[T, S].iter() -> TakeEmittable[T, S/Iter]
 ### Iterates over at most the configured number of values from the source sequence.
 ### :typeparam T: The element type produced by the source sequence.
 ### :typeparam SE: The concrete source iterator type (borrowed).
-entity TakeEmittable[T, SE] obeys Emittable[T]
+entity TakeEmittable[AnyType T, AnyType SE] obeys Emittable[T]
 needs SE obeys Emittable[T]
   ### Stores the underlying source iterator (borrowed).
   secret source: Hijacked[SE]

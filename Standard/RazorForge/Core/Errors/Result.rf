@@ -8,7 +8,7 @@ import BuilderQuery
 ###   { U64 type_id, [max(sizeof(T), 8) x U8] payload }
 ### `type_id == 0` is the None state with don't-care payload bytes.
 ### :typeparam T: The successful return value type.
-record Result[T]
+record Result[AnyType T]
   ### Identifies the stored payload type.
   ### The runtime uses this to distinguish successful payloads from crashables.
   secret type_id: U64

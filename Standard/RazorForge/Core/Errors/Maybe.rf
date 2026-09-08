@@ -6,7 +6,7 @@ import BuilderQuery
 ### `Maybe[T]` stores either a present `T` or the absence of a value without
 ### carrying crash information.
 ### :typeparam T: The wrapped value type.
-record Maybe[T] obeys Assignable
+record Maybe[AnyType T] obeys Assignable
   ### Indicates whether the optional currently holds a value.
   secret present: Bool
   ### Stores the wrapped value when `present` is true.

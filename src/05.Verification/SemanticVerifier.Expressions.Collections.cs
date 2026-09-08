@@ -117,7 +117,7 @@ public sealed partial class SemanticVerifier
             ? GetTypeBaseName(type: collectionExpectedType)
             : null;
         if (collectionExpectedType is { IsGenericResolution: true, TypeArguments.Count: >= 1 } &&
-            expectedBaseName is "List" or "Deque" or "SortedList" or "Array")
+            expectedBaseName is "List" or "CircularList" or "SortedList" or "Array")
         {
             expectedElementType = collectionExpectedType.TypeArguments![index: 0];
         }
@@ -196,7 +196,7 @@ public sealed partial class SemanticVerifier
         }
 
         TypeSymbol resultType;
-        if (expectedType != null && expectedBaseName is "List" or "Deque" or "SortedList" or "BitList" or
+        if (expectedType != null && expectedBaseName is "List" or "CircularList" or "SortedList" or "BitList" or
             "Array" or "BitArray")
         {
             resultType = LiteralTypeFromExpected(expectedType: expectedType,

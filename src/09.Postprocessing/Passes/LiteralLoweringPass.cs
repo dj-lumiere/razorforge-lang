@@ -43,6 +43,15 @@ internal sealed class LiteralLoweringPass : AstRewriter
     // `jn` imaginary literals build a Complex whose components are arbitrary-precision Real.
     private readonly TypeInfo? _realType;
     private readonly RoutineInfo? _realFromLiteral;
+    // Domain-literal record types, stamped onto the lowered CreatorExpression's ResolvedType. Without this
+    // the creator carries no type, and any pipeline copy that reaches OperatorLoweringPass WITHOUT first
+    // running CallOverloadResolutionPass (which is what otherwise fills a creator's ResolvedType) lowers a
+    // comparison like `'a' < 'b'` to an UNRESOLVED `.lt` call (LoweringKind=Unknown, no ResolvedRoutine) —
+    // which then hard-errors at codegen. Stamping the type here makes the operand type flow deterministically.
+    private readonly TypeInfo? _characterType;
+    private readonly TypeInfo? _byteType;
+    private readonly TypeInfo? _byteSizeType;
+    private readonly TypeInfo? _durationType;
 
     /// <summary>
     /// Initializes a new instance with the dependencies required for its compiler phase.
@@ -81,6 +90,11 @@ internal sealed class LiteralLoweringPass : AstRewriter
         _realFromLiteral = _realType != null
             ? ctx.Registry.LookupMemberRoutine(type: _realType, memberRoutineName: "from_literal")
             : null;
+
+        _characterType = ctx.Registry.LookupType(name: "Character");
+        _byteType = ctx.Registry.LookupType(name: "Byte");
+        _byteSizeType = ctx.Registry.LookupType(name: "ByteSize");
+        _durationType = ctx.Registry.LookupType(name: "Duration");
     }
 
     // -----------------------------------------------------------------------------
@@ -161,7 +175,7 @@ internal sealed class LiteralLoweringPass : AstRewriter
     /// <summary>
     /// Attempts to lower literal and reports whether it succeeded.
     /// </summary>
-    private static CreatorExpression? TryLowerLiteral(LiteralExpression literal)
+    private CreatorExpression? TryLowerLiteral(LiteralExpression literal)
     {
         SourceLocation loc = literal.Location;
 
@@ -291,40 +305,40 @@ internal sealed class LiteralLoweringPass : AstRewriter
     /// <summary>
     /// Builds the make byte size creator used by later compiler work.
     /// </summary>
-    private static CreatorExpression MakeByteSizeCreator(string text, SourceLocation loc)
+    private CreatorExpression MakeByteSizeCreator(string text, SourceLocation loc)
     {
         ulong bytes = ComputeByteSizeValue(text);
         var valueLit = new LiteralExpression(Value: bytes.ToString(), LiteralType: TokenType.U64Literal, Location: loc);
-        return new CreatorExpression("ByteSize", null, [("value", valueLit)], loc);
+        return new CreatorExpression("ByteSize", null, [("value", valueLit)], loc) { ResolvedType = _byteSizeType };
     }
 
     /// <summary>
     /// Builds the make duration creator used by later compiler work.
     /// </summary>
-    private static CreatorExpression MakeDurationCreator(string text, TokenType literalType, SourceLocation loc)
+    private CreatorExpression MakeDurationCreator(string text, TokenType literalType, SourceLocation loc)
     {
         (long seconds, long nanoseconds) = ComputeDurationValues(text, literalType);
         var secsLit = new LiteralExpression(Value: seconds.ToString(), LiteralType: TokenType.S64Literal, Location: loc);
         var nsLit = new LiteralExpression(Value: nanoseconds.ToString(), LiteralType: TokenType.U32Literal, Location: loc);
-        return new CreatorExpression("Duration", null, [("seconds", secsLit), ("nanoseconds", nsLit)], loc);
+        return new CreatorExpression("Duration", null, [("seconds", secsLit), ("nanoseconds", nsLit)], loc) { ResolvedType = _durationType };
     }
 
     /// <summary>
     /// Builds the make character creator used by later compiler work.
     /// </summary>
-    private static CreatorExpression MakeCharacterCreator(int codepoint, SourceLocation loc)
+    private CreatorExpression MakeCharacterCreator(int codepoint, SourceLocation loc)
     {
         var cpLit = new LiteralExpression(Value: codepoint.ToString(), LiteralType: TokenType.U32Literal, Location: loc);
-        return new CreatorExpression("Character", null, [("from", cpLit)], loc);
+        return new CreatorExpression("Character", null, [("from", cpLit)], loc) { ResolvedType = _characterType };
     }
 
     /// <summary>
     /// Builds the make byte creator used by later compiler work.
     /// </summary>
-    private static CreatorExpression MakeByteCreator(int byteValue, SourceLocation loc)
+    private CreatorExpression MakeByteCreator(int byteValue, SourceLocation loc)
     {
         var byteLit = new LiteralExpression(Value: byteValue.ToString(), LiteralType: TokenType.U8Literal, Location: loc);
-        return new CreatorExpression("Byte", null, [("from", byteLit)], loc);
+        return new CreatorExpression("Byte", null, [("from", byteLit)], loc) { ResolvedType = _byteType };
     }
 
     // -----------------------------------------------------------------------------

@@ -670,7 +670,7 @@ public sealed partial class TypeRegistry
                 return implementer is RoutineTypeInfo;
             case ConstraintKind.Crashable:
                 return implementer is CrashableTypeInfo;
-            case ConstraintKind.ZeroMemvarType:
+            case ConstraintKind.RedirectType:
                 // A field-less aggregate: an empty record, or a scalar kind (choice/flags carry no
                 // member variables). Its `allmemvarof` is empty, so the base field-walk is degenerate.
                 return implementer switch
@@ -680,9 +680,12 @@ public sealed partial class TypeRegistry
                     _ => false
                 };
             case ConstraintKind.EntityType:
-                // `is EntityType` — a plain entity; a crashable is an entity subtype with its own
-                // more-specific `is CrashableType` gate, so exclude it here.
-                return implementer is EntityTypeInfo and not CrashableTypeInfo;
+                // `is EntityType` — an entity. A crashable IS an entity subtype (heap-allocated), so it
+                // satisfies this directly: it reuses the entity derives (notably `destroy` = field-walk +
+                // `hijack().invalidate()`) rather than needing a duplicate CrashableType template. Its
+                // crashable-specific members (represent/diagnose/crash_message) still come from
+                // HandleCrashable via DispatchByOwnerType, which routes by owner type before any template.
+                return implementer is EntityTypeInfo;
             case ConstraintKind.RecordType:
                 // `is RecordType` — a plain value record; exclude the sum/enum/tuple record
                 // subtypes, which have their own more-specific kind gates.
@@ -813,7 +816,7 @@ public sealed partial class TypeRegistry
                 or ConstraintKind.ChoiceType or ConstraintKind.FlagsType
                 or ConstraintKind.TupleType or ConstraintKind.RecordType
                 or ConstraintKind.EntityType or ConstraintKind.RoutineType
-                or ConstraintKind.Crashable or ConstraintKind.ZeroMemvarType)
+                or ConstraintKind.Crashable or ConstraintKind.RedirectType)
             .ToList();
 
     private static string DeriveGateKey(List<GenericConstraintDeclaration> gates)
@@ -951,7 +954,7 @@ public sealed partial class TypeRegistry
         if (protocols != null)
         {
             return LookupMemberRoutineViaImplementedProtocols(type: type, protocols: protocols,
-                memberRoutineName: memberRoutineName, forImplementer: forImplementer);
+                memberRoutineName: memberRoutineName, forImplementer: forImplementer, isFailable: isFailable);
         }
 
         // WrapperTypeInfo (Viewing/Modifying/Consulting/Amending/Guarded/Witnessed)
@@ -1019,7 +1022,7 @@ public sealed partial class TypeRegistry
     /// (the found routine or null) — mirroring the original terminal `return null`.
     /// </summary>
     private RoutineInfo? LookupMemberRoutineViaImplementedProtocols(TypeInfo type,
-        List<TypeInfo> protocols, string memberRoutineName, TypeInfo? forImplementer)
+        List<TypeInfo> protocols, string memberRoutineName, TypeInfo? forImplementer, bool? isFailable)
     {
         // Retained/Tracked obey `Controlling[T]`. The recursive LookupMemberRoutine call on a
         // `Controlling[X]` protocol triggers the marker-protocol unwrap at the top of this
@@ -1044,8 +1047,15 @@ public sealed partial class TypeRegistry
             {
                 // Thread the concrete implementer so a protocol with several `needs`-gated
                 // default bodies dispatches to the kind-matched one (within-dispatch).
+                // Thread isFailable: a protocol default of the same name+failability must NOT shadow the
+                // implementer's OWN method of the OTHER failability. E.g. resolving `a.first()` first probes
+                // isFailable=False; `Array[T, N].first!()` (failable) is correctly excluded upstream expecting
+                // a failable retry — but if this protocol path drops the filter it returns the failable
+                // `Iterable[T].first` default anyway, shadowing the own method (whose iterating body leaks an
+                // abstract Emittable[T] into codegen). Respecting isFailable makes the probe miss here and the
+                // failable retry find the own method.
                 var res = LookupMemberRoutine(type: protocol, memberRoutineName: memberRoutineName,
-                    forImplementer: forImplementer ?? type);
+                    forImplementer: forImplementer ?? type, isFailable: isFailable);
                 if (res != null) return res;
             }
         }

@@ -357,7 +357,7 @@ public sealed partial class SemanticVerifier
             // Iterable[Text]'s try_emit() return. Without this, `me` is the bare gen-def
             // `Iterable` and body identifiers (parameters, loop vars) get ErrorTypeInfo.
             // Only override for ProtocolTypeInfo: for records/entities like
-            // `List[PQEntry[TPriority, TElement]]` the gen-param resolution must happen through
+            // `List[PPEntry[TPriority, TElement]]` the gen-param resolution must happen through
             // routine.GenericParameters, not via a bracketed-cache lookup that strips the params.
             if (typeName.Contains(value: '[') && ownerType is ProtocolTypeInfo)
             {

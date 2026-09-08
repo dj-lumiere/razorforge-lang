@@ -16,7 +16,7 @@ import BuilderExpansion
 ###
 ### :typeparam T: The record element type (must be `Splittable`).
 ### :see: {List[T]} for the array-of-structs counterpart.
-entity SplitList[T] obeys Iterable[T], MutableIndexable[T], Sized, Container, ListLiteral[T]
+entity SplitList[AnyType T] obeys Iterable[T], MutableIndexable[T], Sized, Container, ListLiteral[T]
 needs T obeys Splittable
 relates SplitListEmittable[T] as Iter
   expand m in allmemvarof(T)
@@ -163,7 +163,7 @@ routine SplitList[T].iter() -> SplitListEmittable[T]
 
 ### A forward iterator over a `SplitList[T]`: holds a borrowed alias of each column buffer plus the
 ### captured count and current position. Emits whole `T` values gathered one field at a time.
-entity SplitListEmittable[T] obeys Emittable[T]
+entity SplitListEmittable[AnyType T] obeys Emittable[T]
 needs T obeys Splittable
   expand m in allmemvarof(T)
     ### Borrowed alias of the source list's column for this field.
