@@ -353,14 +353,18 @@ public partial class LlvmCodeGenerator
     /// </summary>
     private static (string FromType, string Val)? SplitBitcastOperand(string operand)
     {
-        if (operand.StartsWith(value: '['))
+        // Bracketed types carry internal spaces (`[4 x float]`, `<4 x float>`), so a naive first-space split
+        // truncates the type (`<4`). Depth-match the matching close bracket and take the value after it.
+        if (operand.StartsWith(value: '[') || operand.StartsWith(value: '<'))
         {
+            char open = operand[index: 0];
+            char closeCh = open == '[' ? ']' : '>';
             int depth = 0;
             int close = -1;
             for (int i = 0; i < operand.Length; i++)
             {
-                if (operand[index: i] == '[') depth++;
-                else if (operand[index: i] == ']' && --depth == 0)
+                if (operand[index: i] == open) depth++;
+                else if (operand[index: i] == closeCh && --depth == 0)
                 {
                     close = i;
                     break;
@@ -406,7 +410,10 @@ public partial class LlvmCodeGenerator
         // is intercepted at the call site), but the materialized definition must still compile —
         // spill the aggregate to a fresh alloca and use its pointer, same as the struct case.
         bool isArray = fromType.StartsWith(value: '[');
-        if (!isStruct && !isFloat && !isArray) return null;
+        // SIMD vector backends (`<N x T>`, e.g. Simd.Vector[F32, 4]'s @llvm("<{N} x {T}>") layout) likewise
+        // cannot bitcast to ptr — same dead-but-must-compile universal get_address/hijack body. Spill too.
+        bool isVector = fromType.StartsWith(value: '<');
+        if (!isStruct && !isFloat && !isArray && !isVector) return null;
         return (fromType, val, resultName);
     }
 

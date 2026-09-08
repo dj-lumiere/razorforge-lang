@@ -339,8 +339,13 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
         if (errorType == null) return false;
         RoutineInfo? crashMsg =
             ctx.Registry.LookupMemberRoutine(type: errorType, memberRoutineName: RuntimeContract.CrashMessage);
-        return crashMsg != null && ctx.LiveRoutineKeys.Count > 0
-               && ctx.LiveRoutineKeys.Add(item: crashMsg.RegistryKey);
+        if (crashMsg == null || ctx.LiveRoutineKeys.Count == 0) return false;
+        bool changed = ctx.LiveRoutineKeys.Add(item: crashMsg.RegistryKey);
+        // crash_message's body formats via `me.represent()` (no source AST call), so a thrown error's
+        // represent is otherwise never built → link-undefined. Enliven it alongside crash_message.
+        if (ctx.Registry.LookupMemberRoutine(type: errorType, memberRoutineName: "represent") is { } rep)
+            changed |= ctx.LiveRoutineKeys.Add(item: rep.RegistryKey);
+        return changed;
     }
 
     /// <summary>
@@ -697,8 +702,12 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
                 if (wiredName is "represent" or "diagnose" or "hash" or "serialize"
                     or "duplicate" or "assign" or "eq" or "ne" or "cmp"
                     or "lt" or "le" or "gt" or "ge" or "contains" or "notcontains"
-                    or "getitem" or "setitem" or "iter")
+                    or "getitem" or "iter")
                     continue;
+                // NOTE: `setitem` is NOT excluded here (unlike the call-driven `getitem`). An index assignment
+                // `a[i] = x` is lowered to a `setitem` CALL by CODEGEN at emission, not to an AST call the
+                // demand walk can follow, so setitem is never reached call-driven and must be force-seeded per
+                // reached owner or it links undefined (Array[S64,4]/Vector[F32,4]/BitArray/SplitArray/List).
                 // The OPERATOR family is call-driven too: `a+b`→.add, `a<<b`→.ashl, `-a`→.neg, `a+=b`→.iadd
                 // each reach their wired routine through a lowered call the walk follows. Force-seeding them
                 // per live owner OVER-approximates — worse, a widening op's body constructs a WIDER type
@@ -718,6 +727,17 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
             // (2) Implicit codegen inserts (RC copy verb; Roamed promote/lock/raw_inner; display transparency).
             foreach ((TypeInfo owner, string mn) in ImplicitCallContract.ForLiveType(liveType: type))
                 Discover(r: ctx.Registry.LookupMemberRoutine(type: owner, memberRoutineName: mn));
+            // (2b) Crash path — `throw X` is genuinely NON-discoverable (control flow, no AST call): codegen's
+            // EmitThrow calls `X.crash_message()`, whose body formats via `X.represent()`. Seed both per reached
+            // throwable owner (a type declaring crash_message). Discover build+walks crash_message so most of its
+            // callees fall out; represent is force-seeded above's DENYLIST (call-driven for f-string/show), so
+            // seed it explicitly here for the crash formatter that has no source call.
+            if (ctx.Registry.LookupMemberRoutine(type: type,
+                    memberRoutineName: RuntimeContract.CrashMessage) is { } crashMsg)
+            {
+                Discover(r: crashMsg);
+                Discover(r: ctx.Registry.LookupMemberRoutine(type: type, memberRoutineName: "represent"));
+            }
             // (3) Entity self-free tail (hijack / Hijacked[E].invalidate — zero-arg universal, no AST call).
             // Skip a type that still carries a generic parameter (IsGenericDefinition can be false for a
             // partially-substituted resolution like `RangeEmittable[RangeEmittable[T]]`): GetOrCreateWrapperType
@@ -733,6 +753,14 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
                 Discover(r: ctx.Registry.LookupMemberRoutine(type: hijacked,
                     memberRoutineName: RuntimeContract.RawPointer.Invalidate));
             }
+            // (3b) Per-type LIFECYCLE HOOKS (destroy / roam_free_impl / roam_trace_impl). Codegen synthesizes
+            // teardown + cycle-trace calls per reached type with NO source AST call (scope-exit destroy of a
+            // temporary, a wrapper/routine-value's destroy). Base mode seeds these over ALL registered instances
+            // (MaterializeEntitySelfFreeInIsolation); mirror that DEMAND-scoped on each reached concrete owner.
+            if (!ContainsGenericParam(t: type))
+                foreach (string hook in new[] { "destroy", "roam_free_impl", "roam_trace_impl" })
+                    if (ctx.Registry.LookupMemberRoutine(type: type, memberRoutineName: hook) is { } hookR)
+                        Discover(r: hookR);
             // (4) Text.replace — FStringLoweringPass synthesizes it for `:?`/`?` in-flight-entity interpolation.
             if (type is { Name: "Text", Module: "Core" })
                 Discover(r: ctx.Registry.LookupMemberRoutine(type: type,
@@ -763,6 +791,7 @@ public sealed class GenericMonomorphizationPass(DesugaringContext ctx)
             ctx.LiveRoutineKeys.Add(item: k);
             worklist.Enqueue(item: (k, b));
         }
+
 
         // FIXPOINT: drain the call-graph worklist, then force-seed any newly-reached owner types (their seeds
         // refill the worklist), and repeat until both are exhausted.

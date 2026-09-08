@@ -2697,9 +2697,37 @@ internal static class GenericAstRewriter
             {
                 return type; // can't fully bind — leave as-is
             }
+            // CYCLE-BREAK: a self-referential binding — binding a parameter of `type` to a type that is (or
+            // nests) `type`'s OWN generic definition — would build `RangeEmittable[RangeEmittable[T]]`, whose
+            // own concretization nests again → unbounded `RangeEmittable[RangeEmittable[…]]` monomorphization
+            // runaway (a stale/self-referential TypeSubs entry from an over-eager derive monomorphization).
+            // Leave the splice's object type deferred (return the def) instead of materializing the nest.
+            if (BoundReferencesDef(bound: bound, def: type))
+            {
+                return type;
+            }
             args.Add(item: bound);
         }
         return ctx.Registry.GetOrCreateResolution(genericDef: type, typeArguments: args);
+    }
+
+    /// <summary>True when <paramref name="bound"/> is, or nests within a type argument, the same generic
+    /// definition as <paramref name="def"/> — i.e. binding a parameter of <c>def</c> to <c>bound</c> would
+    /// make <c>def</c> its own (transitive) type argument, a self-referential nest that concretizes without
+    /// end. Compared by generic-definition identity (reference, else bare name).</summary>
+    private static bool BoundReferencesDef(TypeInfo bound, TypeInfo def)
+    {
+        TypeInfo? boundDef = bound switch
+        {
+            RecordTypeInfo r => r.GenericDefinition ?? r,
+            EntityTypeInfo e => e.GenericDefinition ?? e,
+            _ => null
+        };
+        if (boundDef != null && (ReferenceEquals(objA: boundDef, objB: def) || boundDef.Name == def.Name))
+        {
+            return true;
+        }
+        return bound.TypeArguments?.Any(predicate: a => BoundReferencesDef(bound: a, def: def)) ?? false;
     }
 
     /// <summary>True when <paramref name="type"/> is a container declaring decl-position
