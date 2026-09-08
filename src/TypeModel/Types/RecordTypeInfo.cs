@@ -1,8 +1,5 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Text;
-using Compiler.Resolution;
+using Compiler.Declaration;
 using TypeModel.Enums;
 using TypeModel.Symbols;
 

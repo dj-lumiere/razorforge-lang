@@ -1,5 +1,3 @@
-using Verification.Results;
-
 namespace RazorForge.Tests.Analyzer;
 
 using static TestHelpers;

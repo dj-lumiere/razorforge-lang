@@ -1,6 +1,5 @@
-using System.Collections.Generic;
 using Compiler.Tokenizer;
-using Compiler.Synthesis;
+using Compiler.Instantiation;
 
 namespace SyntaxTree;
 
@@ -18,7 +17,7 @@ namespace SyntaxTree;
 /// <item>Control flow statements (if, while, for, when)</item>
 /// <item>Assignment and variable manipulation</item>
 /// <item>Expression evaluation for side effects</item>
-/// <item>Function returns and loop control</item>
+/// <item>FreeRoutine returns and loop control</item>
 /// </list>
 /// </remarks>
 public abstract record Statement(SourceLocation Location) : SyntaxTreeNode(Location: Location);
@@ -36,7 +35,7 @@ public abstract record Statement(SourceLocation Location) : SyntaxTreeNode(Locat
 /// <remarks>
 /// Common uses include:
 /// <list type="bullet">
-/// <item>Function calls that modify state: print("Hello"), array.append(item)</item>
+/// <item>FreeRoutine calls that modify state: print("Hello"), array.append(item)</item>
 /// <item>memberRoutine invocations: object.doSomething()</item>
 /// <item>Assignment operators: x += 5</item>
 /// </list>
@@ -1017,7 +1016,7 @@ public enum VariantSiteKind
 
     /// <summary>
     /// <c>Value</c> is already a variant carrier of the right type (rewritten by
-    /// <see cref="Compiler.Synthesis.ErrorHandlingVariantPass"/> when the original wrapper body
+    /// <see cref="Compiler.Instantiation.ErrorHandlingVariantPass"/> when the original wrapper body
     /// tail-returned a call to a failable routine, e.g. <c>return F!(x)</c> -> <c>return try_F(x)</c>).
     /// Codegen returns <c>Value</c> directly without wrapping it in Some/Ok/Found.
     /// </summary>

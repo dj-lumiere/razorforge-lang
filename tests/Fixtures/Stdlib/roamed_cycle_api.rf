@@ -5,6 +5,7 @@ import IO/Console
 entity Beacon
   id: S64
 
+@override
 dangerous routine Beacon.destroy()
   show(f"beacon {me.id} destroyed")
   return

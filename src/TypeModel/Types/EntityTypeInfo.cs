@@ -1,7 +1,4 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using Compiler.Resolution;
+using Compiler.Declaration;
 using TypeModel.Enums;
 using TypeModel.Symbols;
 

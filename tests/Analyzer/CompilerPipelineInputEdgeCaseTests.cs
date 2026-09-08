@@ -1,12 +1,10 @@
-using System.Collections.Generic;
-using System.Threading.Tasks;
 using Compiler.CodeGen;
 using Compiler.Diagnostics;
 using Compiler.Targeting;
 using SyntaxTree;
 using TypeModel.Enums;
-using Verification;
-using Verification.Results;
+using Compiler.Verification;
+using Compiler.Verification.Results;
 
 namespace RazorForge.Tests.Analyzer;
 

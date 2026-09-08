@@ -1,5 +1,4 @@
-using System;
-using Verification.Results;
+using Compiler.Verification.Results;
 using TypeModel.Types;
 
 namespace RazorForge.Tests.Analyzer;

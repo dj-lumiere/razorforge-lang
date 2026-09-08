@@ -23,6 +23,11 @@ public static class DiagnosticFlags
     /// <summary>Trace ORC-JIT lowering stages. Was <c>RAZORFORGE_JIT_TRACE</c>.</summary>
     public static bool JitTrace;
 
+    /// <summary>Keep the emitted LLVM IR as <c>&lt;entry&gt;.ll</c> next to the source (<c>dump-ir</c>).
+    /// When set, <c>buildandrun</c> takes the local AOT path (skips the daemon / in-memory ORC-JIT, which
+    /// never write a <c>.ll</c>) and the <c>.ll</c> is NOT cleaned up — so the IR is inspectable after a run.</summary>
+    public static bool DumpIr;
+
     /// <summary>Path to dump the routine-reachability set, or null. Was <c>RF_REACHABILITY_DUMP</c>.</summary>
     public static string? ReachabilityDump;
 
@@ -36,6 +41,7 @@ public static class DiagnosticFlags
         PhaseTiming = false;
         PruneStats = false;
         JitTrace = false;
+        DumpIr = false;
         ReachabilityDump = null;
         MaySuspendDump = null;
     }

@@ -10,6 +10,7 @@ import IO/Console
 entity Box
   value: S64
 
+@override
 dangerous routine Box.destroy()
   show(value: "Box destroyed")
   me.hijack().invalidate()

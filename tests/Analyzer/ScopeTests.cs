@@ -1,5 +1,4 @@
-using System;
-using Verification.Results;
+using Compiler.Verification.Results;
 
 namespace RazorForge.Tests.Analyzer;
 
@@ -192,7 +191,7 @@ public class ScopeTests
 
     #endregion
 
-    #region Function Parameter Scoping
+    #region FreeRoutine Parameter Scoping
     /// <summary>
     /// Verifies semantic analysis behavior for parameter in scope and resolves the expected symbol.
     /// </summary>

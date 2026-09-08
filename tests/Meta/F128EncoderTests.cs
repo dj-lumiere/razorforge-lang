@@ -1,5 +1,4 @@
-using Verification;
-using Xunit;
+using Compiler.Verification;
 
 namespace RazorForge.Tests.Meta;
 

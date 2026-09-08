@@ -1,5 +1,5 @@
 using Compiler.Diagnostics;
-using Verification.Results;
+using Compiler.Verification.Results;
 using TypeModel.Symbols;
 
 namespace RazorForge.Tests.Analyzer;

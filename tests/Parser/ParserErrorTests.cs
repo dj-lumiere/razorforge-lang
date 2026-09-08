@@ -1,4 +1,3 @@
-using System;
 using SyntaxTree;
 
 namespace RazorForge.Tests.Parser;

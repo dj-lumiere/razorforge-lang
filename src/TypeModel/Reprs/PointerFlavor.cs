@@ -11,7 +11,7 @@ public enum PointerFlavor
     Entity,
     /// <summary>Protocol witness/vtable pointer.</summary>
     Protocol,
-    /// <summary>Function pointer.</summary>
+    /// <summary>FreeRoutine pointer.</summary>
     Routine,
     /// <summary>Viewing borrow (Viewing[T]).</summary>
     Viewing,

@@ -9,6 +9,7 @@ routine Tracer.create(tag: S32) -> Tracer
   show(f"  create({tag})")
   return Tracer(tag: S64(tag))
 
+@override
 dangerous routine Tracer.destroy()
   show(f"  destroy({me.tag})")
   return

@@ -1,7 +1,5 @@
-using System.Collections.Generic;
 using Compiler.Tokenizer;
 using TypeModel.Reprs;
-using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
 
@@ -284,7 +282,7 @@ public record IdentifierExpression(string Name, SourceLocation Location, string?
     public VariableInfo? ResolvedVariable { get; set; }
 
     /// <summary>
-    /// Set by <see cref="Compiler.Postprocessing.Passes.TemporaryTeardownPass"/> on the synthetic temp
+    /// Set by <see cref="Compiler.Desugaring.Passes.TemporaryTeardownPass"/> on the synthetic temp
     /// identifier it introduces as the tail of a lowered managed-leaf reassignment
     /// (<c>target = __rv</c>). It marks, STRUCTURALLY (not by parsing the <c>__rv_</c> name), that this
     /// reassignment is already the pass's OWN output — so a second run over the same body (the
@@ -401,7 +399,7 @@ public record UnaryExpression(UnaryOperator Operator, Expression Operand, Source
 /// <remarks>
 /// Supports various call patterns:
 /// <list type="bullet">
-/// <item>Function calls: routine(a, b, c)</item>
+/// <item>FreeRoutine calls: routine(a, b, c)</item>
 /// <item>memberRoutine calls: me.MemberRoutine(x, y)</item>
 /// <item>Creator calls: Point(x, y)</item>
 /// <item>Lambda calls: ((x) => x + 1)(42)</item>
@@ -884,7 +882,7 @@ public record LambdaExpression(
 
 #endregion
 
-#region Function Call and Access Expressions
+#region FreeRoutine Call and Access Expressions
 
 /// <summary>
 /// Represents a parameter definition for functions, memberRoutines, and lambdas.
@@ -982,7 +980,7 @@ public record TypeExpression(
 /// <remarks>
 /// Type conversion styles:
 /// <list type="bullet">
-/// <item>Function-style: s32!(3.14), bool!(1)</item>
+/// <item>FreeRoutine-style: s32!(3.14), bool!(1)</item>
 /// <item>memberRoutine-style: 3.14.s32!(), 1.bool!()</item>
 /// <item>Safety: explicit conversions may fail at runtime</item>
 /// <item>Checked: conversion failures throw exceptions</item>

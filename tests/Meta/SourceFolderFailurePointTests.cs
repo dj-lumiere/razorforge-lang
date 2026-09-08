@@ -1,7 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Text.RegularExpressions;
 
 namespace RazorForge.Tests.Meta;
@@ -21,53 +17,45 @@ public sealed partial class SourceFolderFailurePointTests
             "manifest parsing validates required fields, indexes modules, and the native toolchain detects linker failures",
             ["ReadRequiredString", "BuildModuleIndex", "ExtractModuleName", "DetectLinkerFromStderr"]
         },
+        // Phase folders now numbered 1..8 by pull/(B) pipeline order: 1 tokenize · 2 parse · 3 declarations ·
+        // 4 desugar · 5 collect-from-start · 6 semantic errors · 7 monomorphize · 8 LLVM IR.
         {
-            "03.Declaration",
-            "build and stdlib declaration loading handle import graphs and stdlib registration",
-            ["ModuleDependencyGraph", "CompileFile", "RegisterProgramTypes", "RegisterProgramRoutines"]
-        },
-        {
-            "01.Tokenizer",
+            "1.Tokenizer",
             "source validation rejects ambiguous bytes and whitespace before scanning",
             ["NormalizeAndValidateSource", "Source contains a null byte", "Tabs are not allowed", "Unsupported whitespace character"]
         },
         {
-            "02.Parser",
+            "2.Parser",
             "parse errors are recorded and synchronized instead of aborting whole files",
             ["HasErrors", "Synchronize", "ExpectedIndentedBlock", "ProcessDedentTokens"]
         },
         {
-            "04.Resolution",
-            "type and memberRoutine lookup handle missing symbols and overload ambiguity",
-            ["LookupTypeWithImports", "LookupRoutineWithImports", "LookupMemberRoutineOverload", "ValidateGenericConstraints"]
+            "3.Declaration",
+            "declaration collection + name/type resolution handle import graphs, stdlib registration, and overload lookup",
+            ["ModuleDependencyGraph", "RegisterProgramTypes", "SignatureResolver", "LookupMemberRoutineOverload"]
         },
         {
-            "05.Verification",
+            "4.Desugaring",
+            "operator + syntax desugaring and type-aware lowering cover user + variant bodies",
+            ["DesugaringPipeline", "PostprocessingPipeline", "OperatorLoweringPass", "FStringLoweringPass", "ControlFlowLoweringPass"]
+        },
+        {
+            "5.Collection",
+            "demand collection walks the closure reachable from start (+ retiring push reachability)",
+            ["RoutineCollectionPass", "RoutineReachabilityPass", "ReachableGenericCollectionPass"]
+        },
+        {
+            "6.Verification",
             "semantic analysis runs ordered phases and reports diagnostics instead of raw exceptions",
-            ["RunPhase3Declaration", "RunPhase4Resolution", "RunPhase5Verification", "ReportError"]
+            ["RunPhase1Declarations", "RunPhase2Resolution", "RunPhase5SemanticAnalysis", "ReportError"]
         },
         {
-            "07.Desugaring",
-            "syntax lowering covers user programs and generated variant bodies",
-            ["RunOnVariantBodies", "LowerStatement", "VisitExpression"]
+            "7.Instantiation",
+            "instantiation monomorphizes + copies reachable bodies AND synthesizes wired/error-variant routines",
+            ["GenericMonomorphizationPass", "MonomorphizedBody", "WiredRoutinePass", "ErrorHandlingVariantPass"]
         },
         {
-            "06.Synthesis",
-            "generated routines cover error variants, wired routines, and wrapper forwarding",
-            ["ErrorHandlingVariantPass", "WiredRoutinePass", "WrapperForwardingPass"]
-        },
-        {
-            "08.Instantiation",
-            "generic instantiation tracks reachable bodies and concrete substitutions",
-            ["GenericClosurePass", "GenericMonomorphizationPass", "BuildConcreteRoutineInfo", "ResolveSubstitutedType"]
-        },
-        {
-            "09.Postprocessing",
-            "type-aware lowering and backend validation run after semantic analysis",
-            ["PostprocessingPipeline", "BackendEntryValidator", "CallOverloadResolutionPass", "PatternLoweringPass"]
-        },
-        {
-            "10.CodeGen",
+            "8.CodeGen",
             "backend rejects unsupported AST/metadata states before emitting invalid IR",
             ["InvalidOperationException", "NotImplementedException", "GetExpressionType", "GenerateRoutineDefinitions"]
         },
@@ -137,13 +125,12 @@ public sealed partial class SourceFolderFailurePointTests
         string[] frontendFolders =
         [
             "BuildSystem",
-            "03.Declaration",
-            "07.Desugaring",
-            "01.Tokenizer",
-            "02.Parser",
-            "04.Resolution",
-            "06.Synthesis",
-            "05.Verification"
+            "1.Tokenizer",
+            "2.Parser",
+            "3.Declaration",
+            "4.Desugaring",
+            "5.Collection",
+            "6.Verification"
         ];
 
         List<string> offenders = frontendFolders
@@ -230,7 +217,7 @@ public sealed partial class SourceFolderFailurePointTests
         {
             string candidate = Path.Combine(path1: current, path2: "src");
             if (Directory.Exists(path: candidate) &&
-                Directory.Exists(path: Path.Combine(path1: candidate, path2: "01.Tokenizer")))
+                Directory.Exists(path: Path.Combine(path1: candidate, path2: "1.Tokenizer")))
             {
                 return candidate;
             }

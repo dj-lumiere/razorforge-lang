@@ -1,17 +1,13 @@
-using System;
 using System.Collections;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using Compiler.Instantiation;
-using Compiler.Resolution;
+using Compiler.Declaration;
 using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
-using Verification;
+using Compiler.Verification;
 using TypeInfo = TypeModel.Types.TypeInfo;
 
 namespace Compiler.Serialization;

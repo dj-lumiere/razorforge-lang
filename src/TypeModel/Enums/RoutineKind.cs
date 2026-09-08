@@ -6,22 +6,18 @@ namespace TypeModel.Enums;
 public enum RoutineKind
 {
     /// <summary>Free-standing function (not attached to a type).</summary>
-    Function,
+    FreeRoutine,
 
-    /// <summary>Member routine in the same file as the type (routine Type.name()).</summary>
+    /// <summary>Member routine (routine Type.name()).</summary>
     MemberRoutine,
 
-    /// <summary>Member routine in a different file from the type (routine Type.name()).</summary>
-    ExternalMemberRoutine,
+    /// <summary>
+    /// A routine that is defined by typewise (common routine Type.name())
+    /// </summary>
+    CommonRoutine,
 
     /// <summary>Creator (create).</summary>
     Creator,
-
-    // (FFI external-ness moved to RoutineInfo.Realm / RoutineRealm — a routine's FOREIGN realm
-    //  is C/LLVM, orthogonal to its structural kind.)
-
-    /// <summary>Operator overload (add, sub, etc.).</summary>
-    Operator,
 
     /// <summary>Anonymous lambda / closure expression.</summary>
     Lambda

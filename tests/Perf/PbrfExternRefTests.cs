@@ -1,9 +1,5 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
 using System.Runtime.CompilerServices;
 using Compiler.Serialization;
-using Xunit;
 
 namespace RazorForge.Tests.Perf;
 

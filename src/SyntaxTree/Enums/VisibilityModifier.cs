@@ -1,6 +1,6 @@
 /// <summary>
 /// Visibility modifiers controlling WHO can access declarations.
-/// Orthogonal to StorageClass which controls WHERE a symbol lives.
+/// Orthogonal to the routine kind (common/member/free) which controls WHERE a symbol lives.
 /// </summary>
 /// <remarks>
 /// The visibility system is designed to be intuitive while providing precise control:
@@ -13,7 +13,7 @@
 /// <item>external - External/FFI linkage</item>
 /// </list>
 ///
-/// Visibility can combine with StorageClass (common/global):
+/// Visibility can combine with the `common` (type-level) routine kind:
 /// <list type="bullet">
 /// <item>open common routine Type.foo() - Anyone can call Type.foo()</item>
 /// <item>secret common routine Type.bar() - Same module can call Type.bar()</item>

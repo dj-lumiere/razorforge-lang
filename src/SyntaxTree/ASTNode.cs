@@ -1,5 +1,3 @@
-using System.Collections.Generic;
-
 namespace SyntaxTree;
 
 #region Base Interfaces and Types
@@ -543,7 +541,7 @@ public interface ISyntaxTreeVisitor<T>
 /// <list type="bullet">
 /// <item>Import declarations for external dependencies</item>
 /// <item>Type declarations (classes, structs, enums, traits)</item>
-/// <item>Function and variable declarations</item>
+/// <item>FreeRoutine and variable declarations</item>
 /// <item>Implementation blocks for traits</item>
 /// </list>
 /// </remarks>

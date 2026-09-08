@@ -1,19 +1,15 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Text;
 using System.Text.Json;
 using Compiler.Diagnostics;
 using Compiler.Parser;
-using Compiler.Resolution;
+using Compiler.Declaration;
 using Compiler.Tokenizer;
 using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
-using Verification;
-using Verification.Results;
+using Compiler.Verification;
+using Compiler.Verification.Results;
 
 namespace Builder;
 
@@ -934,7 +930,7 @@ public static class LspServer
         {
             if (r.OwnerType == null && !r.Name.StartsWith(value: '$'))
             {
-                AddItem(items: items, seen: seen, label: r.Name, kind: 3, // Function
+                AddItem(items: items, seen: seen, label: r.Name, kind: 3, // FreeRoutine
                     detail: RoutineDetail(r: r), documentation: r.Documentation);
             }
         }
@@ -1380,7 +1376,7 @@ public static class LspServer
         name.Length > 0 && char.IsUpper(c: name[index: 0]);
 
     // LSP SymbolKind numbers used below: File=1 Module=2 Namespace=3 Class=5 Method=6 Property=7 Field=8
-    // Enum=10 Interface=11 Function=12 Variable=13 Constant=14 Struct=23.
+    // Enum=10 Interface=11 FreeRoutine=12 Variable=13 Constant=14 Struct=23.
     private static (int Kind, bool IsType) SymbolKindOf(string declTypeName) => declTypeName switch
     {
         "RoutineDeclaration" => (12, false),

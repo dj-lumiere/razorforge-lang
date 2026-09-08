@@ -1,8 +1,6 @@
-using System.Collections.Generic;
-using System.Linq;
 using SyntaxTree;
 using TypeModel.Types;
-using Verification.Results;
+using Compiler.Verification.Results;
 
 namespace RazorForge.Tests.Analyzer;
 

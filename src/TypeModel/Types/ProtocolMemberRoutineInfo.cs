@@ -1,5 +1,4 @@
-using System.Collections.Generic;
-using Verification.Enums;
+using Compiler.Verification.Enums;
 using SyntaxTree;
 using TypeModel.Enums;
 

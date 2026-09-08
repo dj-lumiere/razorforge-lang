@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using TypeModel.Symbols;
 
 namespace SyntaxTree;
@@ -90,7 +89,7 @@ public record AssociatedTypeDeclaration(
 
 #endregion
 
-#region Variable and Function Declarations
+#region Variable and FreeRoutine Declarations
 
 /// <summary>
 /// Variable declaration: var name: Type = initializer
@@ -101,7 +100,6 @@ public record AssociatedTypeDeclaration(
 /// <param name="Initializer">Optional initial value expression</param>
 /// <param name="Visibility">Access control modifier (public, published, internal, private)</param>
 /// <param name="Location">Source location information</param>
-/// <param name="Storage">Storage class for the declared variable.</param>
 /// <param name="Annotations">Optional annotation markers applied to the declaration.</param>
 /// <param name="IsLateInit">Whether the variable is initialized lazily after declaration.</param>
 /// <remarks>
@@ -127,7 +125,6 @@ public record VariableDeclaration(
     Expression? Initializer,
     VisibilityModifier Visibility,
     SourceLocation Location,
-    StorageClass Storage = StorageClass.None,
     List<string>? Annotations = null,
     bool IsLateInit = false,
     bool IsGlobal = false) : Declaration(Location: Location)
@@ -180,25 +177,25 @@ public record ExpandMemberDeclaration(
 }
 
 /// <summary>
-/// Function/routine declaration that defines executable code blocks.
+/// FreeRoutine/routine declaration that defines executable code blocks.
 /// Represents both traditional functions and RazorForge "routines".
 /// </summary>
-/// <param name="Name">Function identifier name</param>
+/// <param name="Name">FreeRoutine identifier name</param>
 /// <param name="Parameters">List of parameter definitions</param>
 /// <param name="ReturnType">Optional return type; null for void/procedure functions</param>
-/// <param name="Body">Function body statement (typically a BlockStatement)</param>
+/// <param name="Body">FreeRoutine body statement (typically a BlockStatement)</param>
 /// <param name="Visibility">Access control modifier</param>
 /// <param name="Annotations">Decorators like @inline for properties</param>
 /// <param name="Location">Source location information</param>
 /// <param name="GenericParameters">Optional list of generic type parameter names</param>
 /// <param name="GenericConstraints">Optional generic constraints.</param>
 /// <param name="IsFailable">Whether the routine has a failable <c>!</c> suffix.</param>
-/// <param name="Storage">Storage class for the routine.</param>
+/// <param name="IsCommon">Whether the routine is a <c>common</c> (type-level static) member routine.</param>
 /// <param name="Async">Suspended or threaded routine mode.</param>
 /// <param name="IsDangerous">Whether the routine requires a <c>danger</c> context.</param>
 /// <param name="IsWiredMemberRoutine">Whether the routine is a wired (compiler-synthesized) member routine.</param>
 /// <remarks>
-/// Function declarations support:
+/// FreeRoutine declarations support:
 /// <list type="bullet">
 /// <item>Generic functions: routine sort[T](items: List[T])</item>
 /// <item>Default parameters: routine greet(name: text = "World")</item>
@@ -219,7 +216,7 @@ public record RoutineDeclaration(
     List<string>? GenericParameters = null,
     List<GenericConstraintDeclaration>? GenericConstraints = null,
     bool IsFailable = false,
-    StorageClass Storage = StorageClass.None,
+    bool IsCommon = false,
     AsyncStatus Async = AsyncStatus.None,
     bool IsDangerous = false,
     bool IsWiredMemberRoutine = false) : Declaration(Location: Location)
@@ -734,7 +731,7 @@ public record VariantMember(TypeExpression Type, SourceLocation Location);
 /// <param name="Location">Source location information</param>
 /// <param name="Annotations">Optional protocol annotations.</param>
 /// <remarks>
-/// Function signatures define the contract that implementers must fulfill:
+/// FreeRoutine signatures define the contract that implementers must fulfill:
 /// <list type="bullet">
 /// <item>Abstract memberRoutines: no body, just signature</item>
 /// <item>Parameter names: used for documentation and named arguments</item>
@@ -826,7 +823,7 @@ public record PresetDeclaration(
 /// </summary>
 /// <param name="Name">Name of the external function</param>
 /// <param name="GenericParameters">Generic type parameters if the function is generic</param>
-/// <param name="Parameters">Function parameters with types</param>
+/// <param name="Parameters">FreeRoutine parameters with types</param>
 /// <param name="ReturnType">Return type of the function (null for void)</param>
 /// <param name="CallingConvention">Calling convention ("C", "stdcall", "fastcall", etc.)</param>
 /// <param name="IsVariadic">Whether the function accepts variable arguments (like C's printf with "...")</param>

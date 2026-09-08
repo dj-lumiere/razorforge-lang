@@ -1,7 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using Tomlyn;
 using Tomlyn.Model;
 
@@ -131,6 +127,7 @@ public static class ManifestLoader
         if (debugTable.TryGetValue(key: "show-build-stages", value: out object? sbs)) d.ShowBuildStages = sbs is true;
         if (debugTable.TryGetValue(key: "prune-stats", value: out object? ps)) d.PruneStats = ps is true;
         if (debugTable.TryGetValue(key: "jit-trace", value: out object? jt)) d.JitTrace = jt is true;
+        if (debugTable.TryGetValue(key: "dump-ir", value: out object? di)) d.DumpIr = di is true;
         if (debugTable.TryGetValue(key: "reachability-dump", value: out object? rd) &&
             !string.IsNullOrWhiteSpace(value: rd?.ToString()))
             d.ReachabilityDump = rd!.ToString();

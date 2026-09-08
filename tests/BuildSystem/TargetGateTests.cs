@@ -1,5 +1,3 @@
-using System;
-using System.IO;
 using Compiler.Targeting;
 
 namespace RazorForge.Tests.BuildSystem;

@@ -1,18 +1,13 @@
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
-using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 using Compiler.CodeGen;
 using Compiler.Declaration;
 using Compiler.Diagnostics;
 using Compiler.Tokenizer;
 using Compiler.Parser;
 using Compiler.Targeting;
-using Verification;
-using Verification.Results;
+using Compiler.Verification;
+using Compiler.Verification.Results;
 using SyntaxTree;
 using TypeModel.Enums;
 
@@ -29,8 +24,8 @@ internal partial class Program
     private const string RazorForgeLanguageName = "RazorForge";
 
     /// <summary>Suflae's own version line — the <c>&lt;SuflaeVersion&gt;</c> PropertyGroup entry (via
-    /// <see cref="Compiler.Resolution.BuildInfo"/>). Bump it in the csproj, NOT here.</summary>
-    private static string SuflaeVersion => Compiler.Resolution.BuildInfo.SuflaeVersion;
+    /// <see cref="Compiler.Declaration.BuildInfo"/>). Bump it in the csproj, NOT here.</summary>
+    private static string SuflaeVersion => Compiler.Declaration.BuildInfo.SuflaeVersion;
 
     /// <summary>True when the binary was invoked under a Suflae alias (<c>suflae</c>/<c>sf</c>)
     /// rather than <c>razorforge</c>/<c>rf</c>. Selects Suflae branding (version/usage) and makes
@@ -267,16 +262,21 @@ internal partial class Program
             return 1;
         }
 
+        // `[debug] dump-ir`: the ORC-JIT and warm-daemon paths keep the IR in-memory / in the daemon and
+        // never write a `<entry>.ll`, so skip BOTH and take the local AOT build+run, which emits (and keeps)
+        // `<entry>.ll` + `.opt.ll` beside the source for inspection.
+        bool dumpIr = Compiler.Diagnostics.DiagnosticFlags.DumpIr;
+
         // ORC-JIT dev-loop path (RAZORFORGE_JIT=1): JIT the module in-process — no opt/clang/link,
         // no exe, no spawn. IR comes warm from the daemon when it's up, else a local cold compile.
-        if (CompileDaemon.TryClientJitRun(resolved: resolved, exitCode: out int jrc))
+        if (!dumpIr && CompileDaemon.TryClientJitRun(resolved: resolved, exitCode: out int jrc))
         {
             return jrc;
         }
 
         // Warm-daemon path: delegate the COMPILE to a running daemon (skips stdlib reprocessing),
         // then run the produced exe locally so interactive stdin/stdout stays with this process.
-        if (CompileDaemon.TryClientBuildAndRun(resolved: resolved, exitCode: out int drc))
+        if (!dumpIr && CompileDaemon.TryClientBuildAndRun(resolved: resolved, exitCode: out int drc))
         {
             return drc;
         }
@@ -629,6 +629,7 @@ internal partial class Program
         DiagnosticFlags.PhaseTiming = manifest.Debug.Timing;
         DiagnosticFlags.PruneStats = manifest.Debug.PruneStats;
         DiagnosticFlags.JitTrace = manifest.Debug.JitTrace;
+        DiagnosticFlags.DumpIr = manifest.Debug.DumpIr;
         DiagnosticFlags.ReachabilityDump = manifest.Debug.ReachabilityDump;
         DiagnosticFlags.MaySuspendDump = manifest.Debug.MaySuspendDump;
     }
@@ -709,13 +710,13 @@ internal partial class Program
 
     /// <summary>
     /// Returns the RazorForge compiler version string, preferring the <c>&lt;RazorForgeVersion&gt;</c>
-    /// PropertyGroup value (via <see cref="Compiler.Resolution.BuildInfo"/>), then the assembly
+    /// PropertyGroup value (via <see cref="Compiler.Declaration.BuildInfo"/>), then the assembly
     /// informational version (e.g. "0.0.1-alpha"), stripping any "+commit" suffix and prefixing <c>v</c>.
     /// </summary>
     private static string GetVersionString()
     {
         var assembly = System.Reflection.Assembly.GetExecutingAssembly();
-        string version = Compiler.Resolution.BuildInfo.AssemblyMetadata(key: "RazorForgeVersion")
+        string version = Compiler.Declaration.BuildInfo.AssemblyMetadata(key: "RazorForgeVersion")
                      ?? assembly
                         .GetCustomAttributes(
                              attributeType: typeof(System.Reflection.AssemblyInformationalVersionAttribute),
@@ -1053,7 +1054,7 @@ internal partial class Program
             // 9-2: instrument may-suspend routine bodies with cancellation push/pop markers
             // (no-op unless something reaches a coroutine suspend point). Mutates `ast` in place,
             // which is the same AST object codegen consumes below.
-            Compiler.Postprocessing.Passes.CancellationInstrumentationPass.Run(
+            Compiler.Desugaring.Passes.CancellationInstrumentationPass.Run(
                 programs: [(ast, ast.Location.FileName, "")],
                 instantiatedBodies: result.InstantiatedGenericBodies,
                 maySuspendKeys: result.MaySuspendRoutineKeys,
@@ -1393,7 +1394,7 @@ internal partial class Program
             // 9-2: instrument may-suspend routine bodies with cancellation push/pop markers
             // (no-op unless something reaches a coroutine suspend point). Mutates the userPrograms
             // ASTs in place — the same objects codegen consumes below.
-            Compiler.Postprocessing.Passes.CancellationInstrumentationPass.Run(
+            Compiler.Desugaring.Passes.CancellationInstrumentationPass.Run(
                 programs: userPrograms,
                 instantiatedBodies: result.InstantiatedGenericBodies,
                 maySuspendKeys: result.MaySuspendRoutineKeys,

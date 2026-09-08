@@ -1,5 +1,5 @@
 using TypeModel.Enums;
-using Verification;
+using Compiler.Verification;
 
 namespace RazorForge.Tests.Meta;
 

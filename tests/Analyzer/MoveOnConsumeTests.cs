@@ -1,6 +1,4 @@
-using System;
-using System.Linq;
-using Verification.Results;
+using Compiler.Verification.Results;
 
 namespace RazorForge.Tests.Analyzer;
 

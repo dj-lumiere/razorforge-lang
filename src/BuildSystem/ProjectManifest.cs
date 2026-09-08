@@ -1,5 +1,3 @@
-using System.Collections.Generic;
-
 namespace Builder;
 /// <summary>
 /// Describes the package metadata declared in <c>config.toml</c>.
@@ -132,6 +130,11 @@ public sealed class DebugOptions
 
     /// <summary>Trace ORC-JIT lowering stages (<c>jit-trace</c>).</summary>
     public bool JitTrace { get; set; }
+
+    /// <summary>Keep the emitted LLVM IR as <c>&lt;entry&gt;.ll</c> next to the source (<c>dump-ir</c>).
+    /// Forces the local AOT path for <c>buildandrun</c> (the daemon / in-memory JIT never write a
+    /// <c>.ll</c>) and suppresses the post-run <c>.ll</c> cleanup.</summary>
+    public bool DumpIr { get; set; }
 
     /// <summary>Path to dump the routine-reachability set (<c>reachability-dump</c>); null = off.</summary>
     public string? ReachabilityDump { get; set; }

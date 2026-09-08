@@ -1,7 +1,5 @@
-using System.Collections.Generic;
 using TypeModel.Symbols;
-using Verification;
-using Xunit;
+using Compiler.Verification;
 
 namespace RazorForge.Tests.Verification;
 

@@ -17,7 +17,7 @@ public enum BackendReprKind
     ProtocolRef,
     /// <summary>RC wrapper pointer (Retained/Viewing/etc.).</summary>
     WrapperRef,
-    /// <summary>Function pointer (routine reference).</summary>
+    /// <summary>FreeRoutine pointer (routine reference).</summary>
     RoutineRef,
     /// <summary>Untyped raw pointer (CPtr / Address).</summary>
     RawPtr

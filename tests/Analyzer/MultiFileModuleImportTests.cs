@@ -1,11 +1,7 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using Compiler.Declaration;
 using Compiler.Diagnostics;
-using Verification;
-using Verification.Results;
+using Compiler.Verification;
+using Compiler.Verification.Results;
 using SyntaxTree;
 using TypeModel.Enums;
 

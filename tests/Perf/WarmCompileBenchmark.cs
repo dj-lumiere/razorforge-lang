@@ -1,13 +1,10 @@
-using System;
 using System.Diagnostics;
-using System.Linq;
-using Compiler.Resolution;
+using Compiler.Declaration;
 using Compiler.Tokenizer;
 using SyntaxTree;
 using TypeModel.Enums;
-using Verification;
-using Verification.Results;
-using Xunit;
+using Compiler.Verification;
+using Compiler.Verification.Results;
 using Xunit.Abstractions;
 
 namespace RazorForge.Tests.Perf;
@@ -93,7 +90,7 @@ public sealed class WarmCompileBenchmark
 
     private static string Codegen(AnalysisResult r)
     {
-        Compiler.Postprocessing.Passes.CancellationInstrumentationPass.Run(
+        Compiler.Desugaring.Passes.CancellationInstrumentationPass.Run(
             programs: r.Registry.UserPrograms,
             instantiatedBodies: r.InstantiatedGenericBodies,
             maySuspendKeys: r.MaySuspendRoutineKeys,

@@ -1,6 +1,5 @@
-using System;
 using Compiler.Diagnostics;
-using Verification.Results;
+using Compiler.Verification.Results;
 using TypeModel.Enums;
 using TypeModel.Symbols;
 using TypeModel.Types;
@@ -173,7 +172,7 @@ public class TypeResolutionTests
         RoutineInfo? routine = result.Registry.GetRoutine(name: "greet");
 
         Assert.NotNull(@object: routine);
-        Assert.Equal(expected: RoutineKind.Function, actual: routine.Kind);
+        Assert.Equal(expected: RoutineKind.FreeRoutine, actual: routine.Kind);
     }
     /// <summary>
     /// Verifies semantic analysis behavior for memberRoutine and records owner type metadata.

@@ -12,6 +12,7 @@ routine Resource.create(tag: S32) -> Resource
   show(f"  create({tag})")
   return Resource(tag: S64(tag))
 
+@override
 dangerous routine Resource.destroy()
   show(f"  destroy({me.tag})")
   me.tag.destroy()

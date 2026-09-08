@@ -1,11 +1,8 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Text;
 using Compiler.Instantiation;
 using Compiler.Tokenizer;
-using Compiler.Resolution;
-using Verification.Enums;
+using Compiler.Declaration;
+using Compiler.Verification.Enums;
 using SyntaxTree;
 using TypeModel.Symbols;
 using TypeModel.Types;

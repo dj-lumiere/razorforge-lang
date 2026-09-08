@@ -10,6 +10,7 @@ import IO/Console
 entity Node
   secret id: S64
 
+@override
 dangerous routine Node.destroy()
   show(f"destroying node {me.id}")
   return

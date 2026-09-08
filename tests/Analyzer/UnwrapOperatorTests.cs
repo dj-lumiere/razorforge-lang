@@ -1,6 +1,6 @@
 using Compiler.Diagnostics;
 using SyntaxTree;
-using Verification.Results;
+using Compiler.Verification.Results;
 using TypeModel.Symbols;
 using TypeModel.Types;
 

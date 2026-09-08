@@ -1,9 +1,7 @@
-using System;
 using System.Collections.Concurrent;
-using System.IO;
 using Compiler.Parser;
 using SyntaxTree;
-using Verification.Results;
+using Compiler.Verification.Results;
 
 namespace Compiler.Diagnostics;
 

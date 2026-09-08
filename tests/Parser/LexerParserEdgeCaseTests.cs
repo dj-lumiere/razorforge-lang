@@ -1,8 +1,6 @@
-using System.Collections.Generic;
-using System.Linq;
 using Compiler.Diagnostics;
 using Compiler.Tokenizer;
-using Verification.Results;
+using Compiler.Verification.Results;
 using SyntaxTree;
 
 namespace RazorForge.Tests.Parser;

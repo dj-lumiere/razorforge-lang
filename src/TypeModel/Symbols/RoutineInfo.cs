@@ -1,8 +1,5 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using Compiler.Resolution;
-using Verification.Enums;
+using Compiler.Declaration;
+using Compiler.Verification.Enums;
 using SyntaxTree;
 using TypeModel.Enums;
 using TypeModel.Types;
@@ -146,7 +143,7 @@ public sealed class RoutineInfo
     }
 
     /// <summary>The kind of routine.</summary>
-    public RoutineKind Kind { get; init; } = RoutineKind.Function;
+    public RoutineKind Kind { get; init; } = RoutineKind.FreeRoutine;
 
     /// <summary>The type that owns this routine (for member routines and extension routines).</summary>
     public TypeSymbol? OwnerType { get; init; }
@@ -303,7 +300,7 @@ public sealed class RoutineInfo
     /// U16.rf) — benign when the bodies are identical (same hash), but a DIVERGENT one (same signature,
     /// different body) means one silently shadows the other under last-wins registration, the hazard
     /// class that made <c>F64(from: F128)</c> resolve to a recursive-forwarder stub. Null for non-creators
-    /// / extern bodies. See <see cref="Compiler.Resolution.TypeRegistry.RegisterRoutine"/>.
+    /// / extern bodies. See <see cref="Compiler.Declaration.TypeRegistry.RegisterRoutine"/>.
     /// </summary>
     public int? BodyHash { get; set; }
 
@@ -417,11 +414,9 @@ public sealed class RoutineInfo
     /// <summary>Whether this routine is marked dangerous (requires danger block to call).</summary>
     public bool IsDangerous { get; init; }
 
-    /// <summary>Storage class: None (instance/module-level), Common (type-level static).</summary>
-    public StorageClass Storage { get; init; } = StorageClass.None;
-
-    /// <summary>Whether this routine is a common (static) routine.</summary>
-    public bool IsCommon => Storage == StorageClass.Common;
+    /// <summary>Whether this routine is a common (type-level static) routine — now a <see cref="RoutineKind"/>
+    /// (the former orthogonal <c>StorageClass.Common</c> axis was folded into the routine kind).</summary>
+    public bool IsCommon => Kind == RoutineKind.CommonRoutine;
 
     /// <summary>Whether this routine is a lambda / closure expression.</summary>
     public bool IsLambda => Kind == RoutineKind.Lambda;
@@ -561,7 +556,6 @@ public sealed class RoutineInfo
             IsSynthesized = IsSynthesized,
             WrapperForwarderInnerMemberRoutine = WrapperForwarderInnerMemberRoutine,
             WrapperForwarderInnerGenericDef = WrapperForwarderInnerGenericDef,
-            Storage = Storage,
             AsyncStatus = AsyncStatus,
             FailableVariant = FailableVariant
         };

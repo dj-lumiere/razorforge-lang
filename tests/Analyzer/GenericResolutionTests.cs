@@ -1,7 +1,6 @@
-using System.Linq;
 using Compiler.Diagnostics;
-using Verification;
-using Verification.Results;
+using Compiler.Verification;
+using Compiler.Verification.Results;
 using SyntaxTree;
 using TypeModel.Enums;
 

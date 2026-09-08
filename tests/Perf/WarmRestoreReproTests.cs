@@ -1,11 +1,8 @@
-using System.Collections.Generic;
-using System.Linq;
 using Compiler.Tokenizer;
 using SyntaxTree;
 using TypeModel.Enums;
-using Verification;
-using Verification.Results;
-using Xunit;
+using Compiler.Verification;
+using Compiler.Verification.Results;
 using Xunit.Abstractions;
 
 namespace RazorForge.Tests.Perf;

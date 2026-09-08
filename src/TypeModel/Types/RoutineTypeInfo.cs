@@ -1,6 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using TypeModel.Enums;
 
 namespace TypeModel.Types;
@@ -71,7 +68,7 @@ public sealed class RoutineTypeInfo : TypeInfo
 
     /// <summary>
     /// Checks if this function type is compatible with another function type.
-    /// Function types are compatible if parameter types and return type match.
+    /// FreeRoutine types are compatible if parameter types and return type match.
     /// </summary>
     /// <param name="other">The other function type to compare.</param>
     /// <returns>True if compatible, false otherwise.</returns>
@@ -109,9 +106,9 @@ public sealed class RoutineTypeInfo : TypeInfo
     /// <inheritdoc/>
     public override TypeInfo CreateInstance(List<TypeInfo> typeArguments)
     {
-        // Function types don't have generic parameters in the traditional sense
+        // FreeRoutine types don't have generic parameters in the traditional sense
         // But we might need to substitute type parameters in param/return types
-        throw new NotSupportedException(message: "Function types cannot be directly resolved.");
+        throw new NotSupportedException(message: "FreeRoutine types cannot be directly resolved.");
     }
 
     /// <summary>
