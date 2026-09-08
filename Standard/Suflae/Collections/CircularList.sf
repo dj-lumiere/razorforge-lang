@@ -6,8 +6,8 @@ module Collections
 ### **When to use** — want a stack, queue, or deque? Suflae has no separate types for these;
 ### `CircularList[T]` is all three. Stack: `add_last` / `remove_last!`. Queue: `add_last` /
 ### `remove_first!`. Deque: insert and remove at either end. Its sharpest edge: a bounded
-### "keep the latest N" history in fixed space via `add_last` then `keep_last(n)` — no reallocation,
-### which `List[T]` cannot do in O(1).
+### "keep the latest N" history in fixed space via `add_last_keeping(value, keeping: n)` (or `add_last`
+### then `keep_last(n)`) — no reallocation, which `List[T]` cannot do in O(1).
 entity CircularList[T]
   secret inner: RF::Collections.CircularList[T]
 

@@ -6,7 +6,7 @@ import BuilderQuery
 ### Used for iteration, bulk inspection, and conversion to list form.
 ### :typeparam TPriority: The type used to order entries in the heap.
 ### :typeparam TElement: The value carried by each entry.
-record PPEntry[TPriority, AnyType TElement]
+record PQEntry[TPriority, AnyType TElement]
 needs TPriority obeys Comparable
   priority: TPriority
   element: TElement
@@ -42,7 +42,7 @@ needs TPriority obeys Comparable
 ### :typeparam TElement: The value type stored alongside each priority.
 ### :see: {SortedList[T]} for sorted traversal without removing elements.
 ### :see: {CircularList[T]} for both-ended, rotatable sequencing without priority.
-entity PriorityQueue[TPriority, AnyType TElement] obeys Iterable[PPEntry[TPriority, TElement]], DictLiteral[TPriority, TElement]
+entity PriorityQueue[TPriority, AnyType TElement] obeys Iterable[PQEntry[TPriority, TElement]], DictLiteral[TPriority, TElement]
 needs TPriority obeys Comparable
   secret priorities: Hijacked[TPriority]
   secret elements: Hijacked[TElement]
@@ -133,12 +133,12 @@ routine PriorityQueue[TPriority, TElement].set_element_raw(index: U64, value: TE
     me.elements.offset(TElement.data_size() * index).poke(value)
   return
 
-### Returns the full heap entry at `index` as a `PPEntry`.
+### Returns the full heap entry at `index` as a `PQEntry`.
 ### :param index: The zero-based heap position to read.
 ### :returns: The priority–element pair stored at that node.
 @inline
-routine PriorityQueue[TPriority, TElement].get_entry_raw(index: U64) -> PPEntry[TPriority, TElement]
-  return PPEntry[TPriority, TElement](
+routine PriorityQueue[TPriority, TElement].get_entry_raw(index: U64) -> PQEntry[TPriority, TElement]
+  return PQEntry[TPriority, TElement](
     priority: me.get_priority_raw(index),
     element: me.get_element_raw(index)
   )
@@ -147,7 +147,7 @@ routine PriorityQueue[TPriority, TElement].get_entry_raw(index: U64) -> PPEntry[
 ### :param index: The zero-based heap position to update.
 ### :param entry: The entry whose priority and element to store.
 @inline
-routine PriorityQueue[TPriority, TElement].set_entry_raw(index: U64, entry: PPEntry[TPriority, TElement])
+routine PriorityQueue[TPriority, TElement].set_entry_raw(index: U64, entry: PQEntry[TPriority, TElement])
   me.set_priority_raw(index: index, value: entry.priority)
   me.set_element_raw(index: index, value: entry.element)
   return
@@ -336,10 +336,10 @@ routine PriorityQueue[TPriority, TElement].peek_priority!() -> TPriority
     absent
   return me.get_priority_raw(0u64)
 
-### Returns the front entry as a `PPEntry` without removing it.
+### Returns the front entry as a `PQEntry` without removing it.
 ### :returns: The priority–element pair with the smallest priority.
 ### :absent: The pool is empty.
-routine PriorityQueue[TPriority, TElement].peek_entry!() -> PPEntry[TPriority, TElement]
+routine PriorityQueue[TPriority, TElement].peek_entry!() -> PQEntry[TPriority, TElement]
   if me.is_empty()
     absent
   return me.get_entry_raw(0u64)
@@ -390,13 +390,13 @@ needs TElement obeys Equatable
     i = i +% 1u64
   return false
 
-### Creates a `List[PPEntry]` from the pool's current heap array in storage order.
+### Creates a `List[PQEntry]` from the pool's current heap array in storage order.
 ### The resulting list is in heap order, not globally sorted by priority.
 ### Use `drain()` on a copy if you need priority order without consuming the pool.
 ### :param source: The pool to copy entries from.
-### :returns: A `List[PPEntry[TPriority, TElement]]` in heap array order.
-routine List[PPEntry[TPriority, TElement]](source: PriorityQueue[TPriority, TElement]) -> List[PPEntry[TPriority, TElement]]
-  var result = List[PPEntry[TPriority, TElement]](source.count())
+### :returns: A `List[PQEntry[TPriority, TElement]]` in heap array order.
+routine List[PQEntry[TPriority, TElement]](source: PriorityQueue[TPriority, TElement]) -> List[PQEntry[TPriority, TElement]]
+  var result = List[PQEntry[TPriority, TElement]](source.count())
   var i = 0u64
   while i < source.count()
     result.add_last(source.get_entry_raw(i))
@@ -411,7 +411,7 @@ routine List[PPEntry[TPriority, TElement]](source: PriorityQueue[TPriority, TEle
 ### Iteration order is heap order — NOT priority-sorted order.
 ### :typeparam TPriority: The priority type carried by yielded entries.
 ### :typeparam TElement: The element type carried by yielded entries.
-entity PriorityQueueEmittable[AnyType TPriority, AnyType TElement] obeys Emittable[PPEntry[TPriority, TElement]]
+entity PriorityQueueEmittable[AnyType TPriority, AnyType TElement] obeys Emittable[PQEntry[TPriority, TElement]]
   ### Raw pointer into the source pool's priority buffer.
   secret priorities: Hijacked[TPriority]
   ### Raw pointer into the source pool's element buffer.
@@ -434,7 +434,7 @@ routine PriorityQueue[TPriority, TElement].iter() -> PriorityQueueEmittable[TPri
 ### Returns the next heap entry in storage order.
 ### :returns: The next priority–element pair from the heap array.
 ### :absent: All entries captured at iterator creation have been yielded.
-routine PriorityQueueEmittable[TPriority, TElement].emit!() -> PPEntry[TPriority, TElement]
+routine PriorityQueueEmittable[TPriority, TElement].emit!() -> PQEntry[TPriority, TElement]
   if me.index >= me.count
     absent
   lateinit var p: TPriority
@@ -442,7 +442,7 @@ routine PriorityQueueEmittable[TPriority, TElement].emit!() -> PPEntry[TPriority
   danger
     p = me.priorities.offset(TPriority.data_size() * me.index).peek()
     e = me.elements.offset(TElement.data_size() * me.index).peek()
-  var _result = PPEntry[TPriority, TElement](priority: p, element: e)
+  var _result = PQEntry[TPriority, TElement](priority: p, element: e)
   me.index = me.index + 1u64
   return _result
 

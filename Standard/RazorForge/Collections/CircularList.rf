@@ -11,9 +11,10 @@ import BuilderQuery
 ###
 ### **When to use**
 ### - You need O(1) rotation — cycle elements in place without copying.
-### - You need a bounded "keep the latest N" history in FIXED space — `add_last` then `keep_last(n)`
-###   retains only the most recent `n` elements without ever reallocating. `List[T]` cannot do this
-###   in O(1): dropping from the front is O(n) there. This is `CircularList`'s sharpest edge.
+### - You need a bounded "keep the latest N" history in FIXED space — `add_last_keeping(value, keeping: n)`
+###   (or `add_last` then `keep_last(n)`) retains only the most recent `n` elements without ever
+###   reallocating. `List[T]` cannot do this in O(1): dropping from the front is O(n) there. This is
+###   `CircularList`'s sharpest edge.
 ### - You need a sliding window or rolling history — advance in O(1) (drop the front, push the back).
 ### - You need fast insertion and removal at both ends — e.g. a BFS frontier or an event stream.
 ### - You want a **stack**, **queue**, or **deque**: RazorForge has no separate types for these —
@@ -222,6 +223,48 @@ routine CircularList[T].keep_last(n: U64)
       me.start = me.wrap_index(me.start +% 1u64)
       i = i +% 1u64
   me.count = n
+  return
+
+### Discards the newest elements so at most the first `n` remain, keeping the current allocation.
+### The mirror of `keep_last`: elements are dropped from the back (the front index is untouched),
+### so this retains the OLDEST `n` in fixed space with no copy and no growth. When `n` is at least
+### the current count, the list is left unchanged.
+### Dropped elements are torn down in place, mirroring `destroy` — they are discarded, not handed
+### back (a no-op for value types; frees owned entity elements).
+### :param n: The maximum number of oldest elements to retain.
+routine CircularList[T].keep_first(n: U64)
+  # Drop the newest (count - n) elements from the back in O(count - n), no reallocation
+  if n >= me.count
+    return
+  var i = n
+  danger
+    while i < me.count
+      var physical = me.wrap_index(me.start +% i)
+      me.data.offset(T.data_size() * physical).peek().destroy()
+      i = i +% 1u64
+  me.count = n
+  return
+
+### Appends `value` at the back, then drops the oldest elements so at most `keeping` remain.
+### This is the one-call "push into a fixed-size latest-N history" — `add_last` followed by
+### `keep_last` — the canonical ring-buffer rolling log that never reallocates once warm.
+### With `keeping` of zero the value is added and then immediately dropped, leaving the list empty.
+### :param value: The element to add at the back.
+### :param keeping: The maximum number of most-recent elements to retain afterward.
+routine CircularList[T].add_last_keeping(value: T, keeping: U64)
+  me.add_last(value: value)
+  me.keep_last(n: keeping)
+  return
+
+### Prepends `value` at the front, then drops the oldest elements (from the back) so at most
+### `keeping` remain. The front-pushing mirror of `add_last_keeping` — `add_first` followed by
+### `keep_first` — a fixed-size latest-N history where the newest element sits at the front.
+### With `keeping` of zero the value is added and then immediately dropped, leaving the list empty.
+### :param value: The element to add at the front.
+### :param keeping: The maximum number of most-recent elements to retain afterward.
+routine CircularList[T].add_first_keeping(value: T, keeping: U64)
+  me.add_first(value: value)
+  me.keep_first(n: keeping)
   return
 
 ### Returns the front element without removing it.

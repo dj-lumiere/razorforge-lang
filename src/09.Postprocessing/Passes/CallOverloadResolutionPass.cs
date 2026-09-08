@@ -31,6 +31,10 @@ internal sealed class CallOverloadResolutionPass
     private readonly TypeRegistry _registry;
     private readonly Dictionary<string, Statement>? _variantBodies;
     private readonly Dictionary<string, Statement>? _synthesizedBodies;
+    // Per-body local-variable types (name → declared/inferred type), populated as the walk visits declarations
+    // in order. Recovers a monomorphized body's member-call receiver whose reference ResolvedType is null
+    // (`n.eq(...)` where `var n = me.count()`). Cleared per top-level body via WalkBody.
+    private readonly Dictionary<string, TypeInfo> _localVarTypes = new(comparer: StringComparer.Ordinal);
 
     /// <summary>
     /// Initializes a new instance with the dependencies required for its compiler phase.
@@ -52,7 +56,7 @@ internal sealed class CallOverloadResolutionPass
             switch (decl)
             {
                 case RoutineDeclaration r:
-                    WalkStatement(r.Body);
+                    WalkBody(r.Body);
                     break;
                 case EntityDeclaration e:
                     WalkMemberList(e.Members);
@@ -74,7 +78,7 @@ internal sealed class CallOverloadResolutionPass
     {
         if (_variantBodies == null) return;
         foreach (Statement body in _variantBodies.Values)
-            WalkStatement(body);
+            WalkBody(body);
     }
 
     /// <summary>
@@ -86,7 +90,7 @@ internal sealed class CallOverloadResolutionPass
     public void RunOnStatements(IEnumerable<Statement> statements)
     {
         foreach (Statement body in statements)
-            WalkStatement(body);
+            WalkBody(body);
     }
 
     /// <summary>
@@ -99,7 +103,7 @@ internal sealed class CallOverloadResolutionPass
     {
         if (_synthesizedBodies == null) return;
         foreach (Statement body in _synthesizedBodies.Values)
-            WalkStatement(body);
+            WalkBody(body);
     }
 
     /// <summary>
@@ -108,14 +112,19 @@ internal sealed class CallOverloadResolutionPass
     private void WalkMemberList(List<SyntaxTree.Declaration> members)
     {
         foreach (SyntaxTree.Declaration m in members)
-            if (m is RoutineDeclaration r) WalkStatement(r.Body);
+            if (m is RoutineDeclaration r) WalkBody(r.Body);
     }
 
     // -----------------------------------------------------------------------------
 
-    /// <summary>
-    /// Walk statement as part of this compiler phase.
-    /// </summary>
+    /// <summary>Walks one top-level routine body, resetting the per-body local-variable type scope first.</summary>
+    private void WalkBody(Statement? body)
+    {
+        if (body == null) return;
+        _localVarTypes.Clear();
+        WalkStatement(body);
+    }
+
     private void WalkStatement(Statement stmt)
     {
         switch (stmt)
@@ -152,6 +161,10 @@ internal sealed class CallOverloadResolutionPass
                 break;
             case DeclarationStatement { Declaration: VariableDeclaration { Initializer: not null } vd }:
                 WalkExpression(vd.Initializer);
+                // Track the local's inferred type (from the walked initializer) so a later member call on a
+                // reference to it can recover a receiver type the monomorph clone left un-annotated.
+                if (vd.Initializer.ResolvedType is { } vt and not ErrorTypeInfo)
+                    _localVarTypes[key: vd.Name] = vt;
                 break;
             case ExpressionStatement es:
                 WalkExpression(es.Expression);
@@ -306,11 +319,34 @@ internal sealed class CallOverloadResolutionPass
     /// </summary>
     private void ClassifyCall(CallExpression call)
     {
+        // A monomorphized body inherits its template's iter/try_emit resolution: AnnotateIterAndTryEmit
+        // (each-loop desugar) annotated the call's ResolvedType with the GENERIC template's `iter` return — the
+        // abstract protocol `Emittable[T]` (owner typed as `Iterable[T]`). After the routine is monomorphized
+        // (param `Iterable[S64]` → a concrete implementer `Range[S64]`), GenericAstRewriter re-homes the
+        // receiver + ResolvedRoutine to the concrete type but leaves ResolvedType as the stale abstract
+        // `Emittable[S64]`. The each-loop iterator var infers its type from that ResolvedType → the protocol
+        // leaks into codegen (GetLlvmType hard-errors). Detect it — ResolvedType is a bare protocol while the
+        // receiver is now a concrete (non-protocol) type — and force a full re-resolution of `iter` on the
+        // concrete receiver (its own returns the concrete `RangeEmittable[S64]`), refreshing ResolvedType.
+        bool staleProtocolReturn =
+            call.ResolvedType is ProtocolTypeInfo
+            && call.Callee is MemberExpression
+            {
+                Object.ResolvedType: { } recvT and not ProtocolTypeInfo and not GenericParameterTypeInfo
+                    and not ErrorTypeInfo
+            };
         // Skip only when FULLY classified — both the lowering kind AND the target routine are known. A body
         // may arrive with LoweringKind set (by GenericAstRewriter) yet ResolvedRoutine still null (a cloned
         // derive's `me.assign()`); the demand collector relies on this pass as the sole member-call resolver
         // (codegen no longer resolves call targets at emission), so it must still resolve those.
-        if (call.LoweringKind != CallLoweringKind.Unknown && call.ResolvedRoutine != null) return;
+        if (call.LoweringKind != CallLoweringKind.Unknown && call.ResolvedRoutine != null
+            && !staleProtocolReturn)
+            return;
+
+        // A stale abstract-protocol ResolvedType (above) must fall through to the FULL member-call resolver,
+        // not the fast path below (which keeps the stale ResolvedType). Drop the routine so ClassifyMemberCall
+        // re-binds `iter` on the concrete receiver and refreshes ResolvedType to the concrete iterator.
+        if (staleProtocolReturn) call.ResolvedRoutine = null;
 
         // Fast path: routine already resolved by DerivedOperatorPass or SA.
         // Wired routines like ComparisonSign.eq may not be findable via LookupMemberRoutineOverload
@@ -367,6 +403,13 @@ internal sealed class CallOverloadResolutionPass
         TypeInfo? receiverType = member.Object.ResolvedType is { } rt and not ErrorTypeInfo
             ? rt
             : ComputeDeferredType(expr: member.Object);
+        // A monomorphized body's local-variable REFERENCE can arrive with a null/deferred ResolvedType (the
+        // clone doesn't re-annotate every reference), so a member call on it (`n == 0` → `n.eq(...)` where
+        // `var n = me.count()`) can't find its receiver type and reaches codegen unresolved. Recover it from
+        // the var's DECLARATION type, tracked as this walk visits declarations in body order.
+        if (receiverType is null or ErrorTypeInfo && member.Object is IdentifierExpression idRecv
+            && _localVarTypes.TryGetValue(key: idRecv.Name, value: out TypeInfo? declaredT))
+            receiverType = declaredT;
         if (receiverType == null) return;
 
         // Const-generic value types (e.g. ConstGenericValueTypeInfo("63") = N=63 in Array[T, 63])
@@ -412,6 +455,13 @@ internal sealed class CallOverloadResolutionPass
 
         call.ResolvedRoutine = memberRoutine;
         call.LoweringKind = CallClassifier.ClassifyMemberRoutineCall(memberRoutine: memberRoutine);
+        // Refresh a call whose ResolvedType is still an abstract protocol (a stale iter/try_emit resolution
+        // carried from the generic template — e.g. `Emittable[S64]`) to the freshly-resolved concrete routine's
+        // return type (`RangeEmittable[S64]`). Otherwise codegen infers the each-loop iterator var's type from
+        // the abstract protocol and the leak reaches GetLlvmType. Narrow: only when currently protocol-typed.
+        if (call.ResolvedType is ProtocolTypeInfo && memberRoutine.ReturnType is { } concreteRet
+            && concreteRet is not ProtocolTypeInfo)
+            call.ResolvedType = concreteRet;
     }
 
     /// <summary>

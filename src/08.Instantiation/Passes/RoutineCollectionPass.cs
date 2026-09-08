@@ -130,8 +130,14 @@ internal sealed class RoutineCollectionPass(InstantiationContext ctx)
         // them here so codegen — the dumb translator — receives fully-annotated bodies.
         var classCtx = new Postprocessing.PostprocessingContext(registry: ctx.Registry,
             variantBodies: ctx.VariantBodies, target: ctx.Target, buildMode: ctx.BuildMode);
-        new Postprocessing.Passes.CallOverloadResolutionPass(ctx: classCtx).RunOnStatements(
+        // Resolve BOTH the monomorphized bodies AND the variant bodies (failable originals + try_/check_/
+        // lookup_ variants). A monomorphized variant like `List[S64].try_pick` lives in VariantBodies; its
+        // member calls (`n == 0` → `n.eq(...)`) are lowered with LoweringKind set but ResolvedRoutine null and
+        // reach codegen unresolved unless classified here. Idempotent — fully-classified calls are skipped.
+        var resolver = new Postprocessing.Passes.CallOverloadResolutionPass(ctx: classCtx);
+        resolver.RunOnStatements(
             statements: ctx.InstantiatedGenericBodies.Values.Select(selector: b => b.Ast.Body));
+        resolver.RunOnVariantBodies();
     }
 
     /// <summary>
